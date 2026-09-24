@@ -62,7 +62,11 @@ bool isCoveredDay({
   // Monday and Thursday does not have its old blank Tuesdays excused.
   final weekdays = habit.cadenceOn(d).scheduledWeekdays;
   if (weekdays.isNotEmpty) {
-    return !weekdays.contains(d.weekday);
+    if (!weekdays.contains(d.weekday)) return true;
+    // One of its own days, stood in for by a session on another day of the
+    // same week (see moved_day_plan.dart): covered from the moment that
+    // session lands, today included, exactly like a quota's `earned` day.
+    return demand == DayDemand.earned;
   }
   if (demand == null) return false;
   if (demand == DayDemand.earned) return true;

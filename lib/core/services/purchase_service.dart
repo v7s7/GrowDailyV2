@@ -5,6 +5,21 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 
+/// Every product that unlocks Premium for life: the regular Lifetime and
+/// `growdaily_lifetime_offer`, the same unlock at the welcome and sale
+/// price (see lib/features/premium/offers/paywall_offer.dart). A buyer of
+/// either owns the same thing, so "is this a lifetime owner" accepts both.
+const Set<String> kLifetimeProductIds = {
+  'growdaily_lifetime',
+  'growdaily_lifetime_offer',
+};
+
+/// Whether [productId] is a lifetime product. RevenueCat can append a Play
+/// purchase option to an id (`growdaily_lifetime_offer:lifetime`), so only
+/// the part before the colon is compared.
+bool isLifetimeProductId(String productId) =>
+    kLifetimeProductIds.contains(productId.split(':').first);
+
 /// Outcome of a purchase or restore attempt - a plain result type rather
 /// than throwing, so callers (PremiumScreen) can show the right UI for
 /// each case (error banner vs. silent no-op on cancel) without a try/catch
@@ -271,10 +286,35 @@ class PurchaseService {
   /// swap the "Manage subscription" Customer Center button, a surface
   /// full of renewal language, for a plain "yours for life" line: a
   /// non-consumable cannot lapse and has nothing to manage.
+  ///
+  /// Both lifetime products count (see kLifetimeProductIds): someone who
+  /// bought at the welcome or sale price, or through a creator's Apple
+  /// offer code, owns exactly the same thing.
   bool isLifetimeEntitled(CustomerInfo info) {
     final e = info.entitlements.all[entitlementId];
     if (e == null || !e.isActive) return false;
-    return e.productIdentifier == 'growdaily_lifetime';
+    return isLifetimeProductId(e.productIdentifier);
+  }
+
+  /// Opens Apple's own sheet for redeeming an offer code, the way a
+  /// creator's code is used from inside the app (the creator's link opens
+  /// the same thing in the App Store). Apple takes the code and the payment
+  /// itself; a redeemed purchase then arrives through the SDK's normal
+  /// CustomerInfo updates like any other. iOS only: Google Play codes
+  /// cannot carry a discount, so Android has no such button. False when
+  /// the SDK is not set up or the sheet could not be shown.
+  Future<bool> presentCodeRedemptionSheet() async {
+    if (!_configured || kIsWeb) return false;
+    if (defaultTargetPlatform != TargetPlatform.iOS) return false;
+    try {
+      await Purchases.presentCodeRedemptionSheet();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PurchaseService.presentCodeRedemptionSheet failed: $e');
+      }
+      return false;
+    }
   }
 
   /// Latest known entitlement snapshot. Safe to call often - RevenueCat

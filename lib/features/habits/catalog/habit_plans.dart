@@ -805,6 +805,11 @@ class ReminderTimeNotifier extends StateNotifier<TimeOfDay?> {
   // already sitting in this device's own Hive storage.
   late final Future<void> _loadFuture;
 
+  /// Completes once this device's stored time has been read. The daily
+  /// reminder question (DailyReminderPromptAnnouncer) waits for it, so a
+  /// time that simply had not loaded yet is never taken for no time at all.
+  Future<void> get loaded => _loadFuture;
+
   Future<void> _load() async {
     final box = await LocalStoreService.settingsBox();
     final raw = box.get(_kReminderKey) as String?;

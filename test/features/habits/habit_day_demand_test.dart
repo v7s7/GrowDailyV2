@@ -13,6 +13,8 @@
 // fell short still names the days it fell short on).
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/features/grid/models/covered_day.dart';
+import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_day_demand.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
@@ -165,6 +167,173 @@ void main() {
             day.weekday,
       ];
       expect(owed, [DateTime.saturday, DateTime.tuesday]);
+    });
+  });
+
+  group("Aziz's shampoo: a session on a day off the plan", () {
+    // «شامبو ضد القشرة», as stored on his phone: Monday, Thursday and
+    // Saturday, created Monday 21 September 2026. That week runs Saturday
+    // the 19th to Friday the 25th. He showered on Monday and on Wednesday.
+    final shampoo = makeHabit(
+      type: HabitFrequencyType.weekly,
+      target: 3,
+      weekdays: const [DateTime.monday, DateTime.thursday, DateTime.saturday],
+      created: DateTime(2026, 9, 21),
+      id: 'shampoo',
+    );
+    final sat = DateTime(2026, 9, 19),
+        mon = DateTime(2026, 9, 21),
+        tue = DateTime(2026, 9, 22),
+        wed = DateTime(2026, 9, 23),
+        thu = DateTime(2026, 9, 24);
+    final shampooWeek = [
+      for (var i = 0; i < 7; i++) DateTime(2026, 9, 19 + i),
+    ];
+    // Thursday afternoon, the moment he asked.
+    final thursdayAfternoon = DateTime(2026, 9, 24, 15);
+    bool same(DateTime a, DateTime b) =>
+        a.year == b.year && a.month == b.month && a.day == b.day;
+    GreenOnDay greenOnDays(Set<DateTime> on) =>
+        (id, day) => on.any((d) => same(d, day));
+    MarkOnDay marks(Map<DateTime, SquareState> on) => (id, day) {
+          for (final e in on.entries) {
+            if (same(e.key, day)) return e.value;
+          }
+          return SquareState.none;
+        };
+
+    test('Wednesday counts, and Thursday owes nothing any more', () {
+      final isGreen = greenOnDays({mon, wed});
+      expect(habitOwesDay(habit: shampoo, day: wed, isGreen: isGreen), isTrue,
+          reason: 'the session counts on the day it happened');
+      expect(habitOwesDay(habit: shampoo, day: thu, isGreen: isGreen), isFalse,
+          reason: 'Wednesday stood in for Thursday');
+      expect(habitOwesDay(habit: shampoo, day: mon, isGreen: isGreen), isTrue);
+      expect(habitOwesDay(habit: shampoo, day: tue, isGreen: isGreen), isFalse);
+      expect(habitOwesDay(habit: shampoo, day: sat, isGreen: isGreen), isFalse,
+          reason: 'the Saturday before it existed');
+    });
+
+    test('without the Wednesday shower, Thursday is owed as before', () {
+      final isGreen = greenOnDays({mon});
+      expect(habitOwesDay(habit: shampoo, day: thu, isGreen: isGreen), isTrue);
+      expect(habitOwesDay(habit: shampoo, day: wed, isGreen: isGreen), isFalse);
+    });
+
+    test('the Grid row paints Thursday covered, Tuesday plain', () {
+      final green = {mon, wed};
+      final row = quotaDemandForRow(
+        habit: shampoo,
+        days: shampooWeek,
+        isGreenAt: (i) => green.any((d) => same(d, shampooWeek[i])),
+        isUnmarkedAt: (i) => !green.any((d) => same(d, shampooWeek[i])),
+        now: thursdayAfternoon,
+      )!;
+      expect(row[0], isNull, reason: 'before it existed');
+      expect(row[2], DayDemand.done);
+      expect(row[4], DayDemand.done);
+      expect(row[5], DayDemand.earned);
+      expect(
+        isCoveredDay(
+          habit: shampoo,
+          day: thu,
+          today: thursdayAfternoon,
+          square: SquareState.none,
+          demand: row[5],
+        ),
+        isTrue,
+      );
+      expect(
+        showsTodayRing(isToday: true, isScheduled: true, isCovered: true),
+        isFalse,
+        reason: 'Thursday stops asking the moment Wednesday lands',
+      );
+    });
+
+    test('a Monday marked فشل keeps its mark; the shower covers Thursday', () {
+      final isGreen = greenOnDays({wed});
+      final markOn = marks({mon: SquareState.failed, wed: SquareState.complete});
+      expect(
+        habitOwesDay(habit: shampoo, day: mon, isGreen: isGreen, markOn: markOn),
+        isTrue,
+        reason: 'their own verdict on Monday stands',
+      );
+      expect(
+        habitOwesDay(habit: shampoo, day: thu, isGreen: isGreen, markOn: markOn),
+        isFalse,
+      );
+    });
+
+    test('a blank Monday is made up before Thursday', () {
+      // Nothing marked on Monday at all: the Wednesday shower makes up the
+      // real miss, and Thursday, still ahead, is expected in person.
+      final isGreen = greenOnDays({wed});
+      final markOn = marks({wed: SquareState.complete});
+      expect(
+        habitOwesDay(habit: shampoo, day: mon, isGreen: isGreen, markOn: markOn),
+        isFalse,
+      );
+      expect(
+        habitOwesDay(habit: shampoo, day: thu, isGreen: isGreen, markOn: markOn),
+        isTrue,
+      );
+    });
+
+    test('a square on a day before it existed is not a session', () {
+      // Saturday the 19th, two days before the habit was made: nothing
+      // there can stand in for Thursday.
+      final isGreen = greenOnDays({mon, sat});
+      expect(habitOwesDay(habit: shampoo, day: thu, isGreen: isGreen), isTrue);
+    });
+
+    test('a daily row never reads a square for this', () {
+      // The progress map asks this of every habit on every day it draws.
+      final daily =
+          makeHabit(type: HabitFrequencyType.daily, target: 1, id: 'daily');
+      var reads = 0;
+      final row = movedDemandForRow(
+        habit: daily,
+        days: shampooWeek,
+        isGreenAt: (_) {
+          reads++;
+          return true;
+        },
+      );
+      expect((row, reads), (null, 0));
+    });
+
+    test('its own streak does not count Thursday as a gap', () {
+      final isGreen = greenOnDays({mon, wed});
+      final runsOn = runsOnExcusing(shampoo, isGreen);
+      expect(runsOn(thu), isFalse);
+      expect(runsOn(mon), isTrue);
+      expect(runsOnExcusing(shampoo, null)(thu), isTrue,
+          reason: 'an unreadable week excuses nothing');
+    });
+
+    test('Wednesday\'s board carries the shower once it is done', () {
+      expect(
+        boardHabitsOn(habits: [shampoo], day: wed, isGreen: greenOnDays({mon})),
+        isEmpty,
+        reason: 'not one of its days, and nothing done on it',
+      );
+      expect(
+        boardHabitsOn(
+          habits: [shampoo],
+          day: wed,
+          isGreen: greenOnDays({mon, wed}),
+        ),
+        hasLength(1),
+      );
+      expect(
+        boardHabitsOn(
+          habits: [shampoo],
+          day: thu,
+          isGreen: greenOnDays({mon, wed}),
+        ),
+        isEmpty,
+        reason: 'covered: Thursday no longer asks for it',
+      );
     });
   });
 

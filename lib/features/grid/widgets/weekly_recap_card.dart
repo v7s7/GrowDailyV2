@@ -11,12 +11,19 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../features/premium/screens/premium_screen.dart';
 import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/providers/weekly_recap_collapsed_provider.dart';
+import '../../../core/providers/weekly_note_offer_provider.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../models/covered_day.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
+import '../../habits/models/habit_day_demand.dart'
+    show DayDemand, movedDemandForRow;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../settings/models/notification_settings.dart';
+import '../../settings/notifiers/notification_settings_notifier.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 import '../models/square_state.dart';
 import '../notifiers/weekly_grid_notifier.dart';
 
@@ -142,8 +149,19 @@ IslamicHabitTemplate? mostMissedHabitThisWeek({
   var worst = 1; // require >= 2, so start the bar above 1
   for (final h in habits) {
     var misses = 0;
-    for (final day in days) {
+    // A day stood in for by a session on another day of the week owes
+    // nothing (see moved_day_plan.dart), so it cannot be a miss.
+    final moved = movedDemandForRow(
+      habit: h,
+      days: days,
+      isGreenAt: (i) => squareFor(h.id, days[i]).isGreen,
+      isUnmarkedAt: (i) => squareFor(h.id, days[i]) == SquareState.none,
+      now: now,
+    );
+    for (var i = 0; i < days.length; i++) {
+      final day = days[i];
       if (!h.isScheduledFor(day)) continue;
+      if (moved?[i] == DayDemand.earned) continue;
       if (day.startOfDay.isAfter(today)) continue;
       final sq = squareFor(h.id, day);
       if (sq.isGreen || sq == SquareState.skipped) continue;
@@ -198,10 +216,23 @@ enum RecapDot {
   var done = 0;
   var scheduled = 0;
   final dots = <RecapDot>[];
-  for (final day in days) {
+  // A specific-days week holding a session off its plan: the session counts
+  // on its own day, and the planned day it stands in for is covered (see
+  // moved_day_plan.dart). Null for every other week, which reads as before.
+  final moved = movedDemandForRow(
+    habit: habit,
+    days: days,
+    isGreenAt: (i) => squareOn(days[i]).isGreen,
+    isUnmarkedAt: (i) => squareOn(days[i]) == SquareState.none,
+    now: now,
+  );
+  for (var i = 0; i < days.length; i++) {
+    final day = days[i];
     final sq = squareOn(day);
     final isFuture = day.startOfDay.isAfter(today);
-    final isScheduled = habit.isScheduledFor(day);
+    final demand = moved?[i];
+    final isScheduled =
+        demand == null ? habit.isScheduledFor(day) : !demand.isRest;
     final settled = day.isSettledAt(now, answered: sq.answersDay);
     if (isScheduled && !isFuture && settled) {
       scheduled++;
@@ -211,7 +242,13 @@ enum RecapDot {
     // dim one: the same covered state the Grid's squares paint, so the
     // recap and the board agree about which days were owed.
     final covered = !isFuture &&
-        isCoveredDay(habit: habit, day: day, today: today, square: sq);
+        isCoveredDay(
+          habit: habit,
+          day: day,
+          today: today,
+          square: sq,
+          demand: demand,
+        );
     dots.add(
       covered
           ? RecapDot.covered
@@ -442,7 +479,15 @@ class WeeklyRecapCard extends ConsumerWidget {
             ? GameColors.warning
             : gp.textTert;
 
-    return Padding(
+    // The Saturday note goes only to someone who chose it; this is where the
+    // app asks (see weekly_note_offer_provider.dart). Not while it is on,
+    // once answered, or with every notification switched off.
+    final offerNote = weeklyNoteOfferShown(
+      settings: ref.watch(notificationSettingsProvider),
+      answered: ref.watch(weeklyNoteOfferAnsweredProvider),
+    );
+
+    final card = Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -538,6 +583,111 @@ class WeeklyRecapCard extends ConsumerWidget {
                       now: now,
                       locale: locale,
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!offerNote) return card;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [card, const WeeklyNoteOffer()],
+    );
+  }
+}
+
+/// Whether the recap card carries [WeeklyNoteOffer] under it: only while the
+/// Saturday note is off and the question unanswered, and never with every
+/// notification switched off, where a yes could deliver nothing.
+bool weeklyNoteOfferShown({
+  required NotificationSettings settings,
+  required bool answered,
+}) =>
+    settings.masterEnabled && !settings.weeklyNoteOn && !answered;
+
+/// «نذكّرك بحصاد أسبوعك كل سبت الصبح؟» under the recap card: the one place
+/// the app asks about the Saturday note (see weekly_note_offer_provider.dart).
+///
+/// «إيه» turns the note on and asks the phone for notification permission
+/// (it only prompts the first time); refused, it says notifications are off
+/// in the phone's settings, the words the Settings screen's own banner uses.
+/// «لا، شكرًا» leaves it off. Either answer, and the line is gone for good.
+class WeeklyNoteOffer extends ConsumerWidget {
+  const WeeklyNoteOffer({super.key});
+
+  Future<void> _yes(BuildContext context, WidgetRef ref) async {
+    HapticFeedback.selectionClick();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final s = S.of(context);
+    await markWeeklyNoteOfferAnswered(ref);
+    await ref
+        .read(notificationSettingsProvider.notifier)
+        .update((c) => c.copyWith(weeklyNoteOn: true));
+    final granted = await NotificationService.instance.requestPermissions();
+    if (!granted) {
+      messenger?.showOne(SnackBar(content: Text(s.notifSystemPermissionOff)));
+    }
+  }
+
+  Future<void> _no(WidgetRef ref) async {
+    HapticFeedback.selectionClick();
+    await markWeeklyNoteOfferAnswered(ref);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final buttonStyle = TextButton.styleFrom(
+      minimumSize: const Size(44, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Container(
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 4, 6),
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: gp.border),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.notifications_none_rounded,
+                size: 18, color: gp.goldInk),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                s.weeklyNoteOfferAsk,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  height: 1.4,
+                  color: gp.textSec,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _yes(context, ref),
+              style: buttonStyle.copyWith(
+                foregroundColor: WidgetStatePropertyAll(gp.goldInk),
+              ),
+              child: Text(
+                s.weeklyNoteOfferYes,
+                style: const TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+            ),
+            TextButton(
+              onPressed: () => _no(ref),
+              style: buttonStyle.copyWith(
+                foregroundColor: WidgetStatePropertyAll(gp.textTert),
+              ),
+              child: Text(
+                s.weeklyNoteOfferNo,
+                style: const TextStyle(fontSize: 14),
+              ),
             ),
           ],
         ),

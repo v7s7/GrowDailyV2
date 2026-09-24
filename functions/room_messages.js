@@ -1,7 +1,9 @@
 /**
- * The words of the room's last-one push, kept free of Firestore so they can
- * be unit-tested: requiring index.js calls admin.initializeApp(), which
- * needs credentials.
+ * The words of every room push, kept free of Firestore so they can be
+ * unit-tested: requiring index.js calls admin.initializeApp(), which needs
+ * credentials. roomPushMessage is the one entry point index.js uses.
+ *
+ * The last-one push:
  *
  * Aziz's pick of 2026-09-11, in the voice of the one reminder he loved: the
  * room's own name as the title, a true fact about the room, and one short
@@ -11,7 +13,7 @@
  * one person still to go.
  */
 
-const {isStandingDownOn} = require("./room_events");
+const {finishedOn, isStandingDownOn} = require("./room_events");
 const {countingHabitIds} = require("./room_health");
 
 /**
@@ -64,11 +66,11 @@ function didSomethingOn(p, dayKey) {
  * writes as allDoneToday (rooms_notifier.dart, todayScheduled == 0).
  * @param {object} p A participant doc's data.
  * @param {string} dayKey "YYYY-MM-DD".
+ * @param {object} [room] The room doc's data, see finishedOn.
  * @return {boolean}
  */
-function owesNothingOn(p, dayKey) {
-  return p.allDoneToday === true && p.allDoneDate === dayKey &&
-    !didSomethingOn(p, dayKey);
+function owesNothingOn(p, dayKey, room) {
+  return finishedOn(p, dayKey, room) && !didSomethingOn(p, dayKey);
 }
 
 /**
@@ -96,17 +98,18 @@ function owesNothingOn(p, dayKey) {
  * @param {Array<{data: function(): object}>} others Every member in the room
  * except the finisher, departed members already removed.
  * @param {string} todayKey The finisher's app day, "YYYY-MM-DD".
+ * @param {object} [room] The room doc's data, see finishedOn.
  * @return {{members: number, finished: number, excluded: number}}
  */
-function lastOneCounts(others, todayKey) {
+function lastOneCounts(others, todayKey, room) {
   const counted = others.filter((d) => {
     const p = d.data() || {};
-    return !isStandingDownOn(p, todayKey) && !owesNothingOn(p, todayKey);
+    return !isStandingDownOn(p, todayKey) &&
+      !owesNothingOn(p, todayKey, room);
   });
   const finishedOthers = counted.filter((d) => {
     const p = d.data() || {};
-    return p.allDoneToday === true && p.allDoneDate === todayKey &&
-      didSomethingOn(p, todayKey);
+    return finishedOn(p, todayKey, room) && didSomethingOn(p, todayKey);
   }).length;
   return {
     members: counted.length + 1,
@@ -118,7 +121,9 @@ function lastOneCounts(others, todayKey) {
 /**
  * How many habits the reader counts in this room today: today's scheduled
  * count when the reader's phone has already written it, else the habits
- * that count for them (countingHabitIds), never linkedHabitIds.length.
+ * that count for them TODAY (countingHabitIds with the day, so a habit the
+ * leader removed stops counting after its removal day), never
+ * linkedHabitIds.length.
  * @param {object} room The room doc's data.
  * @param {object} part The reader's participant doc's data.
  * @param {string} todayKey "YYYY-MM-DD".
@@ -127,7 +132,7 @@ function lastOneCounts(others, todayKey) {
 function habitCountFor(room, part, todayKey) {
   const scheduled = (part.dailyScheduledCount || {})[todayKey];
   if (typeof scheduled === "number" && scheduled > 0) return scheduled;
-  return countingHabitIds(room || {}, part).length;
+  return countingHabitIds(room || {}, part, todayKey).length;
 }
 
 /**
@@ -235,12 +240,147 @@ function lastOneMessageFor(
   });
 }
 
+/**
+ * Arabic verbs agree with their subject, so the finisher's gender changes
+ * the sentence: «أنهى عاداته» for a man, «أنهت عاداتها» for a woman.
+ *
+ * The app mirrors `gender` onto the participant doc (RoomsController.
+ * _profileFields) precisely so the server can pick, since it has no access
+ * to the Dart character catalog. Anything other than "female", including a
+ * member whose character never loaded, and every doc written before that
+ * field existed, falls to the masculine form, which is Arabic's unmarked
+ * default and is what shipped previously.
+ *
+ * English needs none of this, which is exactly why the bug survived: the
+ * table looked symmetric.
+ * @param {string|undefined} gender The finisher's stored gender.
+ * @return {boolean} Whether to use feminine agreement.
+ */
+function isFem(gender) {
+  return gender === "female";
+}
+
+/**
+ * The room's name for a title, or the reader's own word for "your room"
+ * when it has none, so an Arabic reader never gets an English title.
+ * @param {object} room The room doc's data.
+ * @param {string} locale "ar" or "en".
+ * @return {string}
+ */
+function roomTitleName(room, locale) {
+  const name = (room || {}).name;
+  if (typeof name === "string" && name.trim() !== "") return name;
+  return locale === "ar" ? "غرفتك" : "your room";
+}
+
+/**
+ * Someone opened the day (index.js's event A). `gender` is the FINISHER's:
+ * the sentence is about them. Only ever sent on the day it is about, see
+ * push_policy.js roomPushPlan.
+ */
+const FIRST_TODAY_MESSAGES = {
+  en: (finisherName, roomName) => ({
+    title: `${finisherName} is first to finish in "${roomName}"`,
+    body: "First one done today. Your turn.",
+  }),
+  ar: (finisherName, roomName, gender) => ({
+    title: isFem(gender) ?
+      `${finisherName} أول من أنهت في "${roomName}"` :
+      `${finisherName} أول من أنهى في "${roomName}"`,
+    body: isFem(gender) ?
+      "أول وحدة تخلّص اليوم. دورك." :
+      "أول واحد يخلّص اليوم. دورك.",
+  }),
+};
+
+/**
+ * Every member finished (event C). Nobody in particular is the subject, so
+ * no gender is needed. Only ever sent on the day it celebrates: the next
+ * morning it would tell the reader nothing (push_policy.js rule 3).
+ */
+const ROOM_PERFECT_MESSAGES = {
+  en: (roomName) => ({
+    title: `Perfect day in "${roomName}" 🎉`,
+    body: "Everyone finished today.",
+  }),
+  ar: (roomName) => ({
+    title: `يوم كامل في "${roomName}" 🎉`,
+    body: "الكل خلّص عاداته اليوم.",
+  }),
+};
+
+/**
+ * "A habit was added to the plan", sent to every member of a shared room
+ * except the leader who added it.
+ *
+ * The in-app banner (roomNewHabitBannerBody) only reaches a member who opens
+ * the app, and a slot the leader adds starts counting against an unlinked
+ * member after the grace (RoomModel.kNewSlotGraceDays), so the people who
+ * most need to hear are exactly the ones not looking. Warm and plain: what
+ * was added, to which room, and that linking it means it counts for them
+ * from today. Impersonal on purpose, no «أضاف/أضافت» about the leader, so
+ * nothing has to guess a gender.
+ *
+ * DRAFT WORDING, Aziz picks the final Arabic.
+ */
+const HABIT_ADDED_MESSAGES = {
+  en: (habitName, roomName) => ({
+    title: `New habit in "${roomName}"`,
+    body: `"${habitName}" was added to the plan and counts for everyone ` +
+      "from today. Link it on your side \u{1F331}",
+  }),
+  ar: (habitName, roomName) => ({
+    title: `عادة جديدة في "${roomName}"`,
+    body: `انضافت «${habitName}» للخطة وصارت تنحسب للكل من اليوم. ` +
+      "اربطها من عندك \u{1F331}",
+  }),
+};
+
+/**
+ * The words of one room push for one reader. The single place index.js asks,
+ * for a push sent now and for a held one at the moment it is delivered, so
+ * the two can never word the same event differently.
+ * @param {object} args
+ * @param {string} args.event "firstToday" | "lastOne" | "perfect" |
+ * "habitAdded".
+ * @param {string} args.locale "ar" or "en" (anything else reads as "en").
+ * @param {object} args.room The room doc's data.
+ * @param {object} [args.finisher] The finisher's participant doc's data.
+ * @param {object} [args.reader] The reader's participant doc's data.
+ * @param {{members: number, finished: number, excluded: number}} [args.counts]
+ * lastOne only, from lastOneCounts.
+ * @param {string} [args.todayKey] The day the push is about.
+ * @param {string} [args.habitName] habitAdded only.
+ * @return {{title: string, body: string}}
+ */
+function roomPushMessage(
+    {event, locale, room, finisher, reader, counts, todayKey, habitName}) {
+  const lang = locale === "ar" ? "ar" : "en";
+  const roomName = roomTitleName(room, lang);
+  switch (event) {
+    case "lastOne":
+      return lastOneMessageFor(
+          {locale: lang, room, finisher, counts, reader, todayKey});
+    case "perfect":
+      return ROOM_PERFECT_MESSAGES[lang](roomName);
+    case "habitAdded":
+      return HABIT_ADDED_MESSAGES[lang](habitName, roomName);
+    default: {
+      const f = finisher || {};
+      return FIRST_TODAY_MESSAGES[lang](
+          f.displayName || "Someone", roomName, f.gender);
+    }
+  }
+}
+
 module.exports = {
   arabicDigits,
   habitCountFor,
   habitsLeftFor,
+  isFem,
   lastOneCounts,
   lastOneMessage,
   lastOneMessageFor,
+  roomPushMessage,
   usableName,
 };

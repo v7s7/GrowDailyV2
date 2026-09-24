@@ -21,8 +21,8 @@
 // runs to Friday: a flexible quota habit owes nothing yet only if the screen
 // hands in the window's end, and the week tab's longest run and its change
 // against last week hold a still-open Monday back only if the screen hands
-// in its clock. The last group reads the weekday rhythm card, which needs
-// three weeks of history, on Monday 21 September.
+// in its clock. The last group reads the month calendar's weakest day,
+// which must never be a day still open, on Monday 21 September.
 //
 // The grey cells are read too. Each grid cell is drawn with its own clock
 // handed down from the screen, and a cell that silently fell back to the
@@ -47,6 +47,8 @@ import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
+import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart'
+    show HeatmapMonthSection;
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
@@ -531,9 +533,11 @@ void main() {
     });
   });
 
-  group('the weekday rhythm card, read on Monday 21 September', () {
+  group("the month's weakest day, read on Monday 21 September", () {
     // Two daily habits, both done on every day from the 1st to the 19th, and
-    // neither yet on Sunday the 20th or Monday the 21st.
+    // neither yet on Sunday the 20th or Monday the 21st. The weekday card
+    // this group used to read is gone (Aziz, 2026-09-22: a month is read in
+    // dates); the same open-day rule now guards the calendar's ring.
     final habits = [
       habit('r1', createdAt: august),
       habit('r2', createdAt: august),
@@ -542,8 +546,10 @@ void main() {
       for (final id in ['r1', 'r2'])
         id: {for (var d = 1; d <= 19; d++) sep(d): SquareState.complete},
     };
+    HeatmapMonthSection month(WidgetTester tester) =>
+        tester.widget<HeatmapMonthSection>(find.byType(HeatmapMonthSection));
 
-    testWidgets('at 05:19 every weekday that has closed is level: no card',
+    testWidgets('at 05:19 every day that has closed is full: no weak day',
         (tester) async {
       await mountAt(
         tester,
@@ -552,13 +558,13 @@ void main() {
         history: history,
         scope: ReportScope.month,
       );
-      expect(find.byType(WeekdayRhythmCard), findsNothing,
-          reason: 'the 20th and the 21st are still open. Averaged in, their '
-              'zeros made Sunday and Monday the weak days of a month with no '
-              'weak day in it');
+      expect(month(tester).weakestDays, isEmpty,
+          reason: 'the 20th and the 21st are still open. Counted, their '
+              'zeros would have named a weak day in a month with none in it');
+      expect(find.text('أضعف يوم'), findsNothing);
     });
 
-    testWidgets('at 10:00 the 20th has closed blank, and Sunday is weak',
+    testWidgets('at 10:00 the 20th has closed blank, and it is the weak day',
         (tester) async {
       await mountAt(
         tester,
@@ -567,14 +573,12 @@ void main() {
         history: history,
         scope: ReportScope.month,
       );
-      expect(find.byType(WeekdayRhythmCard), findsOneWidget);
-      expect(
-        tester
-            .widget<WeekdayRhythmCard>(find.byType(WeekdayRhythmCard))
-            .insight
-            .worstWeekday,
-        DateTime.sunday,
-      );
+      expect(month(tester).weakestDays, {20});
+      expect(month(tester).bestDays, {for (var d = 1; d <= 19; d++) d},
+          reason: 'nineteen days of 2 of 2 are equally full, so they share '
+              'the star');
+      expect(find.text('أضعف يوم'), findsOneWidget);
+      expect(find.text('0 من 2'), findsOneWidget);
     });
   });
 }

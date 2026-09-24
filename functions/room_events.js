@@ -8,16 +8,53 @@
  * is an event rather than a finisher.
  */
 
+const {countingHabitIds} = require("./room_health");
+
+/**
+ * Whether a member finished [dayKey].
+ *
+ * allDoneToday/allDoneDate only describe the LAST day the member's phone
+ * graded. That is today for most of the day, but not after midnight: a
+ * member who finished yesterday and whose phone has since synced today reads
+ * allDoneDate = today, allDoneToday = false, so a flag-only reading called
+ * them unfinished for yesterday. With finishes in the 00:00 to 10:00 window
+ * now announced for yesterday (rooms_notifier.dart finishDayKey), that made
+ * a room that finished yesterday look one member short: «يوم كامل» never
+ * went out and the member who had finished was the "last one left".
+ *
+ * So a member whose phone has moved PAST [dayKey] is read from that day's
+ * own stored numbers, the same rule the app writes allDoneToday with: done
+ * reaches what was owed, or nothing was owed. A member whose phone has not
+ * reached [dayKey] yet has not finished it, exactly as before. Without the
+ * room there is no way to know what was owed, so the flags alone decide.
+ * @param {object} p A participant doc's data.
+ * @param {string} dayKey "YYYY-MM-DD".
+ * @param {object} [room] The room doc's data.
+ * @return {boolean}
+ */
+function finishedOn(p, dayKey, room) {
+  if (p.allDoneDate === dayKey) return p.allDoneToday === true;
+  const movedOn = typeof p.allDoneDate === "string" && p.allDoneDate > dayKey;
+  if (!movedOn || !room) return false;
+  const stored = (p.dailyScheduledCount || {})[dayKey];
+  const owed = typeof stored === "number" ?
+    stored : countingHabitIds(room, p, dayKey).length;
+  const done = (p.dailyDoneCount || {})[dayKey];
+  return owed === 0 || (typeof done === "number" && done >= owed);
+}
+
 /**
  * @param {Array<{id: string, data: function(): object}>} others Every
  * participant doc EXCEPT the caller, whose own finish is what got us here.
  * @param {string} todayKey The finisher's app day, "YYYY-MM-DD".
  * @param {Array<{from: string, to: string}>} [pausedSpans] The room doc's
  * pausedSpans field, as stored. See isRoomPausedOn.
+ * @param {object} [room] The room doc's data, so a member whose phone has
+ * already moved past [todayKey] is read from that day's numbers (finishedOn).
  * @return {{event: string, recipients: Array}|null} The event and exactly
  * who should hear about it, or null when nobody should.
  */
-function roomEventFor(others, todayKey, pausedSpans) {
+function roomEventFor(others, todayKey, pausedSpans, room) {
   if (others.length === 0) return null;
   // A day inside the room's paused spans (RoomModel.pausedSpans: the dead
   // days between a room ending and its leader extending it) is a day the
@@ -36,10 +73,8 @@ function roomEventFor(others, todayKey, pausedSpans) {
   const present = others.filter(
       (d) => !isStandingDownOn(d.data() || {}, todayKey));
   const standingDown = others.length - present.length;
-  const unfinished = present.filter((d) => {
-    const p = d.data() || {};
-    return !(p.allDoneToday === true && p.allDoneDate === todayKey);
-  });
+  const unfinished = present.filter(
+      (d) => !finishedOn(d.data() || {}, todayKey, room));
   // Order matters where two events could apply at once. In a two-person
   // room the very first finish is ALSO the moment one person is left
   // standing, and "you're the last one" is the more useful of the two - so
@@ -118,4 +153,31 @@ function isStandingDownOn(p, dayKey) {
     days.includes(synced);
 }
 
-module.exports = {isRoomPausedOn, isStandingDownOn, roomEventFor};
+/**
+ * Whether shared slot [i] is still waiting for this member to answer it:
+ * still in the plan, and past the end of their linkedHabitIds (an answered
+ * slot, linked or declined, has an entry there). The port of
+ * RoomParticipant.pendingPlanSlotsIn in lib/features/rooms/models/
+ * room_model.dart, for one slot.
+ * @param {object} room The room doc's data.
+ * @param {object} p The member's participant doc's data.
+ * @param {number} i The slot's index in room.sharedHabits.
+ * @return {boolean}
+ */
+function slotPendingFor(room, p, i) {
+  if (room.habitMode !== "shared") return false;
+  const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
+  const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
+  if (!Number.isInteger(i) || i < linked.length || i >= shared.length) {
+    return false;
+  }
+  return !(shared[i] || {}).removedAt;
+}
+
+module.exports = {
+  finishedOn,
+  isRoomPausedOn,
+  isStandingDownOn,
+  roomEventFor,
+  slotPendingFor,
+};

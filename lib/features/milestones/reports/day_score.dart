@@ -168,6 +168,7 @@ DayScore dayScoreFor({
 }) {
   final key = day.toDateKey();
   final isGreen = greenFromMirror(history);
+  final markOn = markFromMirror(history);
   final everyId = <String>{};
   final dueIds = <String>{};
   for (final habit in habits) {
@@ -183,7 +184,12 @@ DayScore dayScoreFor({
     // as a week; this counts the same shortfall day by day, and
     // weeklyQuotaDemand guarantees the two add up to the same number of
     // missed sessions.
-    if (habitOwesDay(habit: habit, day: day, isGreen: isGreen)) {
+    if (habitOwesDay(
+      habit: habit,
+      day: day,
+      isGreen: isGreen,
+      markOn: markOn,
+    )) {
       dueIds.add(habit.id);
     }
   }
@@ -266,10 +272,18 @@ List<IslamicHabitTemplate> silentHabitsOn({
 }) {
   final key = day.toDateKey();
   final isGreen = greenFromMirror(history);
+  final markOn = markFromMirror(history);
   final out = <IslamicHabitTemplate>[];
   final seen = <String>{};
   for (final habit in habits) {
-    if (!habitOwesDay(habit: habit, day: day, isGreen: isGreen)) continue;
+    if (!habitOwesDay(
+      habit: habit,
+      day: day,
+      isGreen: isGreen,
+      markOn: markOn,
+    )) {
+      continue;
+    }
     if (!seen.add(habit.id)) continue;
     final mark = history[habit.id]?[key] ?? SquareState.none;
     if (mark != SquareState.none) continue;

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 
 import '../extensions/datetime_ext.dart';
+import 'armed_task_record.dart';
 import 'local_store_service.dart';
 import 'notification_action_queue.dart';
 
@@ -106,6 +107,9 @@ class HomeWidgetService {
     required Map<String, int> dailyGreenCounts,
   }) async {
     if (!_supported) return;
+    // The day [todayHabits] was built for, read before the first await so it
+    // is the caller's day even if midnight passes while this writes.
+    final listDay = DateTime.now().effectiveDay.toDateKey();
     try {
       await HomeWidget.saveWidgetData<int>('streak', streak);
       await HomeWidget.saveWidgetData<int>('level', level);
@@ -137,6 +141,11 @@ class HomeWidgetService {
                 })
             .toList()),
       );
+      // Which day those checkmarks belong to (see [readTodayHabitsDay]).
+      // Written AFTER the list, so a reader between the two writes sees a
+      // new list under the old day, which it distrusts, and never an old
+      // list under the new day, which it would believe.
+      await HomeWidget.saveWidgetData<String>(_todayHabitsDayKey, listDay);
       await HomeWidget.saveWidgetData<String>(
         'heatmapJson',
         jsonEncode(recentHeatmap(dailyGreenCounts)),
@@ -262,6 +271,11 @@ class HomeWidgetService {
 
   /// Habit ids the widget's Mark Done button queued while the app wasn't
   /// open to actually process them — see the AppIntent in WIDGET_SETUP.md.
+  ///
+  /// A bare id carries no day, so a drain can only credit the day it runs
+  /// on. The widget queues the day beside the tap now
+  /// ([queueNotificationAction]'s queue, which the same button writes from
+  /// Swift), and this take is what drains the ids an earlier build left.
   /// The widget shows a tapped habit as done immediately (its AppIntent
   /// flips the cached `todayHabitsJson` entry itself, before this queue is
   /// ever read), but the real XP/streak/gold reward only posts once the app
@@ -290,6 +304,9 @@ class HomeWidgetService {
   static const _pendingActionsKey = 'pendingNotificationActions';
   static const _localeKey = 'localeIsAr';
   static const _todayHabitsKey = 'todayHabitsJson';
+  static const _todayHabitsDayKey = 'todayHabitsDay';
+  static const _armedRemindersKey = 'armedHabitRemindersJson';
+  static const _armedTaskRemindersKey = 'armedTaskRemindersJson';
 
   /// Whether the app runs in Arabic, for a process that has no locale
   /// provider to ask. main.dart writes it at boot and on every switch.
@@ -330,6 +347,47 @@ class HomeWidgetService {
       await HomeWidget.saveWidgetData<String>(_todayHabitsKey, json);
     } catch (e) {
       debugPrint('[HomeWidgetService] today-list write skipped: $e');
+    }
+  }
+
+  /// The effective day ('YYYY-MM-DD') the today-list's checkmarks belong
+  /// to, as [updateWidgetData] last wrote it; null from a build that did not
+  /// write one. The list itself carries no date, and when the app has not
+  /// been opened since yesterday it is still yesterday's list. The Done
+  /// paths outside the app rewrite the list but never this, since a tap
+  /// flips one row and does not make the rest of the list today's.
+  Future<String?> readTodayHabitsDay() async {
+    if (!_supported) return null;
+    try {
+      return await HomeWidget.getWidgetData<String>(_todayHabitsDayKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Every reminder the last reminder pass armed, per habit and day
+  /// (ArmedReminderRecord.encode), for the Done paths outside the app: the
+  /// widget's checkmark (MarkHabitDoneIntent) and a lock screen or Watch
+  /// tap (notification_action_background.dart), which take a finished
+  /// habit's reminders for that day down with it. Written by
+  /// NotificationService at the end of every pass.
+  Future<void> saveArmedHabitReminders(String json) async {
+    if (!_supported) return;
+    try {
+      await HomeWidget.saveWidgetData<String>(_armedRemindersKey, json);
+    } catch (e) {
+      debugPrint('[HomeWidgetService] armed-reminders write skipped: $e');
+    }
+  }
+
+  /// [saveArmedHabitReminders]'s last record, raw; null when no pass has
+  /// written one yet.
+  Future<String?> readArmedHabitReminders() async {
+    if (!_supported) return null;
+    try {
+      return await HomeWidget.getWidgetData<String>(_armedRemindersKey);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -471,6 +529,15 @@ class HomeWidgetService {
   /// order: the Lock Screen sorts by it on its own side
   /// (MatrixLockScreenOrder.swift), because which of these are today's
   /// changes at midnight, when the app is usually not running to say so.
+  ///
+  /// [hasReminder] and [alarm] are not drawn: they say which ids the app has
+  /// armed for this task, so the widget's checkmark can take them down with
+  /// it instead of letting a finished task go on ringing until the app is
+  /// next opened (see [ArmedTaskRecord], and MarkTaskDoneIntent's
+  /// standDownTaskReminders on the Swift side). They ride along with the
+  /// rows rather than being pushed from the reminder code because these
+  /// rows ARE the tasks a person can tick from outside the app: written
+  /// together, the two can never disagree about which tasks exist.
   Future<void> updateMatrixWidgetData(
     List<
             ({
@@ -480,6 +547,8 @@ class HomeWidgetService {
               bool isDone,
               bool isFav,
               bool isLate,
+              bool hasReminder,
+              bool alarm,
               DateTime? dueAt,
             })>
         tasks, {
@@ -502,6 +571,19 @@ class HomeWidgetService {
       await HomeWidget.saveWidgetData<String>(
         'matrixDoneTodayDate',
         LocalStoreService.dateKey(DateTime.now()),
+      );
+      // Before the rows, not after: a task reaches the widget's checkmark
+      // the moment its row does, and a tick with no ids recorded leaves its
+      // reminders to the app. The other order would leave that gap open for
+      // as long as the two writes are apart. A record entry for a task that
+      // has just left the rows is harmless the same way round: nothing can
+      // tick a row that is gone.
+      await HomeWidget.saveWidgetData<String>(
+        _armedTaskRemindersKey,
+        ArmedTaskRecord.encode([
+          for (final t in tasks)
+            if (t.hasReminder) (taskId: t.id, alarm: t.alarm),
+        ]),
       );
       await HomeWidget.saveWidgetData<String>(
         'matrixTasksJson',
@@ -545,6 +627,55 @@ class HomeWidgetService {
       debugPrint(
           '[HomeWidgetService] pending-task-completions read skipped: $e');
       return const [];
+    }
+  }
+
+  // ── Prayer countdown widget ────────────────────────────────────────────
+
+  /// The prayer-countdown widget's kind string — must exactly match
+  /// `struct GrowDailyPrayerWidget: Widget` in
+  /// ios/GrowDailyWidget/PrayerCountdownWidget.swift.
+  static const _iOSPrayerWidgetName = 'GrowDailyPrayerWidget';
+
+  /// Its Lock Screen sibling — must exactly match
+  /// `struct GrowDailyPrayerLockScreenWidget: Widget` in the same file.
+  /// Reads the same `prayerTimesJson` through the same provider, so it needs
+  /// its own explicit reload here, same reasoning as
+  /// [_iOSLockScreenWidgetName].
+  static const _iOSPrayerLockScreenWidgetName =
+      'GrowDailyPrayerLockScreenWidget';
+
+  /// Pushes the run of upcoming prayer instants the countdown widget reads,
+  /// and asks iOS to redraw it. See PrayerWidgetFeed (which computes them)
+  /// and PrayerCountdownWidget.swift (which picks the next one out of this
+  /// list and counts to it).
+  ///
+  /// Deliberately a RUN of days rather than just the next prayer: the
+  /// widget has to keep working while the app is closed, and WidgetKit
+  /// gives it no way to ask for more. A week written at once means the face
+  /// stays right through a weekend the app is never opened, and the widget
+  /// does the "which one is next" arithmetic itself against its own clock.
+  ///
+  /// An empty list is a real state, not a no-op: it clears the widget back
+  /// to its "set your location" face, which is what should happen when the
+  /// location is removed in Settings.
+  Future<void> updatePrayerWidgetData(
+    List<({String key, DateTime at})> prayers,
+  ) async {
+    if (!_supported) return;
+    try {
+      await HomeWidget.saveWidgetData<String>(
+        'prayerTimesJson',
+        jsonEncode([
+          for (final p in prayers)
+            {'k': p.key, 'ms': p.at.millisecondsSinceEpoch},
+        ]),
+      );
+      await HomeWidget.updateWidget(iOSName: _iOSPrayerWidgetName);
+      await HomeWidget.updateWidget(iOSName: _iOSPrayerLockScreenWidgetName);
+    } catch (e) {
+      // Same reasoning as updateWidgetData's catch.
+      debugPrint('[HomeWidgetService] prayer update skipped: $e');
     }
   }
 }

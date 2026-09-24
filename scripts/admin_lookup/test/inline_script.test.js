@@ -198,3 +198,22 @@ test('the live report sits in the frame, the saved one does not', () => {
   const saved = pageShell({ title: 't', nav: '', header: '', stats: '', body: '' });
   assert.ok(!saved.includes('class="side"'), 'a saved file would carry dead links');
 });
+
+// The Sale and Creators pages keep their behaviour in plain files (see
+// test/offers_pages.test.js for those); what they emit inline is the frame's
+// theme boot and their styles, checked here the same way as the pages above.
+test('the Sale and Creators pages emit parseable scripts and balanced CSS', () => {
+  const { renderSalePage } = require('../lib/sale_page');
+  const { renderCreatorsPage } = require('../lib/creators_page');
+  for (const [label, html] of [['sale', renderSalePage({ projectId: 'p' })], ['creators', renderCreatorsPage({ projectId: 'p' })]]) {
+    const scripts = scriptBodies(html);
+    assert.ok(scripts.length >= 1, `${label} page has no inline script`);
+    scripts.forEach((body, i) => assertParses(body, `${label} inline script #${i + 1}`));
+    const css = styleBodies(html).join('\n');
+    assert.ok(css.length > 500, `${label} style block looks truncated`);
+    assert.strictEqual((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length, `${label} CSS braces are unbalanced`);
+    for (const file of ['/static/shell.js', `/${label}/rules.js`, `/${label}/app.js`]) {
+      assert.ok(html.includes(`src="${file}"`), `${label} page does not load ${file}`);
+    }
+  }
+});

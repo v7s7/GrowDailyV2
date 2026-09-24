@@ -90,11 +90,6 @@ class _LoadFailedBannerState extends ConsumerState<_LoadFailedBanner> {
   }
 }
 
-
-/// The retention loop's most important message: from 6pm, if the user has a
-/// live streak and hasn't finished today's habits yet (streak means a full
-/// 100% day — see [DashboardState.streakEarnedToday]), warn them warmly.
-/// Disappears the moment today's streak point is earned.
 /// The second chance at the reconnect offer.
 ///
 /// A modal sheet is shown exactly once, straight after registration, and
@@ -207,6 +202,33 @@ class _GuestReconnectBannerState
   }
 }
 
+/// Whether the streak-at-risk banner has something true to say at [now].
+///
+/// It warns about one day, [DateTimeGameExt.streakNudgeDay]: today in the
+/// evening, yesterday after midnight. It stays quiet once that day's point is
+/// earned (the streak's marker has reached it, or today's own flag says so),
+/// when that day asked for no habit at all ([dayAsksForHabits]: a day off
+/// cannot cost a streak), and when there is no live streak to lose.
+///
+/// It used to ask [DashboardState.streakEarnedToday] at every hour. After
+/// midnight that is a day that has only just begun, so finishing yesterday
+/// in its grace window still read «على المحك» (Aziz, 2026-09-22 00:06).
+bool streakAtRiskBannerShows({
+  required DashboardState dash,
+  required DateTime now,
+  required bool Function(DateTime day) dayAsksForHabits,
+}) {
+  final day = now.streakNudgeDay;
+  if (day == null || dash.streak <= 0) return false;
+  final earned = dash.streakMarkerReached(day) ||
+      (dash.streakEarnedToday && day.isSameDayAs(now.effectiveDay));
+  return !earned && dayAsksForHabits(day);
+}
+
+/// The retention loop's most important message: from 6pm, while a live
+/// streak's point for the closing day is not earned yet (80% of that day's
+/// habits, see kStreakDayCompletionThreshold), warn warmly. Disappears the
+/// moment it is earned. See [streakAtRiskBannerShows].
 class _StreakAtRiskBanner extends ConsumerWidget {
   const _StreakAtRiskBanner();
 
@@ -220,12 +242,20 @@ class _StreakAtRiskBanner extends ConsumerWidget {
     // isDayClosing) - only this BANNER's own window is narrower, so the
     // warning stops competing for morning attention well before the actual
     // deadline. See isEveningNudgeHour's own doc comment.
-    final isEvening = DateTime.now().isEveningNudgeHour;
-    if (!isEvening ||
-        dash.streak <= 0 ||
-        habits.isEmpty ||
+    if (habits.isEmpty ||
         grid.isLoading ||
-        dash.streakEarnedToday) {
+        !streakAtRiskBannerShows(
+          dash: dash,
+          now: DateTime.now(),
+          // The day's own board, the roster its streak point is judged on
+          // (see boardHabitsOn): a quota's rest day is not on it.
+          dayAsksForHabits: (day) => boardHabitsOn(
+            habits: habits,
+            day: day,
+            isGreen: grid.greenForWeekOf(day),
+            markOn: grid.markForWeekOf(day),
+          ).isNotEmpty,
+        )) {
       return const SizedBox.shrink();
     }
 
@@ -396,6 +426,7 @@ class _ProfileLinksSection extends ConsumerWidget {
           day: DateTime(today.year, today.month, today.day - back),
           habits: inputs.habits,
           isGreen: inputs.isGreen,
+          markOn: inputs.markOn,
           dark: gp.dark,
         ),
     ];

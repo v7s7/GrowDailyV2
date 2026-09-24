@@ -666,8 +666,19 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       // yesterday's numbers into them would tick the wrong day on Today's
       // screen and mis-report the day percentage.
       completions: isGraceDay ? null : newCompletions,
+      // ...and yesterday's go to their own slot, the one its square reads.
+      // Written only here, by a call that landed, so a refused tap leaves it
+      // as it was. See DashboardState.graceCompletions.
+      graceCompletions: isGraceDay ? newCompletions : null,
+      graceDayKey: isGraceDay ? dayKey : null,
       dayCountedHabitIds: isGraceDay ? null : newDayCounted,
       streakEarnedToday: isGraceDay ? null : newStreakEarnedToday,
+      // The marker moves exactly when the stored lastActiveDay does (the two
+      // writes below), and for a grace day too: that is how a screen learns
+      // yesterday was finished after midnight.
+      lastStreakDay: newStreakEarnedToday && !_lastActiveIsAfter(dayKey)
+          ? markDay
+          : null,
       perfectDayCelebration: isGraceDay ? false : justReachedAllDone,
       // Spent, so repainting this same square after the day rolls over can
       // never redeem it a second time.

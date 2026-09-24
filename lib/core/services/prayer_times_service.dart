@@ -315,6 +315,47 @@ class PrayerTimesService {
   /// place; see the class doc comment.
   static const _globalDefaultMethod = PrayerCalcMethod.muslimWorldLeague;
 
+  /// The rule BOTH the live and the offline path use where the sun never
+  /// reaches the fajr/isha angle at all (roughly above 48 degrees, in
+  /// summer): angle based, i.e. adhan_dart's
+  /// [adhan.HighLatitudeRule.twilightAngle] and Aladhan's
+  /// `latitudeAdjustmentMethod=3`.
+  ///
+  /// Named explicitly on both sides rather than left to either library's
+  /// own default, because those defaults do not agree. Aladhan defaults
+  /// to angle based; adhan_dart defaults to middle-of-the-night (see its
+  /// CalculationParameters constructor). So before this constant existed,
+  /// [_fetchOnline] and the [calculateOffline] fallback it falls back TO
+  /// returned different times for the same place on the same day.
+  /// Measured 2026-06-21 under Muslim World League: London's fajr was
+  /// 02:31 live against 01:02 offline, 89 minutes apart, and the offline
+  /// path put fajr and isha on the SAME minute (01:02) because
+  /// middle-of-the-night clamps both of them to the midpoint of the
+  /// night. Stockholm and Oslo were 64 and 62 minutes apart the same day.
+  ///
+  /// Angle based specifically, and NOT the seventh-of-the-night that
+  /// adhan_dart's own `HighLatitudeRule.recommended()` prefers above 48
+  /// degrees, because angle based is what Aladhan has been serving this
+  /// app all along and the live path is the one users actually get.
+  /// Which rule is religiously right for a given latitude is a real
+  /// question, and a separate one; only the two paths disagreeing was a
+  /// bug, and this fixes that without quietly changing anybody's live
+  /// numbers.
+  ///
+  /// Nothing below roughly 48 degrees moves: adhan_dart applies the rule
+  /// as a CLAMP (`if (safeFajr().isAfter(fajrTime)) fajrTime = safeFajr()`
+  /// in PrayerTimes.dart), and at Gulf latitudes real fajr is always
+  /// later than any night portion, so every region in [_regions] computes
+  /// exactly as it did before. Asserted in prayer_times_service_test.dart.
+  static const _highLatitudeRule = adhan.HighLatitudeRule.twilightAngle;
+
+  /// [_highLatitudeRule]'s Aladhan spelling, sent on both the day and the
+  /// month endpoint so a day resolved through either one agrees with the
+  /// offline calculation. Aladhan's own default is already this value; it
+  /// is passed anyway so the choice is stated in our own request rather
+  /// than inherited from a remote default that could be changed for us.
+  static const _aladhanLatitudeAdjustmentMethod = '3';
+
   /// Checked in order, first match wins — deliberately smallest/most
   /// specific countries first and Saudi Arabia (by far the largest
   /// bounding box, and the one every neighbor's box would otherwise
@@ -863,6 +904,7 @@ class PrayerTimesService {
         'tune': '0,$fajrCorrectionMinutes,0,0,0,0,0,0,0',
         'school': madhab == PrayerMadhab.hanafi ? '1' : '0',
         'timezonestring': tz.local.name,
+        'latitudeAdjustmentMethod': _aladhanLatitudeAdjustmentMethod,
       });
 
   /// Reads a calendar response body into `yyyy-mm-dd` -> times.
@@ -1054,7 +1096,9 @@ class PrayerTimesService {
     required PrayerMadhab madhab,
   }) {
     final coordinates = adhan.Coordinates(latitude, longitude);
-    final params = method._parameters()..madhab = madhab._value;
+    final params = method._parameters()
+      ..madhab = madhab._value
+      ..highLatitudeRule = _highLatitudeRule;
     final prayerTimes = adhan.PrayerTimes(
       coordinates: coordinates,
       date: DateTime(date.year, date.month, date.day),
@@ -1164,6 +1208,7 @@ class PrayerTimesService {
       'tune': '0,$fajrCorrectionMinutes,0,0,0,0,0,0,0',
       'school': madhab == PrayerMadhab.hanafi ? '1' : '0',
       'timezonestring': tz.local.name,
+      'latitudeAdjustmentMethod': _aladhanLatitudeAdjustmentMethod,
     });
   }
 

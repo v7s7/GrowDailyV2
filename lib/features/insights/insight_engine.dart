@@ -412,6 +412,10 @@ InsightsResult computeInsights({
   // spare. It errs at the window's first week and nowhere else; every whole
   // week in it is exact.
   final greenIdsByDay = <String, Set<String>>{};
+  // The marks themselves, for the one question a green cannot answer: whether
+  // a planned day a moved session could stand in for was left empty or marked
+  // by the person (see moved_day_plan.dart). Same window, same edge.
+  final marksByDay = <String, Map<String, SquareState>>{};
   DateTime? windowStart;
   DateTime? windowEnd;
   for (final (day, doc) in days) {
@@ -423,26 +427,44 @@ InsightsResult computeInsights({
             (completions[h.id] is num && (completions[h.id] as num) > 0))
           h.id,
     };
+    marksByDay[day.toDateKey()] = {
+      for (final h in habits)
+        if (states[h.id] != null)
+          h.id: SquareState.fromJson(states[h.id]?.toString()),
+    };
     final date = DateTime(day.year, day.month, day.day);
     if (windowStart == null || date.isBefore(windowStart)) windowStart = date;
     if (windowEnd == null || date.isAfter(windowEnd)) windowEnd = date;
   }
   bool isGreen(String habitId, DateTime day) =>
       greenIdsByDay[day.toDateKey()]?.contains(habitId) ?? false;
+  SquareState markOn(String habitId, DateTime day) =>
+      marksByDay[day.toDateKey()]?[habitId] ?? SquareState.none;
 
   for (final (day, doc) in days) {
     final rawStates = (doc['squareStates'] as Map?) ?? const {};
     final rawCompletions = (doc['habitCompletions'] as Map?) ?? const {};
     for (final h in habits) {
       // Not alive, or not one of its weekdays: not a day of this habit at
-      // all, so no cell in its record either.
-      if (!h.isScheduledFor(day)) continue;
+      // all, so no cell in its record either. The one exception is a day off
+      // a specific-days plan that holds a session: it counts for the week and
+      // stands in for one of the habit's own days (see moved_day_plan.dart),
+      // so it belongs in the record like any other session.
+      if (!h.isScheduledFor(day) &&
+          !(h.isAliveOn(day) && isGreen(h.id, day))) {
+        continue;
+      }
       final p = patterns[h.id]!;
       final sq = SquareState.fromJson(rawStates[h.id]?.toString());
       final done = sq.isGreen ||
           (rawCompletions[h.id] is num &&
               (rawCompletions[h.id] as num) > 0);
-      final owed = habitOwesDay(habit: h, day: day, isGreen: isGreen);
+      final owed = habitOwesDay(
+        habit: h,
+        day: day,
+        isGreen: isGreen,
+        markOn: markOn,
+      );
       final counted = owed &&
           sq != SquareState.skipped &&
           (now == null ||

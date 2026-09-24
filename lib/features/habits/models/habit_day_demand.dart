@@ -24,7 +24,10 @@
 /// A habit owes a day when it was alive on it AND:
 ///
 ///  - daily habit → always;
-///  - specific-days habit → the weekday is one of its days;
+///  - specific-days habit → the weekday is one of its days, UNLESS a session
+///    on another day of the same week stands in for it (see
+///    moved_day_plan.dart). A session on a day off the plan counts on its own
+///    day, like a quota's extra session;
 ///  - flexible weekly quota → the day was **load-bearing**, per
 ///    [weeklyQuotaDemand]: either it was actually done, or skipping it put
 ///    the week's target out of arithmetic reach. A `spare` day (enough days
@@ -47,6 +50,8 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../grid/models/square_state.dart' show SquareState;
 import '../catalog/islamic_habit_catalog.dart' show IslamicHabitTemplate;
 import 'habit_model.dart' show HabitFrequencyType;
+import 'habit_schedule.dart' show scheduledGapBy;
+import 'moved_day_plan.dart';
 import 'weekly_quota_plan.dart';
 
 export 'weekly_quota_plan.dart' show DayDemand;
@@ -78,6 +83,14 @@ bool isFlexibleQuotaOn(IslamicHabitTemplate habit, DateTime day) =>
 /// `habit_history` mirror, the reports hold a HabitPeriodStat. Each passes
 /// its own reader and they all get the same arithmetic.
 typedef GreenOnDay = bool Function(String habitId, DateTime day);
+
+/// Reads what, if anything, was recorded for one habit on one day. Only the
+/// moved-session rule needs more than [GreenOnDay]: a session on a day off a
+/// specific-days plan covers a planned day with NOTHING recorded, never one
+/// the person marked فشل, تخطّي or جزئي (see moved_day_plan.dart). Every
+/// function taking one treats it as optional, and without it reads a day that
+/// is not green as unmarked.
+typedef MarkOnDay = SquareState Function(String habitId, DateTime day);
 
 /// What the Saturday week containing [day] asked of [habit], day by day,
 /// index 0 being that Saturday. Null when [day]'s own schedule was not a
@@ -126,11 +139,27 @@ List<DayDemand>? quotaDemandForWeekOf({
 /// [days] is a whole display week, Saturday first, as both callers pass it;
 /// each quota day is resolved over the whole row with its own target, the
 /// same day-local arithmetic [quotaDemandForWeekOf] does.
+///
+/// A specific-days row with a session on a day off its plan is answered by
+/// [movedDayDemand] instead (see [movedDemandForRow]), so the planned day that
+/// session stands in for reads as covered on the Grid and in the reports
+/// alike.
 List<DayDemand?>? quotaDemandForRow({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
   required bool Function(int index) isGreenAt,
+  bool Function(int index)? isUnmarkedAt,
+  DateTime? now,
 }) {
+  if (!days.any((d) => habit.cadenceOn(d).isFlexibleQuota)) {
+    return movedDemandForRow(
+      habit: habit,
+      days: days,
+      isGreenAt: isGreenAt,
+      isUnmarkedAt: isUnmarkedAt,
+      now: now,
+    );
+  }
   List<DayDemand?>? out;
   Set<int>? done;
   final byTarget = <int, List<DayDemand>>{};
@@ -152,6 +181,151 @@ List<DayDemand?>? quotaDemandForRow({
     (out ??= List<DayDemand?>.filled(days.length, null))[i] = week[i];
   }
   return out;
+}
+
+/// What one display week asked of a specific-days habit that has a session on
+/// a day off its plan, index for index with [days], or null when the week has
+/// nothing for [movedDayDemand] to decide: no session off the plan (every
+/// planned day is owed, exactly as before), or a flexible quota anywhere in the
+/// week (the quota's own arithmetic owns those weeks, see
+/// [quotaDemandForRow]). A null entry is a day the habit did not exist on.
+///
+/// [now] decides which empty planned days are already closed, and so are made
+/// up first; the real clock when null. [isUnmarkedAt] says which days have
+/// nothing recorded at all (see [MarkOnDay]); null reads every day that is not
+/// green as unmarked.
+List<DayDemand?>? movedDemandForRow({
+  required IslamicHabitTemplate habit,
+  required List<DateTime> days,
+  required bool Function(int index) isGreenAt,
+  bool Function(int index)? isUnmarkedAt,
+  DateTime? now,
+}) {
+  if (days.any((d) => habit.cadenceOn(d).isFlexibleQuota)) return null;
+  final alive = [for (final d in days) habit.isAliveOn(d)];
+  final planned = [for (final d in days) habit.isScheduledFor(d)];
+  // Only a day the habit existed on and did not plan can hold a moved
+  // session. A daily habit has no such day, so nearly every row stops here
+  // without reading a single square: this runs for every habit on every day
+  // the progress map draws.
+  var offDaySession = false;
+  for (var i = 0; i < days.length && !offDaySession; i++) {
+    offDaySession = alive[i] && !planned[i] && isGreenAt(i);
+  }
+  if (!offDaySession) return null;
+  final green = [
+    for (var i = 0; i < days.length; i++) alive[i] && isGreenAt(i),
+  ];
+  final clock = now ?? DateTime.now();
+  final today = DateTime(clock.year, clock.month, clock.day);
+  return movedDayDemand(
+    alive: alive,
+    planned: planned,
+    green: green,
+    unmarked: isUnmarkedAt == null
+        ? null
+        : [for (var i = 0; i < days.length; i++) isUnmarkedAt(i)],
+    closed: [
+      for (final d in days) d.startOfDay.isBefore(today) && !d.isOpenDayAt(clock),
+    ],
+  );
+}
+
+/// [movedDemandForRow] for the display week holding [day], narrowed to [day].
+/// Null when that week has no session off the plan, or [day] is outside the
+/// habit's life.
+DayDemand? movedDemandOn({
+  required IslamicHabitTemplate habit,
+  required DateTime day,
+  required GreenOnDay isGreen,
+  MarkOnDay? markOn,
+  DateTime? now,
+}) {
+  final start = day.startOfDisplayWeek;
+  final week = [
+    for (var i = 0; i < 7; i++) DateTime(start.year, start.month, start.day + i),
+  ];
+  final demand = movedDemandForRow(
+    habit: habit,
+    days: week,
+    isGreenAt: (i) => isGreen(habit.id, week[i]),
+    isUnmarkedAt: markOn == null
+        ? null
+        : (i) => markOn(habit.id, week[i]) == SquareState.none,
+    now: now,
+  );
+  if (demand == null) return null;
+  final i = day.startOfDay.difference(start).inDays;
+  return i < 0 || i > 6 ? null : demand[i];
+}
+
+/// [IslamicHabitTemplate.runsOn] minus the days a session on another day of
+/// the same week stands in for, for a habit's own streak.
+///
+/// The per-habit streak counts the habit's run days between two sessions as
+/// missed (see habit_schedule.dart's scheduledGapBy). A Monday, Thursday and
+/// Saturday habit done on Wednesday instead of Thursday would otherwise read
+/// Thursday as a miss the next day and restart at 1 on Saturday, for a week
+/// in which every promised session happened. [isGreen] null excuses nothing.
+bool Function(DateTime day) runsOnExcusing(
+  IslamicHabitTemplate habit,
+  GreenOnDay? isGreen, {
+  MarkOnDay? markOn,
+}) {
+  if (isGreen == null) return habit.runsOn;
+  return (day) =>
+      habit.runsOn(day) &&
+      movedDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn) !=
+          DayDemand.earned;
+}
+
+/// The weekday rule [habit]'s own streak is measured on for a completion
+/// landing on [day]: [runsOnExcusing] over the squares actually stored.
+///
+/// Plain [IslamicHabitTemplate.runsOn] unless that would restart the streak.
+/// Only then are the display weeks from the last completion
+/// ([lastCompletedKey], DashboardState.habitLastCompletedDate) to [day] read
+/// through [squaresOn], to see whether a session on a day off the plan
+/// covered the days in between: a Monday, Thursday and Saturday habit done on
+/// Wednesday instead of Thursday keeps its streak on Saturday. Nearly every
+/// completion reads nothing. A last completion more than three weeks back is
+/// left to the plain rule: whatever covered it, that gap is real.
+Future<bool Function(DateTime day)> streakRunsOn({
+  required IslamicHabitTemplate habit,
+  required DateTime day,
+  required String? lastCompletedKey,
+  required Future<Map<String, SquareState>?> Function(DateTime day) squaresOn,
+}) async {
+  final last = lastCompletedKey == null ? null : DateTime.tryParse(lastCompletedKey);
+  if (last == null) return habit.runsOn;
+  final lastDay = DateTime(last.year, last.month, last.day);
+  final markDay = DateTime(day.year, day.month, day.day);
+  if (scheduledGapBy(last: lastDay, day: markDay, runsOn: habit.runsOn) <= 1) {
+    return habit.runsOn;
+  }
+  if (markDay.difference(lastDay).inDays > 21) return habit.runsOn;
+  final squares = <String, Map<String, SquareState>>{};
+  final toWeek = markDay.startOfDisplayWeek;
+  final end = DateTime(toWeek.year, toWeek.month, toWeek.day + 6);
+  for (var d = lastDay.startOfDisplayWeek;
+      !d.isAfter(end);
+      d = DateTime(d.year, d.month, d.day + 1)) {
+    final read = await squaresOn(d);
+    if (read != null) squares[d.toDateKey()] = read;
+  }
+  final markKey = markDay.toDateKey();
+  // The session landing right now is not stored yet, and it is green.
+  SquareState markOn(String id, DateTime d) {
+    final key = d.toDateKey();
+    if (id == habit.id && key == markKey) return SquareState.complete;
+    return squares[key]?[id] ?? SquareState.none;
+  }
+
+  return runsOnExcusing(
+    habit,
+    (id, d) => markOn(id, d).isGreen,
+    markOn: markOn,
+  );
 }
 
 /// [quotaDemandForWeekOf] narrowed to [day] itself. Null for non-quota habits.
@@ -178,7 +352,14 @@ bool habitOwesDay({
   required IslamicHabitTemplate habit,
   required DateTime day,
   required GreenOnDay isGreen,
+  MarkOnDay? markOn,
 }) {
+  // A specific-days week holding a session off its plan: a planned day that
+  // session stands in for owes nothing, and the session counts on its own
+  // day, on both sides, exactly like a quota's extra session.
+  final moved =
+      movedDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn);
+  if (moved != null) return !moved.isRest;
   if (!habit.isScheduledFor(day)) return false;
   final demand = quotaDemandOn(habit: habit, day: day, isGreen: isGreen);
   // Daily and specific-days habits: isScheduledFor already is the answer.
@@ -197,10 +378,17 @@ Set<String> owedHabitIdsOn({
   required Iterable<IslamicHabitTemplate> habits,
   required DateTime day,
   required GreenOnDay isGreen,
+  MarkOnDay? markOn,
 }) =>
     {
       for (final habit in habits)
-        if (habitOwesDay(habit: habit, day: day, isGreen: isGreen)) habit.id,
+        if (habitOwesDay(
+          habit: habit,
+          day: day,
+          isGreen: isGreen,
+          markOn: markOn,
+        ))
+          habit.id,
     };
 
 /// A [GreenOnDay] over the `habit_history` mirror (habitId → dateKey → mark),
@@ -225,6 +413,20 @@ GreenOnDay greenFromMirror(
     (habitId, day) {
       if (live?.call(habitId, day)?.isGreen ?? false) return true;
       return (mirror[habitId]?[day.toDateKey()] ?? SquareState.none).isGreen;
+    };
+
+/// [greenFromMirror]'s twin for the whole mark (see [MarkOnDay]), over the
+/// same two sources. A mark either source holds wins over none, and a live
+/// mark over the mirror's: the same safe direction, a day with anything on it
+/// is never read as empty, and so never covered by a moved session.
+MarkOnDay markFromMirror(
+  Map<String, Map<String, SquareState>> mirror, {
+  SquareState? Function(String habitId, DateTime day)? live,
+}) =>
+    (habitId, day) {
+      final fromLive = live?.call(habitId, day);
+      if (fromLive != null && fromLive != SquareState.none) return fromLive;
+      return mirror[habitId]?[day.toDateKey()] ?? SquareState.none;
     };
 
 /// The habits a LIVE board on [day] is answerable for — Today's counter, the
@@ -254,12 +456,34 @@ List<IslamicHabitTemplate> boardHabitsOn({
   required DateTime day,
   required GreenOnDay? isGreen,
   Set<String> alsoOwing = const {},
+  MarkOnDay? markOn,
 }) =>
     [
       for (final habit in habits)
-        if (habit.isScheduledFor(day) &&
+        if ((habit.isScheduledFor(day) ||
+                _offPlanSession(habit, day, isGreen, alsoOwing)) &&
             (isGreen == null ||
                 alsoOwing.contains(habit.id) ||
-                habitOwesDay(habit: habit, day: day, isGreen: isGreen)))
+                habitOwesDay(
+                  habit: habit,
+                  day: day,
+                  isGreen: isGreen,
+                  markOn: markOn,
+                )))
           habit,
     ];
+
+/// A specific-days habit done today on a day that is not one of its days, or
+/// being marked on one right now ([alsoOwing]). It joins the board it is being
+/// counted into, the same way a quota's extra session does: without it,
+/// willCompleteAllHabitsToday, which answers false when it cannot find the
+/// habit it was asked about, would refuse a day that was in fact finished.
+/// A habit that did not exist on [day] never joins.
+bool _offPlanSession(
+  IslamicHabitTemplate habit,
+  DateTime day,
+  GreenOnDay? isGreen,
+  Set<String> alsoOwing,
+) =>
+    habit.isAliveOn(day) &&
+    (alsoOwing.contains(habit.id) || (isGreen?.call(habit.id, day) ?? false));

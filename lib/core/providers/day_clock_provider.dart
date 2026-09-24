@@ -52,7 +52,9 @@ bool dayClockIsStale({required DateTime seen, required DateTime now}) =>
 
 /// Where [dayClockProvider] reads the time: DateTime.now, and only a test
 /// overrides it, so the boundary timer can be driven under a fake clock
-/// (test/core/providers/day_clock_provider_test.dart).
+/// (test/core/providers/day_clock_provider_test.dart). The Grid's square tap
+/// asks it whether a day is still open, for the same reason
+/// (test/features/grid/grace_day_counted_square_test.dart).
 final dayClockSourceProvider =
     Provider<DateTime Function()>((ref) => DateTime.now);
 

@@ -60,13 +60,21 @@ const {setGlobalOptions} = require("firebase-functions/v2");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const {getFunctions} = require("firebase-admin/functions");
-const {isRoomPausedOn, roomEventFor} = require("./room_events");
-const {lastOneCounts, lastOneMessageFor} = require("./room_messages");
+const {
+  isRoomPausedOn,
+  roomEventFor,
+  slotPendingFor,
+} = require("./room_events");
+const {lastOneCounts, roomPushMessage} = require("./room_messages");
 const {
   claimQuota,
+  heldBroadcastPlan,
+  heldUntilMs,
   isQuietHoursNow,
-  msUntilQuietHoursEnd,
+  liveTokens,
+  localDayKey,
   pushKindFor,
+  roomPushPlan,
 } = require("./push_policy");
 const {
   clipSpansToPast,
@@ -81,6 +89,14 @@ const {
   shouldWrite,
   uidsToRefresh,
 } = require("./revenuecat_webhook");
+const {
+  factDocId,
+  ledgerRowFor,
+  offerRefOf,
+  purchaseKindOf,
+  purchaseLogRow,
+  saleLookupKeys,
+} = require("./purchase_facts");
 
 /**
  * The shared secret RevenueCat sends as the Authorization header. Set with
@@ -150,26 +166,6 @@ const db = admin.firestore();
 setGlobalOptions({region: "us-central1", maxInstances: 10});
 
 /**
- * Arabic verbs agree with their subject, so the finisher's gender changes
- * the sentence — «أنهى عاداته» for a man, «أنهت عاداتها» for a woman.
- *
- * The app mirrors `gender` onto the participant doc (RoomsController.
- * _profileFields) precisely so this function can pick, since it has no
- * access to the Dart character catalog. Anything other than "female" —
- * including a member whose character never loaded, and every doc written
- * before that field existed — falls to the masculine form, which is
- * Arabic's unmarked default and is what shipped previously.
- *
- * English needs none of this, which is exactly why the bug survived: the
- * table looked symmetric.
- * @param {string|undefined} gender The finisher's stored gender.
- * @return {boolean} Whether to use feminine agreement.
- */
-function isFem(gender) {
-  return gender === "female";
-}
-
-/**
  * ── The three room events ─────────────────────────────────────────────
  *
  * A room notifies on distinct EVENTS, not once per person who finishes.
@@ -206,83 +202,20 @@ function isFem(gender) {
  * per day (see claimRoomEvent), so a room emits at most three pushes per
  * member per day at ANY size. Two people or two hundred, the numbers are
  * the same, which is why there is no member limit in this file any more.
- */
-
-/** Event A. `gender` is the FINISHER's - the sentence is about them. */
-const FIRST_TODAY_MESSAGES = {
-  en: (finisherName, roomName) => ({
-    title: `${finisherName} is first to finish in "${roomName}"`,
-    body: "First one done today. Your turn.",
-  }),
-  ar: (finisherName, roomName, gender) => ({
-    title: isFem(gender) ?
-      `${finisherName} أول من أنهت في "${roomName}"` :
-      `${finisherName} أول من أنهى في "${roomName}"`,
-    body: isFem(gender) ?
-      "أول وحدة تخلّص اليوم. دورك." :
-      "أول واحد يخلّص اليوم. دورك.",
-  }),
-};
-
-/**
- * Event B's words live in room_messages.js (lastOneMessage), where they are
- * tested: the room's own name as the title, and a body that says what the
- * room has done and asks for the reader's part, «٤ من ٥ خلّصوا اليوم. سوي
- * عادتك الحين ويصير يوم الغرفة كامل 🤝». It used to be «باقي أنت. إلى الآن
- * فيه وقت.», a verdict about the one person still to go (Aziz, 2026-09-11).
  *
- * That verdict is not gone from every push. NUDGE_MESSAGES below, sent in
- * place of this one to anyone who turned roomNudgesEnabled on, still says
- * «باقي أنت.» / «باقية أنتِ.» and "Still waiting on you.". Aziz did not pick
- * a change to that push, so it is left as it was.
- */
-
-/** Event C. Nobody in particular is the subject, so no gender needed. */
-const ROOM_PERFECT_MESSAGES = {
-  en: (finisherName, roomName) => ({
-    title: `Perfect day in "${roomName}" 🎉`,
-    body: "Everyone finished today.",
-  }),
-  ar: (finisherName, roomName) => ({
-    title: `يوم كامل في "${roomName}" 🎉`,
-    body: "الكل خلّص عاداته اليوم.",
-  }),
-};
-
-/**
- * The opt-in playful variant of event B, sent to the last person standing
- * instead of the lastOneMessage push (room_messages.js).
+ * Every word of every room push lives in room_messages.js (roomPushMessage),
+ * where it is tested. All three are only sent while the reader is still on
+ * the day they are about, and never held past it: news about yesterday
+ * gives the reader nothing to do (Aziz, 2026-09-24). See push_policy.js
+ * roomPushPlan.
  *
- * Deliberately an invitation and not a scoreboard. «الكل خلّص ـ باقي أنت»
- * reads as banter between friends; «الكل خلّص وأنت لا» reads as an
- * accusation, and these habits are صلاة and أذكار rather than gym sets.
- * Shame motivates for about a week and then people leave.
- *
- * `gender` is the RECIPIENT's: unlike events A and C, the sentence is about
- * the person reading it.
+ * The opt-in playful variant of B («الكل خلّص في "X" 👀 / باقي أنت.», the
+ * roomNudgesEnabled switch) was removed on 2026-09-24: nobody had it on, and
+ * it was the last push still wording the reader as the one behind.
  */
-const NUDGE_MESSAGES = {
-  en: (finisherName, roomName) => ({
-    title: `Everyone else finished in "${roomName}" 👀`,
-    body: "Still waiting on you.",
-  }),
-  ar: (finisherName, roomName, gender) => ({
-    title: `الكل خلّص في "${roomName}" 👀`,
-    body: isFem(gender) ? "باقية أنتِ." : "باقي أنت.",
-  }),
-};
 
 /**
- * Above this many members the playful nudge falls back to the neutral
- * wording. Volume is no longer the reason for a size rule anywhere else in
- * this file - this one is purely about tone. Among five friends, «باقي
- * أنت 👀» is teasing. In a room of two hundred it is a stadium watching
- * one person fall behind.
- */
-const NUDGE_ROOM_LIMIT = 5;
-
-/**
- * Whether this recipient still has room for a push of [kind] today,
+ * Whether this recipient still has room for a push of [kind] on [dayKey],
  * spending the slot when they do. See push_policy.js for the three kinds
  * and why they are capped separately: one heads-up, one nudge and one
  * celebration per person per day, so a morning "first to finish" can never
@@ -293,11 +226,13 @@ const NUDGE_ROOM_LIMIT = 5;
  * be sent to by two finishers in different rooms at the same moment, and a
  * plain read-modify-write would let both through.
  *
- * `dayKey` is the recipient's OWN app day, passed in by the caller, so the
- * counters roll over on their clock rather than UTC.
+ * `dayKey` is the day the push counts against, roomPushPlan's quotaDay: the
+ * day the push is ABOUT, on the recipient's clock, and never the day it
+ * lands on. A push held overnight used to spend the next morning's slot, so
+ * yesterday's news capped today's real push (نور, 2026-09-24).
  * @param {string} otherUid The recipient.
- * @param {string} dayKey Their local day, "YYYY-MM-DD".
- * @param {string} kind "info" or "nudge", see pushKindFor.
+ * @param {string} dayKey "YYYY-MM-DD".
+ * @param {string} kind "info", "nudge" or "celebrate", see pushKindFor.
  * @return {Promise<boolean>} Whether a push may be sent.
  */
 async function claimPushSlot(otherUid, dayKey, kind) {
@@ -317,17 +252,6 @@ async function claimPushSlot(otherUid, dayKey, kind) {
     logger.warn("push quota claim failed", otherUid, err);
     return true;
   }
-}
-
-/**
- * The recipient's own calendar day, from their mirrored UTC offset.
- * @param {number|undefined} tzOffsetMinutes Their device offset.
- * @return {string} "YYYY-MM-DD" in their local time.
- */
-function localDayKey(tzOffsetMinutes) {
-  const offset = typeof tzOffsetMinutes === "number" ? tzOffsetMinutes : 0;
-  const local = new Date(Date.now() + offset * 60 * 1000);
-  return local.toISOString().slice(0, 10);
 }
 
 /**
@@ -373,8 +297,87 @@ async function isEligible(otherUid, participantData) {
 }
 
 /**
- * Queues one held push for the exact minute quiet hours end for [otherUid],
- * instead of dropping it the way every other ineligible reason is dropped.
+ * Epoch milliseconds of a Firestore Timestamp, or null.
+ * @param {*} v A stored field.
+ * @return {?number}
+ */
+function millisOf(v) {
+  return v && typeof v.toMillis === "function" ? v.toMillis() : null;
+}
+
+/**
+ * The device tokens a push to [uid] goes to.
+ *
+ * A token left behind by an install the person no longer uses is deleted
+ * here instead of sent to (push_policy.js liveTokens): one person, one
+ * banner, not one per install they ever had.
+ * @param {string} uid The recipient.
+ * @return {Promise<Array>} Their live fcmTokens docs.
+ */
+async function deliverableTokens(uid) {
+  const snap = await db.collection("users").doc(uid)
+      .collection("fcmTokens").get();
+  const {live, stale} = liveTokens(snap.docs.map(
+      (doc) => ({doc, updatedAtMs: millisOf(doc.get("updatedAt"))})));
+  if (stale.length > 0) {
+    await Promise.all(stale.map((t) => t.doc.ref.delete().catch(() => {})));
+    logger.info("pruned stale device tokens",
+        {uid, pruned: stale.length, kept: live.length});
+  }
+  return live.map((t) => t.doc);
+}
+
+/**
+ * Sends one notification to each of [tokenDocs]. A token FCM calls
+ * unregistered or invalid (the app was deleted, the token rotated) is
+ * deleted so it stops being tried; any other error (offline, transient)
+ * leaves it in place for next time.
+ *
+ * FirebaseError exposes the code directly as `.code` (e.g.
+ * "messaging/registration-token-not-registered"), verified against
+ * firebase-admin-node's own source. `errorInfo` is where that code
+ * originates internally, not a property the public error exposes, so
+ * checking it would never match anything.
+ *
+ * [ttlMs], when given, is how long FCM may hold the message for a phone that
+ * is off: past it, the message is dropped rather than delivered late. The
+ * admin's messages carry one (see deliverHeldBroadcast); room pushes do not.
+ * @param {string} uid The recipient, for the log.
+ * @param {Array} tokenDocs From deliverableTokens.
+ * @param {{title: string, body: string, data: object, ttlMs: number=}} message
+ * @return {Array<Promise>} One per token.
+ */
+function sendToTokens(uid, tokenDocs, {title, body, data, ttlMs}) {
+  const expiry = typeof ttlMs === "number" ? {
+    android: {ttl: ttlMs},
+    apnsHeaders: {
+      "apns-expiration": String(Math.floor((Date.now() + ttlMs) / 1000)),
+    },
+  } : null;
+  return tokenDocs.map((tokenDoc) => admin.messaging().send({
+    token: tokenDoc.id,
+    notification: {title, body},
+    data,
+    ...(expiry ? {android: expiry.android} : {}),
+    apns: {
+      ...(expiry ? {headers: expiry.apnsHeaders} : {}),
+      payload: {aps: {sound: "default"}},
+    },
+  }).catch((err) => {
+    const code = err && err.code;
+    if (
+      code === "messaging/registration-token-not-registered" ||
+      code === "messaging/invalid-registration-token"
+    ) {
+      return tokenDoc.ref.delete().catch(() => {});
+    }
+    logger.warn("room push failed", {code, uid});
+    return null;
+  }));
+}
+
+/**
+ * Queues one held push for the minute [p.otherUid]'s quiet hours end.
  *
  * Deliberately a single scheduled Cloud Task, not a periodic sweep polling
  * "is anyone's quiet hours over yet" every few minutes forever: that would
@@ -383,11 +386,11 @@ async function isEligible(otherUid, participantData) {
  * grows. One task per held push costs nothing when nothing is held, which
  * is true most of every day. See msUntilQuietHoursEnd's own doc comment.
  *
- * A 2-minute buffer on top of the computed delay: Cloud Tasks' own
- * scheduling has second-level jitter, and firing even one minute early
- * would land back inside the window it was meant to wait out, and
- * deliverDeferredRoomPush does not re-queue a still-quiet miss - see its
- * own comment for why one retry is the promise, not an indefinite chase.
+ * The task carries what the push is ABOUT (room, event, day, finisher or
+ * slot), never its words: deliverDeferredRoomPush decides afresh whether it
+ * is still true and words it for the moment it lands. The first version
+ * carried a finished title and body, and delivered «سوي عادتك الحين» to نور
+ * at 07:02 on 24 Sep about a day she had finished at 23:47 the night before.
  *
  * Failure here must not throw into the caller's send loop - a lost defer
  * costs exactly one push, the same cost claimPushSlot already accepts for
@@ -395,30 +398,33 @@ async function isEligible(otherUid, participantData) {
  * @param {object} p
  * @param {string} p.otherUid Recipient.
  * @param {string} p.roomCode
- * @param {string} p.kind A KIND_CAPS key ("info"/"nudge"/"celebrate").
- * @param {string} p.title
- * @param {string} p.body
- * @param {object} p.data Extra FCM data payload fields (roomCode/type/etc).
- * @param {object|undefined} p.settings Their mirrored notificationSettings.
- * @param {number} p.tzOffsetMinutes Their device's UTC offset.
+ * @param {string} p.event "firstToday" | "lastOne" | "perfect" |
+ *     "habitAdded".
+ * @param {string} p.dayKey The day the push is about.
+ * @param {number} p.deliverAtMs From heldUntilMs.
+ * @param {string} [p.finisherUid] Room-finish events: whose finish it was.
+ * @param {string} [p.habitName] habitAdded: the slot's name.
+ * @param {number} [p.slotIndex] habitAdded: the slot's index.
  * @return {Promise<void>}
  */
 async function deferRoomPush(p) {
-  const BUFFER_MS = 2 * 60 * 1000;
-  const delayMs =
-    msUntilQuietHoursEnd(p.settings, p.tzOffsetMinutes) + BUFFER_MS;
   try {
     const queue = getFunctions().taskQueue("deliverDeferredRoomPush");
     await queue.enqueue(
         {
+          v: 2,
           otherUid: p.otherUid,
           roomCode: p.roomCode,
-          kind: p.kind,
-          title: p.title,
-          body: p.body,
-          data: p.data,
+          event: p.event,
+          dayKey: p.dayKey,
+          finisherUid: p.finisherUid || null,
+          habitName: p.habitName || null,
+          slotIndex: typeof p.slotIndex === "number" ? p.slotIndex : null,
         },
-        {scheduleDelaySeconds: Math.round(delayMs / 1000)},
+        {
+          scheduleDelaySeconds:
+            Math.max(60, Math.round((p.deliverAtMs - Date.now()) / 1000)),
+        },
     );
   } catch (err) {
     logger.warn("defer room push failed",
@@ -428,16 +434,20 @@ async function deferRoomPush(p) {
 
 /**
  * The redelivery half of deferRoomPush, dispatched by Cloud Tasks at the
- * exact moment it was told the recipient's quiet hours would be over.
+ * moment the recipient's quiet hours were due to end.
  *
- * Re-checks everything from scratch rather than trusting the moment it was
- * queued - settings can change in the hours between, a token can go stale,
- * the person can leave the room, and a fresh isEligible call is the exact
- * same truth the immediate send path already uses, so this can never drift
- * from it. If they are STILL quiet (their window changed after this was
- * scheduled) or ineligible for any other reason by now, this drops the
- * push rather than re-queuing it: one retry is the promise this makes, not
- * an indefinite chase of a moving target.
+ * Decides everything afresh rather than trusting the moment it was queued:
+ * settings can change in the hours between, a token can go stale, the
+ * person can leave the room, and the day it is about has usually closed.
+ * roomPushPlan drops any room event whose day the reader has moved past
+ * (Aziz, 2026-09-24: a push about yesterday never goes), and a push still
+ * on its day is dropped when the room's own decision for that day, run
+ * again now, no longer sends it to this reader (they finished, someone else
+ * is last). "A habit was added" is the one push that may land the next
+ * morning, and it goes only while the slot still waits for them. If they
+ * are STILL quiet (their window changed after this was scheduled) or
+ * ineligible for any other reason by now, this drops the push rather than
+ * re-queuing it: one retry is the promise, not an indefinite chase.
  *
  * maxAttempts: 1 - a delivery failure here (a transient FCM error, say)
  * is the same one-push cost every other skip in this file already accepts,
@@ -446,87 +456,213 @@ async function deferRoomPush(p) {
 exports.deliverDeferredRoomPush = onTaskDispatched(
     {retryConfig: {maxAttempts: 1}, rateLimits: {maxConcurrentDispatches: 6}},
     async (req) => {
-      const {otherUid, roomCode, kind, title, body, data} = req.data || {};
-      if (!otherUid || !roomCode || !title || !body) return;
+      const task = req.data || {};
+      const {otherUid, roomCode} = task;
+      if (!otherUid || !roomCode) return;
+      const event = task.v === 2 ? task.event : (task.data || {}).type;
+      const drop = (why) =>
+        logger.info("held room push dropped", {roomCode, otherUid, event, why});
 
-      const participantSnap = await db.collection("rooms").doc(roomCode)
-          .collection("participants").doc(otherUid).get();
-      if (!participantSnap.exists) return;
-      const participant = participantSnap.data() || {};
-      if (participant.leftAt) return;
-
-      const {eligible, tzOffsetMinutes} =
-        await isEligible(otherUid, participant);
-      if (!eligible) {
-        logger.info("deferred room push still not eligible",
-            {otherUid, roomCode});
-        return;
-      }
-
-      const tokensSnap = await db.collection("users").doc(otherUid)
-          .collection("fcmTokens").get();
-      if (tokensSnap.empty) return;
-      if (!await claimPushSlot(
-          otherUid, localDayKey(tzOffsetMinutes), kind)) {
-        return;
-      }
-
-      const sends = tokensSnap.docs.map((tokenDoc) => admin.messaging().send({
-        token: tokenDoc.id,
-        notification: {title, body},
-        data: data || {},
-        apns: {payload: {aps: {sound: "default"}}},
-      }).catch((err) => {
-        const code = err && err.code;
-        if (
-          code === "messaging/registration-token-not-registered" ||
-          code === "messaging/invalid-registration-token"
-        ) {
-          return tokenDoc.ref.delete().catch(() => {});
+      // Queued by the first version: finished words and no day, so nothing
+      // can tell whether they are still true. Only the one push whose words
+      // cannot go stale overnight is delivered. At most one night of these
+      // exists, the night this version is deployed.
+      if (task.v !== 2) {
+        if (event !== "roomHabitAdded" || !task.title || !task.body) {
+          return drop("queued-by-old-version");
         }
-        logger.warn("deferred room push send failed", {code, uid: otherUid});
-        return null;
-      }));
+      }
+
+      const roomRef = db.collection("rooms").doc(roomCode);
+      const [roomSnap, readerSnap] = await Promise.all([
+        roomRef.get(),
+        roomRef.collection("participants").doc(otherUid).get(),
+      ]);
+      if (!roomSnap.exists || !readerSnap.exists) return drop("gone");
+      const room = roomSnap.data() || {};
+      const reader = readerSnap.data() || {};
+      if (reader.leftAt) return drop("left");
+
+      const elig = await isEligible(otherUid, reader);
+      if (!elig.eligible) return drop(elig.reason);
+      const readerToday = localDayKey(elig.tzOffsetMinutes);
+
+      let message;
+      let data;
+      let plan;
+      if (task.v !== 2) {
+        plan = {quotaDay: readerToday, yesterday: false};
+        message = {title: task.title, body: task.body};
+        data = {roomCode, type: "roomHabitAdded"};
+      } else {
+        plan = roomPushPlan({event, dayKey: task.dayKey, readerToday});
+        if (plan.action !== "send") return drop(plan.reason);
+        if (event === "habitAdded") {
+          // Answered since (linked or declined), or taken back out of the
+          // plan: nothing left to ask.
+          if (!slotPendingFor(room, reader, task.slotIndex)) {
+            return drop("slot-answered");
+          }
+          message = roomPushMessage({
+            event, locale: elig.locale, room, habitName: task.habitName,
+          });
+          data = {roomCode, type: "roomHabitAdded"};
+        } else {
+          // The room's own decision for that day, run again now, has to
+          // still send this event to this reader.
+          const partsSnap = await roomRef.collection("participants").get();
+          const finisherDoc =
+            partsSnap.docs.find((d) => d.id === task.finisherUid);
+          const others = partsSnap.docs.filter((d) =>
+            d.id !== task.finisherUid && !(d.data() || {}).leftAt);
+          const decision =
+            roomEventFor(others, task.dayKey, room.pausedSpans, room);
+          if (!decision || decision.event !== event ||
+              !decision.recipients.some((d) => d.id === otherUid)) {
+            return drop("no-longer-true");
+          }
+          message = roomPushMessage({
+            event,
+            locale: elig.locale,
+            room,
+            finisher: finisherDoc ? finisherDoc.data() || {} : {},
+            reader,
+            counts: event === "lastOne" ?
+              lastOneCounts(others, task.dayKey, room) : null,
+            todayKey: task.dayKey,
+          });
+          data = {roomCode, type: "roomFinish", event};
+        }
+      }
+
+      const tokens = await deliverableTokens(otherUid);
+      if (tokens.length === 0) return drop("no-token");
+      const kind = task.v === 2 ? pushKindFor(event) : "info";
+      if (!await claimPushSlot(otherUid, plan.quotaDay, kind)) {
+        return drop("capped");
+      }
+      const sends = sendToTokens(otherUid, tokens, {...message, data});
       await Promise.all(sends);
-      logger.info("deliverDeferredRoomPush",
-          {roomCode, otherUid, sent: sends.length});
+      logger.info("deliverDeferredRoomPush", {
+        roomCode, otherUid, event, sent: sends.length,
+        yesterday: plan.yesterday,
+      });
     },
 );
 
 /**
- * Whether the last person standing gets the playful wording rather than
- * the neutral one.
+ * ── The admin's message, held for quiet hours ─────────────────────────────
  *
- * Every condition exists to stop it becoming nagging:
- *  - opt-in only (`roomNudgesEnabled`), so nobody meets it by surprise;
- *  - small rooms only (see NUDGE_ROOM_LIMIT), because tone does not
- *    survive scale;
- *  - only to someone who has NOT finished today, which event B guarantees
- *    but which is re-checked here rather than assumed;
- *  - not late in their evening, when a nudge lands as a reprimand for a
- *    day already lost rather than a prompt for one still winnable.
+ * The admin tool (scripts/admin_lookup, lib/broadcast.js) sends a message
+ * to everyone straight from the Admin SDK. Someone inside their quiet hours
+ * at that moment used to be skipped for good: the tool runs on a Mac and
+ * cannot wake at 07:00 (page item 6, Aziz, 2026-09-24).
  *
- * Quiet hours and the daily cap are applied separately in isEligible and
- * the send loop, and both still apply on top of this.
- * @param {string} otherUid The recipient.
- * @param {object} participantData Their participant doc in this room.
- * @param {number} roomSize How many members the room has.
- * @return {Promise<boolean>} Whether to use the nudge wording.
+ * Now the tool writes who it held, and for when, into the message's own
+ * history row (broadcast_log/{id}.held: [{uid, atMs}]) and calls
+ * holdBroadcast with just the id. That queues one Cloud Task per held
+ * person, timed for the end of their quiet hours, the same one-task-per-
+ * held-push shape as deferRoomPush: nothing runs, and nothing is paid for,
+ * while nothing is held. deliverHeldBroadcast then decides afresh and sends.
+ *
+ * holdBroadcast needs no caller identity: all it can do is queue what the
+ * admin already wrote (clients cannot write broadcast_log, firestore.rules),
+ * and only once per message (heldQueuedAt, set in a transaction). The tool's
+ * own account holds no Cloud Tasks role, and this way it needs none.
  */
-async function nudgeAllowed(otherUid, participantData, roomSize) {
-  if (roomSize > NUDGE_ROOM_LIMIT) return false;
-  if (participantData.allDoneToday === true) return false;
-  const userSnap = await db.collection("users").doc(otherUid).get();
-  if (!userSnap.exists) return false;
-  const user = userSnap.data() || {};
-  const settings = user.notificationSettings || {};
-  if (settings.roomNudgesEnabled !== true) return false;
-  const offset =
-    typeof user.tzOffsetMinutes === "number" ? user.tzOffsetMinutes : 0;
-  const hour = new Date(Date.now() + offset * 60 * 1000).getUTCHours();
-  if (hour >= 21 || hour < 8) return false;
-  return true;
-}
+
+/** How long FCM may hold a held copy for a phone that is off. */
+const HELD_BROADCAST_TTL_MS = 12 * 60 * 60 * 1000;
+
+exports.holdBroadcast = onCall(async (request) => {
+  const id = request.data && request.data.id;
+  if (typeof id !== "string" || !/^n_[a-z0-9]+_[0-9a-f]{6}$/.test(id)) {
+    throw new HttpsError("invalid-argument", "Not a message id.");
+  }
+  const ref = db.collection("broadcast_log").doc(id);
+  const held = await db.runTransaction(async (txn) => {
+    const snap = await txn.get(ref);
+    if (!snap.exists) return null;
+    const row = snap.data() || {};
+    if (row.kind !== "notification" || row.audience !== "everyone" ||
+        row.heldQueuedAt || !Array.isArray(row.held)) {
+      return [];
+    }
+    txn.set(ref, {
+      heldQueuedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, {merge: true});
+    return row.held;
+  });
+  if (held === null) throw new HttpsError("not-found", "No such message.");
+
+  const queue = getFunctions().taskQueue("deliverHeldBroadcast");
+  let queued = 0;
+  let failed = 0;
+  for (const h of held) {
+    if (!h || typeof h.uid !== "string" || typeof h.atMs !== "number") {
+      failed++;
+      continue;
+    }
+    try {
+      await queue.enqueue({v: 1, id, uid: h.uid}, {
+        scheduleDelaySeconds:
+          Math.max(60, Math.round((h.atMs - Date.now()) / 1000)),
+      });
+      queued++;
+    } catch (err) {
+      failed++;
+      logger.warn("hold broadcast enqueue failed",
+          {id, uid: h.uid, err: String(err)});
+    }
+  }
+  logger.info("holdBroadcast", {id, held: held.length, queued, failed});
+  return {queued, failed};
+});
+
+exports.deliverHeldBroadcast = onTaskDispatched(
+    {retryConfig: {maxAttempts: 1}, rateLimits: {maxConcurrentDispatches: 6}},
+    async (req) => {
+      const {id, uid} = req.data || {};
+      if (typeof id !== "string" || typeof uid !== "string") return;
+      const logRef = db.collection("broadcast_log").doc(id);
+      const tally = (key) => logRef.update({
+        [`held${key}`]: admin.firestore.FieldValue.increment(1),
+      }).catch(() => {});
+      const drop = (why) => {
+        logger.info("held broadcast dropped", {id, uid, why});
+        return tally("Dropped");
+      };
+
+      const [logSnap, userSnap] = await Promise.all([
+        logRef.get(),
+        db.collection("users").doc(uid).get(),
+      ]);
+      if (!logSnap.exists) return drop("gone");
+      if (!userSnap.exists) return drop("no-user");
+      const row = logSnap.data() || {};
+      const user = userSnap.data() || {};
+      const plan = heldBroadcastPlan({
+        sentAtMs: millisOf(row.at),
+        settings: user.notificationSettings,
+        tzOffsetMinutes: user.tzOffsetMinutes,
+      });
+      if (plan.action !== "send") return drop(plan.reason);
+
+      const tokens = await deliverableTokens(uid);
+      if (tokens.length === 0) return drop("no-token");
+      // The admin tool's own rule (lib/broadcast.js languageFor): English
+      // only for an English phone when there is an English version.
+      const en = user.locale === "en" && row.bodyEn;
+      await Promise.all(sendToTokens(uid, tokens, {
+        title: en ? row.titleEn : row.titleAr,
+        body: en ? row.bodyEn : row.bodyAr,
+        data: {type: "broadcast", id},
+        ttlMs: HELD_BROADCAST_TTL_MS,
+      }));
+      logger.info("deliverHeldBroadcast", {id, uid, sent: tokens.length});
+      return tally("Sent");
+    },
+);
 
 /**
  * Claim one of the room's three daily events, so it fires exactly once.
@@ -599,15 +735,9 @@ exports.notifyRoomFinish = onCall(async (request) => {
   await participantRef.set(
       {lastFinishNotifiedDate: todayKey}, {merge: true});
 
-  const finisherName = participant.displayName || "Someone";
-  // Mirrored by the app onto the participant doc so Arabic can agree with
-  // the finisher — see isFem. Undefined for docs written before that field
-  // existed, which falls to the masculine default.
-  const finisherGender = participant.gender;
   const roomSnap = await db.collection("rooms").doc(roomCode).get();
   if (!roomSnap.exists) return {sent: 0};
   const room = roomSnap.data() || {};
-  const roomName = room.name || "your room";
 
   const participantsSnap = await db
       .collection("rooms").doc(roomCode).collection("participants").get();
@@ -623,8 +753,10 @@ exports.notifyRoomFinish = onCall(async (request) => {
       (d) => d.id !== uid && !(d.data() || {}).leftAt);
   // Null for a solo room; for a day where nobody is left to tell once the
   // members standing down today are set aside; and for a last-one or
-  // perfect day on a day the room is paused (see roomEventFor).
-  const decision = roomEventFor(others, todayKey, room.pausedSpans);
+  // perfect day on a day the room is paused (see roomEventFor). The room is
+  // passed so a member whose phone has already moved past todayKey (a day
+  // finished after midnight) is read from that day's own numbers.
+  const decision = roomEventFor(others, todayKey, room.pausedSpans, room);
   if (!decision) {
     const paused = isRoomPausedOn(room.pausedSpans, todayKey);
     return {sent: 0, suppressed: paused ? "room-paused" : "nobody-to-tell"};
@@ -632,7 +764,8 @@ exports.notifyRoomFinish = onCall(async (request) => {
   const {event, recipients} = decision;
   // Event B says how much of the room is done, so the room is counted once,
   // here, and every recipient reads the same numbers.
-  const counts = event === "lastOne" ? lastOneCounts(others, todayKey) : null;
+  const counts =
+    event === "lastOne" ? lastOneCounts(others, todayKey, room) : null;
 
   // Claimed BEFORE checking whether anyone can actually receive it. The
   // alternative - claim only once a deliverable recipient is found - would
@@ -651,118 +784,74 @@ exports.notifyRoomFinish = onCall(async (request) => {
     return {sent: 0, suppressed: event + "-already-sent-today"};
   }
 
-  const messageFor = {
-    firstToday: FIRST_TODAY_MESSAGES,
-    perfect: ROOM_PERFECT_MESSAGES,
-  }[event];
-
+  const kind = pushKindFor(event);
   const sends = [];
   // Why a recipient was skipped, counted so the log can answer "why did
   // nobody get this" without anyone's phone in hand. No names, uids or
   // tokens: counts only. "deferred" is not a loss - see deferRoomPush.
-  const skipped = {ineligible: 0, deferred: 0, noToken: 0, capped: 0};
+  // "pastDay" is a push about a day the reader has moved past, or would
+  // have by the time their quiet hours end: never sent (roomPushPlan).
+  const skipped =
+    {ineligible: 0, deferred: 0, pastDay: 0, noToken: 0, capped: 0};
   for (const doc of recipients) {
     const other = doc.data() || {};
-    const {eligible, locale, reason, settings, tzOffsetMinutes} =
-      await isEligible(doc.id, other);
-    if (!eligible && reason !== "quiet-hours") {
+    const elig = await isEligible(doc.id, other);
+    const quiet = !elig.eligible && elig.reason === "quiet-hours";
+    if (!elig.eligible && !quiet) {
       skipped.ineligible++;
       continue;
     }
-
-    // Message content is computed for BOTH the send-now and the
-    // quiet-hours-defer path, using exactly the same inputs either way, so
-    // a deferred push says the same thing an on-time one would have.
-    // wantsNudge's own "not late in their evening" gate is a courtesy on
-    // TOP of quiet hours, not a substitute for it - evaluating it now (at
-    // the moment of the finish, not at redelivery) is what keeps a nudge
-    // from turning into a reprimand for a day already re-timed.
-    const wantsNudge = event === "lastOne" &&
-      // Room size for the policy is the members IN the room, not every
-      // document: a departed member's record is kept (RoomParticipant.leftAt)
-      // and must not make a two-person room look like three.
-      await nudgeAllowed(doc.id, other, others.length + 1);
-    let message;
-    if (wantsNudge) {
-      // The nudge's sentence is about the person reading it, so it takes
-      // the RECIPIENT's gender.
-      message = NUDGE_MESSAGES[locale](finisherName, roomName, other.gender);
-    } else if (event === "lastOne") {
-      // Worded from the stored docs, not roomName's English "your room" or
-      // finisherName's "Someone" stand-ins: see lastOneMessageFor, where
-      // that wiring is tested.
-      message = lastOneMessageFor({
-        locale,
-        room,
-        finisher: participant,
-        counts,
-        reader: other,
-        todayKey,
-      });
-    } else {
-      // Events A and C are about the finisher. Passing the wrong gender is
-      // invisible in English and wrong in every Arabic sentence.
-      message = messageFor[locale](finisherName, roomName, finisherGender);
+    const deliverAtMs =
+      quiet ? heldUntilMs(elig.settings, elig.tzOffsetMinutes) : null;
+    const plan = roomPushPlan({
+      event,
+      dayKey: todayKey,
+      readerToday: localDayKey(elig.tzOffsetMinutes),
+      quiet,
+      heldUntilDay:
+        quiet ? localDayKey(elig.tzOffsetMinutes, deliverAtMs) : undefined,
+    });
+    if (plan.action === "drop") {
+      skipped.pastDay++;
+      continue;
     }
-    const {title, body} = message;
-
-    if (!eligible) {
+    if (plan.action === "hold") {
       await deferRoomPush({
-        otherUid: doc.id, roomCode, kind: pushKindFor(event), title, body,
-        data: {roomCode, type: "roomFinish", event}, settings,
-        tzOffsetMinutes,
+        otherUid: doc.id, roomCode, event, dayKey: todayKey,
+        finisherUid: uid, deliverAtMs,
       });
       skipped.deferred++;
       continue;
     }
 
-    const tokensSnap = await db
-        .collection("users").doc(doc.id)
-        .collection("fcmTokens").get();
     // Checked BEFORE the daily slot is claimed. A person with no registered
     // device cannot receive anything, so spending one of their three daily
     // slots on an undeliverable push would silently exhaust the quota of
     // exactly the people who are already getting nothing.
-    if (tokensSnap.empty) {
+    const tokens = await deliverableTokens(doc.id);
+    if (tokens.length === 0) {
       skipped.noToken++;
       continue;
     }
-    if (!await claimPushSlot(
-        doc.id, localDayKey(tzOffsetMinutes), pushKindFor(event))) {
+    if (!await claimPushSlot(doc.id, plan.quotaDay, kind)) {
       skipped.capped++;
       continue;
     }
-    for (const tokenDoc of tokensSnap.docs) {
-      sends.push(
-          admin.messaging().send({
-            token: tokenDoc.id,
-            notification: {title, body},
-            data: {roomCode, type: "roomFinish", event},
-            apns: {payload: {aps: {sound: "default"}}},
-          }).catch((err) => {
-            // FirebaseError exposes the code directly as `.code` (e.g.
-            // "messaging/registration-token-not-registered") - verified
-            // against firebase-admin-node's own source at research
-            // time. `errorInfo` is where that code originates
-            // internally, not a property the public-facing error
-            // itself exposes, so checking it directly would have made
-            // this branch never actually match anything.
-            const code = err && err.code;
-            // Device uninstalled the app, or this token otherwise went
-            // stale - prune it so this stops being retried forever.
-            // Any other error (offline, transient) just leaves the
-            // token in place for next time.
-            if (
-              code === "messaging/registration-token-not-registered" ||
-              code === "messaging/invalid-registration-token"
-            ) {
-              return tokenDoc.ref.delete().catch(() => {});
-            }
-            logger.warn("room-finish push failed", {code, uid: doc.id});
-            return null;
-          }),
-      );
-    }
+    // Worded per reader: the last-one push counts the reader's own habits
+    // left, and events A and C take the FINISHER's gender (passing the
+    // wrong one is invisible in English and wrong in every Arabic
+    // sentence). See roomPushMessage.
+    const message = roomPushMessage({
+      event,
+      locale: elig.locale,
+      room,
+      finisher: participant,
+      reader: other,
+      counts,
+      todayKey,
+    });
+    sends.push(...sendToTokens(doc.id, tokens,
+        {...message, data: {roomCode, type: "roomFinish", event}}));
   }
   await Promise.all(sends);
   logger.info("notifyRoomFinish", {
@@ -774,33 +863,6 @@ exports.notifyRoomFinish = onCall(async (request) => {
   });
   return {sent: sends.length, event};
 });
-
-/**
- * "A habit was added to the plan" - sent to every member of a shared room
- * except the leader who added it.
- *
- * The in-app banner (roomNewHabitBannerBody) only reaches a member who opens
- * the app, and a slot the leader adds starts counting against an unlinked
- * member after the grace (RoomModel.kNewSlotGraceDays), so the people who
- * most need to hear are exactly the ones not looking. Warm and plain: what
- * was added, to which room, and that linking it means it counts for them
- * from today. Impersonal on purpose - no «أضاف/أضافت» about the leader -
- * so nothing has to guess a gender.
- *
- * DRAFT WORDING, Aziz picks the final Arabic.
- */
-const HABIT_ADDED_MESSAGES = {
-  en: (habitName, roomName) => ({
-    title: `New habit in "${roomName}"`,
-    body: `"${habitName}" was added to the plan and counts for everyone ` +
-      "from today. Link it on your side \u{1F331}",
-  }),
-  ar: (habitName, roomName) => ({
-    title: `عادة جديدة في "${roomName}"`,
-    body: `انضافت «${habitName}» للخطة وصارت تنحسب للكل من اليوم. ` +
-      "اربطها من عندك \u{1F331}",
-  }),
-};
 
 /**
  * Callable: the leader's device fires this right after addSharedHabit lands
@@ -867,7 +929,6 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
   });
   if (!claimed) return {sent: 0, alreadyNotified: true};
 
-  const roomName = room.name || "your room";
   const participantsSnap = await roomRef.collection("participants").get();
   const recipients = participantsSnap.docs.filter(
       (d) => d.id !== uid && !(d.data() || {}).leftAt);
@@ -877,56 +938,39 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
   const skipped = {ineligible: 0, deferred: 0, noToken: 0, capped: 0};
   for (const doc of recipients) {
     const other = doc.data() || {};
-    const {eligible, locale, reason, settings, tzOffsetMinutes} =
-      await isEligible(doc.id, other);
-    if (!eligible && reason !== "quiet-hours") {
+    const elig = await isEligible(doc.id, other);
+    const quiet = !elig.eligible && elig.reason === "quiet-hours";
+    if (!elig.eligible && !quiet) {
       skipped.ineligible++;
       continue;
     }
-    const table = HABIT_ADDED_MESSAGES[locale] || HABIT_ADDED_MESSAGES.en;
-    const {title, body} = table(habitName, roomName);
-
-    if (!eligible) {
+    const readerToday = localDayKey(elig.tzOffsetMinutes);
+    if (quiet) {
+      // Still news in the morning, unlike a "last one": held, and checked
+      // again when it lands (deliverDeferredRoomPush drops it if the slot
+      // was answered or taken out of the plan in between).
       await deferRoomPush({
-        otherUid: doc.id, roomCode, kind: "info", title, body,
-        data: {roomCode, type: "roomHabitAdded"}, settings, tzOffsetMinutes,
+        otherUid: doc.id, roomCode, event: "habitAdded", dayKey: readerToday,
+        habitName, slotIndex,
+        deliverAtMs: heldUntilMs(elig.settings, elig.tzOffsetMinutes),
       });
       skipped.deferred++;
       continue;
     }
 
-    const tokensSnap = await db
-        .collection("users").doc(doc.id)
-        .collection("fcmTokens").get();
-    if (tokensSnap.empty) {
+    const tokens = await deliverableTokens(doc.id);
+    if (tokens.length === 0) {
       skipped.noToken++;
       continue;
     }
-    if (!await claimPushSlot(
-        doc.id, localDayKey(tzOffsetMinutes), "info")) {
+    if (!await claimPushSlot(doc.id, readerToday, "info")) {
       skipped.capped++;
       continue;
     }
-    for (const tokenDoc of tokensSnap.docs) {
-      sends.push(
-          admin.messaging().send({
-            token: tokenDoc.id,
-            notification: {title, body},
-            data: {roomCode, type: "roomHabitAdded"},
-            apns: {payload: {aps: {sound: "default"}}},
-          }).catch((err) => {
-            const code = err && err.code;
-            if (
-              code === "messaging/registration-token-not-registered" ||
-              code === "messaging/invalid-registration-token"
-            ) {
-              return tokenDoc.ref.delete().catch(() => {});
-            }
-            logger.warn("habit-added push failed", {code, uid: doc.id});
-            return null;
-          }),
-      );
-    }
+    const message = roomPushMessage(
+        {event: "habitAdded", locale: elig.locale, room, habitName});
+    sends.push(...sendToTokens(doc.id, tokens,
+        {...message, data: {roomCode, type: "roomHabitAdded"}}));
   }
   await Promise.all(sends);
   logger.info("notifyRoomHabitAdded", {
@@ -1079,7 +1123,7 @@ exports.roomsHealthSweep = onSchedule(
             createdByDay[d] = daySnaps[i].createTime;
           });
           const short = undercountedDays({days, countingIds, squaresByDay,
-            part, lastUpdatedByDay, createdByDay});
+            part, lastUpdatedByDay, createdByDay, room});
           for (const u of short) {
             if (u.held) {
               logger.info("roomsHealthSweep saw a closed day the room is " +
@@ -1118,6 +1162,137 @@ exports.roomsHealthSweep = onSchedule(
       });
     });
 
+// ── Purchase facts ─────────────────────────────────────────────────────────
+//
+// Two collections revenueCatWebhook writes beside the Premium mirror, both
+// server-only: firestore.rules has no match for either, so its closing
+// deny-all refuses every client read and write.
+//
+//  - purchase_log/{eventId}: one row per sale or refund of a Lifetime, at
+//    either price (growdaily_lifetime is the regular one,
+//    growdaily_lifetime_offer the welcome-window and sale one), for the
+//    admin tool's "who pays full price" meter.
+//  - creator_ledger/{eventId}: one row per sale or refund of any product
+//    bought through a creator's Apple offer code, with what that creator
+//    earned from it. creators/{id}.offerRef names the creator's offer. A
+//    refund follows its sale's row there (same transaction), so it reaches
+//    the creator with or without an offer code and takes back exactly what
+//    the sale paid.
+//
+// Both are keyed by RevenueCat's event id and written with create(), so a
+// retried delivery finds its row already there and changes nothing, the
+// creator's share percent included. Sandbox events are recorded too, marked
+// by their `environment`, so a sandbox purchase can prove the pipe; the
+// admin tool hides them by default. purchase_facts.js has the rules and
+// their tests.
+
+/** gRPC's ALREADY_EXISTS, what create() throws when the row is there. */
+const ALREADY_EXISTS = 6;
+
+/**
+ * Creates [ref] with [data], or leaves it alone when it already exists.
+ * @param {object} ref A Firestore DocumentReference.
+ * @param {object} data The row to write.
+ * @return {Promise<boolean>} False when the row was already there.
+ */
+async function createOnce(ref, data) {
+  try {
+    await ref.create(data);
+    return true;
+  } catch (e) {
+    // A redelivery of an event already recorded: the first row stands.
+    if (e && e.code === ALREADY_EXISTS) return false;
+    throw e;
+  }
+}
+
+/**
+ * The creator_ledger SALE row filed under the first of [keys] that has one,
+ * or null. See saleLookupKeys for which transaction ids a refund tries.
+ * @param {string[]} keys Transaction ids, in the order to try them.
+ * @return {Promise<?object>} That sale row's data.
+ */
+async function findLedgerSale(keys) {
+  for (const key of keys) {
+    // eslint-disable-next-line no-await-in-loop
+    const found = await db.collection("creator_ledger")
+        .where("transactionId", "==", key)
+        .where("kind", "==", "sale")
+        .limit(1).get();
+    if (!found.empty) return found.docs[0].data();
+  }
+  return null;
+}
+
+/**
+ * Writes the purchase facts [event] carries: its purchase_log row, and its
+ * creator_ledger row when it came through an offer code or refunds a sale
+ * that did. Throws when a read or write fails, so revenueCatWebhook can
+ * answer 500 and be retried.
+ *
+ * A refund looks for its sale's ledger row first and, when there is one,
+ * follows it: same creator, same offer, the percent the sale paid, whether
+ * or not the refund event carries an offer code (see refundLedgerRow).
+ * Only a refund with no ledgered sale, and every sale, go by their own
+ * offer code, so the creator is looked up only then, and an ordinary
+ * purchase costs no extra read at all. An offer code no creator claims
+ * still gets its ledger row, with no creator and needsReview set, so the
+ * sale is not lost while the creator's record is added or fixed.
+ * @param {object} event RevenueCat's webhook event.
+ * @return {Promise<void>}
+ */
+async function recordPurchaseFacts(event) {
+  const logRow = purchaseLogRow(event);
+  const offerRef = offerRefOf(event);
+  // Refunds only: where the refunded sale may be filed in creator_ledger.
+  const saleKeys = saleLookupKeys(event);
+  const ledgerDue = purchaseKindOf(event) !== null &&
+      (offerRef !== null || saleKeys.length > 0);
+  if (!logRow && !ledgerDue) return;
+
+  // The event id is what makes a retry harmless, so without one nothing is
+  // written rather than a sale counted once per delivery.
+  const id = factDocId(event);
+  if (!id) {
+    logger.warn("revenueCatWebhook: purchase event without a usable id, " +
+        "facts not recorded", {
+      type: event.type, product: event.product_id,
+      environment: event.environment,
+    });
+    return;
+  }
+  const createdAt = admin.firestore.FieldValue.serverTimestamp();
+  if (logRow) {
+    await createOnce(db.collection("purchase_log").doc(id),
+        Object.assign({}, logRow, {createdAt}));
+  }
+  if (!ledgerDue) return;
+
+  const sale = await findLedgerSale(saleKeys);
+  let creator = null;
+  if (sale === null && offerRef !== null) {
+    const found = await db.collection("creators")
+        .where("offerRef", "==", offerRef).limit(1).get();
+    const creatorDoc = found.empty ? null : found.docs[0];
+    if (!creatorDoc) {
+      logger.warn("revenueCatWebhook: no creator claims this offer code, " +
+          "ledger row flagged for review", {
+        offerRef, id, environment: event.environment,
+      });
+    }
+    // The document id wins over any stored `id` field.
+    creator = creatorDoc ?
+      Object.assign({}, creatorDoc.data(), {id: creatorDoc.id}) : null;
+  }
+  // Null for a refund with no ledgered sale and no offer code: there is no
+  // creator to charge it to. A Lifetime one is still in purchase_log above.
+  const row = ledgerRowFor(event, {sale, creator});
+  if (row) {
+    await createOnce(db.collection("creator_ledger").doc(id),
+        Object.assign({}, row, {createdAt}));
+  }
+}
+
 /**
  * RevenueCat's webhook: the only writer of the Premium mirror on
  * `users/{uid}`.
@@ -1144,6 +1319,8 @@ exports.roomsHealthSweep = onSchedule(
  * verdict comes from re-reading each one's RevenueCat record
  * (fetchCustomerInfo), because a webhook describes one product's
  * transaction and Premium has two products behind it. See uidsToRefresh.
+ * Before any of that it records the event's purchase facts (purchase_log,
+ * creator_ledger), for sandbox events too; see recordPurchaseFacts.
  *
  * SETUP, and only Aziz can do it:
  *  1. `firebase functions:secrets:set REVENUECAT_WEBHOOK_SECRET` and paste a
@@ -1186,15 +1363,40 @@ exports.revenueCatWebhook = onRequest(
         res.status(400).send("no event");
         return;
       }
+
+      // Purchase facts first, ahead of the sandbox gate below, which is
+      // about the MIRROR: a sandbox purchase is exactly how the fact rows
+      // get tested. A failure here must not cost anyone their Premium, so
+      // the mirror still runs; it only turns this delivery's 200 into a 500
+      // (see `ok`), so RevenueCat retries. Retrying is safe on both sides:
+      // the mirror re-reads, and the fact rows are create-only, so any that
+      // did land stay exactly as they are.
+      let factsFailed = false;
+      try {
+        await recordPurchaseFacts(event);
+      } catch (e) {
+        factsFailed = true;
+        logger.error("revenueCatWebhook: purchase facts failed", String(e));
+      }
+      // Every success answer below goes through here.
+      const ok = (text) => {
+        if (factsFailed) {
+          res.status(500).send("purchase facts failed");
+          return;
+        }
+        res.status(200).send(text);
+      };
+
       // SANDBOX and TEST events look exactly like real ones. Mirroring them
       // would hand a permanent production entitlement to every TestFlight
       // tester and to anyone who can press "send test webhook" in the
       // dashboard. 200, not an error: RevenueCat should stop retrying.
+      // (Unless the purchase facts above failed: then 500, see `ok`.)
       if (!isProduction(event)) {
         logger.info("revenueCatWebhook: ignoring non-production event", {
           environment: event.environment, type: event.type,
         });
-        res.status(200).send("ignored: not production");
+        ok("ignored: not production");
         return;
       }
 
@@ -1211,7 +1413,7 @@ exports.revenueCatWebhook = onRequest(
         // the account is only caught up by that customer's NEXT event,
         // which lists the real uid in `aliases`. A lifetime bought as a
         // guest has no next event: a known gap this endpoint cannot close.
-        res.status(200).send("nothing to mirror");
+        ok("nothing to mirror");
         return;
       }
       const apiKey = (revenueCatApiKey.value() || "").trim();
@@ -1273,5 +1475,5 @@ exports.revenueCatWebhook = onRequest(
         res.status(500).send("refresh failed");
         return;
       }
-      res.status(200).send("ok");
+      ok("ok");
     });

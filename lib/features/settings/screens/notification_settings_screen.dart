@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/providers/weekly_note_offer_provider.dart';
 import '../../../core/services/country_lookup_service.dart';
 import '../../../core/services/device_location_service.dart';
 import '../../../core/services/notification_service.dart';
@@ -223,9 +224,13 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       icon: Icons.calendar_view_week_rounded,
                       label: s.notifWeeklyDigest,
                       subtitle: s.notifWeeklyDigestDesc,
-                      value: settings.weeklyDigestEnabled,
-                      onChanged: (v) =>
-                          update((c) => c.copyWith(weeklyDigestEnabled: v)),
+                      value: settings.weeklyNoteOn,
+                      // Either way this is the person's answer, so the
+                      // recap card stops asking (weekly_note_offer_provider).
+                      onChanged: (v) {
+                        update((c) => c.copyWith(weeklyNoteOn: v));
+                        markWeeklyNoteOfferAnswered(ref);
+                      },
                     ),
                     const _RowDivider(),
                     // The one push category this app sends from a server
@@ -248,22 +253,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     _RoomPushStatus(
                       roomActivityEnabled: settings.roomActivityEnabled,
                     ),
-                    // Nested under room activity, and only offered while it
-                    // is on: a nudge IS a room push, so it can never arrive
-                    // for someone who has turned room activity off, and
-                    // showing a live-looking toggle that cannot fire would
-                    // be a lie.
-                    if (settings.roomActivityEnabled) ...[
-                      const _RowDivider(),
-                      _SwitchRow(
-                        icon: Icons.emoji_emotions_outlined,
-                        label: s.notifRoomNudges,
-                        subtitle: s.notifRoomNudgesDesc,
-                        value: settings.roomNudgesEnabled,
-                        onChanged: (v) =>
-                            update((c) => c.copyWith(roomNudgesEnabled: v)),
-                      ),
-                    ],
                   ]),
                   const SizedBox(height: 20),
                   _SectionLabel(s.notifPrayerSection),
@@ -378,27 +367,13 @@ class NotificationSettingsScreen extends ConsumerWidget {
                   ]),
                   const SizedBox(height: 20),
                   _SectionLabel(s.notifTimingSection),
-                  _Card(children: [
+                  // The daily reminder's time is the evening note's only
+                  // clock. The "streak check time" row beside it was a
+                  // fallback clock used when no time was picked; nothing is
+                  // sent without one now (Aziz, 2026-09-24), so it had
+                  // nothing left to set.
+                  const _Card(children: [
                     _DailyReminderRow(),
-                    const _RowDivider(),
-                    _TimeRow(
-                      icon: Icons.local_fire_department_outlined,
-                      label: s.notifStreakRiskTime,
-                      time: settings.streakRiskTime,
-                      onTap: () async {
-                        final picked = await showTimePicker(
-                            context: context,
-                            initialTime: settings.streakRiskTime,
-                            builder: (context, child) => MediaQuery(
-                                  data: MediaQuery.of(context)
-                                      .copyWith(alwaysUse24HourFormat: false),
-                                  child: child!,
-                                ));
-                        if (picked != null) {
-                          update((c) => c.copyWith(streakRiskTime: picked));
-                        }
-                      },
-                    ),
                   ]),
                 ],
               ),

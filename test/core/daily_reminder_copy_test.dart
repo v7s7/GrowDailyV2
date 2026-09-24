@@ -436,7 +436,6 @@ void main() {
       int streak = 7,
       bool earned = false,
       int? pendingBuild,
-      List<({String name, bool isLimit})> quit = const [],
       int urgent = 0,
       bool streakAsk = true,
       bool isAr = true,
@@ -447,7 +446,6 @@ void main() {
           streak: streak,
           streakEarnedToday: earned,
           pendingBuildHabitCount: pendingBuild ?? (total - done),
-          pendingQuit: quit,
           urgentTasks: urgent,
           variantIndex: 0,
           isAr: isAr,
@@ -491,59 +489,17 @@ void main() {
       expect(line(done: 5, earned: true, pendingBuild: 0), isNull);
     });
 
-    test('a finished board still asks about an unanswered quit habit', () {
-      final e = line(
-        done: 5,
-        earned: true,
-        pendingBuild: 0,
-        quit: const [(name: 'تدخين', isLimit: false)],
-      )!;
-      expect(e.title, 'تسجيل المساء');
-      expect(e.body, '«تدخين»: التزمت اليوم؟');
-      expect(
-        e.body,
-        isNot(startsWith('و')),
-        reason: 'it opens the body here rather than trailing a board line',
-      );
-    });
-
-    // Measured on a device: two trailing sentences overflow the body and
-    // iOS cuts the second mid-word.
-    test('the tail is one sentence, and the quit ask outranks the tasks', () {
-      final both = line(
-        urgent: 5,
-        quit: const [
-          (name: 'قهوة', isLimit: true),
-          (name: 'تدخين', isLimit: false),
-        ],
-      )!;
-      expect(both.body, endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'));
-      expect(both.body, isNot(contains('مهام عاجلة')));
-      // With no quit habit waiting the tasks sentence has the tail.
+    // Aziz, 2026-09-24: a quit habit notifies only through a reminder the
+    // person set for it, so the evening note never carries a quit sentence
+    // and a finished build board is a silent evening.
+    test('the tail is the urgent tasks alone, on either path', () {
       expect(line(urgent: 5)!.body, endsWith('وعندك ٥ مهام عاجلة.'));
-      // Same rule on the board-line path.
-      final earned = line(
-        earned: true,
-        urgent: 5,
-        quit: const [(name: 'قهوة', isLimit: true)],
-      )!;
-      expect(earned.body, endsWith('و«قهوة»: بقيت ضمن الحد؟'));
-      expect(earned.body, isNot(contains('مهام عاجلة')));
-    });
-
-    test('quit habits trail whichever line spoke, named or counted', () {
-      expect(
-        line(quit: const [(name: 'قهوة', isLimit: true)])!.body,
-        endsWith('و«قهوة»: بقيت ضمن الحد؟'),
-      );
-      expect(
-        line(quit: const [
-          (name: 'قهوة', isLimit: true),
-          (name: 'تدخين', isLimit: false),
-        ])!
-            .body,
-        endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'),
-      );
+      expect(line(earned: true, urgent: 5)!.body, endsWith('وعندك ٥ مهام عاجلة.'));
+      for (final earned in [true, false]) {
+        final body = line(earned: earned, urgent: 2)!.body;
+        expect(body, isNot(contains('التزام')));
+        expect(body, isNot(contains('التزمت')));
+      }
     });
 
     // streakRiskCopy appends the urgent sentence itself; the board line does
@@ -708,33 +664,20 @@ void main() {
             );
             if (s != null) lines.addAll([s.title, s.body]);
             // The merged evening note is the one banner an evening now, so
-            // every shape it can take is swept too — the quit sentence it
-            // absorbed included, which was never in this sweep while the
-            // check-in was its own notification.
-            for (final quit in [
-              const <({String name, bool isLimit})>[],
-              const [(name: 'تدخين', isLimit: false)],
-              const [(name: 'قهوة', isLimit: true)],
-              const [
-                (name: 'تدخين', isLimit: false),
-                (name: 'قهوة', isLimit: true),
-              ],
-            ]) {
-              for (final earned in [true, false]) {
-                for (var ev = 0; ev < 3; ev++) {
-                  final e = eveningNoteLine(
-                    done: done,
-                    total: 5,
-                    streak: streak,
-                    streakEarnedToday: earned,
-                    pendingBuildHabitCount: 5 - done,
-                    pendingQuit: quit,
-                    urgentTasks: urgent,
-                    variantIndex: ev,
-                    isAr: isAr,
-                  );
-                  if (e != null) lines.addAll([e.title, e.body]);
-                }
+            // every shape it can take is swept too.
+            for (final earned in [true, false]) {
+              for (var ev = 0; ev < 3; ev++) {
+                final e = eveningNoteLine(
+                  done: done,
+                  total: 5,
+                  streak: streak,
+                  streakEarnedToday: earned,
+                  pendingBuildHabitCount: 5 - done,
+                  urgentTasks: urgent,
+                  variantIndex: ev,
+                  isAr: isAr,
+                );
+                if (e != null) lines.addAll([e.title, e.body]);
               }
             }
           }
@@ -873,6 +816,28 @@ void main() {
       }
     }
     expect(lines, isNotEmpty);
+    for (final l in lines) {
+      for (final word in blame) {
+        expect(says(l, word), isFalse, reason: '"$l" says "$word"');
+      }
+    }
+  });
+
+  test('no task reminder title carries a word of blame', () {
+    // taskReminderTitle was never in a sweep, which is how «وبعدها
+    // بانتظارك» / "Still waiting." survived in its after-the-moment branch
+    // until 2026-09-24.
+    final lines = <String>[];
+    for (final isAr in [true, false]) {
+      for (final offset in [
+        -2880, -120, -90, -60, -15, -2, -1, 0, 1, 2, 11, 20, 60, 90, 2880,
+      ]) {
+        lines.add(taskReminderTitle(offsetMinutes: offset, isAr: isAr));
+      }
+      for (final late in [0, 1, 2, 11, 60, 90, 1440]) {
+        lines.add(overdueTaskReminderTitle(minutesLate: late, isAr: isAr));
+      }
+    }
     for (final l in lines) {
       for (final word in blame) {
         expect(says(l, word), isFalse, reason: '"$l" says "$word"');

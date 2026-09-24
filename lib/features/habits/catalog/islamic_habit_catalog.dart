@@ -328,7 +328,9 @@ class IslamicHabitTemplate {
         // DashboardState.categoryCompletions['quran'] stopped incrementing
         // for it forever and the Quran Devotion achievement family
         // (quran_25/100/300/1000 - see AchievementCatalog) could never
-        // unlock for anyone past their first app session. Fixing it here,
+        // unlock for anyone past their first app session. (That family was
+        // removed on 2026-09-22; the fine category still picks each preset's
+        // icon.) Fixing it here,
         // at the one deserialization boundary every screen's habit list
         // flows through (habitListProvider / allHabitsEverProvider), means
         // every read site downstream (Grid, Today, completeHabit's
@@ -460,6 +462,18 @@ class IslamicHabitTemplate {
   }
 
   bool isScheduledFor(DateTime day) {
+    if (!isAliveOn(day)) return false;
+    // The weekdays in force on THAT day, not today's: a Monday-and-Thursday
+    // habit made daily this week was still off on last week's Tuesday.
+    return runsOn(day);
+  }
+
+  /// Whether this habit existed on [day]: on or after the day it was made and
+  /// not after the day it was archived, whatever its weekdays. The half of
+  /// [isScheduledFor] that a session on a day off the plan still needs (see
+  /// moved_day_plan.dart): Wednesday can hold a shower for a Monday, Thursday
+  /// and Saturday habit, but not before that habit existed.
+  bool isAliveOn(DateTime day) {
     final born = createdAt;
     if (born != null &&
         day.isBefore(DateTime(born.year, born.month, born.day))) {
@@ -470,9 +484,7 @@ class IslamicHabitTemplate {
         day.isAfter(DateTime(died.year, died.month, died.day))) {
       return false;
     }
-    // The weekdays in force on THAT day, not today's: a Monday-and-Thursday
-    // habit made daily this week was still off on last week's Tuesday.
-    return runsOn(day);
+    return true;
   }
 
   /// A full copy with [createdAt] swapped in — how habitListProvider

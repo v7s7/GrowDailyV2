@@ -33,6 +33,7 @@ import 'core/providers/first_run_offer_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
 import 'core/providers/weekly_recap_collapsed_provider.dart';
+import 'core/providers/weekly_note_offer_provider.dart';
 import 'core/providers/room_rows_view_provider.dart';
 import 'core/providers/room_cards_collapse_provider.dart';
 import 'core/providers/theme_provider.dart';
@@ -42,6 +43,7 @@ import 'core/services/app_badge_service.dart';
 import 'core/services/home_widget_service.dart';
 import 'core/services/notification_action_queue.dart';
 import 'core/services/notification_service.dart';
+import 'core/services/prayer_widget_feed.dart';
 import 'core/services/push_notification_service.dart';
 import 'shared/widgets/app_logo.dart';
 import 'shared/widgets/overlay_notice.dart';
@@ -51,6 +53,8 @@ import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
 import 'features/achievements/models/achievement_overrides.dart';
 import 'features/character/models/cosmetic_overrides.dart';
+import 'features/broadcast/broadcast_announcer.dart';
+import 'features/broadcast/broadcast_message.dart';
 import 'features/auth/notifiers/auth_notifier.dart';
 import 'features/auth/notifiers/guest_reconnect_provider.dart';
 import 'features/auth/widgets/guest_reconnect_prompt.dart';
@@ -110,6 +114,7 @@ import 'features/premium/notifiers/premium_notifier.dart';
 import 'features/premium/screens/premium_screen.dart';
 import 'features/profile/screens/help_support_screen.dart';
 import 'features/profile/screens/profile_screen.dart' show SettingsScreen;
+import 'features/settings/daily_reminder_prompt_announcer.dart';
 import 'features/settings/screens/nav_bar_settings_screen.dart';
 import 'features/rooms/notifiers/rooms_notifier.dart'
     show
@@ -205,6 +210,11 @@ Future<void> main() async {
     // accessories' names/descriptions — see cosmetic_overrides.dart.
     await CosmeticOverridesStore.loadCached();
     CosmeticOverridesStore.listen();
+    // The admin's pop-up to everyone, the same way: this device's copy and
+    // the pop-ups it already showed, then the live document. Shown by
+    // BroadcastAnnouncer below; see broadcast_message.dart.
+    await BroadcastStore.loadCached();
+    BroadcastStore.listen(firestore: await broadcastEmulatorFirestore());
 
     // Crash reporting: three layers, matching Firebase's own documented
     // Flutter setup, since no single one of them catches everything on its
@@ -345,6 +355,8 @@ Future<void> main() async {
     final persistedRoomFinaleSeen = await loadPersistedRoomFinaleSeen();
     final persistedAppGuideBadgeSeen = await loadPersistedAppGuideBadgeSeen();
     final persistedRecapCollapsed = await loadPersistedWeeklyRecapCollapsed();
+    final persistedWeeklyNoteAnswered =
+        await loadPersistedWeeklyNoteOfferAnswered();
     final persistedRoomRowsCompact = await loadPersistedRoomRowsCompact();
     final persistedRoomTodayCollapsed = await loadPersistedRoomTodayCollapsed();
     final persistedRoomPlanCollapsed = await loadPersistedRoomPlanCollapsed();
@@ -395,6 +407,8 @@ Future<void> main() async {
         roomFinaleSeenProvider.overrideWith((ref) => persistedRoomFinaleSeen),
         appGuideBadgeSeenProvider.overrideWith((ref) => persistedAppGuideBadgeSeen),
         weeklyRecapCollapsedProvider.overrideWith((ref) => persistedRecapCollapsed),
+        weeklyNoteOfferAnsweredProvider
+            .overrideWith((ref) => persistedWeeklyNoteAnswered),
         roomRowsCompactProvider.overrideWith((ref) => persistedRoomRowsCompact),
         roomTodayCollapsedProvider.overrideWith((ref) => persistedRoomTodayCollapsed),
         roomPlanCollapsedProvider.overrideWith((ref) => persistedRoomPlanCollapsed),
@@ -459,6 +473,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// dashboard AND the habit list have both settled and either may land
   /// second. See _watchForDeferredStreakGap.
   final List<ProviderSubscription<Object?>> _streakGapSubs = [];
+
+  /// Whether this launch has already re-checked the charge a past streak-gap
+  /// judgement left (see StreakGapCharge). Once is enough and once is all it
+  /// may cost: the check reads a day at a time out of storage, and its
+  /// trigger below fires on every dashboard change.
+  bool _refreshedStreakCharge = false;
   ProviderSubscription<AsyncValue<User?>>? _authSub;
   ProviderSubscription<String?>? _passwordDroppedSub;
   ProviderSubscription<RoomRaceSnapshot?>? _roomRaceSub;
@@ -508,7 +528,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       showOverlayNotice(
         ctx,
         '$title\n$body',
-        icon: Icons.groups_rounded,
+        // Every room push names its room. One that names none is the
+        // admin's notification to everyone (the Messages page), which
+        // gets the pop-up's own megaphone rather than the rooms icon.
+        icon: code == null ? Icons.campaign_rounded : Icons.groups_rounded,
         onTap: code == null
             ? null
             : () =>
@@ -803,6 +826,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       habitListProvider,
       (previous, next) {
         _recomputeNotifications();
+        // And the widgets, which draw today's habits by name. Their own
+        // listener below watches the DASHBOARD, which a habit being added,
+        // renamed, archived or deleted does not touch, so until something
+        // else changed it the home screen kept offering a habit that was
+        // gone and left out one just made. See [_pushWidgetData].
+        _pushWidgetData();
         // Booked returns are checked from here for the same reason the
         // quit-clean below is: this listener is the one that fires once the
         // habit list has actually loaded, which auto-resume cannot run
@@ -825,17 +854,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // "still pending" count current. Also still owns the home screen/Lock
     // Screen widget + app badge sync it always has.
     _widgetSub = ref.listenManual(dashboardProvider, (previous, next) {
-      final stats = _todayHabitStats();
-      HomeWidgetService.instance.updateWidgetData(
-        streak: next.streak,
-        level: next.level,
-        gold: next.gold,
-        completedToday: stats.completed,
-        totalToday: stats.total,
-        todayHabits: stats.habits,
-        dailyGreenCounts: next.dailyGreenCounts,
-      );
-      _syncBadge(stats);
+      _pushWidgetData(next);
       _recomputeNotifications();
       _maybeAutoCleanQuitYesterday(); // see _habitRemindersSub's comment
     }, fireImmediately: true);
@@ -845,7 +864,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // scheduled reminders, not just future ones.
     _notificationSettingsSub = ref.listenManual(
       notificationSettingsProvider,
-      (previous, next) => _recomputeNotifications(),
+      (previous, next) {
+        _recomputeNotifications();
+        // The prayer-countdown widget reads the same saved location, madhab
+        // and country this screen edits, so a location picked (or cleared)
+        // in Settings has to reach it too — see PrayerWidgetFeed for why it
+        // is a week of instants and not just the next one. fireImmediately
+        // covers cold start; the push itself skips a repeat of the same
+        // inputs on the same day.
+        PrayerWidgetFeed.push(next);
+      },
       fireImmediately: true,
     );
 
@@ -874,6 +902,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       ref.read(dashboardProvider.notifier).refresh();
       ref.read(weeklyGridProvider.notifier).refresh();
       _maybeAutoResumeDueHabits().ignore();
+      // A new day is a new week of prayers to write ahead — the widget's
+      // own list otherwise shrinks by five every day until the app happens
+      // to be opened.
+      PrayerWidgetFeed.push(ref.read(notificationSettingsProvider));
     });
 
     // Keeps the widget's opt-in Room Race face current — see
@@ -951,6 +983,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             // coming. See MatrixTask.lastReminderAt.
             isLate: t.lastReminderAt != null &&
                 !t.lastReminderAt!.isAfter(now),
+            // Not drawn: which ids this task's reminders sit under, so
+            // ticking it on the widget takes them down with it. A task
+            // with no reminder holds nothing to take down.
+            hasReminder: t.reminderAts.isNotEmpty,
+            alarm: t.alarm,
             // The time the user picked, not the earliest nudge. The Lock
             // Screen sorts by it (MatrixLockScreenOrder.swift): today's
             // times first, a task dated for another day below the rest.
@@ -969,6 +1006,36 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         _recomputeNotifications();
       }
     }, fireImmediately: true);
+  }
+
+  /// The covered days last read off the Grid's CURRENT week, by habit id,
+  /// for the reminders (see [_coveredDayKeys]). Kept so a Grid scrolled to
+  /// another week, or reloading, does not re-arm a reminder for a day a
+  /// session already stood in for: left on last week, the app would ring the
+  /// shampoo on the Thursday the Wednesday shower covered. Dated keys, so an
+  /// entry can only ever silence the one day it names.
+  Map<String, Set<String>> _coveredDaysById = const {};
+
+  /// The day keys of [grid]'s week on which [habit]'s own day is stood in for
+  /// by a session on another day of that week (see moved_day_plan.dart).
+  /// Empty for every habit without such a session, which is nearly all of
+  /// them, and for a week the habit has no plan in.
+  static Set<String> _coveredDayKeys(
+    IslamicHabitTemplate habit,
+    WeeklyGridState grid,
+  ) {
+    final demand = movedDemandForRow(
+      habit: habit,
+      days: grid.days,
+      isGreenAt: (i) => grid.squareFor(habit.id, grid.days[i]).isGreen,
+      isUnmarkedAt: (i) =>
+          grid.squareFor(habit.id, grid.days[i]) == SquareState.none,
+    );
+    if (demand == null) return const {};
+    return {
+      for (var i = 0; i < grid.days.length; i++)
+        if (demand[i] == DayDemand.earned) grid.days[i].toDateKey(),
+    };
   }
 
   /// Open Do First tasks: the count the evening streak note's urgent tasks
@@ -1150,11 +1217,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     ref
         .read(weeklyGridProvider.notifier)
         .autoCleanQuitDay(ids, yesterday)
-        .then((_) {
+        .then((marked) {
       // Rooms grade off the stored squares, so a day marked kept here reached
       // a room only on its next full resync; until then the room strip showed
-      // the day empty while the Grid showed it green.
-      if (ids.isNotEmpty && mounted) _resyncMyRooms();
+      // the day empty while the Grid showed it green. Only when a square was
+      // actually marked: nothing new to grade otherwise.
+      if (marked && mounted) _resyncMyRooms();
     }).ignore();
   }
 
@@ -1277,6 +1345,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       habits: ref.read(habitListProvider),
       day: today,
       isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      markOn: ref.read(weeklyGridProvider).currentWeekMark,
     );
 
     // Reminders are scheduled from every habit due in the WEEK AHEAD, not
@@ -1314,11 +1383,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // counting is NotificationService.todayBoardCounts, so the rule that a
     // quit habit is never one of the build habits the note asks for is
     // pinned in test/core instead of living here untested.
+    // A تخطّي leaves the day's count, the rule the streak itself is judged
+    // by (streakCreditOf), so the nudge never asks for a habit rested on
+    // purpose.
+    // A quit habit leaves it too (Aziz, 2026-09-24): it sends nothing unless
+    // the person set it a reminder, so it must not be the thing that keeps
+    // the evening note going («باقي عادة وحدة» about a day kept by default).
+    // Both leave the total too, not just what is left (eveningNoteBoard).
+    final skippedToday = grid.skippedTodayIds();
+    final eveningBoard = NotificationService.eveningNoteBoard(
+      todayHabits,
+      isQuit: (habit) => habit.goalType == GoalType.quit,
+      isSkipped: (habit) => skippedToday.contains(habit.id),
+    );
     final board = NotificationService.todayBoardCounts([
-      for (final habit in todayHabits)
+      for (final habit in eveningBoard)
         (
           isDone: dash.isCompleted(habit.id, habit.effectiveDailyTarget),
-          isQuit: habit.goalType == GoalType.quit,
+          isQuit: false,
         ),
     ]);
     for (final habit in upcomingHabits) {
@@ -1365,10 +1447,19 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         prayerKey: cue.prayerKey,
         // On the habit's own days: a Wed/Sat habit done Wednesday still has
         // its streak on Saturday. See DashboardState.habitStreak.
+        // A day stood in for by a session on another day of this week is not
+        // a miss either (see moved_day_plan.dart), read off the Grid's
+        // current week once it has loaded.
         streak: dash.habitStreak(
           habit.id,
           scheduledWeekdays: habit.scheduledWeekdays.toSet(),
-          runsOn: habit.runsOn,
+          runsOn: runsOnExcusing(
+            habit,
+            !grid.isCurrentWeek || grid.isLoading
+                ? null
+                : (id, day) => grid.squareFor(id, day).isGreen,
+            markOn: grid.squareFor,
+          ),
         ),
         // The raw count, not the done bool: a habit counted twice a day with
         // one logged is neither "done" nor "untouched", and the scheduler
@@ -1379,7 +1470,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // Zero for a habit that is not due today: the count answers "how
         // many of TODAY's target are logged", and today's answer must not
         // stand down a reminder belonging to a later day.
-        completedCount: scheduledToday ? (dash.completions[habit.id] ?? 0) : 0,
+        //
+        // A quit habit answered «ما التزمت» today (its square red) has been
+        // answered as surely as one answered «التزام», so its other check-ins
+        // today stand down too instead of asking again (Aziz, 2026-09-24).
+        completedCount: !scheduledToday
+            ? 0
+            : habit.goalType == GoalType.quit &&
+                    grid.squareFor(habit.id, today) == SquareState.failed
+                ? habit.effectiveDailyTarget
+                : (dash.completions[habit.id] ?? 0),
         dailyTarget: habit.effectiveDailyTarget,
         // What days this habit actually runs, so a fire time that rolls
         // past its own clock time lands on the next one it is due — see
@@ -1420,6 +1520,15 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                   },
       ));
     }
+    // Read from the Grid's current week once it has loaded, and remembered
+    // while it shows another (see [_coveredDaysById]).
+    if (grid.isCurrentWeek && !grid.isLoading) {
+      _coveredDaysById = {
+        for (final habit in upcomingHabits)
+          if (_coveredDayKeys(habit, grid) case final keys when keys.isNotEmpty)
+            habit.id: keys,
+      };
+    }
     NotificationService.instance.scheduleSmartReminders(
       reminders,
       settings,
@@ -1430,6 +1539,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         for (final habit in upcomingHabits)
           if (habit.pastCadences.isNotEmpty) habit.id: habit.runsOn,
       },
+      // The days of this week a session on another day already covers (see
+      // moved_day_plan.dart): nothing is owed on them, so nothing rings.
+      excusedDaysById: _coveredDaysById,
     );
 
     // "Do First" = urgent + important, the one Matrix quadrant that's a
@@ -1440,40 +1552,21 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // sentence is current when it fires, and other Matrix edits still cost
     // no recompute.
     final urgentMatrixCount = _openDoFirstCount(ref.read(matrixProvider));
-    // Quit habits resolve in the evening, not (only) at a cue time — their
-    // success is the absence of something, so the day gets settled by an
-    // evening ask instead of relying on the user remembering to tap.
-    // Resolved = affirmed on-track (completed) or logged as a slip (today's
-    // square already red). Same single-tap-only rule as HabitCard's slip
-    // link. The grid read above can transiently miss a slip while the grid
-    // is still loading or showing a past week — the _gridSub recompute
-    // corrects that the moment the real data lands.
-    final quitCheckIns = <QuitCheckInInput>[
-      for (final habit in todayHabits)
-        if (habit.goalType == GoalType.quit && habit.effectiveDailyTarget == 1)
-          (
-            id: habit.id,
-            name: habit.localName(isAr),
-            isLimit: habit.reductionType == ReductionType.limit,
-            isResolvedToday:
-                dash.isCompleted(habit.id, habit.effectiveDailyTarget) ||
-                    grid.squareFor(habit.id, today) == SquareState.failed,
-          ),
-    ];
+    // Quit habits are not asked in the evening note any more (Aziz,
+    // 2026-09-24): a quit habit notifies only through a reminder the person
+    // set for it. An unanswered day is kept by default anyway
+    // (_maybeAutoCleanQuitYesterday), so the ask added nothing.
 
     // ONE evening notification, worded from today's board, so it is
     // scheduled here rather than at the top of this method. It carries what
-    // used to be three separate banners inside half an hour: the daily
-    // reminder, the streak ask and one check-in per quit habit. See
-    // NotificationService.scheduleEveningNote.
+    // used to be separate banners inside half an hour: the daily reminder
+    // and the streak ask. See NotificationService.scheduleEveningNote.
     //
-    // Its clock is the reminder time the person picked; with none picked it
-    // falls back to the streak note's own time, which is the setting the
-    // streak ask used to fire on. So turning the daily reminder off does not
-    // silently take the streak ask with it.
-    final reminderTime = ref.read(reminderTimeProvider);
-    final eveningAt = reminderTime ??
-        (settings.streakRiskEnabled ? settings.streakRiskTime : null);
+    // Only at a time the person picked (Aziz, 2026-09-24). With none picked
+    // nothing is sent; the app asks once instead whether they want one
+    // (DailyReminderPrompt). It used to fall back to the streak note's own
+    // clock, 20:30, a time nobody had chosen.
+    final eveningAt = ref.read(reminderTimeProvider);
     if (eveningAt != null && settings.masterEnabled) {
       NotificationService.instance.scheduleEveningNote(
         settings: settings,
@@ -1481,13 +1574,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         minute: eveningAt.minute,
         isAr: isAr,
         done: board.done,
-        total: todayHabits.length,
+        total: eveningBoard.length,
         streak: dash.streak,
         // Once today's point is earned the streak ask has nothing true to
         // want, and the note falls through to the plain board line.
         streakEarnedToday: dash.streakEarnedToday,
         pendingBuildHabitCount: board.pendingBuild,
-        quitHabits: quitCheckIns,
         urgentTasks: urgentMatrixCount,
       );
     } else {
@@ -1517,9 +1609,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       gridLoading: grid.isLoading,
       gridOnCurrentWeek: grid.isCurrentWeek,
     );
-    if (weeklyNoteBasis != WeeklyNoteBasis.skip) {
+    // Only for someone who chose it and has a habit for it to be about (see
+    // scheduleWeeklyDigest). A note that must not go out is cleared even
+    // mid-load: taking it down needs no count of this week.
+    final hasHabits = ref.read(habitListProvider).isNotEmpty;
+    final weeklyNoteOff =
+        !settings.masterEnabled || !settings.weeklyNoteOn || !hasHabits;
+    if (weeklyNoteBasis != WeeklyNoteBasis.skip || weeklyNoteOff) {
       NotificationService.instance.scheduleWeeklyDigest(
         settings: settings,
+        hasHabits: hasHabits,
         // The habit with the most green days this week names the numbered
         // copy, in habit order so a tie keeps the first. Null from any other
         // week: this week's squares are not in hand, so the claim-free copy
@@ -1544,11 +1643,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       );
     }
 
-    NotificationService.instance.celebrationsEnabled =
-        settings.masterEnabled && settings.celebrationsEnabled;
-    // Same reactive hand-off as the flag above: the celebration
-    // notifications fired from DashboardNotifier have no BuildContext to
-    // read the locale from. See NotificationService.isArabic.
+    // A reactive hand-off: code with no BuildContext (DashboardNotifier)
+    // reads the locale from here. See NotificationService.isArabic.
     NotificationService.instance.isArabic = isAr;
 
     _syncBadge();
@@ -1575,11 +1671,46 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         _runRecomputeNotifications();
       }
     }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _awaySinceResume = true;
+    }
     if (state == AppLifecycleState.resumed) {
       _processPendingWidgetCompletions();
       _processPendingWidgetTaskCompletions();
       _processPendingNotificationActions();
-      ref.read(dashboardProvider.notifier).refresh();
+      // Tops the prayer-countdown widget's week back up. The listeners above
+      // only fire when something changes, and nothing about the app changes
+      // just because a day of prayers was spent — so without a resume push
+      // a phone used daily would still walk the widget's list down to its
+      // last day. Skips itself when the same day was already written.
+      PrayerWidgetFeed.push(ref.read(notificationSettingsProvider));
+      final wasAway = _awaySinceResume;
+      _awaySinceResume = false;
+      // Before the board reload below, and for its sake. When the day turned
+      // while the app was away, _dayTurnSub reloads the dashboard and the
+      // Grid for it the moment the clock is re-read, so this resume must not
+      // load them a second time (it did: 9 reads twice over on every resume
+      // across midnight).
+      final container = ProviderScope.containerOf(context, listen: false);
+      final dayBefore = container.read(dayClockProvider).effectiveDay;
+      // The day clock's own timer does not run while the app is suspended,
+      // so a phone put away at 09:00 and opened at 11:00 would still hold
+      // yesterday open. Re-reading it here carries every report across
+      // kDayCutoffHour on resume, and only once a boundary has passed. See
+      // refreshDayClockIfStale.
+      refreshDayClockIfStale(container);
+      final dayTurned =
+          container.read(dayClockProvider).effectiveDay != dayBefore;
+      // Only a return from the background re-reads the account. Pulling down
+      // Control Center or Notification Center, a permission prompt, Face ID
+      // or a glance at the app switcher only make the app INACTIVE for a
+      // moment: it never left the screen, and every one of them reloaded the
+      // dashboard, the Grid's week, the language write and the rooms as if it
+      // had. The queued widget and notification taps above still run on any
+      // resume, since a tap from Notification Center is one of those.
+      final reloadBoard = wasAway && !dayTurned;
+      if (reloadBoard) ref.read(dashboardProvider.notifier).refresh();
       ref.read(premiumProvider.notifier).refresh();
       // A booked return can fall due while the app sits warm in the switcher
       // (iOS keeps apps resumable for days) or after the day rolls over with
@@ -1593,14 +1724,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // construction — leaving the app open/backgrounded across the day
       // cutoff (see DateTimeGameExt.effectiveDay), and especially across a
       // Saturday grid-week boundary, would keep showing the old week until
-      // a full restart without this.
-      ref.read(weeklyGridProvider.notifier).refresh();
-      // The day clock's own timer does not run while the app is suspended,
-      // so a phone put away at 09:00 and opened at 11:00 would still hold
-      // yesterday open. Re-reading it here carries every report across
-      // kDayCutoffHour on resume, and only once a boundary has passed. See
-      // refreshDayClockIfStale.
-      refreshDayClockIfStale(ProviderScope.containerOf(context, listen: false));
+      // a full restart without this. A day turn reloads it through
+      // _dayTurnSub instead (see reloadBoard).
+      if (reloadBoard) ref.read(weeklyGridProvider.notifier).refresh();
       // The same suspended-timer gap for a legacy Premium trial: its window
       // can close while the app sleeps, and premiumAccessProvider's own
       // re-check timer does not run then, so the gates would stay open
@@ -1631,7 +1757,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // time zones mid-session should be reflected by the next resume, not
       // require a fresh sign-in.
       final uid = ref.read(authStateProvider).asData?.value?.uid;
-      if (uid != null) {
+      // Not for a moment's INACTIVE blip either, for the reason above.
+      if (uid != null && wasAway) {
         // Not while a hydration read is in flight — see the flag's doc.
         if (!_localeHydrationInFlight) _syncAmbientAccountFacts(uid);
         // Same self-healing idea as _syncAmbientAccountFacts right above -
@@ -1671,6 +1798,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// Fire-and-forget and deliberately unawaited: it's a background freshening
   /// nothing on screen is waiting for, and a failure just means the next
   /// resume tries again.
+  /// Whether the app has really left the screen (paused or hidden) since the
+  /// last resume, which is what a resume's reloads are for. True to start
+  /// with, so the first resume of a process behaves as it always has.
+  bool _awaySinceResume = true;
+
   /// The last time a RESUME ran a full resync.
   DateTime? _lastResumeResync;
 
@@ -1787,11 +1919,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _syncAmbientAccountFacts(String uid) {
     final locale = ref.read(localeProvider).languageCode;
     final tzOffsetMinutes = DateTime.now().timeZoneOffset.inMinutes;
+    // Written once per process, and again only when one of them changes (a
+    // language switch, a trip across time zones). It was written on every
+    // resume, a dozen times a day, each write also billing a read on the
+    // users/{uid} listener, to store the same two values.
+    final facts = '$uid|$locale|$tzOffsetMinutes';
+    if (facts == _ambientFactsWritten) return;
+    _ambientFactsWritten = facts;
     unawaited(FirebaseFirestore.instance.collection('users').doc(uid).set({
       'locale': locale,
       'tzOffsetMinutes': tzOffsetMinutes,
-    }, SetOptions(merge: true)).catchError((_) {}));
+    }, SetOptions(merge: true)).catchError((_) {
+      // Not written after all: the next call tries again.
+      if (_ambientFactsWritten == facts) _ambientFactsWritten = null;
+    }));
   }
+
+  /// The facts [_syncAmbientAccountFacts] last wrote in this process.
+  String? _ambientFactsWritten;
 
   /// Judges any streak gap the dashboard loader deferred, as soon as both
   /// the dashboard and the habit list have settled.
@@ -1806,10 +1951,28 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _watchForDeferredStreakGap() {
     void tryResolve() {
       if (ref.read(habitsStillLoadingProvider)) return;
-      if (ref.read(dashboardProvider).pendingStreakGapFrom == null) return;
-      ref
-          .read(dashboardProvider.notifier)
-          .resolveStreakGap(ref.read(allHabitsEverProvider));
+      final dash = ref.read(dashboardProvider);
+      // What the days of the gap really hold. Without it the judgement reads
+      // every day as blank, so a day the steps catch-up or the Grid had
+      // already recorded was still charged as missed.
+      final squaresOn = ref.read(weeklyGridProvider.notifier).storedSquaresFor;
+      if (dash.pendingStreakGapFrom == null) {
+        // No new gap, but a charge from an earlier session can still be owed
+        // a refund: the day that repairs it is usually recorded long after
+        // the gap closed, and on a launch after that nothing else looks.
+        if (_refreshedStreakCharge || dash.streakGapCharge == null) return;
+        _refreshedStreakCharge = true;
+        ref.read(dashboardProvider.notifier).refreshStreakGapCharge(
+              habits: ref.read(allHabitsEverProvider),
+              squaresOn: squaresOn,
+            );
+        return;
+      }
+      _refreshedStreakCharge = true;
+      ref.read(dashboardProvider.notifier).resolveStreakGap(
+            ref.read(allHabitsEverProvider),
+            squaresOn: squaresOn,
+          );
     }
 
     _streakGapSubs.add(
@@ -1879,6 +2042,15 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// AppIntent flips its own cached copy of today's habits before this is
   /// ever read); this is what makes that tap *count* — XP, streak, gold —
   /// which can only safely happen through the app's real, live state.
+  ///
+  /// This queue holds a bare habit id and no day, so everything in it is
+  /// credited to the day it is DRAINED on: a tick at 23:50 drained after
+  /// kDayCutoffHour the next morning landed on the new day and left the day
+  /// it was meant for blank. The widget writes the day beside the tap now,
+  /// into the queue a lock screen «تمت» uses and
+  /// [_processPendingNotificationActions] drains on the day it names. This
+  /// stays for the ticks an earlier build already queued, and for the
+  /// widget's own fallback if it ever cannot encode that queue.
   Future<void> _processPendingWidgetCompletions() async {
     // Wait for the dashboard's first load before draining the queue.
     //
@@ -2242,12 +2414,19 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       for (final h in scheduled)
         if (dash.isCompleted(h.id, h.effectiveDailyTarget)) h.id,
     };
+    // A تخطّي leaves the count too, as it does the Grid card's and the
+    // streak's (streakCreditOf): a habit rested on purpose is not waiting.
+    final skipped = ref.read(weeklyGridProvider).skippedTodayIds();
     final owedIds = boardHabitsOn(
       habits: scheduled,
       day: today,
       isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      markOn: ref.read(weeklyGridProvider).currentWeekMark,
       alsoOwing: doneIds,
-    ).map((h) => h.id).toSet();
+    )
+        .map((h) => h.id)
+        .where((id) => doneIds.contains(id) || !skipped.contains(id))
+        .toSet();
 
     final habits = <({
       String id,
@@ -2276,6 +2455,34 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       total: owedIds.length,
       habits: habits,
     );
+  }
+
+  /// Pushes today's board to the home screen and Lock Screen widgets, and
+  /// puts the same numbers on the app icon badge.
+  ///
+  /// Called from the DASHBOARD listener, which is what changes as habits are
+  /// completed, and from the HABIT LIST one, which is what changes as habits
+  /// come and go. It used to live only in the first, so a habit added,
+  /// renamed, archived or deleted did not reach the widget until some
+  /// unrelated completion or the next cold start did: the widget went on
+  /// offering a habit that no longer existed, and a habit just made was
+  /// missing from it. A tap on a stale row was never dangerous (the app
+  /// resolves the id and finds nothing), it just did nothing.
+  ///
+  /// [dash] is the state the caller already has; read fresh when omitted.
+  void _pushWidgetData([DashboardState? dash]) {
+    final DashboardState state = dash ?? ref.read(dashboardProvider);
+    final stats = _todayHabitStats();
+    HomeWidgetService.instance.updateWidgetData(
+      streak: state.streak,
+      level: state.level,
+      gold: state.gold,
+      completedToday: stats.completed,
+      totalToday: stats.total,
+      todayHabits: stats.habits,
+      dailyGreenCounts: state.dailyGreenCounts,
+    );
+    _syncBadge(stats);
   }
 
   /// However many of the habits today actually OWED are still incomplete —
@@ -2424,14 +2631,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         habits: ref.read(habitListProvider),
         day: actionDay,
         isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+        markOn: ref.read(weeklyGridProvider).currentWeekMark,
         alsoOwing: {habit.id},
       ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+      // Measured past the days a session elsewhere in the week covered, the
+      // same as the Grid's own tap (see streakRunsOn).
+      final streakRunsOnDays = await streakRunsOn(
+        habit: habit,
+        day: actionDay,
+        lastCompletedKey:
+            ref.read(dashboardProvider).habitLastCompletedDate[habit.id],
+        squaresOn: ref.read(weeklyGridProvider.notifier).storedSquaresFor,
+      );
       final mirroredBySingleTap =
           await ref.read(dashboardProvider.notifier).completeHabit(
                 habitId: habit.id,
                 day: actionDay,
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
-                runsOn: habit.runsOn,
+                runsOn: streakRunsOnDays,
                 // 2x while a linked room is live — see roomBoostedReward.
                 xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
                 goldReward:
@@ -2455,6 +2672,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                         // other. The half is worth 0.5 wherever it is read.
                         halfDoneHabitIds:
                             ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                        skippedHabitIds:
+                            ref.read(weeklyGridProvider).skippedTodayIds(),
                       )
                     : willCompleteAllSquaresOn(ref, habit, actionDay),
                 // Scales the daily earn ceiling with the roster, see
@@ -2930,18 +3149,28 @@ class _OnboardingOrGrid extends ConsumerWidget {
     // the next open — see RoomFinaleAnnouncer for why this is state-driven
     // rather than a scheduled notification. Wrapped here rather than inside
     // HomeShell so it survives the crossfade below without remounting (and
-    // re-asking) every time onboarding flips.
-    return GuestReconnectPrompt(
-      child: RoomFinaleAnnouncer(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: !seen
-              ? const OnboardingScreen(key: ValueKey('onboarding'))
-              : offerAsked
-                  ? const HomeShell(key: ValueKey('home'))
-                  : const FirstRunOfferScreen(key: ValueKey('offer')),
+    // re-asking) every time onboarding flips. BroadcastAnnouncer, the
+    // admin's pop-up, sits outermost for the same reason and waits for the
+    // home screen itself.
+    return BroadcastAnnouncer(
+      // Asks once, on opening the app, whether someone who never picked a
+      // daily reminder time wants one: with none picked the evening note is
+      // not sent at all (Aziz, 2026-09-24). Settles after the admin's
+      // pop-up and keeps quiet on an open where anything else was shown.
+      child: DailyReminderPromptAnnouncer(
+        child: GuestReconnectPrompt(
+          child: RoomFinaleAnnouncer(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: !seen
+                  ? const OnboardingScreen(key: ValueKey('onboarding'))
+                  : offerAsked
+                      ? const HomeShell(key: ValueKey('home'))
+                      : const FirstRunOfferScreen(key: ValueKey('offer')),
+            ),
+          ),
         ),
       ),
     );

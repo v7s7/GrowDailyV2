@@ -29,7 +29,7 @@ import '../../grid/screens/monthly_heatmap_screen.dart'
     show heatColor, heatLevel, heatmapScheduledOn;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
-import '../../habits/models/habit_day_demand.dart' show GreenOnDay;
+import '../../habits/models/habit_day_demand.dart' show GreenOnDay, MarkOnDay;
 import 'year_strip.dart'
     show yearStripColumnCount, yearStripDay, yearStripOrigin;
 
@@ -40,9 +40,13 @@ Color recordDayColor({
   required DateTime day,
   required List<IslamicHabitTemplate> habits,
   required GreenOnDay isGreen,
+  MarkOnDay? markOn,
   required bool dark,
 }) =>
-    heatColor(heatLevel(count, heatmapScheduledOn(habits, day, isGreen)), dark);
+    heatColor(
+      heatLevel(count, heatmapScheduledOn(habits, day, isGreen, markOn: markOn)),
+      dark,
+    );
 
 Color _wash(bool dark, double opacity) =>
     (dark ? Colors.white : Colors.black).withOpacity(opacity);
@@ -252,6 +256,7 @@ class YearMonthsGrid extends StatelessWidget {
   final Map<String, int> counts;
   final List<IslamicHabitTemplate> habits;
   final GreenOnDay isGreen;
+  final MarkOnDay? markOn;
   final DateTime today;
 
   /// The first day anything was marked; days before it are not part of the
@@ -266,6 +271,7 @@ class YearMonthsGrid extends StatelessWidget {
     required this.counts,
     required this.habits,
     required this.isGreen,
+    this.markOn,
     required this.today,
     required this.firstMark,
     required this.lockedBefore,
@@ -290,6 +296,7 @@ class YearMonthsGrid extends StatelessWidget {
                       counts: counts,
                       habits: habits,
                       isGreen: isGreen,
+                      markOn: markOn,
                       today: today,
                       firstMark: firstMark,
                       lockedBefore: lockedBefore,
@@ -310,6 +317,7 @@ class _MiniMonth extends StatelessWidget {
   final Map<String, int> counts;
   final List<IslamicHabitTemplate> habits;
   final GreenOnDay isGreen;
+  final MarkOnDay? markOn;
   final DateTime today;
   final DateTime? firstMark;
   final DateTime? lockedBefore;
@@ -320,6 +328,7 @@ class _MiniMonth extends StatelessWidget {
     required this.counts,
     required this.habits,
     required this.isGreen,
+    this.markOn,
     required this.today,
     required this.firstMark,
     required this.lockedBefore,
@@ -368,6 +377,7 @@ class _MiniMonth extends StatelessWidget {
                   day: day,
                   habits: habits,
                   isGreen: isGreen,
+                  markOn: markOn,
                   dark: gp.dark,
                 );
       cells.add(DecoratedBox(

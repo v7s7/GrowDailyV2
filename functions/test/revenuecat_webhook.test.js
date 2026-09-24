@@ -19,6 +19,8 @@ const test = require("node:test");
 const assert = require("node:assert");
 const {
   ENTITLEMENT_ID,
+  LIFETIME_PRODUCT_IDS,
+  isLifetimeProduct,
   isProduction,
   isRealUid,
   premiumFromCustomerInfo,
@@ -276,4 +278,60 @@ test("sandbox only, or a real purchase that was refunded or lapsed, is free", ()
       expires_date: new Date(NOW - 1000).toISOString()}},
   }), NOW);
   assert.equal(refundedOrLapsed.active, false);
+});
+
+test("both lifetimes are lifetimes, with or without a Play suffix", () => {
+  // 2026-09-22: the welcome-window and sale price is its own product.
+  assert.deepEqual([...LIFETIME_PRODUCT_IDS],
+      ["growdaily_lifetime", "growdaily_lifetime_offer"]);
+  assert.equal(isLifetimeProduct("growdaily_lifetime"), true);
+  assert.equal(isLifetimeProduct("growdaily_lifetime_offer"), true);
+  assert.equal(isLifetimeProduct("growdaily_lifetime_offer:lifetime"), true);
+  // Exact ids, not a prefix: nothing else that happens to start the same way.
+  assert.equal(isLifetimeProduct("growdaily_lifetime_offer_2"), false);
+  assert.equal(isLifetimeProduct("growdaily_lifetimes"), false);
+  assert.equal(isLifetimeProduct("growdaily_monthly"), false);
+  assert.equal(isLifetimeProduct(":growdaily_lifetime"), false);
+  assert.equal(isLifetimeProduct(null), false);
+});
+
+test("a real offer lifetime behind a sandbox entitlement is Premium", () => {
+  // A tester whose sandbox regular lifetime is what the entitlement names,
+  // and who then bought the offer lifetime for real. The old verdict looked
+  // up growdaily_lifetime alone, found only the sandbox one, and read free.
+  const v = premiumFromCustomerInfo(info({
+    entitlement: {expires_date: null, grace_period_expires_date: null,
+      product_identifier: "growdaily_lifetime"},
+    nonSubscriptions: {
+      growdaily_lifetime: [{is_sandbox: true}],
+      growdaily_lifetime_offer: [{is_sandbox: false, refunded_at: null}],
+    },
+  }), NOW);
+  assert.deepEqual(v, {active: true, expiresAtMs: null, checkedAtMs: NOW});
+});
+
+test("a refunded offer lifetime behind a sandbox entitlement is free", () => {
+  const v = premiumFromCustomerInfo(info({
+    entitlement: {expires_date: null, grace_period_expires_date: null,
+      product_identifier: "growdaily_lifetime"},
+    nonSubscriptions: {
+      growdaily_lifetime: [{is_sandbox: true}],
+      growdaily_lifetime_offer: [
+        {is_sandbox: false, refunded_at: iso(NOW - DAY)}],
+    },
+  }), NOW);
+  assert.deepEqual(v, {active: false, expiresAtMs: null, checkedAtMs: NOW});
+});
+
+test("a Play-suffixed real offer lifetime beats a sandbox monthly", () => {
+  // Play may key the one-time product with a suffix on the customer record.
+  const v = premiumFromCustomerInfo(info({
+    entitlement: {expires_date: iso(NOW + DAY),
+      grace_period_expires_date: null, product_identifier: "growdaily_monthly"},
+    subscriptions: {growdaily_monthly: {is_sandbox: true}},
+    nonSubscriptions: {
+      "growdaily_lifetime_offer:lifetime": [{is_sandbox: false}],
+    },
+  }), NOW);
+  assert.deepEqual(v, {active: true, expiresAtMs: null, checkedAtMs: NOW});
 });

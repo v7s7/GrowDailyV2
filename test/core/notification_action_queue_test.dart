@@ -87,6 +87,32 @@ void main() {
           reason: 'the oldest taps are the ones to lose');
       expect(queue.last.habitId, 'h${NotificationActionRules.maxQueued + 4}');
     });
+
+    test('reads what the home screen widget writes, keys in any order', () {
+      // The widget's checkmark appends to this same queue from Swift
+      // (queueWithMarkDone in ios/GrowDailyWidget/HabitReminderStandDown
+      // .swift), and Swift's JSON writer puts a dictionary's keys in
+      // whatever order it likes. Both strings below came out of that
+      // function; nothing here may depend on where a key lands.
+      const oneTap =
+          '[{"day":"2026-09-23","action":"mark_done","habitId":"fajr"}]';
+      const twoTaps = '[{"habitId":"fajr","action":"mark_done",'
+          '"day":"2026-09-23"},{"day":"2026-09-23","habitId":"witr",'
+          '"action":"mark_done"}]';
+      expect(NotificationActionRules.decodeQueue(oneTap), [
+        const QueuedNotificationAction(
+            action: 'mark_done', habitId: 'fajr', day: '2026-09-23'),
+      ]);
+      expect(
+        NotificationActionRules.decodeQueue(twoTaps).map((e) => e.habitId),
+        ['fajr', 'witr'],
+      );
+      expect(
+        NotificationActionRules.decodeQueue(twoTaps).last.dayDate,
+        DateTime(2026, 9, 23),
+        reason: 'the day the tap was made on is what the drain credits',
+      );
+    });
   });
 
   group('NotificationActionRules today-list', () {

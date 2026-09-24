@@ -4,10 +4,11 @@
  * The built-in achievement text, transcribed once from
  * lib/features/achievements/models/achievement_model.dart's
  * AchievementCatalog. Static on purpose: unlike Wording's app-text catalog
- * (docs/wording/generator), there is no analyzer-driven rebuild here — 24
- * achievements and 6 families change rarely enough that keeping this file in
+ * (docs/wording/generator), there is no analyzer-driven rebuild here — 20
+ * achievements and 5 families change rarely enough that keeping this file in
  * sync by hand, the one time a new one is added in code, is simpler and
- * safer than a second code-parsing pipeline for 30 records.
+ * safer than a second code-parsing pipeline for 25 records. The Quran
+ * family («ورد القرآن») was removed from the app on 2026-09-22, and from here.
  *
  * If Dart's list ever moves ahead of this one (a new achievement added, a
  * built-in string edited), the admin page still runs correctly — a
@@ -22,7 +23,6 @@ const FAMILIES = [
   { id: 'level', title: 'The Climb', titleAr: 'الصعود' },
   { id: 'completions', title: 'Steady', titleAr: 'الثبات' },
   { id: 'grid', title: 'The Grid', titleAr: 'الشبكة' },
-  { id: 'quran', title: 'Daily Quran', titleAr: 'ورد القرآن' },
   { id: 'endurance', title: 'The Long Haul', titleAr: 'النَفَس الطويل' },
 ];
 
@@ -45,10 +45,6 @@ const ACHIEVEMENTS = [
   { id: 'completions_2000', familyId: 'completions', tier: 'gold', name: 'Nothing Stops It', nameAr: 'ما يوقفه شي', description: 'Habits, 2,000 times', descriptionAr: 'العادات، 2000 مرة' },
   { id: 'completions_5000', familyId: 'completions', tier: 'platinum', name: 'Second Nature', nameAr: 'صار طبع', description: 'Habits, 5,000 times', descriptionAr: 'العادات، 5000 مرة' },
   // Quran Devotion
-  { id: 'quran_25', familyId: 'quran', tier: 'bronze', name: 'Never Misses a Reading', nameAr: 'ما يفوته ورد', description: 'A Quran habit, 25 times', descriptionAr: 'عادة قرآن، 25 مرة' },
-  { id: 'quran_100', familyId: 'quran', tier: 'silver', name: 'Keeper of the Reading', nameAr: 'صاحب الورد', description: 'A Quran habit, 100 times', descriptionAr: 'عادة قرآن، 100 مرة' },
-  { id: 'quran_300', familyId: 'quran', tier: 'gold', name: 'Companion of the Mushaf', nameAr: 'رفيق المصحف', description: 'A Quran habit, 300 times', descriptionAr: 'عادة قرآن، 300 مرة' },
-  { id: 'quran_1000', familyId: 'quran', tier: 'platinum', name: 'Light upon Light', nameAr: 'نور على نور', description: 'A Quran habit, 1,000 times', descriptionAr: 'عادة قرآن، 1000 مرة' },
   // Victory Grid
   { id: 'green_1', familyId: 'grid', tier: 'bronze', name: 'First Square', nameAr: 'أول مربّع', description: 'The first colored square on the Grid', descriptionAr: 'أول مربّع ملوّن في الشبكة' },
   { id: 'green_100', familyId: 'grid', tier: 'silver', name: 'A Hundred Squares', nameAr: 'مية مربّع', description: '100 colored squares on the Grid', descriptionAr: '100 مربّع ملوّن في الشبكة' },

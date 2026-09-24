@@ -480,12 +480,30 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// - and makes an empty week owe its last `target` days, no more. A caller
   /// holding the history mirror can pass a reader and get the gap's first
   /// partial week right too.
+  ///
+  /// [squaresOn] reads one day's squares out of storage, for the days inside
+  /// the gap. A day already recorded green is not a day missed: the steps
+  /// catch-up writes squares up to a week back from measured Health data, and
+  /// a person can paint a day they really did on the Grid, and neither of
+  /// those ever reached this judgement before. It never pays anything: a
+  /// square only stops a day being charged, which is the one thing about the
+  /// day the person can actually prove.
   Future<void> resolveStreakGap(
     Iterable<IslamicHabitTemplate> habits, {
     GreenOnDay isGreen = _nothingGreen,
+    Future<Map<String, SquareState>?> Function(DateTime day)? squaresOn,
   }) async {
+    // Read before anything is awaited, so two passes racing each other judge
+    // the same gap once: the second finds the marker already cleared.
     final from = state.pendingStreakGapFrom;
     if (from == null) return;
+    // A judgement already made is re-checked first, against the squares as
+    // they are now: see [refreshStreakGapCharge]. A day recorded late repairs
+    // an old charge long after the gap it belonged to was closed.
+    if (squaresOn != null) {
+      await refreshStreakGapCharge(habits: habits, squaresOn: squaresOn);
+      if (state.pendingStreakGapFrom == null) return;
+    }
     final now = DateTime.now();
 
     // Strictly between: the last earning day is settled, and no day that is
@@ -493,15 +511,20 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // says a day counts once it is done or has closed; this is the streak's
     // half of it, and firstOpenDayAt is where that bound is defined.
     final settledBefore = firstOpenDayAt(now);
+    final gapDays = <DateTime>[
+      for (var d = from.add(const Duration(days: 1));
+          d.isBefore(settledBefore);
+          d = d.add(const Duration(days: 1)))
+        d,
+    ];
+    final squares = squaresOn == null
+        ? _SquareReader.blank(isGreen)
+        : await _SquareReader.read(gapDays, squaresOn, fallback: isGreen);
     var owedDays = 0;
-    for (var d = from.add(const Duration(days: 1));
-        d.isBefore(settledBefore);
-        d = d.add(const Duration(days: 1))) {
-      if (habits
-          .any((h) => habitOwesDay(habit: h, day: d, isGreen: isGreen))) {
-        owedDays++;
-      }
+    for (final d in gapDays) {
+      if (_dayWasMissed(d, habits, squares)) owedDays++;
     }
+    final through = gapDays.isEmpty ? from : gapDays.last;
 
     if (owedDays == 0) {
       // Every day in the gap was a rest day, or the only days still in it
@@ -516,7 +539,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       // as the last SETTLED day leaves that day to be judged when it closes.
       final lastSettled = settledBefore.subtract(const Duration(days: 1));
       final marker = lastSettled.isAfter(from) ? lastSettled : from;
-      state = state.copyWith(clearPendingStreakGap: true);
+      state = state.copyWith(clearPendingStreakGap: true, lastStreakDay: marker);
       if (_uid == null) {
         await _saveGuestState(lastActiveDate: marker);
       } else {
@@ -558,16 +581,28 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       final lastSettled = settledBefore.subtract(const Duration(days: 1));
       final marker = lastSettled.isAfter(from) ? lastSettled : from;
       final newFreezes = state.streakFreezes - owedDays;
+      // What this cost, so a day recorded late inside the window can hand the
+      // freezes back (see [StreakGapCharge]).
+      final charge = StreakGapCharge(
+        from: from,
+        through: through,
+        owed: owedDays,
+        freezesSpent: owedDays,
+        streakBefore: 0,
+      );
       state = state.copyWith(
         streakFreezes: newFreezes,
         didUseStreakFreeze: true,
         clearPendingStreakGap: true,
+        streakGapCharge: charge,
+        lastStreakDay: marker,
       );
       if (_uid == null) {
         await _saveGuestState(lastActiveDate: marker);
       } else {
         _userRef.set({
           'streakFreezes': newFreezes,
+          'streakGap': charge.toJson(),
           'lastActiveDate': Timestamp.fromDate(marker),
           // Same both-fields rule as the rest-day branch above: leaving the
           // stale 'lastActiveDay' string in place made the loader re-detect
@@ -580,19 +615,174 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     }
 
     final lost = state.streak;
+    // The same receipt as the freeze branch, with what the break took away
+    // instead of what it spent: if one of these days turns out to have been
+    // done after all, the number it removed is exactly what goes back.
+    final charge = StreakGapCharge(
+      from: from,
+      through: through,
+      owed: owedDays,
+      freezesSpent: 0,
+      streakBefore: lost,
+    );
     state = state.copyWith(
       streak: 0,
       previousStreak: lost > 0 ? lost : state.previousStreak,
       clearPendingStreakGap: true,
+      streakGapCharge: charge,
     );
     if (_uid == null) {
       await _saveGuestState();
     } else {
       _userRef.set({
         'currentStreak': 0,
+        'streakGap': charge.toJson(),
         if (lost > 0) 'previousStreak': lost,
       }, SetOptions(merge: true)).ignore();
     }
+  }
+
+  /// Whether [day] was missed, by the same standard a live day is judged by:
+  /// it asked something of at least one habit, and what it asked for was not
+  /// met to [kStreakDayCompletionThreshold], with a جزئي square worth half
+  /// exactly as willCompleteAllHabitsToday counts one.
+  ///
+  /// With nothing read, every day that asked for anything is missed, which is
+  /// what this judgement always assumed and is the right reading of a gap
+  /// nobody recorded.
+  bool _dayWasMissed(
+    DateTime day,
+    Iterable<IslamicHabitTemplate> habits,
+    _SquareReader squares,
+  ) {
+    // By id: allHabitsEverProvider emits a synthetic stint per paused run of
+    // the same habit, and a day must not be counted once per stint.
+    final counted = <String>{};
+    var total = 0;
+    var credited = 0.0;
+    for (final habit in habits) {
+      if (!counted.add(habit.id)) continue;
+      if (!habitOwesDay(
+        habit: habit,
+        day: day,
+        isGreen: squares.isGreen,
+        markOn: squares.of,
+      )) {
+        continue;
+      }
+      total++;
+      final square = squares.of(habit.id, day);
+      if (square.isGreen) {
+        credited += 1;
+      } else if (square == SquareState.partial) {
+        credited += 0.5;
+      }
+    }
+    if (total == 0) return false;
+    return credited / total < kStreakDayCompletionThreshold;
+  }
+
+  /// Re-checks the charge the last streak-gap judgement left ([state.
+  /// streakGapCharge]) against the squares as they are now, and hands back
+  /// whatever it turns out not to have owed.
+  ///
+  /// The judgement is made at the app's next open, from what the app knew
+  /// then. A day done but not recorded is charged as missed, and the square
+  /// painted for it afterwards arrives too late to be seen: a past square
+  /// pays nothing, on purpose, and by then the freeze is spent or the streak
+  /// is gone. This is the one path back.
+  ///
+  /// What it can hand back, and nothing else:
+  ///  - freezes, never more than were spent, one per day that is no longer
+  ///    owed;
+  ///  - the streak the break took away, only once the window owes NOTHING,
+  ///    and with whatever has been earned since added on top so the days
+  ///    after the break are not lost in the repair.
+  ///
+  /// No XP, no gold, no new streak point: a late square still buys nothing,
+  /// it only stops a day being charged as missed.
+  Future<void> refreshStreakGapCharge({
+    required Iterable<IslamicHabitTemplate> habits,
+    required Future<Map<String, SquareState>?> Function(DateTime day) squaresOn,
+  }) async {
+    final charge = state.streakGapCharge;
+    if (charge == null) return;
+    if (_uid != null && (state.loadFailed || state.isLoading)) return;
+    final days = charge.days;
+    final squares = await _SquareReader.read(days, squaresOn);
+    var owed = 0;
+    for (final d in days) {
+      if (_dayWasMissed(d, habits, squares)) owed++;
+    }
+    if (owed >= charge.owed) return;
+
+    if (charge.freezesSpent > 0) {
+      final back = (charge.owed - owed).clamp(0, charge.freezesSpent);
+      final freezes = state.streakFreezes + back;
+      final left = charge.copyWith(owed: owed, freezesSpent: charge.freezesSpent - back);
+      state = state.copyWith(streakFreezes: freezes, streakGapCharge: left);
+      if (_uid == null) {
+        await _saveGuestState();
+      } else {
+        _userRef.set({
+          'streakFreezes': freezes,
+          'streakGap': left.toJson(),
+        }, SetOptions(merge: true)).ignore();
+      }
+      debugPrint('[Dashboard] streak gap repaired: $back freeze(s) back, $left');
+      return;
+    }
+
+    if (charge.streakBefore > 0 && owed == 0) {
+      // Plus what has been earned since the break: the streak was rebuilt
+      // from zero over those days and every one of them is still true.
+      final restored = charge.streakBefore + state.streak;
+      final longest =
+          restored > state.longestStreak ? restored : state.longestStreak;
+      state = state.copyWith(
+        streak: restored,
+        longestStreak: longest,
+        // The comeback card offered to sell this streak back; there is
+        // nothing left to buy.
+        previousStreak: 0,
+        clearStreakGapCharge: true,
+      );
+      if (_uid == null) {
+        await _saveGuestState();
+      } else {
+        _userRef.set({
+          'currentStreak': restored,
+          'longestStreak': longest,
+          'previousStreak': 0,
+          'streakGap': FieldValue.delete(),
+        }, SetOptions(merge: true)).ignore();
+      }
+      debugPrint('[Dashboard] streak gap repaired: streak back to $restored');
+      return;
+    }
+
+    // Fewer days owed, but not enough to give anything back yet. Recorded so
+    // the next repaired day is measured against the truth.
+    final left = charge.copyWith(owed: owed);
+    state = state.copyWith(streakGapCharge: left);
+    if (_uid == null) {
+      await _saveGuestState();
+    } else {
+      _userRef.set({'streakGap': left.toJson()}, SetOptions(merge: true))
+          .ignore();
+    }
+  }
+
+  /// [refreshStreakGapCharge] for one day just recorded, and a no-op unless
+  /// that day is inside the window a judgement charged for. Called from
+  /// WeeklyGridNotifier.setSquare, which is where every late record lands.
+  Future<void> repairStreakGapForDay({
+    required DateTime day,
+    required Iterable<IslamicHabitTemplate> habits,
+    required Future<Map<String, SquareState>?> Function(DateTime day) squaresOn,
+  }) async {
+    if (state.streakGapCharge?.covers(day) != true) return;
+    await refreshStreakGapCharge(habits: habits, squaresOn: squaresOn);
   }
 
   Future<void> useStreakFreeze() async {
@@ -627,17 +817,6 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     AnalyticsService.instance
         .track('comeback_bonus_claimed', props: {'route': 'restore'});
 
-    state = state.copyWith(
-      streak: restoredStreak,
-      longestStreak: newLongest,
-      streakFreezes: newFreezes,
-      previousStreak: 0,
-      level: result.newLevel,
-      currentLevelXp: result.newCurrentLevelXp,
-      cumulativeXp: result.newCumulativeXp,
-      didJustLevelUp: result.newLevel > state.level,
-    );
-
     // YESTERDAY, not today. lastActiveDate means "the last day that itself
     // earned the streak point" (see the loader's gap check), and spending a
     // freeze restores the streak as it stood - it does not retroactively
@@ -655,6 +834,18 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     final marker = state.streakEarnedToday
         ? today
         : today.subtract(const Duration(days: 1));
+
+    state = state.copyWith(
+      streak: restoredStreak,
+      longestStreak: newLongest,
+      streakFreezes: newFreezes,
+      previousStreak: 0,
+      level: result.newLevel,
+      currentLevelXp: result.newCurrentLevelXp,
+      cumulativeXp: result.newCumulativeXp,
+      didJustLevelUp: result.newLevel > state.level,
+      lastStreakDay: marker,
+    );
 
     if (_uid == null) {
       // This was previously missing entirely — the restore only ever
@@ -923,3 +1114,67 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
 /// - see its doc comment for why "nothing green" is the honest reading of a
 /// gap rather than a fallback.
 bool _nothingGreen(String habitId, DateTime day) => false;
+
+/// How many days of a gap are read from storage before the judgement gives up
+/// and reads the rest as blank. A phone left closed for months has a dead
+/// streak whatever its squares say, and this is read one day at a time.
+const int _maxGapDaysRead = 31;
+
+/// What the squares of a stretch of days hold, for a judgement about days
+/// that are no longer on screen.
+///
+/// A day that could not be read is simply absent, and reads as [fallback],
+/// which by default reports nothing green: failing to read a day is not
+/// evidence that anything happened on it, and no judgement may be softened by
+/// a storage hiccup.
+class _SquareReader {
+  _SquareReader(this._byDay, this._fallback);
+
+  /// Nothing read at all: every day answers [fallback].
+  _SquareReader.blank(GreenOnDay fallback) : this(const {}, fallback);
+
+  /// [days]' squares, widened to the whole display weeks they fall in, newest
+  /// first so a window longer than [_maxGapDaysRead] keeps the days a person
+  /// could plausibly still be recording.
+  ///
+  /// Whole weeks because a day's verdict can rest on another day of its week:
+  /// a Wednesday session on a Monday, Thursday and Saturday habit stands in
+  /// for Thursday (see moved_day_plan.dart), and a gap that starts on
+  /// Thursday would otherwise never see the Wednesday that covers it.
+  static Future<_SquareReader> read(
+    List<DateTime> days,
+    Future<Map<String, SquareState>?> Function(DateTime day) squaresOn, {
+    GreenOnDay fallback = _nothingGreen,
+  }) async {
+    final byDay = <String, Map<String, SquareState>>{};
+    final window = <DateTime>[];
+    if (days.isNotEmpty) {
+      final first = days.first.startOfDisplayWeek;
+      final lastWeek = days.last.startOfDisplayWeek;
+      final end = DateTime(lastWeek.year, lastWeek.month, lastWeek.day + 6);
+      for (var d = first;
+          !d.isAfter(end);
+          d = DateTime(d.year, d.month, d.day + 1)) {
+        window.add(d);
+      }
+    }
+    for (final day in window.reversed.take(_maxGapDaysRead)) {
+      final squares = await squaresOn(day);
+      if (squares != null) byDay[day.toDateKey()] = squares;
+    }
+    return _SquareReader(byDay, fallback);
+  }
+
+  final Map<String, Map<String, SquareState>> _byDay;
+  final GreenOnDay _fallback;
+
+  SquareState of(String habitId, DateTime day) {
+    final read = _byDay[day.toDateKey()];
+    if (read == null) {
+      return _fallback(habitId, day) ? SquareState.complete : SquareState.none;
+    }
+    return read[habitId] ?? SquareState.none;
+  }
+
+  bool isGreen(String habitId, DateTime day) => of(habitId, day).isGreen;
+}

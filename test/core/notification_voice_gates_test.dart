@@ -384,6 +384,43 @@ void main() {
     });
   });
 
+  group('eveningNoteBoard', () {
+    // Page item 2 (2026-09-24): a skipped habit left what is left but not
+    // the total, so «٥ من ٦ خلّصت» with the sixth skipped, and the day never
+    // counted as finished.
+    test('a skipped habit leaves the total, not only what is left', () {
+      final today = [
+        (id: 'a', quit: false, done: true),
+        (id: 'b', quit: false, done: true),
+        (id: 'c', quit: false, done: false), // skipped today
+        (id: 'd', quit: true, done: false),
+      ];
+      final board = NotificationService.eveningNoteBoard(
+        today,
+        isQuit: (h) => h.quit,
+        isSkipped: (h) => h.id == 'c',
+      );
+      expect(board.map((h) => h.id), ['a', 'b']);
+      final counts = NotificationService.todayBoardCounts([
+        for (final h in board) (isDone: h.done, isQuit: false),
+      ]);
+      expect((counts.done, board.length), (2, 2),
+          reason: 'two of two: the day is finished');
+      expect(counts.pendingBuild, 0);
+    });
+
+    test('a quit habit is never counted, skipped or not', () {
+      expect(
+        NotificationService.eveningNoteBoard(
+          [(quit: true), (quit: true)],
+          isQuit: (h) => h.quit,
+          isSkipped: (_) => false,
+        ),
+        isEmpty,
+      );
+    });
+  });
+
   group('todayBoardCounts', () {
     test('what is done, what is left, and the build habits among them', () {
       expect(

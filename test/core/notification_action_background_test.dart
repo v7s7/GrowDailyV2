@@ -4,12 +4,14 @@
 // notification_action_queue_test.dart pins the pure rules. This file pins
 // the WIRING around them: which App Group keys the handler reads and
 // writes, that the queue entry carries the effective day of the tap, that a
-// habit finished for the day has every reminder slot cancelled, that a
-// counted habit with slices left has none cancelled, and that Snooze
-// reschedules through the plugin with the cached name in the app's
-// language. None of that can be watched on a simulator from outside the
-// process, and a mistake in it loses a tap silently, which is the failure
-// this whole path exists to avoid.
+// habit finished for the day has that day's reminders taken down by the ids
+// the last reminder pass recorded for it (armed_reminder_record_test.dart
+// pins the record itself), and nothing of the days after, that a counted
+// habit with slices left has none cancelled, and that Snooze reschedules
+// through the plugin with the cached name in the app's language. None of
+// that can be watched on a simulator from outside the process, and a
+// mistake in it loses a tap silently, which is the failure this whole path
+// exists to avoid.
 //
 // It also pins the one rule for the two notes whose numbers a tap here makes
 // false (1010 and 9001): each is cleared only while the OS still holds it
@@ -23,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/services/armed_reminder_record.dart';
 import 'package:grow_daily_v2/core/services/notification_action_background.dart';
 import 'package:grow_daily_v2/core/services/notification_action_queue.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
@@ -34,11 +37,15 @@ void main() {
   const notificationsChannel =
       MethodChannel('dexterous.com/flutter/local_notifications');
   const timezoneChannel = MethodChannel('flutter_timezone');
+  // AppDelegate registers the alarm channel on this engine too, so a Done
+  // tapped here can take the day's alarms down with the notifications.
+  const alarmChannel = MethodChannel('com.growdaily.v2/alarm');
 
   /// The App Group store, keyed the way home_widget keys it.
   late Map<String, Object?> store;
   late List<MethodCall> widgetCalls;
   late List<MethodCall> notificationCalls;
+  late List<MethodCall> alarmCalls;
 
   /// What the OS still holds as PENDING, which is the only thing the two
   /// stand-downs here may cancel. A note that has fired is delivered, not
@@ -57,6 +64,7 @@ void main() {
     store = <String, Object?>{};
     widgetCalls = <MethodCall>[];
     notificationCalls = <MethodCall>[];
+    alarmCalls = <MethodCall>[];
     pending = <int>{};
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -93,6 +101,13 @@ void main() {
     });
     messenger.setMockMethodCallHandler(
         timezoneChannel, (call) async => 'Asia/Bahrain');
+    // iOS 26, where alarms exist. AlarmService caches the answer for the
+    // process, so it is mocked for every test, not only the alarm ones.
+    messenger.setMockMethodCallHandler(alarmChannel, (call) async {
+      if (call.method == 'isSupported') return true;
+      alarmCalls.add(call);
+      return null;
+    });
   });
 
   tearDown(() {
@@ -102,6 +117,7 @@ void main() {
     messenger.setMockMethodCallHandler(widgetChannel, null);
     messenger.setMockMethodCallHandler(notificationsChannel, null);
     messenger.setMockMethodCallHandler(timezoneChannel, null);
+    messenger.setMockMethodCallHandler(alarmChannel, null);
   });
 
   List<QueuedNotificationAction> queued() =>
@@ -115,6 +131,45 @@ void main() {
   Iterable<String> widgetsRefreshed() => widgetCalls
       .where((c) => c.method == 'updateWidget')
       .map((c) => (c.arguments as Map)['ios'] as String);
+
+  Iterable<int> alarmsCancelled() => alarmCalls
+      .where((c) => c.method == 'cancel')
+      .map((c) => (c.arguments as Map)['id'] as int);
+
+  // The ids NotificationService arms a habit's copies under
+  // (_habitReminderId): the next occurrence of a slot in the 5000 band, the
+  // ones after it in the 400000 bands, and a snooze in the 6000 band.
+  int nextCopy(String habit, [int slot = 0]) =>
+      5000 + NotificationService.reminderSlotOffset(habit, slot);
+  int laterCopy(String habit, int depth, [int slot = 0]) =>
+      400000 +
+      (depth - 1) * 1000 +
+      NotificationService.reminderSlotOffset(habit, slot);
+  int snoozeOf(String habit) =>
+      6000 + NotificationService.reminderSlotOffset(habit, 0);
+
+  /// What the last reminder pass left in the App Group, see
+  /// ArmedReminderRecord.encode.
+  void recordArmed({
+    List<ArmedHabitCopy> copies = const [],
+    List<ArmedBundle> bundles = const [],
+    Map<String, int> snoozeIds = const {},
+  }) {
+    store['armedHabitRemindersJson'] = ArmedReminderRecord.encode(
+      copies: copies,
+      bundles: bundles,
+      snoozeIds: snoozeIds,
+    );
+  }
+
+  ArmedHabitCopy copy(String habit, int id, DateTime at,
+          {bool alarm = false}) =>
+      (
+        habitId: habit,
+        id: id,
+        fireTime: at,
+        kind: alarm ? ArmedReminderKind.alarm : ArmedReminderKind.notification,
+      );
 
   group('Mark Done', () {
     test('queues the tap on the day it was made, not the day it is read',
@@ -149,30 +204,245 @@ void main() {
           containsAll(['GrowDailyWidget', 'GrowDailyLockScreenWidget']));
     });
 
-    test('stands down every reminder slot of a habit now done for the day',
+    test("takes down the day's reminder at whatever depth the last pass put "
+        'it, and none of the days after', () async {
+      // «صلاة الضحى» at 10:47. The app was last opened on the 5th at 08:00,
+      // before that day's reminder, so the 5th's copy went out under the
+      // next-occurrence id and the 6th's sits one further along. Guessing
+      // the next-occurrence id, as this path used to, cancelled nothing
+      // pending and the 6th's reminder rang for a habit already ticked.
+      recordArmed(
+        copies: [
+          copy('duha', nextCopy('duha'), DateTime(2026, 9, 5, 10, 47)),
+          copy('duha', laterCopy('duha', 1), DateTime(2026, 9, 6, 10, 47)),
+          copy('duha', laterCopy('duha', 2), DateTime(2026, 9, 7, 10, 47)),
+          copy('duha', laterCopy('duha', 3), DateTime(2026, 9, 8, 10, 47)),
+        ],
+        snoozeIds: {'duha': snoozeOf('duha')},
+      );
+      // The 5th's has fired; the three after it are waiting.
+      pending.addAll({
+        laterCopy('duha', 1),
+        laterCopy('duha', 2),
+        laterCopy('duha', 3),
+      });
+      store['todayHabitsJson'] = todayList([
+        {'id': 'duha', 'name': 'الضحى', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'duha',
+        now: DateTime(2026, 9, 6, 9, 25),
+      );
+      expect(pending, {laterCopy('duha', 2), laterCopy('duha', 3)},
+          reason: "the 6th's reminder is gone; the 7th's and 8th's are that "
+              "habit's next reminders, and a phone left closed after the "
+              'tap still needs them');
+      expect(alarmsCancelled(), isEmpty, reason: 'nothing here is an alarm');
+    });
+
+    test("does not take tomorrow's reminder when today's has already gone",
         () async {
-      pending.add(1010);
+      // Opened at 11:00 on the 6th, after the 10:47 reminder: the pass armed
+      // the 7th under the next-occurrence id, which the old rule cancelled.
+      recordArmed(
+        copies: [
+          copy('duha', nextCopy('duha'), DateTime(2026, 9, 7, 10, 47)),
+          copy('duha', laterCopy('duha', 1), DateTime(2026, 9, 8, 10, 47)),
+        ],
+        snoozeIds: {'duha': snoozeOf('duha')},
+      );
+      pending.addAll({nextCopy('duha'), laterCopy('duha', 1)});
+      store['todayHabitsJson'] = todayList([
+        {'id': 'duha', 'name': 'الضحى', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'duha',
+        now: DateTime(2026, 9, 6, 21),
+      );
+      expect(pending, {nextCopy('duha'), laterCopy('duha', 1)});
+      expect(cancels(), isEmpty);
+    });
+
+    test("every slot of a stacked habit that is still to come that day, and "
+        'its snooze', () async {
+      // An hour before Maghrib and on the dot. Armed on the 5th between the
+      // two, so the 6th's early copy is slot 0's next occurrence and its
+      // on-time copy is slot 1's second. A snooze is waiting too.
+      recordArmed(
+        copies: [
+          copy('adhkar', nextCopy('adhkar', 0), DateTime(2026, 9, 6, 16, 50)),
+          copy('adhkar', nextCopy('adhkar', 1), DateTime(2026, 9, 5, 17, 50)),
+          copy('adhkar', laterCopy('adhkar', 1, 1),
+              DateTime(2026, 9, 6, 17, 50)),
+          copy('adhkar', laterCopy('adhkar', 1, 0),
+              DateTime(2026, 9, 7, 16, 50)),
+        ],
+        snoozeIds: {'adhkar': snoozeOf('adhkar')},
+      );
+      pending.addAll({
+        nextCopy('adhkar', 0),
+        laterCopy('adhkar', 1, 1),
+        laterCopy('adhkar', 1, 0),
+        snoozeOf('adhkar'),
+      });
+      store['todayHabitsJson'] = todayList([
+        {'id': 'adhkar', 'name': 'أذكار', 'done': false, 'count': 0,
+          'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'adhkar',
+        now: DateTime(2026, 9, 6, 15),
+      );
+      expect(pending, {laterCopy('adhkar', 1, 0)});
+    });
+
+    test('leaves a reminder of the day that has already been delivered',
+        () async {
+      // The 16:50 reminder came and is on the lock screen, the 17:50 one is
+      // still to come. A Done at 17:00 takes the one still waiting and
+      // leaves the notification list as it is, the rule the evening note
+      // follows below; the plugin's cancel would remove a delivered one too.
+      recordArmed(
+        copies: [
+          copy('adhkar', nextCopy('adhkar', 0), DateTime(2026, 9, 6, 16, 50)),
+          copy('adhkar', nextCopy('adhkar', 1), DateTime(2026, 9, 6, 17, 50)),
+        ],
+      );
+      pending.add(nextCopy('adhkar', 1));
+      store['todayHabitsJson'] = todayList([
+        {'id': 'adhkar', 'name': 'أذكار', 'done': false, 'count': 0,
+          'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'adhkar',
+        now: DateTime(2026, 9, 6, 17),
+      );
+      expect(cancels().map((c) => c.arguments), [nextCopy('adhkar', 1)]);
+    });
+
+    test("takes the day's alarms down with it", () async {
+      recordArmed(
+        copies: [
+          copy('fajr', nextCopy('fajr'), DateTime(2026, 9, 6, 3, 1),
+              alarm: true),
+          copy('fajr', laterCopy('fajr', 1), DateTime(2026, 9, 7, 3, 1),
+              alarm: true),
+          // The far, day-keyed end of the alarm's month.
+          copy('fajr', 523456, DateTime(2026, 9, 10, 3, 3), alarm: true),
+        ],
+      );
+      store['todayHabitsJson'] = todayList([
+        {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
+      ]);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'fajr',
+        now: DateTime(2026, 9, 6, 2),
+      );
+      expect(alarmsCancelled(), [nextCopy('fajr')]);
+    });
+
+    test('takes a bundle down only once every habit in it is done that day',
+        () async {
+      // «سنة المغرب» and «أذكار المساء» share one notification at 17:50.
+      recordArmed(
+        bundles: [
+          (
+            id: 7000,
+            fireTime: DateTime(2026, 9, 6, 17, 50),
+            habitIds: ['sunnah', 'adhkar'],
+          ),
+        ],
+      );
+      store['todayHabitsDay'] = '2026-09-06';
+      store['todayHabitsJson'] = todayList([
+        {'id': 'sunnah', 'name': 'سنة', 'done': false, 'count': 0,
+          'perDay': 1},
+        {'id': 'adhkar', 'name': 'أذكار', 'done': false, 'count': 0,
+          'perDay': 1},
+      ]);
+      pending.add(7000);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'sunnah',
+        now: DateTime(2026, 9, 6, 16),
+      );
+      expect(pending, contains(7000),
+          reason: 'it still reminds about أذكار المساء, which is owed');
+
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'adhkar',
+        now: DateTime(2026, 9, 6, 16, 30),
+      );
+      expect(pending, isNot(contains(7000)),
+          reason: 'both done: it would only name two finished habits');
+    });
+
+    test("does not trust yesterday's checkmarks with a shared reminder",
+        () async {
+      // The app was last opened yesterday, so the list, and the done mark
+      // beside «أذكار المساء», is yesterday's.
+      recordArmed(
+        bundles: [
+          (
+            id: 7000,
+            fireTime: DateTime(2026, 9, 6, 17, 50),
+            habitIds: ['sunnah', 'adhkar'],
+          ),
+        ],
+      );
+      store['todayHabitsDay'] = '2026-09-05';
+      store['todayHabitsJson'] = todayList([
+        {'id': 'sunnah', 'name': 'سنة', 'done': false, 'count': 0,
+          'perDay': 1},
+        {'id': 'adhkar', 'name': 'أذكار', 'done': true, 'count': 1,
+          'perDay': 1},
+      ]);
+      pending.add(7000);
+      await handleBackgroundNotificationAction(
+        actionId: 'mark_done',
+        habitId: 'sunnah',
+        now: DateTime(2026, 9, 6, 16),
+      );
+      expect(pending, contains(7000));
+    });
+
+    test('with no record yet, takes the next copy of each slot and the '
+        'snoozes, only those still waiting', () async {
+      // An app updated from a build that wrote no record and not opened
+      // since: the old rule is all there is to go on.
+      pending.addAll({
+        1010,
+        nextCopy('fajr', 0),
+        nextCopy('fajr', 1),
+        laterCopy('fajr', 1),
+        snoozeOf('fajr'),
+      });
       store['todayHabitsJson'] = todayList([
         {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
       ]);
       await handleBackgroundNotificationAction(
           actionId: 'mark_done', habitId: 'fajr', now: DateTime(2026, 9, 6));
-      // 12 slots, each with TODAY's reminder id and a snooze id: see
-      // NotificationService.standDownHabitReminders. The one other cancel
-      // is the evening streak note (1010), pinned in its own tests below.
-      final slotCancels = [
-        for (final c in cancels())
-          if (c.arguments != 1010) c.arguments as int,
-      ];
-      expect(slotCancels.length, 24);
-      final ids = slotCancels.toSet();
-      expect(ids.length, 24, reason: 'every slot has its own id');
-      expect(ids.every((id) => id >= 5000 && id < 7000), isTrue,
-          reason: 'only the habit reminder (5000) and snooze (6000) bands');
-      expect(ids.any((id) => id >= 400000), isFalse,
+      expect(
+        {
+          for (final c in cancels())
+            if (c.arguments != 1010) c.arguments as int,
+        },
+        {nextCopy('fajr', 0), nextCopy('fajr', 1), snoozeOf('fajr')},
+      );
+      expect(pending, {laterCopy('fajr', 1)},
           reason: 'the days AHEAD stay armed — a habit marked done from the '
               'lock screen must not go silent for the rest of the window '
               'when the app is not opened again');
+      expect(
+        alarmsCancelled().toSet(),
+        {for (var slot = 0; slot < 12; slot++) nextCopy('fajr', slot)},
+      );
     });
 
     test('leaves the reminders of a counted habit with slices still owed',
@@ -237,8 +507,11 @@ void main() {
       );
     });
 
-    test('clears it for a quit habit kept clean and for a last round',
-        () async {
+    test('clears it for a last round, and leaves it for a quit habit kept '
+        'clean', () async {
+      // The note stopped counting quit habits on 2026-09-24, so «التزام»
+      // leaves its numbers true, and clearing it would lose tonight's note
+      // until the app is next opened.
       pending.add(1010);
       store['todayHabitsJson'] = todayList([
         {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
@@ -249,7 +522,8 @@ void main() {
         habitId: 'coffee',
         now: DateTime(2026, 9, 11, 19),
       );
-      expect(cancels().where((c) => c.arguments == 1010), hasLength(1));
+      expect(cancels().where((c) => c.arguments == 1010), isEmpty);
+      expect(pending, contains(1010));
 
       pending.add(1010);
       notificationCalls.clear();
@@ -412,20 +686,38 @@ void main() {
     });
   });
 
-  group('Slipped', () {
-    test('queues the answer and touches nothing else', () async {
+  group("Didn't keep it", () {
+    test('queues the answer and stands down the rest of that day, nothing '
+        'else', () async {
+      // «ما التزمت» answers the day as surely as «التزام» does (Aziz,
+      // 2026-09-24): the habit's later check-in that day stands down, the
+      // next day's stays, and the evening note is left alone.
+      recordArmed(
+        copies: [
+          copy('coffee', nextCopy('coffee'), DateTime(2026, 9, 6, 9)),
+          copy('coffee', laterCopy('coffee', 1), DateTime(2026, 9, 6, 17)),
+          copy('coffee', laterCopy('coffee', 2), DateTime(2026, 9, 7, 9)),
+        ],
+        snoozeIds: {'coffee': snoozeOf('coffee')},
+      );
+      pending.addAll({laterCopy('coffee', 1), laterCopy('coffee', 2), 1010});
       store['todayHabitsJson'] = todayList([
         {'id': 'coffee', 'name': 'قهوة', 'done': false, 'count': 0, 'perDay': 1},
       ]);
       await handleBackgroundNotificationAction(
-          actionId: 'quit_slipped', habitId: 'coffee', now: DateTime(2026, 9, 6));
+          actionId: 'quit_slipped',
+          habitId: 'coffee',
+          now: DateTime(2026, 9, 6, 12));
       expect(queued().single,
           const QueuedNotificationAction(
               action: 'quit_slipped', habitId: 'coffee', day: '2026-09-06'));
       final entry = (jsonDecode(store['todayHabitsJson'] as String) as List)
           .first as Map;
-      expect(entry['done'], isFalse, reason: 'a slip is not a completion');
-      expect(cancels(), isEmpty);
+      expect(entry['done'], isFalse,
+          reason: '«ما التزمت» is not a completion');
+      expect(pending, {laterCopy('coffee', 2), 1010},
+          reason: "the 17:00 check-in would ask again about a day already "
+              "answered; the 7th's is that day's own question");
       expect(widgetsRefreshed(), isEmpty);
     });
   });
@@ -468,7 +760,7 @@ void main() {
         for (final c in categories)
           for (final a in (c as Map)['actions'] as List) (a as Map)['title'],
       ];
-      expect(titles, containsAll(['تمت', 'تأجيل ساعة', 'التزام', 'زلة']),
+      expect(titles, containsAll(['تمت', 'تأجيل ساعة', 'التزام', 'ما التزمت']),
           reason: 'the first registration in this engine is already Arabic');
       final options = [
         for (final c in categories)

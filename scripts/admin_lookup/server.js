@@ -1795,6 +1795,27 @@ app.post('/api/cosmetics/field', localWriteOnly, achievementsJson, async (req, r
   }
 });
 
+// ---- Messages: one message to everyone, as a pop-up the app shows once
+// when it opens (broadcast/live) or as a notification sent from here. The
+// whole feature is in lib/broadcast*.js; see lib/broadcast.js's doc comment.
+require('./lib/broadcast_routes').mountBroadcast(app, {
+  admin,
+  projectId: PROJECT_ID,
+  localWriteOnly,
+  port: PORT,
+});
+
+// ---- Sale and Creators: the paywall's dated sale and welcome price
+// (offers/live, offer_sales), and one Apple offer code per creator with what
+// each has earned (creators, creator_payouts; App Store Connect for the
+// codes). The whole feature is in lib/offers_routes.js and the files it
+// names; every write goes through localWriteOnly.
+require('./lib/offers_routes').mountOffers(app, {
+  admin,
+  projectId: PROJECT_ID,
+  localWriteOnly,
+});
+
 // 127.0.0.1, NOT the default.
 //
 // `app.listen(port)` with no host binds to 0.0.0.0, so this was listening on

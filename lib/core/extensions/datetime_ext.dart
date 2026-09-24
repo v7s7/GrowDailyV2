@@ -256,6 +256,22 @@ extension DateTimeGameExt on DateTime {
   /// this only stops the PROACTIVE nudge about either one once the morning
   /// is underway.
   bool get isEveningNudgeHour => hour >= 18 || hour < kEveningNudgeCutoffHour;
+
+  /// The day whose streak point the evening nudge is about at this instant,
+  /// or null outside [isEveningNudgeHour].
+  ///
+  /// Today from 18:00, YESTERDAY from midnight on. [isDayClosing]'s own doc
+  /// says so, but the streak banner kept asking about [effectiveDay], and
+  /// since the day rolls at midnight that is a day that has only just begun.
+  /// Aziz, 2026-09-22: he finished Monday at 00:06, in its grace window, and
+  /// was then told his streak was on the line.
+  DateTime? get streakNudgeDay {
+    if (!isEveningNudgeHour) return null;
+    final today = effectiveDay;
+    return hour < kEveningNudgeCutoffHour
+        ? DateTime(today.year, today.month, today.day - 1)
+        : today;
+  }
 }
 
 /// The earliest day still open for marking at [now]: yesterday while the

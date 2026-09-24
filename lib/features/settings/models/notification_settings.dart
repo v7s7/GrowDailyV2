@@ -96,15 +96,18 @@ class NotificationSettings {
   /// It was its own notification until 2026-09-16, on its own clock
   /// ([streakRiskTime]), and it counted the same board the daily reminder
   /// had counted half an hour earlier. Off now means the evening note falls
-  /// through to the plain board line, not that the evening goes quiet.
+  /// through to the plain board line, not that the evening goes quiet. The
+  /// note itself goes out only at a daily reminder time the person picked
+  /// (2026-09-24), so without one this switch has nothing to add to.
   final bool streakRiskEnabled;
 
   /// Kept for stored-settings compatibility; no longer shown in Settings.
   /// The celebration pings it gated (habit completed, level up, achievement
   /// unlocked) were removed on 2026-09-08: each already has its in-app
-  /// moment, and a system banner about your own tap was noise. It still
-  /// gates the one local ping left on that channel, a room's new shared
-  /// habit (NotificationService.showRoomHabitAdded).
+  /// moment, and a system banner about your own tap was noise. The last
+  /// ping left on it, a room's new shared habit shown locally when the Rooms
+  /// screen noticed one, was removed on 2026-09-24: the server's
+  /// notifyRoomHabitAdded push already says it, so members heard it twice.
   final bool celebrationsEnabled;
 
   /// Whether the evening note also mentions a pending count of DO-FIRST
@@ -118,11 +121,18 @@ class NotificationSettings {
   /// firing one each — see NotificationService's bundling pass.
   final bool bundleEnabled;
 
-  /// The Friday-evening "your week" push — days colored on the Grid this
-  /// week plus the current streak, see NotificationService
-  /// .scheduleWeeklyDigest. A proactive nudge toward Insights/Monthly
-  /// Heatmap, which are otherwise pull-only.
-  final bool weeklyDigestEnabled;
+  /// The Saturday-morning note on the week that has just sealed, see
+  /// NotificationService.scheduleWeeklyDigest. Off until the person turns it
+  /// on: here in Settings, or with «إيه» under the week's recap card on
+  /// Profile (Aziz, 2026-09-24, the evening note's rule: nothing is sent
+  /// that the person did not choose).
+  ///
+  /// Its own key, 'weeklyNoteOn'. The switch it replaces, stored as
+  /// 'weeklyDigestEnabled', was on for everyone from the start and written
+  /// into every saved copy of these settings, so a stored true there says
+  /// nothing about a choice and is not read. toMap still writes that key,
+  /// from this value, for builds that only know the old one.
+  final bool weeklyNoteOn;
 
   /// Server-sent push when a teammate in one of your rooms finishes their
   /// habit(s) for the day (see functions/index.js's notifyRoomFinish
@@ -136,19 +146,9 @@ class NotificationSettings {
   /// in-app celebration moments.
   final bool roomActivityEnabled;
 
-  /// The playful "they finished, still waiting on you" nudge, which replaces
-  /// the neutral room message for someone who has not finished yet.
-  ///
-  /// OFF by default, and deliberately so. It is the one notification in this
-  /// app that comments on what you have NOT done, and the habits here are
-  /// صلاة and أذكار rather than gym sets — meeting that unasked reads as the
-  /// app scolding you about worship. Opt-in means the only people who get it
-  /// are the ones who thought it sounded fun.
-  ///
-  /// The server applies the rest of the guard rails (small rooms only, never
-  /// to someone already finished, not late in their evening) — see
-  /// nudgeAllowed in functions/index.js.
-  final bool roomNudgesEnabled;
+  // roomNudgesEnabled, the opt-in playful «باقي أنت 👀» room push, was
+  // removed on 2026-09-24 (Aziz): nobody had it on, and it was the one push
+  // still wording the reader as the one behind. A stored value is ignored.
 
   final bool quietHoursEnabled;
   final TimeOfDay quietHoursStart;
@@ -172,11 +172,11 @@ class NotificationSettings {
   // truth. CustomHabitsNotifier._migrateLegacyPrayerOffset folds any saved
   // value into existing prayer habits once, so nobody's reminders moved.
 
-  /// Local clock time the evening note goes out at, when no daily-reminder
-  /// time has been picked (ReminderTimeNotifier). It was the streak note's
-  /// own clock, and it stays the fallback so turning the daily reminder off
-  /// does not silently take the streak ask with it — see main.dart's
-  /// _recomputeNotifications.
+  /// Kept for stored-settings compatibility; nothing reads it any more. It
+  /// was the streak note's own clock, then the evening note's fallback when
+  /// no daily reminder time was picked. Aziz, 2026-09-24: with no time
+  /// picked nothing is sent, and the app asks instead, so the fallback and
+  /// its Settings row are gone.
   final TimeOfDay streakRiskTime;
 
   final NotificationLocation? location;
@@ -202,9 +202,8 @@ class NotificationSettings {
     this.celebrationsEnabled = true,
     this.matrixNudgeEnabled = true,
     this.bundleEnabled = true,
-    this.weeklyDigestEnabled = true,
+    this.weeklyNoteOn = false,
     this.roomActivityEnabled = true,
-    this.roomNudgesEnabled = false,
     this.quietHoursEnabled = true,
     this.quietHoursStart = const TimeOfDay(hour: 22, minute: 0),
     this.quietHoursEnd = const TimeOfDay(hour: 7, minute: 0),
@@ -224,9 +223,8 @@ class NotificationSettings {
     bool? celebrationsEnabled,
     bool? matrixNudgeEnabled,
     bool? bundleEnabled,
-    bool? weeklyDigestEnabled,
+    bool? weeklyNoteOn,
     bool? roomActivityEnabled,
-    bool? roomNudgesEnabled,
     bool? quietHoursEnabled,
     TimeOfDay? quietHoursStart,
     TimeOfDay? quietHoursEnd,
@@ -254,9 +252,8 @@ class NotificationSettings {
         celebrationsEnabled: celebrationsEnabled ?? this.celebrationsEnabled,
         matrixNudgeEnabled: matrixNudgeEnabled ?? this.matrixNudgeEnabled,
         bundleEnabled: bundleEnabled ?? this.bundleEnabled,
-        weeklyDigestEnabled: weeklyDigestEnabled ?? this.weeklyDigestEnabled,
+        weeklyNoteOn: weeklyNoteOn ?? this.weeklyNoteOn,
         roomActivityEnabled: roomActivityEnabled ?? this.roomActivityEnabled,
-        roomNudgesEnabled: roomNudgesEnabled ?? this.roomNudgesEnabled,
         quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
         quietHoursStart: quietHoursStart ?? this.quietHoursStart,
         quietHoursEnd: quietHoursEnd ?? this.quietHoursEnd,
@@ -277,9 +274,10 @@ class NotificationSettings {
         'celebrationsEnabled': celebrationsEnabled,
         'matrixNudgeEnabled': matrixNudgeEnabled,
         'bundleEnabled': bundleEnabled,
-        'weeklyDigestEnabled': weeklyDigestEnabled,
+        'weeklyNoteOn': weeklyNoteOn,
+        // The old key, for builds that read only it: see [weeklyNoteOn].
+        'weeklyDigestEnabled': weeklyNoteOn,
         'roomActivityEnabled': roomActivityEnabled,
-        'roomNudgesEnabled': roomNudgesEnabled,
         'quietHoursEnabled': quietHoursEnabled,
         'quietHoursStart': _timeToMap(quietHoursStart),
         'quietHoursEnd': _timeToMap(quietHoursEnd),
@@ -304,12 +302,10 @@ class NotificationSettings {
       matrixNudgeEnabled:
           map['matrixNudgeEnabled'] as bool? ?? defaults.matrixNudgeEnabled,
       bundleEnabled: map['bundleEnabled'] as bool? ?? defaults.bundleEnabled,
-      weeklyDigestEnabled: map['weeklyDigestEnabled'] as bool? ??
-          defaults.weeklyDigestEnabled,
+      // Never 'weeklyDigestEnabled': see [weeklyNoteOn].
+      weeklyNoteOn: map['weeklyNoteOn'] as bool? ?? defaults.weeklyNoteOn,
       roomActivityEnabled:
           map['roomActivityEnabled'] as bool? ?? defaults.roomActivityEnabled,
-      roomNudgesEnabled:
-          map['roomNudgesEnabled'] as bool? ?? defaults.roomNudgesEnabled,
       quietHoursEnabled:
           map['quietHoursEnabled'] as bool? ?? defaults.quietHoursEnabled,
       quietHoursStart:

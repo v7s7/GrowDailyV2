@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/services/armed_task_record.dart';
 import 'package:grow_daily_v2/core/services/home_widget_service.dart';
 
 void main() {
@@ -60,6 +61,8 @@ void main() {
           isDone: false,
           isFav: false,
           isLate: false,
+          hasReminder: true,
+          alarm: false,
           dueAt: picked,
         ),
       ],
@@ -83,6 +86,8 @@ void main() {
           isDone: false,
           isFav: true,
           isLate: false,
+          hasReminder: false,
+          alarm: false,
           dueAt: null,
         ),
       ],
@@ -108,6 +113,8 @@ void main() {
             isDone: false,
             isFav: false,
             isLate: false,
+            hasReminder: false,
+            alarm: false,
             dueAt: null,
           ),
       ],
@@ -121,5 +128,77 @@ void main() {
         .where((c) => c.method == 'updateWidget')
         .map((c) => (c.arguments as Map)['ios']);
     expect(refreshed, contains('GrowDailyMatrixLockScreenWidget'));
+  });
+
+  group('the reminder record written beside the rows', () {
+    // What the Matrix widget's checkmark reads to take a finished task's own
+    // reminders down (ArmedTaskRecord, applied by taskReminderStandDown in
+    // ios/GrowDailyWidget/TaskReminderStandDown.swift). Without it a task
+    // ticked on the widget went on reminding about itself until the app was
+    // next opened.
+    Future<void> push(
+      List<({String id, bool hasReminder, bool alarm})> tasks,
+    ) =>
+        HomeWidgetService.instance.updateMatrixWidgetData(
+          [
+            for (final t in tasks)
+              (
+                id: t.id,
+                title: t.id,
+                quadrant: 'doFirst',
+                isDone: false,
+                isFav: false,
+                isLate: false,
+                hasReminder: t.hasReminder,
+                alarm: t.alarm,
+                dueAt: null,
+              ),
+          ],
+          doneTodayCount: 0,
+        );
+
+    Map<String, Object?> record() =>
+        jsonDecode(store['armedTaskRemindersJson']! as String)
+            as Map<String, Object?>;
+
+    test('a task with a reminder carries every id it can hold', () async {
+      await push([(id: 'timed', hasReminder: true, alarm: false)]);
+      final task = (record()['tasks']! as Map)['timed']! as Map;
+      expect(
+        task['notifications'],
+        [
+          for (var i = 0; i < kTaskReminderSlots; i++)
+            taskReminderId('timed', i),
+        ],
+      );
+    });
+
+    test('a task with no reminder is not in the record at all', () async {
+      await push([
+        (id: 'untimed', hasReminder: false, alarm: false),
+        (id: 'timed', hasReminder: true, alarm: false),
+      ]);
+      expect((record()['tasks']! as Map).keys, ['timed'],
+          reason: 'a task with nothing armed has nothing to take down');
+    });
+
+    test('an alarm task carries its ids under both kinds', () async {
+      await push([(id: 'ringing', hasReminder: true, alarm: true)]);
+      final task = (record()['tasks']! as Map)['ringing']! as Map;
+      expect(task['alarms'], task['notifications']);
+    });
+
+    test('the record lands before the rows it belongs to', () async {
+      // A row reaches the checkmark the moment it is written; if its ids
+      // followed, a tick in between would find no record and leave the
+      // task's reminders to the app.
+      await push([(id: 'timed', hasReminder: true, alarm: false)]);
+      final keys = widgetCalls
+          .where((c) => c.method == 'saveWidgetData')
+          .map((c) => (c.arguments as Map)['id'])
+          .toList();
+      expect(keys.indexOf('armedTaskRemindersJson'),
+          lessThan(keys.indexOf('matrixTasksJson')));
+    });
   });
 }

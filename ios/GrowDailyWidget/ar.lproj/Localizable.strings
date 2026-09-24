@@ -1,0 +1,40 @@
+/* GrowDailyWidget — Arabic.
+
+   ONLY the widget gallery's own titles and descriptions live here, plus the
+   three Control titles. Everything a widget FACE draws is in
+   WidgetStrings.swift instead, and the split is not a preference: the system
+   reads the strings below before any of our code runs, so they follow the
+   DEVICE language, while a face is drawn by our code and can follow the
+   app's own language toggle. A user with the app in Arabic on an English
+   phone therefore gets Arabic faces and English gallery titles, which is the
+   best the platform allows.
+
+   Keys are the English source strings. Wording here is a first pass in easy
+   spoken Arabic and is Aziz's to change. */
+
+/* Home Screen: the next prayer and a live countdown to its adhan. */
+"Prayer Countdown" = "عدّاد الصلاة";
+"The next prayer and how long is left until the adhan." = "الصلاة الجاية وكم باقي على الأذان.";
+"The next prayer and how long is left, on the Lock Screen." = "الصلاة الجاية وكم باقي، على شاشة القفل.";
+
+/* Home Screen: today's habits. */
+"Grow Daily" = "العادات";
+"Today's progress, streak, and a tappable habit list at a glance." = "تقدّمك اليوم، وسلسلتك، وعاداتك تعلّمها بضغطة.";
+"Grow Daily Streak" = "السلسلة";
+"Your streak and today's progress on the Lock Screen." = "سلسلتك وتقدّم اليوم على شاشة القفل.";
+
+/* Home Screen: tasks. */
+"Matrix" = "المهام";
+"Your most urgent tasks — check them off or add a new one without opening the app." = "أهم مهامك: علّمها أو أضف وحدة بدون ما تفتح التطبيق.";
+"Starred Tasks" = "المهام المفضّلة";
+"Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any." = "مهامك المفضّلة على شاشة القفل، وإذا ما عندك مفضّلة تطلع أهم مهامك.";
+
+/* Home Screen: the room leaderboard. */
+"Room Race" = "سباق الغرف";
+"See your rank and your friends' progress in your active room." = "ترتيبك وتقدّم أصحابك في غرفتك الشغالة.";
+"Your rank in your starred room, on the Lock Screen." = "ترتيبك في غرفتك المفضّلة، على شاشة القفل.";
+
+/* Lock Screen and Control Center controls (GrowDailyControls.swift). */
+"Open your habit board straight from the Lock Screen." = "افتح لوحة عاداتك من شاشة القفل على طول.";
+"Open your tasks straight from the Lock Screen." = "افتح مهامك من شاشة القفل على طول.";
+"Capture a task without unlocking to the home screen first." = "سجّل مهمة بدون ما تفتح الجوال أول.";

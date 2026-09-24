@@ -71,7 +71,14 @@ class _ResolveNewHabitsSheetState
     final alreadyLinked = widget.mine.linkedHabitIds.toSet();
     final suggestedHere = <String>{};
     _resolutions = [
-      for (final template in _pending) _suggest(template, myHabits, alreadyLinked, suggestedHere),
+      for (final template in _pending)
+        // A slot the leader has removed is never asked about: it is resolved
+        // as a skip, which only holds its place (every array here is
+        // positional, so the live slots after it need it filled first), and
+        // it is not drawn as a row. See RoomParticipant.pendingPlanSlotsIn.
+        template.isRemoved
+            ? kDeclinedSlot
+            : _suggest(template, myHabits, alreadyLinked, suggestedHere),
     ];
   }
 
@@ -133,6 +140,11 @@ class _ResolveNewHabitsSheetState
     final s = S.of(context);
     final myHabits = ref.watch(habitListProvider);
     final pending = _pending;
+    // Rows for the slots still in the plan only (see initState).
+    final shownRows = [
+      for (var i = 0; i < pending.length; i++)
+        if (!pending[i].isRemoved) i,
+    ];
 
     return Container(
       constraints:
@@ -169,8 +181,8 @@ class _ResolveNewHabitsSheetState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (var i = 0; i < pending.length; i++) ...[
-                    if (i != 0) const SizedBox(height: 10),
+                  for (final (n, i) in shownRows.indexed) ...[
+                    if (n != 0) const SizedBox(height: 10),
                     _NewHabitRow(
                       templateName: pending[i].name,
                       myHabits: myHabits,
@@ -186,7 +198,10 @@ class _ResolveNewHabitsSheetState
             padding: EdgeInsets.fromLTRB(
                 20, 10, 20, 20 + MediaQuery.of(context).padding.bottom),
             child: FilledButton(
-              onPressed: pending.isEmpty || _isSaving ? null : _save,
+              // shownRows, not pending: a sheet whose only pending slots are
+              // removed ones draws no rows, and its button has nothing to
+              // save. Both entry points already refuse to open it then.
+              onPressed: shownRows.isEmpty || _isSaving ? null : _save,
               style: FilledButton.styleFrom(
                 minimumSize: const Size(double.infinity, 50),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),

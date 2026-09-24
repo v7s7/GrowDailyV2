@@ -277,6 +277,13 @@ class LocalStoreService {
   }
 
   static Future<Box<dynamic>> settingsBox() => _open(GameConstants.boxSettings);
+
+  /// Whether the settings box is open. Always, in the app: main() opens it
+  /// before anything else runs. Never in a unit test that did not open it,
+  /// where even a caught openBox leaves Hive's own failed future unhandled
+  /// and fails the test, so a caller that can live without the store asks
+  /// first.
+  static bool get settingsBoxOpen => Hive.isBoxOpen(GameConstants.boxSettings);
   static Future<Box<dynamic>> dailyBox() => _open(GameConstants.boxDailyLogs);
   static Future<Box<dynamic>> habitsBox() => _open(GameConstants.boxHabits);
 

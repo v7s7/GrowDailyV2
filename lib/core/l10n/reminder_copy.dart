@@ -25,7 +25,7 @@
 /// gendered ("خلّصت" vs "خلّصتي"), and a notification has no idea who is
 /// reading it, so the phrasing talks about the task or the habit rather
 /// than to the person: "صار لها ساعة", never "فاتتك". Possessive ك is
-/// fine unvocalized, which is why "مهمتك" and "بانتظارك" still appear.
+/// fine unvocalized, which is why "مهمتك" still appears.
 ///
 /// The ask is the one exception. Aziz's picks of 2026-09-11 give every habit
 /// reminder one short spoken ask («سوي عادتك الحين», «خلّك جاهز»), in the
@@ -176,9 +176,14 @@ int signedOffsetMinutes(DateTime fireTime, DateTime anchor) =>
 String taskReminderTitle({required int offsetMinutes, required bool isAr}) {
   if (offsetMinutes == 0) return isAr ? 'حان الوقت' : "It's time";
   final gap = countedOffsetPhrase(offsetMinutes.abs(), isAr);
+  // After the moment: the clock, then the habit reminders' softer ask. It
+  // said «وبعدها بانتظارك» / "Still waiting." until 2026-09-24, a word on
+  // the blame list the sweep never reached; Aziz picked this line.
   return offsetMinutes < 0
       ? (isAr ? 'باقي $gap على مهمتك' : '$gap until your task')
-      : (isAr ? 'صار لها $gap، وبعدها بانتظارك' : "It's been $gap. Still waiting.");
+      : (isAr
+          ? 'صار لها $gap. تقدر تخلّصها الحين.'
+          : "It's been $gap. You can do it now.");
 }
 
 /// Title for the catch-up notification fired when a task's moment came and
@@ -686,10 +691,11 @@ String snoozeAction(bool isAr) => isAr ? 'تأجيل ساعة' : 'Snooze 1h';
 
 /// A quit check-in's two answers. «التزام» covers both quit shapes the way
 /// "On Track" does (avoid-completely and stay-under-a-limit alike), and
-/// «زلة» is the ordinary word for a slip, with none of the weight of
-/// «فشل».
+/// «ما التزمت» is its plain opposite, said by the person about their own
+/// day. It replaced «زلة» on 2026-09-24 (Aziz's pick), which still named
+/// the day as a fault.
 String onTrackAction(bool isAr) => isAr ? 'التزام' : 'On Track';
-String slippedAction(bool isAr) => isAr ? 'زلة' : 'Slipped';
+String slippedAction(bool isAr) => isAr ? 'ما التزمت' : "Didn't keep it";
 
 /// Body for the one-hour snooze fired from a habit reminder's "Snooze 1h"
 /// action.
@@ -1171,87 +1177,32 @@ ReminderLine weeklyRepeatCopy({
 // "It's time. Don't let today slip by." about something the person is
 // trying NOT to do, with Mark Done / Snooze under it. The reminder for a
 // quit habit is a check-in, and it carries the check-in's two answers
-// (التزام / زلة, see onTrackAction and slippedAction), so its body names
-// them. Impersonal like everything in this file; «كيف اليوم» asks about the
-// day, not the person.
+// (التزام / ما التزمت, see onTrackAction and slippedAction), so its body
+// names them. Impersonal like everything in this file; «كيف اليوم» asks
+// about the day, not the person.
+//
+// It is the ONLY notification a quit habit sends, and only when the person
+// set it a time (Aziz, 2026-09-24). The evening note's quit sentence is gone.
 
 /// The body of a quit habit's timed reminder. [isLimit] is the set-a-limit
 /// shape, whose question is about the limit rather than about a slip.
 String quitReminderBody({required bool isLimit, required bool isAr}) {
   if (isAr) {
     return isLimit
-        ? 'ضمن الحد إلى الآن؟ التزام أو زلة.'
-        : 'كيف اليوم إلى الآن؟ التزام أو زلة.';
+        ? 'ضمن الحد إلى الآن؟ التزام أو ما التزمت.'
+        : 'كيف اليوم إلى الآن؟ التزام أو ما التزمت.';
   }
   return isLimit
-      ? 'Within the limit so far? Kept or slipped.'
-      : 'How is today so far? Kept or slipped.';
-}
-
-/// One quit habit's evening ask, as a sentence inside the evening note:
-/// «و«تدخين»: التزمت اليوم؟», or for a limit «و«قهوة»: بقيت ضمن الحد؟».
-///
-/// Named, because the note is now the only evening notification and a bare
-/// «التزمت؟» with three quit habits running says nothing about which.
-String _oneQuitSentence({
-  required String name,
-  required bool isLimit,
-  required bool isAr,
-  required bool lead,
-}) {
-  if (!isAr) {
-    final and = lead ? '' : 'And ';
-    return isLimit
-        ? '$and"$name": still within the limit?'
-        : '$and"$name": did you keep to it today?';
-  }
-  final and = lead ? '' : 'و';
-  return isLimit ? '$and«$name»: بقيت ضمن الحد؟' : '$and«$name»: التزمت اليوم؟';
-}
-
-/// The quit habits still unanswered tonight, as one sentence. One is named
-/// ([_oneQuitSentence]); several are counted, because naming four habits in
-/// a banner that already carries the day's board reads as a list, not a
-/// question, and the names are on Today one tap away.
-String quitEveningSentence({
-  required List<({String name, bool isLimit})> pending,
-  required bool isAr,
-  // Whether this sentence OPENS the body, rather than trailing a board line
-  // that is already there. It only changes the joining word, but the two
-  // readings are different sentences and string-trimming one into the other
-  // is the kind of surgery that breaks on a copy edit.
-  bool lead = false,
-}) {
-  if (pending.isEmpty) return '';
-  if (pending.length == 1) {
-    return _oneQuitSentence(
-      name: pending.first.name,
-      isLimit: pending.first.isLimit,
-      isAr: isAr,
-      lead: lead,
-    );
-  }
-  final n = pending.length;
-  if (!isAr) {
-    // Not "kept or slipped" here, though those are the two buttons' own
-    // words: "slip" is on the blame list this file's copy is swept against
-    // (daily_reminder_copy_test), and the evening note is the one banner
-    // that now carries this sentence into that sweep.
-    return lead
-        ? '$n habits to check in on.'
-        : 'And $n habits to check in on.';
-  }
-  final and = lead ? 'عندك' : 'وعندك';
-  return switch (n) {
-    2 => '$and عادتين تسجّلهن، التزام أو زلة.',
-    <= 10 => '$and ${arabicDigits(n)} عادات تسجّلهن، التزام أو زلة.',
-    _ => '$and ${arabicDigits(n)} عادة تسجّلها، التزام أو زلة.',
-  };
+      ? "Within the limit so far? On track, or didn't keep it."
+      : "How is today so far? On track, or didn't keep it.";
 }
 
 /// THE evening notification: one line for the whole evening, replacing the
 /// three that used to fire within half an hour of each other (the daily
-/// reminder, the streak note and one check-in per quit habit).
+/// reminder, the streak note and one check-in per quit habit). Sent only at
+/// a daily reminder time the person picked, and never about a quit habit
+/// (Aziz, 2026-09-24): a quit habit is counted out of [done] and [total]
+/// by the caller, and has no sentence here.
 ///
 /// On 2026-09-13 a tester's lock screen carried «٤ من ١١ خلّصت، والباقي ٧
 /// عادات بس» at 20:00 and «٤ من ١١ خلّصت 👏🏼 سوي ٥ عادات بس» at 20:33: the
@@ -1266,22 +1217,21 @@ String quitEveningSentence({
 ///      habits today: it carries the board numbers AND names what the streak
 ///      turns into, so it strictly contains the daily reminder's sentence;
 ///   2. otherwise the daily reminder's own line ([dailyReminderLine]).
-/// Then ONE of these, appended to whichever line spoke, never both: the
-/// quit habits still unanswered, else the urgent tasks. Two trailing
-/// sentences overflowed the body and iOS cut the second one mid-word, see
-/// the note on [tellTasks] in the code below.
+/// Then at most ONE trailing sentence, the urgent tasks. Two trailing
+/// sentences overflowed the body and iOS cut the second one mid-word (see
+/// the note on [tellTasks] in the code below), which is why the quit
+/// sentence that used to share this tail outranked it.
 ///
 /// Null when there is nothing true to say — the day is finished, or nothing
-/// was due, and no quit habit is waiting. A banner after a finished day is
-/// the purest form of "you did nothing", and that rule is why this returns
-/// null rather than reaching for a generic line.
+/// was due. A banner after a finished day is the purest form of "you did
+/// nothing", and that rule is why this returns null rather than reaching for
+/// a generic line.
 ReminderLine? eveningNoteLine({
   required int done,
   required int total,
   required int streak,
   required bool streakEarnedToday,
   required int pendingBuildHabitCount,
-  required List<({String name, bool isLimit})> pendingQuit,
   required int urgentTasks,
   required int variantIndex,
   required bool isAr,
@@ -1290,20 +1240,16 @@ ReminderLine? eveningNoteLine({
   // quiet: what is left today is still true and still worth one banner.
   bool streakAskEnabled = true,
 }) {
-  final quit = quitEveningSentence(pending: pendingQuit, isAr: isAr);
   // ONE trailing sentence, never two.
   //
   // Measured on a simulator 2026-09-16 with a real board (11 habits, 5 Do
   // First tasks, 2 quit habits): «٢ من ١١ خلّصت 👏🏼 سوي ٧ عادات بس، وتصير ٤
   // أيام. وعندك ٥ مهام عاجلة. وعندك عادتين تسجّلهن،...» — iOS gave the body
   // three lines and cut the third sentence mid-word. A sentence that is
-  // always cut off is not a sentence the notification carries.
-  //
-  // The quit ask outranks the urgent-tasks count when both are true: a quit
-  // habit's day is only settled by answering it, and the answer is a tap,
-  // while the task count is information. With no quit habit waiting, the
-  // tasks sentence has the tail to itself, which is the common case.
-  final tellTasks = quit.isEmpty && urgentTasks > 0;
+  // always cut off is not a sentence the notification carries. The quit
+  // sentence that shared this tail is gone (2026-09-24), so the tasks
+  // sentence has it to itself.
+  final tellTasks = urgentTasks > 0;
   // The streak ask, on the same gates it had as its own notification: a
   // live streak, today's point not yet earned, and enough BUILD habits left
   // to actually cover what it needs (a quit habit is not done but answered,
@@ -1324,12 +1270,7 @@ ReminderLine? eveningNoteLine({
           isAr: isAr,
         )
       : null;
-  if (streakLine != null) {
-    return (
-      title: streakLine.title,
-      body: quit.isEmpty ? streakLine.body : '${streakLine.body} $quit',
-    );
-  }
+  if (streakLine != null) return streakLine;
   final daily = dailyReminderLine(
     done: done,
     total: total,
@@ -1337,20 +1278,7 @@ ReminderLine? eveningNoteLine({
     variantIndex: variantIndex,
     isAr: isAr,
   );
-  if (daily != null) {
-    final tail = quit.isNotEmpty
-        ? ' $quit'
-        : tellTasks
-            ? ' ${_urgentTasksSentence(urgentTasks, isAr)}'
-            : '';
-    return (title: daily.title, body: '${daily.body}$tail');
-  }
-  // The board is finished (or was empty) and only quit habits are still
-  // open: they resolve by being answered, not by being done, so the day is
-  // not over for them. Their own title, since nothing else spoke.
-  if (quit.isEmpty) return null;
-  return (
-    title: isAr ? 'تسجيل المساء' : 'Evening check-in',
-    body: quitEveningSentence(pending: pendingQuit, isAr: isAr, lead: true),
-  );
+  if (daily == null) return null;
+  final tail = tellTasks ? ' ${_urgentTasksSentence(urgentTasks, isAr)}' : '';
+  return (title: daily.title, body: '${daily.body}$tail');
 }

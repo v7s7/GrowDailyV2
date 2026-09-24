@@ -516,7 +516,12 @@ List<RoomSlotDay>? _slotsFromMarks({
   if (room.habitMode == RoomHabitMode.shared) {
     for (var i = 0; i < room.sharedHabits.length; i++) {
       final template = room.sharedHabits[i];
-      if (template.isRemoved) continue;
+      // In the plan THAT day: a habit the leader has since removed keeps its
+      // row on every day it counted, and has none from its stopsOn on (see
+      // RoomModel.slotLiveOn). A slot removed before this member joined was
+      // never theirs, so it has no row on their card either.
+      if (!room.slotLiveOn(i, dateKey)) continue;
+      if (participant.slotRemovedBeforeJoin(room, i)) continue;
       final name = template.name.trim();
       if (name.isEmpty) return null;
       final habitId = participant.habitInSlotOn(i, dateKey);
@@ -696,7 +701,10 @@ bool _namedSlotsOn({
   if (room.habitMode != RoomHabitMode.shared) return false;
   for (var i = 0; i < room.sharedHabits.length; i++) {
     final template = room.sharedHabits[i];
-    if (template.isRemoved) continue;
+    // Same test as _slotsFromMarks: in the plan that day, and ever this
+    // member's to carry.
+    if (!room.slotLiveOn(i, dateKey)) continue;
+    if (participant.slotRemovedBeforeJoin(room, i)) continue;
     final name = template.name.trim();
     if (name.isEmpty) return false;
     final isDeclined = participant.slotDeclinedOn(i, dateKey);

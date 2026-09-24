@@ -16,6 +16,9 @@ import WidgetKit
 import SwiftUI
 import AppIntents
 import UserNotifications
+// iOS 26 and newer only, and every use is behind #available: the extension
+// targets iOS 17, so the framework is weak-linked and absent below 26.
+import AlarmKit
 
 // Must match HomeWidgetService's _appGroupId exactly (lib/core/services/
 // home_widget_service.dart) — this is how the widget reads what the Flutter
@@ -68,18 +71,6 @@ extension Color {
     static let gdError = rgb(0xFF, 0x5A, 0x52)
 }
 
-/// Every widget face's background - a subtle vertical gradient standing in
-/// for what used to be a flat Color.gdBg fill everywhere. Runs gdSurface
-/// (already this palette's "one step up from bg" tone, used elsewhere for
-/// inset rows/dividers) into gdBg itself, so it reads as gentle depth
-/// rather than a new color. Deliberately understated - a widget sits on
-/// top of the user's own wallpaper, and a strong gradient would fight that
-/// far more than the old flat fill ever did.
-struct WidgetGradientBackground: View {
-    var body: some View {
-        LinearGradient(colors: [.gdSurface, .gdBg], startPoint: .top, endPoint: .bottom)
-    }
-}
 
 // MARK: - Shared data models
 
@@ -129,6 +120,9 @@ private func writeJSON<T: Encodable>(_ value: T, to key: String, in defaults: Us
 
 struct GrowDailyEntry: TimelineEntry {
     let date: Date
+    /// The language this face draws in, resolved once per entry — see
+    /// WidgetStrings.swift for why it is carried rather than read per view.
+    var copy: WidgetCopy = WidgetCopy(isAr: false)
     let streak: Int
     let level: Int
     let gold: Int
@@ -166,6 +160,7 @@ struct GrowDailyProvider: TimelineProvider {
         let defaults = UserDefaults(suiteName: appGroupId)
         return GrowDailyEntry(
             date: Date(),
+            copy: WidgetCopy.fromDefaults(),
             streak: defaults?.integer(forKey: "streak") ?? 0,
             level: defaults?.integer(forKey: "level") ?? 1,
             gold: defaults?.integer(forKey: "gold") ?? 0,
@@ -185,20 +180,25 @@ struct GrowDailyProvider: TimelineProvider {
 /// its own process with none of that state, and getting a reward
 /// calculation silently wrong in Swift no one can unit-test is worse than
 /// just deferring it. Instead this only ever touches shared UserDefaults,
-/// and two of the app's pending notes:
+/// and what the app has pending about the habit:
 ///
 ///  1. Flips this habit's `done` flag in the cached today-list, so the one
 ///     reload iOS guarantees right after `perform()` returns shows it
 ///     checked immediately.
-///  2. Appends the habit id to a small pending-completions queue.
-///  3. When the tap finishes the habit for the day, removes the pending
-///     notes that count finished habits (standDownNotesWithStaleCounts).
+///  2. Appends the tap, with the DAY it was made on, to the queue a lock
+///     screen «تمت» already writes (queueWithMarkDone).
+///  3. When the tap finishes the habit for the day, removes the habit's own
+///     reminders and alarms still to come today (standDownTodaysReminders),
+///     so it does not ring for a habit already done, and the pending notes
+///     that count finished habits (standDownNotesWithStaleCounts).
 ///
-/// The Flutter app drains that queue (HomeWidgetService.
-/// takePendingCompletions, called from main.dart whenever the app comes to
-/// the foreground) and runs it through the exact same completeHabit path a
-/// normal in-app tap uses. That's the one real reward — this button's own
-/// visual "done" state is provisional until then.
+/// The Flutter app drains that queue (main.dart's
+/// _processPendingNotificationActions, whenever the app comes to the
+/// foreground) and runs it through the exact same completeHabit path a normal
+/// in-app tap uses, on the day the tap names: a day still open is paid in
+/// full, a day that has closed gets its square and no reward. That's the one
+/// real reward — this button's own visual "done" state is provisional until
+/// then.
 struct MarkHabitDoneIntent: AppIntent {
     static var title: LocalizedStringResource = "Mark Habit Done"
 
@@ -218,6 +218,10 @@ struct MarkHabitDoneIntent: AppIntent {
         // Decided before the list is rewritten: TodayHabit has no count
         // keys, so the rewrite below drops the ones this reads.
         let finishes = habitTapFinishesDay(habitId, in: defaults)
+        // One clock reading for the whole tap: the day it is queued under and
+        // the day whose reminders it takes down have to be the same day, even
+        // if midnight falls between the two lines.
+        let day = appDayKey(Date())
 
         if var habits = readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) {
             for i in habits.indices where habits[i].id == habitId {
@@ -226,17 +230,120 @@ struct MarkHabitDoneIntent: AppIntent {
             writeJSON(habits, to: "todayHabitsJson", in: defaults)
         }
 
-        var pending = readJSON("pendingWidgetCompletions", from: defaults, as: [String].self) ?? []
-        if !pending.contains(habitId) {
-            pending.append(habitId)
+        // The tap, with its day, in the queue the app drains day-aware. The
+        // id-only queue below is what this wrote before that and is still
+        // drained, so an encode that somehow failed would cost the tap its
+        // day rather than the tap itself.
+        if let queued = queueWithMarkDone(
+            defaults?.string(forKey: "pendingNotificationActions"),
+            habitId: habitId,
+            day: day
+        ) {
+            defaults?.set(queued, forKey: "pendingNotificationActions")
+        } else {
+            var pending = readJSON("pendingWidgetCompletions", from: defaults, as: [String].self) ?? []
+            if !pending.contains(habitId) {
+                pending.append(habitId)
+            }
+            writeJSON(pending, to: "pendingWidgetCompletions", in: defaults)
         }
-        writeJSON(pending, to: "pendingWidgetCompletions", in: defaults)
 
         if finishes {
+            await standDownTodaysReminders(of: habitId, on: day, in: defaults)
             standDownNotesWithStaleCounts(includingFridayNote: true)
         }
         return .result()
     }
+}
+
+/// Takes down what the app armed to remind about [habitId] today, now that a
+/// tap here has finished it: its own reminders still to come today, a pending
+/// snooze, a bundle once every habit it names is done, and today's alarms.
+/// The app would drop them itself at its next open; until then they rang for
+/// a habit already ticked. The later days stay armed.
+///
+/// The ids come from the record the app's last reminder pass wrote beside the
+/// today-list (habitReminderStandDown in HabitReminderStandDown.swift). With
+/// no record, from a build before it, the habit's reminders are left to the
+/// app, as they always were.
+///
+/// Pending requests only, the rule standDownNotesWithStaleCounts below
+/// explains: a reminder already delivered was right when it came.
+private func standDownTodaysReminders(
+    of habitId: String, on day: String, in defaults: UserDefaults?
+) async {
+    guard let plan = habitReminderStandDown(
+        recordJSON: defaults?.string(forKey: "armedHabitRemindersJson"),
+        habitId: habitId,
+        day: day,
+        doneOnDay: habitsDoneOn(
+            day: day,
+            todayListJSON: defaults?.string(forKey: "todayHabitsJson"),
+            listDay: defaults?.string(forKey: "todayHabitsDay")))
+    else {
+        NSLog("[GrowDailyWidget] %@ done, no reminder record: its reminders wait for the app", habitId)
+        return
+    }
+    await applyStandDown(plan, subject: "\(habitId) done for \(day)")
+}
+
+/// Takes down what the app armed to remind about [taskId], now that a tap
+/// here has finished it: every slot its reminders can be sitting under, as an
+/// alarm or as a notification. A task is done once and for all, so unlike a
+/// habit's there is no later copy to spare and no day to pick.
+///
+/// The ids come from the record the app wrote beside the widget's task rows
+/// (taskReminderStandDown in TaskReminderStandDown.swift). With no record,
+/// from a build before it, the task's reminders are left to the app, as they
+/// always were: the tick is queued either way, and the next open cancels them
+/// as part of completing the task.
+///
+/// Not private: the alarm's «خلّصت المهمة» calls this too, from
+/// GrowDailyAlarmLiveActivity.swift.
+func standDownTaskReminders(of taskId: String, in defaults: UserDefaults?) async {
+    guard let plan = taskReminderStandDown(
+        recordJSON: defaults?.string(forKey: "armedTaskRemindersJson"),
+        taskId: taskId)
+    else {
+        NSLog("[GrowDailyWidget] task %@ done, no reminder record: its reminders wait for the app", taskId)
+        return
+    }
+    await applyStandDown(plan, subject: "task \(taskId) done")
+}
+
+/// Removes [plan]'s pending notification requests and cancels its alarms, and
+/// says in the log what it found. [subject] names what was finished, for that
+/// log alone.
+///
+/// Pending requests only, the rule standDownNotesWithStaleCounts below
+/// explains: a reminder already delivered was right when it came.
+private func applyStandDown(_ plan: ReminderStandDown, subject: String) async {
+    let center = UNUserNotificationCenter.current()
+    // Read first only so the log below can say what the removal found.
+    let wasPending = await center.pendingNotificationRequests()
+        .filter { plan.notificationIds.contains($0.identifier) }.count
+    if !plan.notificationIds.isEmpty {
+        center.removePendingNotificationRequests(withIdentifiers: plan.notificationIds)
+    }
+    // An alarm that has already rung is gone from AlarmKit, and cancelling
+    // it throws; that is the only reason one of these fails.
+    var alarmsCancelled = 0
+    if #available(iOS 26.0, *) {
+        for slot in plan.alarmSlots {
+            guard let id = growDailyAlarmID(slot: slot) else { continue }
+            if (try? AlarmManager.shared.cancel(id: id)) != nil {
+                alarmsCancelled += 1
+            }
+        }
+    }
+    // Read back over the same connection, so the removal has reached the
+    // system before this process can be suspended, and so the log can say
+    // what is left of it.
+    let pending = await center.pendingNotificationRequests()
+    let stillPending = pending.filter { plan.notificationIds.contains($0.identifier) }.count
+    NSLog("[GrowDailyWidget] %@: %ld of %ld reminder id(s) were pending, %ld still are, of %ld the app holds; %ld of %ld alarm(s) cancelled",
+          subject, wasPending, plan.notificationIds.count, stillPending, pending.count,
+          alarmsCancelled, plan.alarmSlots.count)
 }
 
 /// The count keys the app writes on each entry of the cached today-list
@@ -287,8 +394,10 @@ private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?) 
 /// removePendingNotificationRequests is already pending-only.
 ///
 /// Apple documents UNUserNotificationCenter for app extensions as well as
-/// apps; that this removal reaches the app's requests from the widget
-/// extension has not been seen on a device.
+/// apps, and on the simulator (2026-09-22) this extension read the app's own
+/// pending requests, 42 of them, and its removal took: the ticked habit's
+/// reminder for that day went, SpringBoard rescheduled its timer without it,
+/// and nothing rang at the minute it had been due. Not yet on a device.
 private func standDownNotesWithStaleCounts(includingFridayNote: Bool) {
     var identifiers = ["1010"]
     if includingFridayNote {
@@ -435,19 +544,21 @@ struct ProgressRing: View {
         let hour = Calendar.current.component(.hour, from: Date())
         return hour >= 18 && total > 0 && completed < total
     }
-    private var ringColor: Color { isUrgent ? .gdWarning : .gdEmerald }
+    private var ringColor: Color { isUrgent ? .parchmentWarn : .parchmentGreen }
 
     var body: some View {
         ZStack {
-            Circle().stroke(Color.gdBorder, lineWidth: 4)
+            // The unfilled track, which on cream must stay behind the arc
+            // rather than compete with it.
+            Circle().stroke(Color.parchmentBorder.opacity(0.28), lineWidth: 4)
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(ringColor, style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.6), value: progress)
-            Text("\(completed)/\(total)")
+            Text(verbatim: "\(completed)/\(total)")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(.parchmentInk)
                 .minimumScaleFactor(0.7)
                 .contentTransition(.numericText())
                 .animation(.default, value: completed)
@@ -455,25 +566,6 @@ struct ProgressRing: View {
     }
 }
 
-/// A short status line whose tone shifts across the day — encouraging
-/// early, more direct once it's evening and something's still open. This
-/// is the copy-only half of "make the widget feel alive": Duolingo's owl
-/// does the same escalating-urgency trick by swapping between a handful
-/// of pre-made expression images (see the design discussion this is from)
-/// — same idea, just words instead of art, so it needs no new asset work
-/// at all.
-func statusLine(completed: Int, total: Int) -> String {
-    if total <= 0 { return "Nothing scheduled today" }
-    if completed >= total { return "All done today" }
-    let remaining = total - completed
-    let hour = Calendar.current.component(.hour, from: Date())
-    if hour >= 20 {
-        return remaining == 1 ? "Last one — don't break the streak" : "\(remaining) left — finish today"
-    } else if hour >= 18 {
-        return "\(remaining) left today"
-    }
-    return "\(remaining) to go today"
-}
 
 /// 4-week mini heatmap — same dailyGreenCounts rollup the in-app Monthly
 /// Heatmap screen reads, just windowed to the last 28 days.
@@ -495,43 +587,116 @@ func statusLine(completed: Int, total: Int) -> String {
 /// tension to lose: the grid's total size is just rows × (cellSize +
 /// spacing), always, regardless of how much width the parent happens to
 /// hand it.
+/// The last four weeks as a real month grid: seven weekday columns,
+/// Saturday on the left, days running left to right.
+///
+/// ── What this replaces, and why ──────────────────────────────────────
+/// The old grid chunked the day array into rows of seven and drew them at
+/// a hard-coded 9pt. Two things were wrong with that. It was 78pt wide on
+/// a 329pt card, so it sat in a quarter of the width with dead space
+/// beside it. And its columns were not weekdays at all: it LOOKED like a
+/// calendar while its column positions meant nothing, so a Tuesday could
+/// appear under a Friday. Aziz called it on 2026-09-23.
+///
+/// Now each day is placed in its own weekday column, the first week is
+/// padded so it starts in the right one, and the cells size themselves
+/// from whatever width they are given (`aspectRatio(1, .fit)` on a cell
+/// with `maxWidth: .infinity`) so the grid always spans the card. No outer
+/// height is set, which is what the previous version's own comment warned
+/// about: a fixed height plus a fitted aspect ratio is the combination
+/// that made cells overlap.
+///
+/// Saturday on the left is the app's own rule, decided 2026-09-21 for
+/// every calendar it draws, and it holds IN ARABIC TOO. That is why this
+/// view pins its own layout direction rather than inheriting the face's.
 struct HeatmapGrid: View {
     let days: [HeatmapDay]
-    var cellSize: CGFloat = 9
-    var spacing: CGFloat = 2.5
+    var spacing: CGFloat = 4
+    /// The weekday initials above the columns. They are what turns a block
+    /// of squares into a calendar someone can read a position off.
+    var showWeekdays: Bool = true
+    var copy: WidgetCopy = WidgetCopy(isAr: false)
 
-    private var rows: [[HeatmapDay]] {
-        guard !days.isEmpty else { return [] }
-        return stride(from: 0, to: days.count, by: 7).map {
-            Array(days[$0..<min($0 + 7, days.count)])
-        }
+    /// Sunday is 1 in Gregorian, so Saturday (7) maps to column 0 and the
+    /// rest follow: Sunday 1, Monday 2 ... Friday 6.
+    private static func column(of date: Date, calendar: Calendar) -> Int {
+        calendar.component(.weekday, from: date) % 7
     }
 
+    private static let parser: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    /// The grid as rows of optional days: nil is a cell before the window
+    /// started, drawn as nothing at all so the first week lines up.
+    private var weeks: [[HeatmapDay?]] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone.current
+        let parsed: [(day: HeatmapDay, col: Int)] = days.compactMap { d in
+            guard let date = Self.parser.date(from: d.date) else { return nil }
+            return (d, Self.column(of: date, calendar: calendar))
+        }
+        guard let first = parsed.first else { return [] }
+        var out: [[HeatmapDay?]] = []
+        var row: [HeatmapDay?] = Array(repeating: nil, count: first.col)
+        for entry in parsed {
+            if row.count == 7 { out.append(row); row = [] }
+            row.append(entry.day)
+        }
+        if !row.isEmpty {
+            row.append(contentsOf: Array(repeating: nil, count: 7 - row.count))
+            out.append(row)
+        }
+        return out
+    }
+
+    /// The ramp had to be rebuilt when the card stopped being near-black.
+    /// On a dark ground a LOW opacity reads as faint, so an empty day at
+    /// 0.55 sat quietly under a filled one; on cream the same numbers
+    /// inverted the hierarchy and made the emptiest days the loudest thing
+    /// in the grid. Empty is now a whisper on both sheets and every filled
+    /// step climbs above it.
     private func color(for count: Int) -> Color {
         switch count {
-        case 0: return Color.gdBorder.opacity(0.55)
-        case 1: return Color.gdEmerald.opacity(0.30)
-        case 2, 3: return Color.gdEmerald.opacity(0.60)
-        default: return Color.gdEmerald
+        case 0: return Color.parchmentSurface
+        case 1: return Color.parchmentGreenFill.opacity(0.38)
+        case 2, 3: return Color.parchmentGreenFill.opacity(0.68)
+        default: return Color.parchmentGreenFill
         }
     }
 
     var body: some View {
         VStack(spacing: spacing) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            if showWeekdays {
                 HStack(spacing: spacing) {
-                    ForEach(row, id: \.date) { day in
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(color(for: day.count))
-                            .frame(width: cellSize, height: cellSize)
+                    ForEach(Array(copy.weekdayInitials.enumerated()), id: \.offset) { _, letter in
+                        Text(letter)
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.parchmentSecondary)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                HStack(spacing: spacing) {
+                    ForEach(Array(week.enumerated()), id: \.offset) { _, day in
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(day == nil ? Color.clear : color(for: day!.count))
+                            .aspectRatio(1, contentMode: .fit)
+                            .frame(maxWidth: .infinity)
                     }
                 }
             }
         }
+        // A calendar reads left to right in this app whatever the language
+        // (2026-09-21). Inheriting the face's direction mirrored the weeks.
+        .environment(\.layoutDirection, .leftToRight)
     }
 }
-
-// MARK: - Home Screen widget views
 
 struct GrowDailySmallView: View {
     var entry: GrowDailyEntry
@@ -540,15 +705,15 @@ struct GrowDailySmallView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
                 FlameIcon(size: 17)
-                Text("\(entry.streak)")
+                Text(verbatim: "\(entry.streak)")
                     .font(.system(size: 22, weight: .heavy))
-                    .foregroundColor(.white)
+                    .foregroundColor(.parchmentInk)
                     .contentTransition(.numericText())
                     .animation(.default, value: entry.streak)
             }
-            Text("day streak")
+            Text(entry.copy.dayStreak)
                 .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(.parchmentSecondary)
             Spacer()
             HStack {
                 ProgressRing(completed: entry.completedToday, total: entry.totalToday)
@@ -556,13 +721,13 @@ struct GrowDailySmallView: View {
                 Spacer()
                 Label("\(entry.gold)", systemImage: "circle.fill")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.gdGold)
+                    .foregroundColor(.parchmentGold)
                     .contentTransition(.numericText())
                     .animation(.default, value: entry.gold)
             }
         }
         .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -578,9 +743,10 @@ struct GrowDailyMediumView: View {
                 // that exact fraction at its center, so this slot is
                 // better spent on statusLine's day-aware nudge instead of
                 // repeating the same two numbers a second time.
-                Text(statusLine(completed: entry.completedToday, total: entry.totalToday))
+                Text(entry.copy.statusLine(completed: entry.completedToday, total: entry.totalToday,
+                                           hour: Calendar.current.component(.hour, from: entry.date)))
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(.parchmentInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                     .contentTransition(.opacity)
@@ -588,17 +754,17 @@ struct GrowDailyMediumView: View {
                 HStack(spacing: 10) {
                     HStack(spacing: 3) {
                         FlameIcon(size: 12)
-                        Text("\(entry.streak)d")
+                        Text(entry.copy.streakDays(entry.streak))
                             .contentTransition(.numericText())
                             .animation(.default, value: entry.streak)
                     }
-                    .foregroundColor(.gdStreak)
-                    Label("Lvl \(entry.level)", systemImage: "star.fill")
-                        .foregroundColor(.gdXpBlue)
+                    .foregroundColor(.parchmentStreak)
+                    Label(entry.copy.level(entry.level), systemImage: "star.fill")
+                        .foregroundColor(.parchmentXp)
                         .contentTransition(.numericText())
                         .animation(.default, value: entry.level)
                     Label("\(entry.gold)", systemImage: "circle.fill")
-                        .foregroundColor(.gdGold)
+                        .foregroundColor(.parchmentGold)
                         .contentTransition(.numericText())
                         .animation(.default, value: entry.gold)
                 }
@@ -607,7 +773,7 @@ struct GrowDailyMediumView: View {
             Spacer(minLength: 0)
         }
         .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -618,13 +784,26 @@ struct GrowDailyMediumView: View {
 struct GrowDailyLargeView: View {
     var entry: GrowDailyEntry
 
+    /// How many habits fit under the month grid.
+    ///
+    /// Measured off screenshots of the built widget, not estimated.
+    ///
+    /// The arithmetic said the full-width month grid would cost the list
+    /// two rows: about 210pt of grid on a 313pt card. It did not. The grid
+    /// lands narrower than the raw width because of the card's own inset,
+    /// so at three rows and again at four there was visible slack at the
+    /// bottom, and five still fits with room over. The list keeps the count
+    /// it always had, and the trade-off this comment used to describe was
+    /// an estimate that a screenshot disproved.
+    static let habitRows = 5
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 HStack(spacing: 5) {
                     FlameIcon(size: 15)
-                    Text("\(entry.streak)")
-                        .foregroundColor(.gdStreak)
+                    Text(verbatim: "\(entry.streak)")
+                        .foregroundColor(.parchmentStreak)
                         .font(.system(size: 15, weight: .heavy))
                         .contentTransition(.numericText())
                         .animation(.default, value: entry.streak)
@@ -632,9 +811,10 @@ struct GrowDailyLargeView: View {
                 Spacer()
                 // Same day-aware line as the medium widget, in place of the
                 // old flat "X/Y today" — see statusLine's doc comment.
-                Text(statusLine(completed: entry.completedToday, total: entry.totalToday))
+                Text(entry.copy.statusLine(completed: entry.completedToday, total: entry.totalToday,
+                                           hour: Calendar.current.component(.hour, from: entry.date)))
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.75))
+                    .foregroundColor(.parchmentSecondary)
                     .lineLimit(1)
                     .contentTransition(.opacity)
                     .animation(.default, value: entry.completedToday)
@@ -644,17 +824,17 @@ struct GrowDailyLargeView: View {
             // itself deterministically from fixed cells (see its own doc
             // comment), so forcing an outer height back on is exactly the
             // mismatch that caused the overlap bug in the first place.
-            HeatmapGrid(days: entry.heatmap)
+            HeatmapGrid(days: entry.heatmap, copy: entry.copy)
 
-            Divider().background(Color.gdBorder)
+            Divider().background(Color.parchmentBorder)
 
             VStack(alignment: .leading, spacing: 7) {
                 if entry.habits.isEmpty {
-                    Text("No habits scheduled today")
+                    Text(entry.copy.noHabitsToday)
                         .font(.system(size: 12))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.parchmentSecondary)
                 } else {
-                    ForEach(Array(entry.habits.prefix(5))) { habit in
+                    ForEach(Array(entry.habits.prefix(Self.habitRows))) { habit in
                         // A row the day did not ask for stays here and stays
                         // tappable — you may always train on a rest day — but
                         // it is drawn as an invitation, not as something
@@ -670,39 +850,39 @@ struct GrowDailyLargeView: View {
                                 Image(systemName: habit.done ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 16))
                                     .foregroundColor(habit.done
-                                                     ? .gdEmerald
+                                                     ? .parchmentGreen
                                                      : (resting
-                                                        ? .gdEmerald.opacity(0.45)
-                                                        : .white.opacity(0.35)))
+                                                        ? .parchmentGreen.opacity(0.45)
+                                                        : .parchmentSecondary))
                             }
                             .buttonStyle(.plain)
                             Text(habit.name)
                                 .font(.system(size: 12, weight: .medium))
                                 .strikethrough(habit.done)
                                 .foregroundColor(habit.done || resting
-                                                 ? .white.opacity(0.5)
-                                                 : .white)
+                                                 ? .parchmentSecondary
+                                                 : .parchmentInk)
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                             if resting {
-                                Text("not due")
+                                Text(entry.copy.notDue)
                                     .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(.gdEmerald.opacity(0.7))
+                                    .foregroundColor(.parchmentGreen.opacity(0.7))
                                     .lineLimit(1)
                             }
                         }
                     }
-                    if entry.habits.count > 5 {
-                        Text("+\(entry.habits.count - 5) more in app")
+                    if entry.habits.count > Self.habitRows {
+                        Text(entry.copy.moreInApp(entry.habits.count - Self.habitRows))
                             .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(.parchmentSecondary)
                     }
                 }
             }
         }
         .padding()
         .background(cornerMotif(), alignment: .topTrailing)
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -711,6 +891,7 @@ struct GrowDailyWidgetView: View {
     var entry: GrowDailyEntry
 
     var body: some View {
+        Group {
         switch family {
         case .systemMedium:
             GrowDailyMediumView(entry: entry)
@@ -719,6 +900,13 @@ struct GrowDailyWidgetView: View {
         default:
             GrowDailySmallView(entry: entry)
         }
+        }
+        // Arabic reads right to left, and these faces are built from
+        // leading-aligned stacks, so without this every row stayed pinned
+        // to the left with its Arabic text ragged against it. Set once
+        // here rather than per face: the switch above is the single root
+        // all three sizes pass through.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -729,8 +917,8 @@ struct GrowDailyWidget: Widget {
         StaticConfiguration(kind: kind, provider: GrowDailyProvider()) { entry in
             GrowDailyWidgetView(entry: entry)
         }
-        .configurationDisplayName("Grow Daily")
-        .description("Today's progress, streak, and a tappable habit list at a glance.")
+        .configurationDisplayName(Text("Grow Daily"))
+        .description(Text("Today's progress, streak, and a tappable habit list at a glance."))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -765,7 +953,7 @@ struct GrowDailyCircularView: View {
             VStack(spacing: 0) {
                 Image(systemName: "flame.fill")
                     .font(.system(size: 12))
-                Text("\(entry.streak)")
+                Text(verbatim: "\(entry.streak)")
                     .font(.system(size: 14, weight: .bold))
                     .contentTransition(.numericText())
                     .animation(.default, value: entry.streak)
@@ -781,11 +969,11 @@ struct GrowDailyRectangularView: View {
         HStack(spacing: 6) {
             Image(systemName: "flame.fill")
             VStack(alignment: .leading, spacing: 1) {
-                Text("\(entry.streak) day streak")
+                Text(entry.copy.streakLine(entry.streak))
                     .font(.system(size: 12, weight: .semibold))
                     .contentTransition(.numericText())
                     .animation(.default, value: entry.streak)
-                Text("\(entry.completedToday)/\(entry.totalToday) done today")
+                Text(entry.copy.doneToday(entry.completedToday, entry.totalToday))
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .contentTransition(.numericText())
@@ -809,6 +997,12 @@ struct GrowDailyLockScreenView: View {
             }
         }
         .widgetURL(lockScreenOpenURL(tab: "grid"))
+        // Arabic on the Lock Screen too. Only the three Home Screen
+        // families got this in the first pass, so an Arabic user's Lock
+        // Screen kept laying its rows out left to right while the Home
+        // Screen above it read correctly. Found by reading rather than by
+        // looking: the simulator's Lock Screen editor would not render.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -819,8 +1013,8 @@ struct GrowDailyLockScreenWidget: Widget {
         StaticConfiguration(kind: kind, provider: GrowDailyProvider()) { entry in
             GrowDailyLockScreenView(entry: entry)
         }
-        .configurationDisplayName("Grow Daily Streak")
-        .description("Your streak and today's progress on the Lock Screen.")
+        .configurationDisplayName(Text("Grow Daily Streak"))
+        .description(Text("Your streak and today's progress on the Lock Screen."))
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
@@ -940,6 +1134,7 @@ struct RoomRaceRow: Codable {
 
 struct RoomRaceEntry: TimelineEntry {
     let date: Date
+    var copy: WidgetCopy = WidgetCopy(isAr: false)
     let hasRoom: Bool
     let roomName: String
     let isLive: Bool
@@ -987,116 +1182,17 @@ struct RoomRaceProvider: TimelineProvider {
             let rows: [RoomRaceRow]
         }
         guard let raw = readJSON("roomRaceJson", from: defaults, as: RawRaceData.self) else {
-            return RoomRaceEntry(date: Date(), hasRoom: false, roomName: "", isLive: false, daysRemaining: 0, rows: [])
+            return RoomRaceEntry(date: Date(), copy: WidgetCopy.fromDefaults(), hasRoom: false,
+                                 roomName: "", isLive: false, daysRemaining: 0, rows: [])
         }
-        return RoomRaceEntry(date: Date(), hasRoom: raw.hasRoom, roomName: raw.roomName,
+        return RoomRaceEntry(date: Date(), copy: WidgetCopy.fromDefaults(),
+                             hasRoom: raw.hasRoom, roomName: raw.roomName,
                               isLive: raw.isLive, daysRemaining: raw.daysRemaining, rows: raw.rows)
     }
 }
 
-/// Medal-toned circle + first initial — rank 1/2/3 get gold/silver/bronze
-/// so the top of the pack reads at a glance without needing real avatars.
-struct RoomAvatarCircle: View {
-    let name: String
-    let rank: Int
-    var size: CGFloat = 26
 
-    private var ringColor: Color {
-        switch rank {
-        case 1: return .gdGold
-        case 2: return Color(white: 0.75)
-        case 3: return rgb(0xCD, 0x7F, 0x32) // bronze
-        default: return .gdBorder
-        }
-    }
 
-    private var initial: String {
-        String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased()
-    }
-
-    var body: some View {
-        ZStack {
-            Circle().fill(Color.gdSurface)
-            Circle().stroke(
-                ringColor,
-                lineWidth: rank >= 1 && rank <= 3 ? 2 : 1
-            )
-            Text(initial.isEmpty ? "?" : initial)
-                .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundColor(.white)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-/// Compact horizontal contribution strip for one participant — the widget's
-/// own copy of the in-app _MiniHeatmapStrip (room_detail_screen.dart).
-/// Renders whatever levels (0-4) Dart already computed via heatmapLevelFor
-/// (rooms_notifier.dart) rather than raw credit, so this view only ever
-/// does a color lookup, never math. Same emerald-opacity tiers as heatColor
-/// (monthly_heatmap_screen.dart); .gdBorder stands in for that function's
-/// "empty" fill since this widget has one fixed dark palette, not a light/
-/// dark-adaptive one. Each cell fades to its new shade on refresh instead
-/// of popping (same "Animating data updates in widgets" treatment
-/// ProgressRing's sweep already uses above), and the last cell always gets
-/// today's gold ring — safe to assume it's today without checking a date,
-/// since myRoomRaceSnapshotProvider only ever picks a room that hasn't
-/// ended, so this strip's final day is never anything but today.
-struct RoomRaceHeatmapStrip: View {
-    let levels: [Int]
-
-    private static let cell: CGFloat = 6
-    private static let gap: CGFloat = 1.5
-
-    private func color(for level: Int) -> Color {
-        switch level {
-        case 1: return Color.gdEmerald.opacity(0.30)
-        case 2: return Color.gdEmerald.opacity(0.50)
-        case 3: return Color.gdEmerald.opacity(0.70)
-        case 4: return Color.gdEmerald.opacity(0.92)
-        default: return Color.gdBorder
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: Self.gap) {
-            ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(color(for: level))
-                    .frame(width: Self.cell, height: Self.cell)
-                    .overlay(
-                        index == levels.count - 1
-                            ? RoundedRectangle(cornerRadius: 1.5)
-                                .stroke(Color.gdGold, lineWidth: 1)
-                            : nil
-                    )
-                    .animation(.easeOut(duration: 0.4), value: level)
-            }
-        }
-    }
-}
-
-/// A leaderboard row with its heatmap strip underneath — the "featured"
-/// treatment for whichever participants a given widget size has room for.
-/// Both RoomRaceMediumView and RoomRaceLargeView below give this to the
-/// top 2 ranked participants specifically and fall back to the plain
-/// RoomRaceRowView (no strip) for anyone past that - "the first one, and
-/// the 2nd one in the group" is what this app settled on for "if no
-/// space," rather than shrinking every row's strip to fit an arbitrary
-/// roster size.
-struct RoomRaceFeaturedRow: View {
-    let row: RoomRaceRow
-    var avatarSize: CGFloat = 24
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            RoomRaceRowView(row: row, avatarSize: avatarSize)
-            if let heatmap = row.heatmap, !heatmap.isEmpty {
-                RoomRaceHeatmapStrip(levels: heatmap)
-            }
-        }
-    }
-}
 
 /// A place, or a dash when there isn't one yet.
 ///
@@ -1109,75 +1205,29 @@ func rankLabel(_ rank: Int) -> String {
     rank > 0 ? "#\(rank)" : "#-"
 }
 
-/// Same "shifting tone, no new art" idea as [statusLine] above, for the
-/// Room Race face — leading feels different from mid-pack, worth saying
-/// out loud rather than just showing a number and leaving the reaction to
-/// the person looking at it.
-func rankLine(rank: Int, racerCount: Int) -> String {
-    if rank == 1 { return racerCount > 1 ? "You're leading" : "Racing solo" }
-    if rank == 2 { return "So close — catch #1" }
-    return "Keep pushing"
-}
 
-/// One leaderboard row: avatar, name, rank, percent — highlighted with a
-/// soft emerald wash when [row.isMe] so someone can find themselves in the
-/// pack without reading every name.
-struct RoomRaceRowView: View {
-    let row: RoomRaceRow
-    var avatarSize: CGFloat = 26
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(rankLabel(row.rank))
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white.opacity(0.5))
-                .frame(width: 18, alignment: .leading)
-                .contentTransition(.numericText())
-                .animation(.default, value: row.rank)
-            RoomAvatarCircle(name: row.name, rank: row.rank, size: avatarSize)
-            Text(row.isMe ? "\(row.name) (You)" : row.name)
-                .font(.system(size: 12, weight: row.isMe ? .bold : .medium))
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(0)
-            Spacer(minLength: 4)
-            // Same fraction the Lock Screen shows, and the same reason it
-            // can't be squeezed: fixedSize + priority means a long name
-            // truncates instead of the score disappearing.
-            Text(row.scoreLabel)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.gdEmerald)
-                .fixedSize()
-                .layoutPriority(2)
-                .contentTransition(.numericText())
-                .animation(.default, value: row.daysDone)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(row.isMe ? Color.gdEmerald.opacity(0.14) : Color.clear)
-        )
-    }
-}
 
 /// Shown in every size when nobody's in an active room yet — a plain
 /// "nothing to show" state reads as broken on a widget in a way it doesn't
 /// in the full app, so this always explains what to do next instead of
 /// just going blank.
 struct RoomRaceEmptyView: View {
+    /// Taken as a parameter rather than read here: this view has no entry,
+    /// and a second read of the flag is a second chance to disagree with
+    /// the face around it.
+    let copy: WidgetCopy
+
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: "flag.checkered")
                 .font(.system(size: 20))
-                .foregroundColor(.white.opacity(0.4))
-            Text("No active room")
+                .foregroundColor(.parchmentSecondary)
+            Text(copy.noActiveRoom)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.white)
-            Text("Join or create one in the app")
+                .foregroundColor(.parchmentInk)
+            Text(copy.joinOrCreate)
                 .font(.system(size: 10.5))
-                .foregroundColor(.white.opacity(0.55))
+                .foregroundColor(.parchmentSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1193,137 +1243,178 @@ struct RoomRaceSmallView: View {
     var body: some View {
         Group {
             if !entry.hasRoom || mine == nil {
-                RoomRaceEmptyView()
+                RoomRaceEmptyView(copy: entry.copy)
             } else if let mine {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(entry.roomName, systemImage: "flag.checkered")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.parchmentSecondary)
                         .lineLimit(1)
                     Spacer()
-                    Text(rankLabel(mine.rank))
+                    // The word, not «#1»: a Western rank badge on an
+                    // Arabic card, and a bare digit reads as a score. The
+                    // Lock Screen faces keep the badge, where a word does
+                    // not fit in a 58pt circle.
+                    Text(entry.copy.rankWord(mine.rank))
                         .font(.system(size: 26, weight: .heavy))
-                        .foregroundColor(.gdGold)
+                        .foregroundColor(.parchmentGold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .contentTransition(.numericText())
                         .animation(.default, value: mine.rank)
-                    Text(rankLine(rank: mine.rank, racerCount: entry.rows.count))
+                    Text(entry.copy.rankLine(rank: mine.rank, racerCount: entry.rows.count))
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.75))
+                        .foregroundColor(.parchmentSecondary)
                         .lineLimit(1)
                         .contentTransition(.opacity)
                         .animation(.default, value: mine.rank)
                     if entry.daysRemaining > 0 {
-                        Text("\(entry.daysRemaining)d left")
+                        Text(entry.copy.daysLeftShort(entry.daysRemaining))
                             .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(.parchmentSecondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
-struct RoomRaceMediumView: View {
-    var entry: RoomRaceEntry
+/// My own 28 days as one wide line, sized to whatever width it is given.
+///
+/// The old strip drew 6pt cells at a fixed size, which left it ending
+/// two thirds of the way across a card and lining up with nothing. This
+/// one fills the row, and like the month grid it pins its direction: a
+/// run of days reads left to right in this app whatever the language.
+struct RoomRaceWideStrip: View {
+    let levels: [Int]
+    var spacing: CGFloat = 2
+
+    private func color(for level: Int) -> Color {
+        switch level {
+        case 1: return Color.parchmentGreenFill.opacity(0.38)
+        case 2: return Color.parchmentGreenFill.opacity(0.58)
+        case 3: return Color.parchmentGreenFill.opacity(0.78)
+        case 4: return Color.parchmentGreenFill
+        default: return Color.parchmentSurface
+        }
+    }
 
     var body: some View {
-        Group {
-            if !entry.hasRoom || entry.rows.isEmpty {
-                RoomRaceEmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Label(entry.roomName, systemImage: "flag.checkered")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        Spacer()
-                        if entry.daysRemaining > 0 {
-                            Text("\(entry.daysRemaining)d left")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
-                    }
-                    // Top 2 get their heatmap strip; anyone else just gets
-                    // a count - see RoomRaceFeaturedRow's doc comment for
-                    // why 2 specifically. Keyed by stableId (not rank) so a
-                    // row that changes rank between refreshes slides to its
-                    // new spot instead of the slot at that rank just
-                    // swapping its text - see the .animation below.
-                    ForEach(Array(entry.rows.prefix(2)), id: \.stableId) { row in
-                        RoomRaceFeaturedRow(row: row, avatarSize: 20)
-                    }
-                    if entry.rows.count > 2 {
-                        Text("+\(entry.rows.count - 2) more racing")
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.5))
-                    }
-                }
-                // Drives the reorder above - same "animate between two
-                // timeline entries" trick RoomRaceRowView's own rank/
-                // percent numbers already use, just applied to row
-                // position instead of row content.
-                .animation(.easeInOut(duration: 0.45), value: entry.rows.map(\.rank))
+        HStack(spacing: spacing) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(color(for: level))
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .overlay(
+                        index == levels.count - 1
+                            ? RoundedRectangle(cornerRadius: 2)
+                                .stroke(Color.parchmentGold, lineWidth: 1.2)
+                            : nil
+                    )
             }
         }
-        .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .environment(\.layoutDirection, .leftToRight)
     }
 }
 
-struct RoomRaceLargeView: View {
+/// The Race face, rebuilt 2026-09-23.
+///
+/// ── What it used to be, and why that failed ──────────────────────────
+/// A miniature leaderboard: every racer as a row with a rank, an avatar, a
+/// name and an unlabelled «23/41». Aziz called it unclear and he was
+/// right. Three separate problems. With two racers the rows filled about
+/// half the card and the rest was dead space. The biggest, greenest thing
+/// on each row was a fraction that could have been days, points or
+/// percent, and both racers' fractions were the same colour, so the
+/// leader was not distinguished by the one element the eye goes to. And
+/// the rank sat OUTSIDE the highlight on the row that was mine.
+///
+/// ── What it is now ───────────────────────────────────────────────────
+/// One question, answered: where do I stand against the person next to
+/// me. My place as a word, the gap in days to whoever is immediately
+/// ahead (or, when I am first, my cushion over the chaser), and my own
+/// month as one wide line. The whole card is spent on my own position
+/// rather than on a table nobody reads at a glance.
+struct RoomRaceStandingView: View {
     var entry: RoomRaceEntry
+    var compact: Bool
+
+    /// Me, and whoever I am measured against: the racer one place ahead,
+    /// or the one behind when I am already first.
+    private var pair: (me: RoomRaceRow, rival: RoomRaceRow?)? {
+        guard let me = entry.rows.first(where: { $0.isMe }) ?? entry.rows.first
+        else { return nil }
+        let rival = entry.rows.first { $0.rank == me.rank - 1 }
+            ?? entry.rows.first { $0.rank == me.rank + 1 }
+        return (me, rival)
+    }
+
+    private func gapText(_ me: RoomRaceRow, _ rival: RoomRaceRow) -> String {
+        let mine = me.daysDone ?? 0
+        let theirs = rival.daysDone ?? 0
+        return entry.copy.gapLine(days: abs(mine - theirs),
+                                  other: rival.name,
+                                  iAmAhead: mine >= theirs)
+    }
 
     var body: some View {
         Group {
             if !entry.hasRoom || entry.rows.isEmpty {
-                RoomRaceEmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
+                RoomRaceEmptyView(copy: entry.copy)
+            } else if let pair = pair {
+                VStack(alignment: .leading, spacing: compact ? 4 : 8) {
                     HStack {
                         Label(entry.roomName, systemImage: "flag.checkered")
-                            .font(.system(size: 15, weight: .heavy))
-                            .foregroundColor(.white)
+                            .font(.system(size: compact ? 12 : 14, weight: .bold))
+                            .foregroundColor(.parchmentInk)
                             .lineLimit(1)
-                        Spacer()
+                        Spacer(minLength: 6)
                         if entry.daysRemaining > 0 {
-                            Text("\(entry.daysRemaining) days left")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.55))
+                            Text(entry.copy.daysLeftShort(entry.daysRemaining))
+                                .font(.system(size: compact ? 10 : 12, weight: .semibold))
+                                .foregroundColor(.parchmentSecondary)
+                                .fixedSize()
                         } else if !entry.isLive {
-                            Text("Starting soon")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.gdWarning)
+                            Text(entry.copy.startingSoon)
+                                .font(.system(size: compact ? 10 : 12, weight: .semibold))
+                                .foregroundColor(.parchmentWarn)
+                                .fixedSize()
                         }
                     }
-                    Divider().background(Color.gdBorder)
-                    // Top 2 get their heatmap strip; rows 3-6 stay the
-                    // plain row they always were - see RoomRaceFeaturedRow's
-                    // doc comment for why the cutoff is 2, not the full
-                    // roster. Total shown (6) is unchanged from before.
-                    // Keyed by stableId, not rank - see the .animation
-                    // below and RoomRaceMediumView's matching comment.
-                    ForEach(Array(entry.rows.prefix(2)), id: \.stableId) { row in
-                        RoomRaceFeaturedRow(row: row, avatarSize: 26)
-                    }
-                    ForEach(Array(entry.rows.dropFirst(2).prefix(4)), id: \.stableId) { row in
-                        RoomRaceRowView(row: row, avatarSize: 26)
-                    }
-                    if entry.rows.count > 6 {
-                        Text("+\(entry.rows.count - 6) more racing")
-                            .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.5))
+
+                    // Spacers above and below, so two racers and six fill
+                    // the same card instead of clinging to the top edge.
+                    Spacer(minLength: 0)
+
+                    Text(entry.copy.rankWord(pair.me.rank))
+                        .font(.system(size: compact ? 30 : 42, weight: .heavy))
+                        .foregroundColor(.parchmentGold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+
+                    Text(pair.rival.map { gapText(pair.me, $0) } ?? entry.copy.racingSolo)
+                        .font(.system(size: compact ? 12 : 15, weight: .semibold))
+                        .foregroundColor(.parchmentSecondary)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 0)
+
+                    if let heatmap = pair.me.heatmap, !heatmap.isEmpty {
+                        RoomRaceWideStrip(levels: heatmap)
                     }
                 }
-                .animation(.easeInOut(duration: 0.45), value: entry.rows.map(\.rank))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(compact ? 12 : 16)
+                .background(MosqueMark(height: compact ? 58 : 84), alignment: .bottomTrailing)
             }
         }
-        .padding()
-        .background(cornerMotif(), alignment: .topTrailing)
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -1332,14 +1423,22 @@ struct RoomRaceWidgetView: View {
     var entry: RoomRaceEntry
 
     var body: some View {
+        Group {
         switch family {
         case .systemMedium:
-            RoomRaceMediumView(entry: entry)
+            RoomRaceStandingView(entry: entry, compact: true)
         case .systemLarge:
-            RoomRaceLargeView(entry: entry)
+            RoomRaceStandingView(entry: entry, compact: false)
         default:
             RoomRaceSmallView(entry: entry)
         }
+        }
+        // Arabic reads right to left, and these faces are built from
+        // leading-aligned stacks, so without this every row stayed pinned
+        // to the left with its Arabic text ragged against it. Set once
+        // here rather than per face: the switch above is the single root
+        // all three sizes pass through.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -1353,8 +1452,8 @@ struct GrowDailyRoomRaceWidget: Widget {
         StaticConfiguration(kind: kind, provider: RoomRaceProvider()) { entry in
             RoomRaceWidgetView(entry: entry)
         }
-        .configurationDisplayName("Room Race")
-        .description("See your rank and your friends' progress in your active room.")
+        .configurationDisplayName(Text("Room Race"))
+        .description(Text("See your rank and your friends' progress in your active room."))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -1368,7 +1467,7 @@ struct GrowDailyRoomRaceWidget: Widget {
 // same roomRaceJson data, just laid out for a tiny accessory slot instead
 // of a Home Screen size.
 //
-// Deliberately no explicit .foregroundColor(.gdGold/.gdEmerald/etc.) here,
+// Deliberately no explicit .foregroundColor(.parchmentGold/.parchmentGreen/etc.) here,
 // unlike the Home Screen Room Race views above - accessory-family Lock
 // Screen widgets are rendered by the system in its own monochrome tint
 // (the always-on-display/lock-screen accent), which overrides custom
@@ -1502,7 +1601,7 @@ struct RoomRaceRectangularView: View {
                     }
                 }
             } else {
-                Text("No active room")
+                Text(entry.copy.noActiveRoom)
                     .font(.system(size: 12, weight: .semibold))
             }
         }
@@ -1525,6 +1624,12 @@ struct RoomRaceLockScreenView: View {
         // The rooms page, not the one room: the entry does not carry the
         // room's code. With no room at all this is where joining starts.
         .widgetURL(lockScreenOpenURL(tab: "rooms"))
+        // Arabic on the Lock Screen too. Only the three Home Screen
+        // families got this in the first pass, so an Arabic user's Lock
+        // Screen kept laying its rows out left to right while the Home
+        // Screen above it read correctly. Found by reading rather than by
+        // looking: the simulator's Lock Screen editor would not render.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -1538,8 +1643,8 @@ struct GrowDailyRoomRaceLockScreenWidget: Widget {
         StaticConfiguration(kind: kind, provider: RoomRaceProvider()) { entry in
             RoomRaceLockScreenView(entry: entry)
         }
-        .configurationDisplayName("Room Race")
-        .description("Your rank in your starred room, on the Lock Screen.")
+        .configurationDisplayName(Text("Room Race"))
+        .description(Text("Your rank in your starred room, on the Lock Screen."))
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
@@ -1645,6 +1750,7 @@ private let matrixQuickAddURL = URL(string: "growdaily://matrix/add")!
 
 struct MatrixEntry: TimelineEntry {
     let date: Date
+    var copy: WidgetCopy = WidgetCopy(isAr: false)
     let tasks: [WidgetMatrixTask]
     // Tasks completed IN-APP today. The app deliberately writes only OPEN
     // tasks into matrixTasksJson (every list face assumes open-only), so
@@ -1697,7 +1803,8 @@ struct MatrixProvider: TimelineProvider {
         let doneToday = stamp == matrixDayKey(date)
             ? (defaults?.integer(forKey: "matrixDoneTodayCount") ?? 0)
             : 0
-        return MatrixEntry(date: date, tasks: tasks, doneToday: doneToday)
+        return MatrixEntry(date: date, copy: WidgetCopy.fromDefaults(),
+                           tasks: tasks, doneToday: doneToday)
     }
 }
 
@@ -1720,7 +1827,9 @@ private func matrixDayKey(_ date: Date) -> String {
 /// immediately, and queues the id for the real Flutter-side completion
 /// (XP bonus included) the next time the app is open — see main.dart's
 /// _processPendingWidgetTaskCompletions, which guards against re-toggling a
-/// task the user already finished in-app in the meantime.
+/// task the user already finished in-app in the meantime. It also takes the
+/// task's own reminders down (standDownTaskReminders), so a task ticked here
+/// stops asking for itself before the app is next opened.
 struct MarkTaskDoneIntent: AppIntent {
     static var title: LocalizedStringResource = "Mark Task Done"
 
@@ -1765,6 +1874,10 @@ struct MarkTaskDoneIntent: AppIntent {
         }
         writeJSON(pending, to: "pendingWidgetTaskCompletions", in: defaults)
 
+        // A finished task has nothing left to remind about, whatever hour it
+        // is: its reminders are moments picked for this one task. Until this,
+        // they went on ringing until the app was next opened.
+        await standDownTaskReminders(of: taskId, in: defaults)
         if closesDoFirstTask {
             standDownNotesWithStaleCounts(includingFridayNote: false)
         }
@@ -1798,13 +1911,13 @@ struct MatrixTaskRow: View {
             Button(intent: MarkTaskDoneIntent(taskId: task.id)) {
                 Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15))
-                    .foregroundColor(task.isDone ? .gdEmerald : .white.opacity(0.35))
+                    .foregroundColor(task.isDone ? .parchmentGreen : .parchmentSecondary)
             }
             .buttonStyle(.plain)
             Text(task.title)
                 .font(.system(size: 12, weight: .medium))
                 .strikethrough(task.isDone)
-                .foregroundColor(task.isDone ? .white.opacity(0.5) : .white)
+                .foregroundColor(task.isDone ? .parchmentSecondary : .parchmentInk)
                 .lineLimit(1)
             if task.isLate && !task.isDone {
                 LateMarker()
@@ -1832,17 +1945,19 @@ struct LateMarker: View {
 /// feeling, message rather than a blank card, same "never just go blank"
 /// rule RoomRaceEmptyView follows for its own no-room state.
 struct MatrixEmptyView: View {
+    let copy: WidgetCopy
+
     var body: some View {
         VStack(spacing: 6) {
             Image(systemName: "checkmark.seal")
                 .font(.system(size: 20))
-                .foregroundColor(.gdEmerald.opacity(0.8))
-            Text("Nothing urgent")
+                .foregroundColor(.parchmentGreen.opacity(0.8))
+            Text(copy.nothingUrgent)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.white)
-            Text("Your board is clear")
+                .foregroundColor(.parchmentInk)
+            Text(copy.boardIsClear)
                 .font(.system(size: 10.5))
-                .foregroundColor(.white.opacity(0.55))
+                .foregroundColor(.parchmentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
@@ -1856,16 +1971,17 @@ struct MatrixEmptyView: View {
 /// tap-opens-app behavior already coexist.
 struct MatrixHeaderRow: View {
     let openCount: Int
+    let copy: WidgetCopy
 
     var body: some View {
         HStack {
-            Text("Matrix")
+            Text(copy.tasksTitle)
                 .font(.system(size: 13, weight: .bold))
-                .foregroundColor(.white)
+                .foregroundColor(.parchmentInk)
             if openCount > 0 {
-                Text("\(openCount)")
+                Text(verbatim: "\(openCount)")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.parchmentSecondary)
                     .contentTransition(.numericText())
                     .animation(.default, value: openCount)
             }
@@ -1873,7 +1989,7 @@ struct MatrixHeaderRow: View {
             Link(destination: matrixQuickAddURL) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(.gdGold)
+                    .foregroundColor(.parchmentGold)
             }
         }
     }
@@ -1885,10 +2001,10 @@ struct MatrixMediumView: View {
     var body: some View {
         Group {
             if entry.tasks.isEmpty {
-                MatrixEmptyView()
+                MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    MatrixHeaderRow(openCount: entry.tasks.count)
+                    MatrixHeaderRow(openCount: entry.tasks.count, copy: entry.copy)
                     ForEach(Array(entry.tasks.prefix(3))) { task in
                         MatrixTaskRow(task: task)
                     }
@@ -1898,7 +2014,7 @@ struct MatrixMediumView: View {
             }
         }
         .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -1911,11 +2027,11 @@ struct MatrixLargeView: View {
     var body: some View {
         Group {
             if entry.tasks.isEmpty {
-                MatrixEmptyView()
+                MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    MatrixHeaderRow(openCount: entry.tasks.count)
-                    Divider().background(Color.gdBorder)
+                    MatrixHeaderRow(openCount: entry.tasks.count, copy: entry.copy)
+                    Divider().background(Color.parchmentBorder)
                     // Was capped at 5 regardless of size, which left a
                     // systemLarge card with obvious empty space below the
                     // list on any board with 6-8 open tasks — 8 comfortably
@@ -1931,16 +2047,16 @@ struct MatrixLargeView: View {
                     .animation(.easeInOut(duration: 0.35),
                                value: entry.tasks.map { "\($0.id)|\($0.isDone)" })
                     if entry.tasks.count > 8 {
-                        Text("+\(entry.tasks.count - 8) more in app")
+                        Text(entry.copy.moreInApp(entry.tasks.count - 8))
                             .font(.system(size: 10))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(.parchmentSecondary)
                     }
                 }
             }
         }
         .padding()
         .background(cornerMotif(), alignment: .topTrailing)
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -1956,29 +2072,29 @@ struct MatrixSmallView: View {
     var body: some View {
         Group {
             if entry.tasks.isEmpty {
-                MatrixEmptyView()
+                MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 4) {
                         Image(systemName: "square.stack.3d.up.fill")
-                            .foregroundColor(.gdGold)
+                            .foregroundColor(.parchmentGold)
                             .font(.system(size: 14))
-                        Text("\(entry.tasks.count)")
+                        Text(verbatim: "\(entry.tasks.count)")
                             .font(.system(size: 22, weight: .heavy))
-                            .foregroundColor(.white)
+                            .foregroundColor(.parchmentInk)
                             .contentTransition(.numericText())
                             .animation(.default, value: entry.tasks.count)
                     }
-                    Text(entry.tasks.count == 1 ? "task open" : "tasks open")
+                    Text(entry.copy.tasksOpen(entry.tasks.count))
                         .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.6))
+                        .foregroundColor(.parchmentSecondary)
                     Spacer(minLength: 0)
                     if let top = entry.tasks.first {
                         HStack(spacing: 5) {
                             QuadrantDot(quadrant: top.quadrant, size: 6)
                             Text(top.title)
                                 .font(.system(size: 10.5, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.8))
+                                .foregroundColor(.parchmentInk.opacity(0.8))
                                 .lineLimit(1)
                             if top.isLate && !top.isDone {
                                 LateMarker()
@@ -1990,7 +2106,7 @@ struct MatrixSmallView: View {
             }
         }
         .padding()
-        .containerBackground(for: .widget) { WidgetGradientBackground() }
+        .containerBackground(for: .widget) { WidgetParchmentBackground() }
     }
 }
 
@@ -1999,6 +2115,7 @@ struct MatrixWidgetView: View {
     var entry: MatrixEntry
 
     var body: some View {
+        Group {
         switch family {
         case .systemMedium:
             MatrixMediumView(entry: entry)
@@ -2007,6 +2124,13 @@ struct MatrixWidgetView: View {
         default:
             MatrixSmallView(entry: entry)
         }
+        }
+        // Arabic reads right to left, and these faces are built from
+        // leading-aligned stacks, so without this every row stayed pinned
+        // to the left with its Arabic text ragged against it. Set once
+        // here rather than per face: the switch above is the single root
+        // all three sizes pass through.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -2020,8 +2144,8 @@ struct GrowDailyMatrixWidget: Widget {
         StaticConfiguration(kind: kind, provider: MatrixProvider()) { entry in
             MatrixWidgetView(entry: entry)
         }
-        .configurationDisplayName("Matrix")
-        .description("Your most urgent tasks — check them off or add a new one without opening the app.")
+        .configurationDisplayName(Text("Matrix"))
+        .description(Text("Your most urgent tasks — check them off or add a new one without opening the app."))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -2134,7 +2258,7 @@ struct MatrixLockScreenCircularView: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 13, weight: .bold))
                 } else {
-                    Text("\(remaining)")
+                    Text(verbatim: "\(remaining)")
                         .font(.system(size: 14, weight: .bold))
                         .contentTransition(.numericText())
                 }
@@ -2203,9 +2327,9 @@ struct MatrixLockScreenRectangularView: View {
                 .font(.system(size: 11))
             if tasks.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("No tasks")
+                    Text(entry.copy.noTasks)
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Add one in Matrix")
+                    Text(entry.copy.addOneInMatrix)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
                 }
@@ -2228,7 +2352,7 @@ struct MatrixLockScreenRectangularView: View {
                         // the *board*, which is mostly unstarred. "+N more"
                         // means the same thing either way — more open tasks
                         // you aren't seeing.
-                        Text("+\(overflow) more")
+                        Text(entry.copy.moreTasks(overflow))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -2254,6 +2378,12 @@ struct MatrixLockScreenView: View {
             }
         }
         .widgetURL(lockScreenOpenURL(tab: "matrix"))
+        // Arabic on the Lock Screen too. Only the three Home Screen
+        // families got this in the first pass, so an Arabic user's Lock
+        // Screen kept laying its rows out left to right while the Home
+        // Screen above it read correctly. Found by reading rather than by
+        // looking: the simulator's Lock Screen editor would not render.
+        .environment(\.layoutDirection, entry.copy.isAr ? .rightToLeft : .leftToRight)
     }
 }
 
@@ -2267,23 +2397,40 @@ struct GrowDailyMatrixLockScreenWidget: Widget {
         StaticConfiguration(kind: kind, provider: MatrixProvider()) { entry in
             MatrixLockScreenView(entry: entry)
         }
-        .configurationDisplayName("Starred Tasks")
-        .description("Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any.")
+        .configurationDisplayName(Text("Starred Tasks"))
+        .description(Text("Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any."))
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }
 
 // MARK: - Bundle
 
+/// The gallery walks this list in order, so the order IS the arrangement:
+/// the first thing someone sees when they go looking for a widget. Aziz
+/// asked on 2026-09-23 for the useful ones to come first, so it runs by how
+/// often a face changes and how much it is worth glancing at, Home Screen
+/// before Lock Screen within each:
+///
+///   1. Prayer     changes every second, useful every day, needs no setup
+///   2. Habits     the app's own subject, and the only tappable face
+///   3. Tasks      useful to whoever lives on the Tasks page
+///   4. Rooms      only says anything while a room is actually running
+///
+/// Nothing is removed. Four kinds, 20 faces; the cost of a kind is the
+/// gallery pages it adds, and the cost of REMOVING one is that it
+/// disappears from the Home Screen of anyone who already placed it, which
+/// is not something to do to shipped users for tidiness.
 @main
 struct GrowDailyWidgetBundle: WidgetBundle {
     var body: some Widget {
+        GrowDailyPrayerWidget()
+        GrowDailyPrayerLockScreenWidget()
         GrowDailyWidget()
         GrowDailyLockScreenWidget()
-        GrowDailyRoomRaceWidget()
-        GrowDailyRoomRaceLockScreenWidget()
         GrowDailyMatrixWidget()
         GrowDailyMatrixLockScreenWidget()
+        GrowDailyRoomRaceWidget()
+        GrowDailyRoomRaceLockScreenWidget()
         // The ringing screen of an alarm-mode reminder, see
         // GrowDailyAlarmLiveActivity.swift. iOS 26 only; older systems have
         // no AlarmKit and never start this activity.

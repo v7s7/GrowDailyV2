@@ -11,6 +11,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/services/armed_task_record.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/features/settings/models/notification_settings.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
@@ -210,6 +211,42 @@ void main() {
         NotificationService.kMaxTaskReminderSlots);
     expect(cancelledNotifications().length,
         NotificationService.kMaxTaskReminderSlots);
+  });
+
+  test('the record a widget tick reads names exactly those ids', () async {
+    // The one cross-check that matters for a task ticked outside the app:
+    // Swift cannot fold a Dart hash, so the widget takes down whatever
+    // ArmedTaskRecord wrote. If the record ever named ids other than the
+    // ones this app really arms and cancels, a ticked task would go on
+    // ringing and nothing else in the suite would notice.
+    alarmCalls.clear();
+    notificationCalls.clear();
+    await NotificationService.instance.cancelTaskReminder('task-7');
+    final plan = ArmedTaskRecord.standDownFor(
+      ArmedTaskRecord.encode([(taskId: 'task-7', alarm: true)]),
+      taskId: 'task-7',
+    )!;
+    expect(plan.notifications, cancelledNotifications().toSet());
+    expect(plan.alarms, cancelledAlarms().toSet());
+  });
+
+  test('every slot a task really arms is one the record names', () async {
+    await NotificationService.instance.scheduleTaskReminders(
+      id: 'task-8',
+      taskTitle: 'Two nudges',
+      fireTimes: [fireAt, fireAt.add(const Duration(minutes: 10))],
+      anchorAt: fireAt,
+      isAr: false,
+      alarm: false,
+    );
+    final armed =
+        scheduled().map((c) => (c.arguments as Map)['id'] as int).toSet();
+    expect(armed, hasLength(2), reason: 'both nudges were armed');
+    final plan = ArmedTaskRecord.standDownFor(
+      ArmedTaskRecord.encode([(taskId: 'task-8', alarm: false)]),
+      taskId: 'task-8',
+    )!;
+    expect(armed.difference(plan.notifications), isEmpty);
   });
 
   test(

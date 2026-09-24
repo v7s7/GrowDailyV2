@@ -13,6 +13,7 @@ import '../../../core/utils/text_moderation.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../models/streak_gap_charge.dart';
 import '../models/undone_completion.dart';
 import '../../milestones/models/milestone_event.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
@@ -176,6 +177,13 @@ int dailyGoldCapFor(int habitCount) {
 /// A day made entirely of half-done squares still earns nothing at all, which
 /// is the property that keeps the streak honest.
 ///
+/// [skippedHabitIds] are today's habits sitting on a تخطّي square. They leave
+/// the day's count entirely, so the rest need their 80% without them (Aziz,
+/// 2026-09-22: skipping a habit is rest, «لا تُحسب عليك»). The habit being
+/// completed is never among them: its square is about to turn green. A day
+/// with every habit skipped has nothing left to count and earns nothing, so
+/// skipping the whole day still costs the streak (or a freeze).
+///
 /// [todayHabits] is today's scheduled habit list reduced to just the two
 /// fields this needs (id + weekly target), passed in as records so this
 /// stays free of any dependency on the habit catalog type — every caller
@@ -188,14 +196,16 @@ bool willCompleteAllHabitsToday({
   required String habitId,
   required int frequencyTarget,
   Set<String> halfDoneHabitIds = const {},
+  Set<String> skippedHabitIds = const {},
 }) {
   var sawTarget = false;
   var total = 0;
   var credited = 0.0;
   for (final h in todayHabits) {
-    total++;
     final isTarget = h.id == habitId;
     if (isTarget) sawTarget = true;
+    if (!isTarget && skippedHabitIds.contains(h.id)) continue;
+    total++;
     final done = isTarget
         ? (state.completions[h.id] ?? 0) + 1 >= frequencyTarget
         : state.isCompleted(h.id, h.frequencyTarget);
@@ -450,6 +460,22 @@ class DashboardState {
   final int streakFreezes;
   final Map<String, int> completions;
 
+  /// Yesterday's counts while it is still open (until kDayCutoffHour), the
+  /// twin of [completions] for the day before: what yesterday's square of a
+  /// habit counted several times a day shows ("5 / 6"), and what a tap on it
+  /// adds one to, exactly as today's square does (Aziz, 2026-09-24).
+  /// [graceDayKey] names the day they belong to; nothing reads them for any
+  /// other day.
+  ///
+  /// Never paid against. completeHabit and uncompleteHabit still read the
+  /// stored day for every payment (see _readStoredDay) and write that day's
+  /// new counts back here only when they land, so a refused call leaves this
+  /// untouched. That is what lets a tap tell whether it was counted, the same
+  /// way today's counter measures [completions]. Read on each load while
+  /// yesterday is open, and on demand (DashboardNotifier.readGraceDay).
+  final Map<String, int> graceCompletions;
+  final String? graceDayKey;
+
   /// Habits whose day-counters (totalCompletions, categoryCompletions,
   /// totalGreenSquares, dailyGreenCounts) have already been banked TODAY.
   ///
@@ -533,6 +559,12 @@ class DashboardState {
   /// Null means there is nothing outstanding to judge.
   final DateTime? pendingStreakGapFrom;
 
+  /// What the last streak-gap judgement charged, so a day recorded late
+  /// inside its window can give it back — see [StreakGapCharge] and
+  /// [DashboardNotifier.repairStreakGapForDay]. Null when the last gap cost
+  /// nothing, or before any gap has been judged.
+  final StreakGapCharge? streakGapCharge;
+
   /// The streak that was just lost to a missed day, still recoverable via
   /// [DashboardNotifier.useStreakFreeze] — 0 when there's nothing pending.
   /// Persisted (Firestore's 'previousStreak' field / the guest settings
@@ -576,6 +608,28 @@ class DashboardState {
   /// threshold) does not revoke it — see [completeHabit]'s doc comment for
   /// why that's the intended behavior, not a bug.
   final bool streakEarnedToday;
+
+  /// The streak's own marker: the last day that itself earned the streak
+  /// point (the account's stored `lastActiveDay`, which the loader measures
+  /// every gap from), midnight-aligned. Null before the first one.
+  ///
+  /// [streakEarnedToday] only speaks for today, and from midnight until
+  /// kDayCutoffHour the day whose point is still on the line is YESTERDAY
+  /// (see DateTimeGameExt.streakNudgeDay). This is how a screen can tell
+  /// that yesterday was finished, including by a square marked after
+  /// midnight in its grace window. Moves forward only, like the stored
+  /// field; every writer of that field updates it.
+  final DateTime? lastStreakDay;
+
+  /// Whether the streak's marker has reached [day], so [day] can no longer
+  /// cost the streak: its point was earned, or a later day's was, or a
+  /// freeze already carried the streak past it.
+  bool streakMarkerReached(DateTime day) {
+    final last = lastStreakDay;
+    return last != null &&
+        !DateTime(last.year, last.month, last.day)
+            .isBefore(DateTime(day.year, day.month, day.day));
+  }
 
   /// dateKey ('YYYY-MM-DD') → green squares colored that day, across all
   /// history. Kept as a flat rollup on the user doc so the monthly heatmap
@@ -723,6 +777,8 @@ class DashboardState {
     this.totalCompletions = 0,
     this.streakFreezes = 1,
     required this.completions,
+    this.graceCompletions = const {},
+    this.graceDayKey,
     this.dayCountedHabitIds = const {},
     this.unlockedAchievements = const [],
     this.newlyUnlocked = const [],
@@ -733,11 +789,13 @@ class DashboardState {
     this.isLoading = false,
     this.loadFailed = false,
     this.pendingStreakGapFrom,
+    this.streakGapCharge,
     this.previousStreak = 0,
     this.milestoneCelebration,
     this.intentionsSetToday = false,
     this.totalGreenSquares = 0,
     this.streakEarnedToday = false,
+    this.lastStreakDay,
     this.dailyGreenCounts = const {},
     this.earnedDayKey = '',
     this.earnedXpToday = 0,
@@ -861,6 +919,8 @@ class DashboardState {
     int? totalCompletions,
     int? streakFreezes,
     Map<String, int>? completions,
+    Map<String, int>? graceCompletions,
+    String? graceDayKey,
     Set<String>? dayCountedHabitIds,
     List<String>? unlockedAchievements,
     List<AchievementModel>? newlyUnlocked,
@@ -872,12 +932,15 @@ class DashboardState {
     bool? loadFailed,
     DateTime? pendingStreakGapFrom,
     bool clearPendingStreakGap = false,
+    StreakGapCharge? streakGapCharge,
+    bool clearStreakGapCharge = false,
     int? previousStreak,
     int? setMilestone,
     bool clearMilestone = false,
     bool? intentionsSetToday,
     int? totalGreenSquares,
     bool? streakEarnedToday,
+    DateTime? lastStreakDay,
     Map<String, int>? dailyGreenCounts,
     String? earnedDayKey,
     int? earnedXpToday,
@@ -909,6 +972,8 @@ class DashboardState {
         totalCompletions: totalCompletions ?? this.totalCompletions,
         streakFreezes: streakFreezes ?? this.streakFreezes,
         completions: completions ?? this.completions,
+        graceCompletions: graceCompletions ?? this.graceCompletions,
+        graceDayKey: graceDayKey ?? this.graceDayKey,
         dayCountedHabitIds: dayCountedHabitIds ?? this.dayCountedHabitIds,
         unlockedAchievements:
             unlockedAchievements ?? this.unlockedAchievements,
@@ -921,6 +986,9 @@ class DashboardState {
         pendingStreakGapFrom: clearPendingStreakGap
             ? null
             : (pendingStreakGapFrom ?? this.pendingStreakGapFrom),
+        streakGapCharge: clearStreakGapCharge
+            ? null
+            : (streakGapCharge ?? this.streakGapCharge),
         loadFailed: loadFailed ?? this.loadFailed,
         previousStreak: previousStreak ?? this.previousStreak,
         milestoneCelebration:
@@ -928,6 +996,7 @@ class DashboardState {
         intentionsSetToday: intentionsSetToday ?? this.intentionsSetToday,
         totalGreenSquares: totalGreenSquares ?? this.totalGreenSquares,
         streakEarnedToday: streakEarnedToday ?? this.streakEarnedToday,
+        lastStreakDay: lastStreakDay ?? this.lastStreakDay,
         dailyGreenCounts: dailyGreenCounts ?? this.dailyGreenCounts,
         earnedDayKey: earnedDayKey ?? this.earnedDayKey,
         earnedXpToday: earnedXpToday ?? this.earnedXpToday,
@@ -1228,6 +1297,33 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       earnedXp: (d['dayEarnedXp'] as num?)?.toInt() ?? 0,
       earnedGold: (d['dayEarnedGold'] as num?)?.toInt() ?? 0,
       paid: _paidFromStored(d),
+    );
+  }
+
+  /// Reads [day]'s counts into [DashboardState.graceCompletions] when [day]
+  /// is yesterday and still open (until kDayCutoffHour); a no-op for any
+  /// other day. Every load does it for yesterday, and the Grid asks before a
+  /// tap on yesterday's square if this state has no count for it, so a tap
+  /// never adds one to a count nobody read.
+  ///
+  /// A tap that lands while this read is out has already written fresher
+  /// counts (completeHabit sets them from the stored day it just wrote), so
+  /// the read then leaves them alone.
+  Future<void> readGraceDay(DateTime day) async {
+    final markDay = day.startOfDay;
+    final key = markDay.toDateKey();
+    if (key == _todayKeyNow || !markDay.isOpenDayAt(_clock())) return;
+    final heldBefore = state.graceCompletions;
+    final keyBefore = state.graceDayKey;
+    final stored = await _readStoredDay(markDay);
+    if (!mounted) return;
+    if (!identical(state.graceCompletions, heldBefore) ||
+        state.graceDayKey != keyBefore) {
+      return;
+    }
+    state = state.copyWith(
+      graceCompletions: stored.completions,
+      graceDayKey: key,
     );
   }
 

@@ -1,0 +1,21 @@
+/* GrowDailyWidget — English. Keys are the source strings, so each
+   value here is its own key. See ar.lproj for why only gallery titles
+   live in this file. */
+
+"Prayer Countdown" = "Prayer Countdown";
+"The next prayer and how long is left until the adhan." = "The next prayer and how long is left until the adhan.";
+"The next prayer and how long is left, on the Lock Screen." = "The next prayer and how long is left, on the Lock Screen.";
+"Grow Daily" = "Grow Daily";
+"Today's progress, streak, and a tappable habit list at a glance." = "Today's progress, streak, and a tappable habit list at a glance.";
+"Grow Daily Streak" = "Grow Daily Streak";
+"Your streak and today's progress on the Lock Screen." = "Your streak and today's progress on the Lock Screen.";
+"Matrix" = "Matrix";
+"Your most urgent tasks — check them off or add a new one without opening the app." = "Your most urgent tasks — check them off or add a new one without opening the app.";
+"Starred Tasks" = "Starred Tasks";
+"Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any." = "Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any.";
+"Room Race" = "Room Race";
+"See your rank and your friends' progress in your active room." = "See your rank and your friends' progress in your active room.";
+"Your rank in your starred room, on the Lock Screen." = "Your rank in your starred room, on the Lock Screen.";
+"Open your habit board straight from the Lock Screen." = "Open your habit board straight from the Lock Screen.";
+"Open your tasks straight from the Lock Screen." = "Open your tasks straight from the Lock Screen.";
+"Capture a task without unlocking to the home screen first." = "Capture a task without unlocking to the home screen first.";

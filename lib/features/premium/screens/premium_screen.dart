@@ -1,10 +1,14 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart' show FirebaseAuth;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:purchases_flutter/purchases_flutter.dart' show Offering, Package;
+import 'package:purchases_flutter/purchases_flutter.dart'
+    show Offering, Package, StoreProduct;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
@@ -12,7 +16,11 @@ import '../../../core/theme/theme_preset.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/services/purchase_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/western_digits.dart';
 import '../notifiers/premium_notifier.dart';
+import '../offers/offers_store.dart';
+import '../offers/paywall_offer.dart';
+import '../widgets/offer_strip.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Which plan card is selected — monthly (auto-renewing subscription) or
@@ -92,10 +100,22 @@ class PremiumScreen extends ConsumerStatefulWidget {
   /// smallest fix for that. Free-text by design (an enum here would force
   /// every new surface to touch this file).
   final String source;
+
+  /// For widget tests only: a fixed offering instead of RevenueCat's.
+  @visibleForTesting
+  final Future<Offering?> Function()? offeringLoader;
+
+  /// For widget tests only: fixed offers instead of Firestore and the
+  /// device record.
+  @visibleForTesting
+  final PaywallOffersSource? offersSource;
+
   const PremiumScreen({
     super.key,
     this.reason = PremiumReason.general,
     this.source = 'unknown',
+    this.offeringLoader,
+    this.offersSource,
   });
 
   @override
@@ -124,6 +144,16 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   /// itself for buyers who have nothing to manage.
   bool _isLifetimeBuyer = false;
 
+  /// The admin's offers (`offers/live`), read once when the paywall opens.
+  /// Until they arrive no offer is shown: the paywall first appears exactly
+  /// as it always has.
+  OffersConfig _offersConfig = OffersConfig.fallback;
+  bool _offersLoaded = false;
+
+  /// When this person's one welcome window started, if it ever did.
+  DateTime? _welcomeStartedAt;
+  bool _startingWelcome = false;
+
   @override
   void initState() {
     super.initState();
@@ -132,7 +162,121 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       'reason': widget.reason.name,
     });
     _loadOffering();
+    _loadOffers();
     _checkLifetimeBuyer();
+  }
+
+  /// Null for a guest, and when Firebase is not set up at all (widget tests).
+  String? _currentUid() {
+    try {
+      return FirebaseAuth.instance.currentUser?.uid;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  PaywallOffersSource get _offersSource =>
+      widget.offersSource ?? PaywallOffersSource.live;
+
+  Future<void> _loadOffers() async {
+    final uid = _currentUid();
+    final config = _offersSource.loadConfig();
+    final started = _offersSource.readWelcomeStart(uid);
+    final loadedConfig = await config;
+    final loadedStart = await started;
+    if (!mounted) return;
+    setState(() {
+      _offersConfig = loadedConfig;
+      _welcomeStartedAt = loadedStart;
+      _offersLoaded = true;
+    });
+    unawaited(_maybeStartWelcome());
+  }
+
+  /// The Lifetime product at the welcome and sale price, when RevenueCat
+  /// serves it (see kLifetimeOfferPackageId).
+  Package? get _offerPackage =>
+      _offering?.getPackage(kLifetimeOfferPackageId);
+
+  /// Whether the store prices make an offer true right now: see
+  /// lifetimeOfferPricesOk. False until both packages have loaded.
+  bool get _offerPricesOk {
+    final offer = _offerPackage?.storeProduct;
+    final regular = _offering?.lifetime?.storeProduct;
+    if (offer == null || regular == null) return false;
+    return lifetimeOfferPricesOk(
+      regularPrice: regular.price,
+      regularCurrency: regular.currencyCode,
+      offerPrice: offer.price,
+      offerCurrency: offer.currencyCode,
+    );
+  }
+
+  /// The offer this person has at [now], or null. Never one for someone
+  /// who is already Premium, and never one the store prices do not bear
+  /// out.
+  ActiveOffer? _activeOfferAt(DateTime now) {
+    if (!_offersLoaded || !_offerPricesOk) return null;
+    if (ref.read(premiumProvider)) return null;
+    return resolveOffer(
+      now: now,
+      config: _offersConfig,
+      welcomeStartedAt: _welcomeStartedAt,
+    );
+  }
+
+  /// Starts this person's one welcome window, the first time this screen
+  /// can actually show it: offers read, the welcome switched on, the store
+  /// pricing the offer below Lifetime, and nothing bought yet. Starting it
+  /// any earlier would let the window run down unseen.
+  Future<void> _maybeStartWelcome() async {
+    if (_startingWelcome || _welcomeStartedAt != null) return;
+    if (!_offersLoaded || !_offersConfig.welcomeEnabled) return;
+    if (!_offerPricesOk || ref.read(premiumProvider)) return;
+    _startingWelcome = true;
+    final start = await _offersSource.ensureWelcomeStarted(
+      DateTime.now(),
+      _currentUid(),
+    );
+    _startingWelcome = false;
+    if (!mounted) return;
+    setState(() => _welcomeStartedAt = start);
+    AnalyticsService.instance.track('welcome_offer_started', props: {
+      'source': widget.source,
+    });
+  }
+
+  /// A countdown reached zero: the offer is gone in this same visit, so
+  /// the Lifetime card, its price and the package a purchase would use all
+  /// go back to the regular Lifetime.
+  void _onOfferEnded() {
+    if (mounted) setState(() {});
+  }
+
+  /// "Tuesday, 9 March, 11:59 PM" in the reader's language, with Western
+  /// digits like every date in the app (see western_digits.dart).
+  String _untilLabel(DateTime at, S s) {
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final local = at.toLocal();
+    final day = weekdayDateLabel(local, isAr: s.isAr, locale: locale);
+    final time = westernDate(local, 'h:mm a', locale);
+    return s.isAr ? '$day، $time' : '$day, $time';
+  }
+
+  Future<void> _openCodeSheet() async {
+    HapticFeedback.selectionClick();
+    AnalyticsService.instance.track('offer_code_sheet_open', props: {
+      'source': widget.source,
+    });
+    final opened = await PurchaseService.instance.presentCodeRedemptionSheet();
+    if (opened || !mounted) return;
+    ScaffoldMessenger.of(context).showOne(
+      SnackBar(
+        content: Text(S.of(context).premiumPurchaseError),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
   }
 
   Future<void> _checkLifetimeBuyer() async {
@@ -145,7 +289,8 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Future<void> _loadOffering() async {
-    final offering = await PurchaseService.instance.getCurrentOffering();
+    final offering = await (widget.offeringLoader ??
+        PurchaseService.instance.getCurrentOffering)();
     if (!mounted) return;
     setState(() {
       _offering = offering;
@@ -157,15 +302,21 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       // products go live.
       _selected = _leadPlanFor(offering);
     });
+    unawaited(_maybeStartWelcome());
   }
 
+  /// What a tap on the buy button would purchase. For Lifetime that is the
+  /// offer product only while an offer is running at this very moment, so
+  /// the offer price can never be bought after its countdown has ended.
   Package? get _selectedPackage {
     final offering = _offering;
     if (offering == null) return null;
     return switch (_selected) {
       _PlanKind.annual => offering.annual,
       _PlanKind.monthly => offering.monthly,
-      _PlanKind.lifetime => offering.lifetime,
+      _PlanKind.lifetime => _activeOfferAt(DateTime.now()) != null
+          ? _offerPackage ?? offering.lifetime
+          : offering.lifetime,
     };
   }
 
@@ -182,9 +333,12 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   /// missing, a zero monthly price, or the two products priced in different
   /// currencies (StoreKit never mixes currencies within one storefront, so
   /// that last check is a guard, not an expected case).
-  int? get _breakEvenMonths {
+  ///
+  /// [lifetime] is the Lifetime product the card is showing: the offer
+  /// product while an offer runs, so the caption describes the price on
+  /// screen.
+  int? _breakEvenMonthsFor(StoreProduct? lifetime) {
     final monthly = _offering?.monthly?.storeProduct;
-    final lifetime = _offering?.lifetime?.storeProduct;
     if (monthly == null || lifetime == null) return null;
     if (monthly.currencyCode != lifetime.currencyCode) return null;
     if (monthly.price <= 0) return null;
@@ -225,9 +379,13 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     // flight. Reading _selected after the await can therefore describe a plan
     // the buyer never bought.
     final kind = _selected;
+    final offer = kind == _PlanKind.lifetime
+        ? _activeOfferAt(DateTime.now())?.kind.name
+        : null;
     HapticFeedback.mediumImpact();
     AnalyticsService.instance.track('premium_purchase_intent', props: {
       'plan': kind.name,
+      'offer': offer ?? 'none',
     });
     setState(() => _isPurchasing = true);
     final outcome = await PurchaseService.instance.purchase(package);
@@ -250,6 +408,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         AnalyticsService.instance.track('premium_purchase_success', props: {
           'plan': kind.name,
           'source': widget.source,
+          'offer': offer ?? 'none',
         });
         // From the entitlement the store just handed back, not from the
         // selection: isLifetimeEntitled reads the real productIdentifier, so
@@ -381,6 +540,11 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     final lifetime = _offering?.lifetime;
     final hasPlans = annual != null || monthly != null || lifetime != null;
     final leadPlan = _leadPlanFor(_offering);
+    // Read once per build; the countdown strip ticks on its own and calls
+    // _onOfferEnded at zero, so this screen only rebuilds when an offer
+    // starts or ends, not every second.
+    final activeOffer = isPremium ? null : _activeOfferAt(DateTime.now());
+    final offerPackage = activeOffer == null ? null : _offerPackage;
     final presentPlans = <_PlanKind>[
       if (annual != null) _PlanKind.annual,
       if (monthly != null) _PlanKind.monthly,
@@ -394,6 +558,34 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     // only things that differ, and the badge follows [leadPlan]. Only called
     // for kinds in [presentPlans], so the package is never null here.
     Widget cardFor(_PlanKind kind) {
+      // Lifetime during an offer: the offer product's price, and beside it
+      // the regular Lifetime price as the store reports it for this
+      // storefront. A sale crosses it out with the saving; the welcome
+      // price says "then" instead (see premiumThenPrice for why).
+      final offerOnCard =
+          kind == _PlanKind.lifetime && offerPackage != null && lifetime != null;
+      if (offerOnCard) {
+        final regular = lifetime.storeProduct;
+        final offer = offerPackage.storeProduct;
+        final isSale = activeOffer!.kind == OfferKind.sale;
+        final pct = offerPercentOff(regular: regular.price, offer: offer.price);
+        final months = _breakEvenMonthsFor(offer);
+        return PremiumPlanCard(
+          label: s.premiumLifetime,
+          price: offer.priceString,
+          period: s.premiumOneTime,
+          badge: kind == leadPlan ? s.premiumBestValueBadge : null,
+          caption: months == null ? null : s.premiumLifetimeBreakEven(months),
+          chip: isSale && pct != null ? s.premiumOfferPercent(pct) : null,
+          strikePrice: isSale ? regular.priceString : null,
+          thenPrice: isSale ? null : s.premiumThenPrice(regular.priceString),
+          selected: _selected == kind,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            setState(() => _selected = kind);
+          },
+        );
+      }
       final (Package pkg, String label, String period, String? caption) =
           switch (kind) {
         _PlanKind.annual => (
@@ -414,9 +606,10 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
             lifetime!,
             s.premiumLifetime,
             s.premiumOneTime,
-            _breakEvenMonths == null
+            _breakEvenMonthsFor(lifetime.storeProduct) == null
                 ? null
-                : s.premiumLifetimeBreakEven(_breakEvenMonths!),
+                : s.premiumLifetimeBreakEven(
+                    _breakEvenMonthsFor(lifetime.storeProduct)!),
           ),
       };
       return PremiumPlanCard(
@@ -656,6 +849,24 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                 ],
               ] else ...[
+                // The running offer's name and its countdown, right above
+                // the card it prices. Keyed by the deadline so a new offer
+                // (a sale starting as the welcome window ends) gets a fresh
+                // countdown rather than inheriting the old one's state.
+                if (activeOffer != null) ...[
+                  PremiumOfferStrip(
+                    key: ValueKey(activeOffer.endsAt),
+                    title: activeOffer.kind == OfferKind.sale
+                        ? activeOffer.sale!.nameFor(isAr: s.isAr)
+                        : s.premiumWelcomeTitle,
+                    subtitle: activeOffer.kind == OfferKind.sale
+                        ? s.premiumSaleEndsIn
+                        : s.premiumWelcomeEndsIn,
+                    endsAt: activeOffer.endsAt,
+                    onEnded: _onOfferEnded,
+                  ).animate().fadeIn(duration: 300.ms),
+                  const SizedBox(height: 12),
+                ],
                 // Plan picker: the lead plan first and badged, then the
                 // rest in ladder order. Built from a list rather than three
                 // guarded widgets so the separators cannot get out of step
@@ -697,15 +908,34 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
               // entitlement by itself the moment the webhook lands.
               if (!isPremium && !_loadingOffering && !kIsWeb) ...[
                 const SizedBox(height: 10),
-                TextButton(
-                  onPressed: _isRestoring ? null : _restore,
-                  child: _isRestoring
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.2),
-                        )
-                      : Text(s.premiumRestore),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: _isRestoring ? null : _restore,
+                      child: _isRestoring
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2.2),
+                            )
+                          : Text(s.premiumRestore),
+                    ),
+                    // A creator's code goes through Apple's own sheet (see
+                    // PurchaseService.presentCodeRedemptionSheet). iPhone
+                    // only: Google Play codes cannot carry a discount.
+                    if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                      Text('·',
+                          style: TextStyle(fontSize: 13, color: gp.textTert)),
+                      TextButton.icon(
+                        onPressed: _openCodeSheet,
+                        icon: const Icon(Icons.confirmation_number_outlined,
+                            size: 18),
+                        label: Text(s.premiumHaveCode),
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -725,6 +955,33 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 11, color: gp.textTert, height: 1.35),
                 ),
+                // The offer's terms in words, under the button that buys it:
+                // the offer price, the exact moment it ends, and the price
+                // after it. In the reader's own colour, not the faint fine
+                // print one, because this is the line that keeps the
+                // countdown honest.
+                if (_selected == _PlanKind.lifetime &&
+                    activeOffer != null &&
+                    offerPackage != null &&
+                    lifetime != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    activeOffer.kind == OfferKind.sale
+                        ? s.premiumSaleFinePrint(
+                            offerPackage.storeProduct.priceString,
+                            _untilLabel(activeOffer.endsAt, s),
+                            lifetime.storeProduct.priceString,
+                          )
+                        : s.premiumWelcomeFinePrint(
+                            offerPackage.storeProduct.priceString,
+                            _untilLabel(activeOffer.endsAt, s),
+                            lifetime.storeProduct.priceString,
+                          ),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 11.5, color: gp.textSec, height: 1.45),
+                  ),
+                ],
                 const SizedBox(height: 6),
                 // Required alongside the subscription itself, not just
                 // somewhere in Settings — see App Store Guideline 3.1.2 and
@@ -950,6 +1207,17 @@ class PremiumPlanCard extends StatelessWidget {
   /// of monthly"). The anchor math is the argument for the price beside it,
   /// so it lives on the card itself, not in fine print.
   final String? caption;
+
+  /// During a sale only: the saving ("-25%") beside the badge, worked out
+  /// from the two store prices.
+  final String? chip;
+
+  /// During a sale only: the regular price, crossed out above [price].
+  final String? strikePrice;
+
+  /// During the welcome window only: the price that applies afterwards
+  /// ("then $39.99"), under [price], in place of a crossed-out one.
+  final String? thenPrice;
   final bool selected;
   final VoidCallback onTap;
 
@@ -959,6 +1227,9 @@ class PremiumPlanCard extends StatelessWidget {
     required this.period,
     this.badge,
     this.caption,
+    this.chip,
+    this.strikePrice,
+    this.thenPrice,
     required this.selected,
     required this.onTap,
   });
@@ -1021,6 +1292,28 @@ class PremiumPlanCard extends StatelessWidget {
                           ),
                         ),
                       ],
+                      if (chip != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: GameColors.gold,
+                            borderRadius:
+                                BorderRadius.circular(GameSpacing.pillRadius),
+                          ),
+                          child: Text(
+                            chip!,
+                            // "-25%" reads the same in both languages.
+                            textDirection: TextDirection.ltr,
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w800,
+                              color: GameColors.onGold,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   if (caption != null) ...[
@@ -1055,6 +1348,28 @@ class PremiumPlanCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (strikePrice != null) ...[
+                      // A crossed-out line is invisible to a screen reader,
+                      // so it hears the regular price by name instead.
+                      Semantics(
+                        container: true,
+                        label: S.of(context).premiumRegularPriceSpoken(
+                            strikePrice!),
+                        excludeSemantics: true,
+                        child: Text(
+                          strikePrice!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: gp.textSec,
+                            decoration: TextDecoration.lineThrough,
+                            decorationColor: gp.textSec,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                    ],
                     Text(
                       price,
                       maxLines: 1,
@@ -1067,6 +1382,15 @@ class PremiumPlanCard extends StatelessWidget {
                         height: 1,
                       ),
                     ),
+                    if (thenPrice != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        thenPrice!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 11, color: gp.textSec),
+                      ),
+                    ],
                     const SizedBox(height: 3),
                     Text(
                       period,

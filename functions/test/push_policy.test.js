@@ -11,12 +11,21 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
+  HELD_BROADCAST_MAX_MS,
+  HOLD_BUFFER_MS,
+  STALE_TOKEN_GAP_MS,
   claimQuota,
+  heldBroadcastPlan,
+  heldUntilMs,
   isQuietAtLocalMinute,
   isQuietHoursNow,
+  liveTokens,
+  localDayKey,
   localMinutes,
   msUntilQuietHoursEnd,
   pushKindFor,
+  roomPushPlan,
+  shiftDay,
 } = require("../push_policy");
 
 const min = (h, m = 0) => h * 60 + m;
@@ -159,4 +168,169 @@ test("an unknown kind is charged to the heads-up slot", () => {
   assert.equal(r.allowed, true);
   assert.deepEqual(r.next,
       {date: "2026-09-05", info: 1, nudge: 0, celebrate: 0});
+});
+
+// ── Rule 2 and 3: the day a push is about (2026-09-24) ──────────────────
+
+test("a quota already counting a later day refuses an older push, untouched",
+    () => {
+      // نور on 24 Sep: a push about the 23rd must not reset the 24th.
+      const q = {date: "2026-09-24", info: 0, nudge: 1, celebrate: 0};
+      const r = claimQuota(q, "2026-09-23", "nudge");
+      assert.equal(r.allowed, false);
+      assert.deepEqual(r.next, q);
+      assert.equal(claimQuota(q, "2026-09-23", "celebrate").allowed, false);
+    });
+
+test("a last one or first to finish is never sent about a past day", () => {
+  for (const event of ["lastOne", "firstToday"]) {
+    const plan = roomPushPlan(
+        {event, dayKey: "2026-09-23", readerToday: "2026-09-24"});
+    assert.equal(plan.action, "drop", event);
+    assert.equal(plan.reason, "past-day");
+  }
+});
+
+test("a perfect day about yesterday is never sent either", () => {
+  // Aziz, 2026-09-24: «الكل خلّص عاداته أمس.» the next morning gives the
+  // reader nothing. Every notification has to be useful and kind.
+  const plan = roomPushPlan(
+      {event: "perfect", dayKey: "2026-09-23", readerToday: "2026-09-24"});
+  assert.equal(plan.action, "drop");
+  assert.equal(plan.reason, "past-day");
+});
+
+test("a new habit still reaches them the next morning, never later", () => {
+  const morning = roomPushPlan(
+      {event: "habitAdded", dayKey: "2026-09-23", readerToday: "2026-09-24"});
+  assert.equal(morning.action, "send");
+  assert.equal(morning.quotaDay, "2026-09-23",
+      "it counts against the day it was added");
+  const late = roomPushPlan(
+      {event: "habitAdded", dayKey: "2026-09-22", readerToday: "2026-09-24"});
+  assert.equal(late.action, "drop");
+  assert.equal(late.reason, "too-old");
+});
+
+test("quiet hours: a hold that would land on a later day drops a last one",
+    () => {
+      // 22:39 on the 23rd, quiet until 07:00 on the 24th.
+      const lastOne = roomPushPlan({event: "lastOne", dayKey: "2026-09-23",
+        readerToday: "2026-09-23", quiet: true, heldUntilDay: "2026-09-24"});
+      assert.equal(lastOne.action, "drop");
+      assert.equal(lastOne.reason, "quiet-past-its-day");
+      // A perfect day in the same spot is dropped too; only a new habit
+      // waits for the morning.
+      const perfect = roomPushPlan({event: "perfect", dayKey: "2026-09-23",
+        readerToday: "2026-09-23", quiet: true, heldUntilDay: "2026-09-24"});
+      assert.equal(perfect.action, "drop");
+      const added = roomPushPlan({event: "habitAdded", dayKey: "2026-09-23",
+        readerToday: "2026-09-23", quiet: true, heldUntilDay: "2026-09-24"});
+      assert.equal(added.action, "hold");
+      // And a last one whose quiet hours end the same day is held too.
+      const nap = roomPushPlan({event: "lastOne", dayKey: "2026-09-23",
+        readerToday: "2026-09-23", quiet: true, heldUntilDay: "2026-09-23"});
+      assert.equal(nap.action, "hold");
+    });
+
+test("a reader whose clock is behind the finisher's is on their own day",
+    () => {
+      // Los Angeles on the 4th, the Bahrain finisher on the 5th.
+      const plan = roomPushPlan(
+          {event: "lastOne", dayKey: "2026-09-05", readerToday: "2026-09-04"});
+      assert.equal(plan.action, "send");
+      assert.equal(plan.yesterday, false);
+      assert.equal(plan.quotaDay, "2026-09-04");
+    });
+
+test("a push on its own day is just sent, counted on that day", () => {
+  const plan = roomPushPlan(
+      {event: "lastOne", dayKey: "2026-09-24", readerToday: "2026-09-24"});
+  assert.deepEqual(plan, {action: "send", yesterday: false,
+    quotaDay: "2026-09-24", reason: undefined});
+});
+
+test("a held push lands two minutes after quiet hours end", () => {
+  const now = Date.UTC(2026, 8, 23, 19, 39); // 22:39 in Bahrain
+  const at = heldUntilMs(undefined, 180, now);
+  assert.equal(at, Date.UTC(2026, 8, 24, 4, 0) + HOLD_BUFFER_MS);
+  assert.equal(localDayKey(180, at), "2026-09-24");
+});
+
+test("a day key is the person's own calendar day", () => {
+  const t = Date.UTC(2026, 8, 23, 21, 30); // 00:30 on the 24th in Bahrain
+  assert.equal(localDayKey(180, t), "2026-09-24");
+  assert.equal(localDayKey(undefined, t), "2026-09-23", "no offset is UTC");
+  assert.equal(shiftDay("2026-09-01", -1), "2026-08-31");
+  assert.equal(shiftDay("2026-12-31", 1), "2027-01-01");
+});
+
+// ── One person, one banner (2026-09-24) ─────────────────────────────────
+
+test("a token a week behind the account's freshest is stale", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const today = Date.UTC(2026, 8, 24, 2, 38);
+  // نور: one token from today, one not refreshed since 13 Sep.
+  const {live, stale} = liveTokens([
+    {id: "dGKDax2i", updatedAtMs: today},
+    {id: "fF8Zm2Ui", updatedAtMs: Date.UTC(2026, 8, 13, 2, 27)},
+  ]);
+  assert.deepEqual(live.map((t) => t.id), ["dGKDax2i"]);
+  assert.deepEqual(stale.map((t) => t.id), ["fF8Zm2Ui"]);
+  // Two devices both in use this week both stay.
+  const both = liveTokens([
+    {id: "phone", updatedAtMs: today},
+    {id: "ipad", updatedAtMs: today - 6 * day},
+  ]);
+  assert.equal(both.live.length, 2);
+  assert.equal(STALE_TOKEN_GAP_MS, 7 * day);
+});
+
+test("an account using none of its devices lately keeps them all", () => {
+  // Relative to the freshest, never to now: a room push may be what brings
+  // someone back, so a quiet account is not pruned.
+  const old = Date.UTC(2026, 5, 1);
+  const {live, stale} = liveTokens([{id: "a", updatedAtMs: old}]);
+  assert.equal(live.length, 1);
+  assert.equal(stale.length, 0);
+  const none = liveTokens([
+    {id: "a", updatedAtMs: null},
+    {id: "b", updatedAtMs: undefined},
+  ]);
+  assert.equal(none.live.length, 2, "no dates means nothing to compare");
+});
+
+// Page item 6 (Aziz, 2026-09-24): the admin's message to everyone, held for
+// someone's quiet hours instead of skipped. index.js deliverHeldBroadcast asks
+// this when the hold ends; test/held_broadcast.test.js runs the handler.
+test("a held message goes out when quiet hours end, decided afresh", () => {
+  const sent = Date.UTC(2026, 8, 24, 20, 30); // 23:30 in Bahrain
+  const sevenOhTwo = Date.UTC(2026, 8, 25, 4, 2);
+  const at = (nowMs, settings) => heldBroadcastPlan({
+    sentAtMs: sent, settings, tzOffsetMinutes: 180, nowMs,
+  });
+  assert.deepEqual(at(sevenOhTwo), {action: "send"});
+  assert.deepEqual(at(sevenOhTwo, {masterEnabled: false}),
+      {action: "drop", reason: "master-off"});
+  // Their window moved to end at 09:00 after it was held: not chased.
+  assert.deepEqual(
+      at(sevenOhTwo, {
+        quietHoursEnabled: true, quietHoursStart: "22:0", quietHoursEnd: "9:0",
+      }),
+      {action: "drop", reason: "still-quiet"});
+});
+
+test("a held message never lands a day late", () => {
+  // Noon in Bahrain, so a day later is noon too, clear of quiet hours.
+  const sent = Date.UTC(2026, 8, 24, 9, 0);
+  const plan = (nowMs) => heldBroadcastPlan({
+    sentAtMs: sent, settings: undefined, tzOffsetMinutes: 180, nowMs,
+  });
+  assert.equal(HELD_BROADCAST_MAX_MS, 24 * 60 * 60 * 1000);
+  assert.equal(plan(sent + HELD_BROADCAST_MAX_MS).action, "send");
+  assert.deepEqual(plan(sent + HELD_BROADCAST_MAX_MS + 1),
+      {action: "drop", reason: "too-late"});
+  assert.deepEqual(
+      heldBroadcastPlan({sentAtMs: null, tzOffsetMinutes: 180, nowMs: sent}),
+      {action: "drop", reason: "too-late"});
 });

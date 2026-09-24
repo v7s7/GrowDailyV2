@@ -320,5 +320,45 @@ void main() {
       expect(out.single.depth, 0);
       expect(out.single.fireTime.isAfter(at(21, 0)), isTrue);
     });
+
+    group('a day stood in for by a session on another day', () {
+      // Aziz's shampoo: Monday, Thursday and Saturday. He showered on
+      // Wednesday 18 March instead, so Thursday the 19th owes nothing and
+      // must not ring (see moved_day_plan.dart).
+      const monThuSat = {DateTime.monday, DateTime.thursday, DateTime.saturday};
+
+      test('the covered Thursday is skipped, the window moves on', () {
+        final out = NotificationService.resolveClockOccurrences(
+          const [TimeOfDay(hour: 20, minute: 0)],
+          const [0],
+          at(21, 0, day: 18), // Wednesday evening, after the shower
+          scheduledWeekdays: monThuSat,
+          excusedDayKeys: {DateTime(2026, 3, 19).toDateKey()},
+          occurrences: 3,
+        );
+        expect(out.map((o) => o.fireTime), [
+          at(20, 0, day: 21), // Saturday
+          at(20, 0, day: 23), // Monday
+          at(20, 0, day: 26), // next Thursday, a new week
+        ]);
+        expect(out.map((o) => o.depth), [0, 1, 2],
+            reason: 'depths stay dense, so ids stay stable');
+      });
+
+      test('a window with nothing owed stays silent, not the fallback', () {
+        // One occurrence, and its only day is covered: nothing to ring.
+        // The corrupt-set fallback must not read this as "matched nothing".
+        final out = NotificationService.resolveClockOccurrences(
+          const [TimeOfDay(hour: 20, minute: 0)],
+          const [0],
+          at(21, 0, day: 18),
+          scheduledWeekdays: const {DateTime.thursday},
+          excusedDayKeys: {
+            for (var d = 19; d <= 60; d += 7) DateTime(2026, 3, d).toDateKey(),
+          },
+        );
+        expect(out, isEmpty);
+      });
+    });
   });
 }

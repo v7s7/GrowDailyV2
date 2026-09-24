@@ -19,7 +19,7 @@ void main() {
     expect(ar.quitSquareLabel(SquareState.complete), onTrackAction(true));
     expect(ar.quitSquareLabel(SquareState.failed), slippedAction(true));
     expect(en.quitSquareLabel(SquareState.complete), 'Kept');
-    expect(en.quitSquareLabel(SquareState.failed), 'Slipped');
+    expect(en.quitSquareLabel(SquareState.failed), "Didn't keep it");
     expect(ar.quitSquareLabel(SquareState.none), 'بدون تسجيل');
   });
 
@@ -39,17 +39,32 @@ void main() {
     expect(ar.quitSquareStateEffect(SquareState.none), contains('تلقائيًا'));
     expect(ar.quitSquareStateEffect(SquareState.none),
         isNot(contains('تُحسب عليك')));
-    expect(ar.quitSquareStateEffect(SquareState.failed), contains('زلة'));
+    expect(ar.quitSquareStateEffect(SquareState.failed),
+        contains('ما التزمت'));
+  });
+
+  test('«زلة» is gone from every quit word (Aziz, 2026-09-24)', () {
+    for (final st in SquareState.values) {
+      expect(ar.quitSquareLabel(st), isNot(contains('زلة')));
+      expect(ar.quitSquareStateEffect(st), isNot(contains('زلة')));
+    }
+    expect(slippedAction(true), 'ما التزمت');
+    for (final isLimit in [true, false]) {
+      expect(quitReminderBody(isLimit: isLimit, isAr: true),
+          isNot(contains('زلة')));
+      expect(quitReminderBody(isLimit: isLimit, isAr: false),
+          isNot(contains('slip')));
+    }
   });
 
   test('a quit reminder asks the check-in question and names both answers',
       () {
     expect(quitReminderBody(isLimit: false, isAr: true),
-        'كيف اليوم إلى الآن؟ التزام أو زلة.');
+        'كيف اليوم إلى الآن؟ التزام أو ما التزمت.');
     expect(quitReminderBody(isLimit: true, isAr: true),
-        'ضمن الحد إلى الآن؟ التزام أو زلة.');
+        'ضمن الحد إلى الآن؟ التزام أو ما التزمت.');
     expect(quitReminderBody(isLimit: false, isAr: false),
-        'How is today so far? Kept or slipped.');
+        "How is today so far? On track, or didn't keep it.");
     for (final isLimit in [true, false]) {
       final body = quitReminderBody(isLimit: isLimit, isAr: true);
       expect(body, isNot(contains('لسا')));

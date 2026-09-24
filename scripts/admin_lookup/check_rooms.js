@@ -186,7 +186,8 @@ function keyOfTs(v) {
           });
           const tz = offsetOf(userSnap.exists ? userSnap.data() : null);
           const short = undercountedDays({ days, countingIds, squaresByDay,
-            part, lastUpdatedByDay, createdByDay, offsetMinutes: tz.minutes });
+            part, lastUpdatedByDay, createdByDay, offsetMinutes: tz.minutes,
+            room });
           for (const u of short) {
             const who = part.displayName || partDoc.id;
             if (u.held) {

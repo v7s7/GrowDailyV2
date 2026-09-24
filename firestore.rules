@@ -167,12 +167,31 @@ service cloud.firestore {
               'lastActiveDay' in request.resource.data);
     }
 
+    // The paywall's one welcome window (WelcomeWindowStore): when it
+    // started. Once set it can never change or be removed, so no window is
+    // ever restarted; and it can only be set to a moment already past,
+    // never a future one that would stretch the window beyond the 72 hours
+    // the countdown shows. Every write to this doc is a merge, so a write
+    // that does not mention the field keeps it as it was.
+    function welcomeStartOk() {
+      return (resource != null && 'welcomeOfferStartedAt' in resource.data)
+          ? ('welcomeOfferStartedAt' in request.resource.data
+              && request.resource.data.welcomeOfferStartedAt
+                  == resource.data.welcomeOfferStartedAt)
+          : (!('welcomeOfferStartedAt' in request.resource.data)
+              || (request.resource.data.welcomeOfferStartedAt is timestamp
+                  && request.resource.data.welcomeOfferStartedAt
+                      <= request.time));
+    }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid)
           && noPremiumFieldsOnCreate()
-          && userDayStampsOk();
-      allow update: if isOwner(uid) && premiumFieldOk() && userDayStampsOk();
+          && userDayStampsOk()
+          && welcomeStartOk();
+      allow update: if isOwner(uid) && premiumFieldOk() && userDayStampsOk()
+          && welcomeStartOk();
       // Account deletion (AuthNotifier.deleteAccount) deletes this doc
       // directly from the client after re-authenticating, so the owner
       // needs delete access here too.
@@ -353,6 +372,29 @@ service cloud.firestore {
     // accessory names/descriptions, same reasoning as the two documents
     // just above.
     match /cosmetic_overrides/live {
+      allow get: if true;
+    }
+
+    // The admin's message to everyone (broadcast_message.dart): the pop-up
+    // each app shows once, the next time it is opened. Public read for the
+    // same reason as wording/live (guests open the app too, and nothing in
+    // it is private: a test audience is stored as SHA-256 hashes of uids,
+    // never the uids). The admin tool's Messages page is the only writer,
+    // through the Admin SDK. Its history (/broadcast_log) is admin only and
+    // falls to the deny-all below.
+    match /broadcast/live {
+      allow get: if true;
+    }
+
+    // The paywall's offers (OffersConfigStore): the welcome price switch
+    // and length, and the current or next dated sale. Public read for the
+    // same reason as wording/live (guests see the paywall too, and nothing
+    // in it is private); the admin tool's Sale page is the only writer,
+    // through the Admin SDK. Its history (/offer_sales), the creators
+    // (/creators, /creator_ledger, /creator_payouts) and the purchase log
+    // the webhook keeps (/purchase_log) are admin and server only and fall
+    // to the deny-all below.
+    match /offers/live {
       allow get: if true;
     }
 

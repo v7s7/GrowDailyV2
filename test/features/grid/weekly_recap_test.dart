@@ -532,7 +532,10 @@ void main() {
     // any other; and a scheduled day neither green nor skipped was a miss.
     // The open-day rule may only hold back the days not yet settled: a
     // scheduled one leaves the count, and a blank one draws quiet instead of
-    // the hollow ring. Nothing about a day that has closed may move.
+    // the hollow ring. Nothing about a day that has closed may move, with one
+    // exception written out below on its own ([movedCover]): since
+    // 2026-09-24 a session on a day off a specific-days plan counts on its
+    // own day and covers one of the plan's empty days (moved_day_plan.dart).
     final week = [for (var i = 0; i < 7; i++) DateTime(2026, 9, 5 + i)];
     IslamicHabitTemplate template(
       String id, {
@@ -611,6 +614,32 @@ void main() {
       return (done: done, scheduled: scheduled, dots: dots);
     }
 
+    /// The moved-session rule, restated here rather than called, so the
+    /// recap is checked against the rule and not against itself: each session
+    /// on a day off a specific-days plan covers one planned day with nothing
+    /// recorded, the days already closed first, each earliest first.
+    Set<int> movedCover(
+      IslamicHabitTemplate habit,
+      List<SquareState> marks,
+      DateTime now,
+    ) {
+      if (habit.scheduledWeekdays.isEmpty) return const {};
+      final sessions = [
+        for (var i = 0; i < week.length; i++)
+          if (!habit.isScheduledFor(week[i]) && marks[i].isGreen) i,
+      ].length;
+      final empty = [
+        for (var i = 0; i < week.length; i++)
+          if (habit.isScheduledFor(week[i]) && marks[i] == SquareState.none) i,
+      ];
+      // Settled with no answer counted: the day can no longer be marked.
+      bool closed(int i) => week[i].isSettledAt(now);
+      return [
+        ...empty.where(closed),
+        ...empty.where((i) => !closed(i)),
+      ].take(sessions).toSet();
+    }
+
     test('a fixed sample of mark patterns, on Friday morning, at the cutoff '
         'and after', () {
       final clocks = [
@@ -643,24 +672,42 @@ void main() {
           for (final now in clocks) {
             var heldBack = 0;
             var misses = 0;
+            // The moved-session layer: sessions off the plan join both sides
+            // of the count, and the days they cover leave it.
+            final cover = movedCover(habit, marks, now);
+            var offPlan = 0;
+            var coveredSettled = 0;
             final dots = <RecapDot>[];
             for (var i = 0; i < week.length; i++) {
               final settled =
                   week[i].isSettledAt(now, answered: marks[i].answersDay);
               final scheduled = habit.isScheduledFor(week[i]);
+              final isOffPlan = habit.scheduledWeekdays.isNotEmpty &&
+                  !scheduled &&
+                  marks[i].isGreen;
+              if (isOffPlan) offPlan++;
+              if (cover.contains(i) && settled) coveredSettled++;
               if (scheduled && !settled) heldBack++;
               if (scheduled &&
                   settled &&
+                  !cover.contains(i) &&
                   !marks[i].isGreen &&
                   marks[i] != SquareState.skipped) {
                 misses++;
               }
               dots.add(
-                !settled && old.dots[i] == RecapDot.missed
-                    ? RecapDot.quiet
-                    : old.dots[i],
+                cover.contains(i)
+                    ? RecapDot.covered
+                    : isOffPlan
+                        ? RecapDot.done
+                        : !settled && old.dots[i] == RecapDot.missed
+                            ? RecapDot.quiet
+                            : old.dots[i],
               );
             }
+            final expectDone = old.done + offPlan;
+            final expectScheduled =
+                old.scheduled - heldBack + offPlan - coveredSettled;
             final row = habitWeekRow(
               habit: habit,
               days: week,
@@ -668,12 +715,11 @@ void main() {
               now: now,
             );
             String label() => '${habit.id} $marks at $now';
-            if (row.done != old.done ||
-                row.scheduled != old.scheduled - heldBack ||
+            if (row.done != expectDone ||
+                row.scheduled != expectScheduled ||
                 !listEquals(row.dots, dots)) {
               failures.add('row ${label()}: ${row.done}/${row.scheduled} '
-                  '${row.dots}, expected ${old.done}/'
-                  '${old.scheduled - heldBack} $dots');
+                  '${row.dots}, expected $expectDone/$expectScheduled $dots');
             }
             final named = mostMissedHabitThisWeek(
               habits: [habit],

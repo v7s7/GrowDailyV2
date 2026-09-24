@@ -98,6 +98,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
       habits: habits,
       day: today,
       isGreen: ref.watch(weeklyGridProvider).currentWeekGreen,
+      markOn: ref.watch(weeklyGridProvider).currentWeekMark,
     );
     final habitsDoneToday = todayHabits
         .where((h) => dash.isCompleted(h.id, h.effectiveDailyTarget))

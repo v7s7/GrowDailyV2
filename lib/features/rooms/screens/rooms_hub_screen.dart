@@ -6,8 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart';
-import '../../../core/services/local_store_service.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
@@ -17,42 +15,6 @@ import '../notifiers/rooms_notifier.dart';
 import '../widgets/create_room_sheet.dart';
 import '../widgets/join_room_sheet.dart';
 import 'room_detail_screen.dart';
-
-// Hive settings-box key for "the highest RoomModel.sharedHabits.length
-// RoomsHubScreen has already fired _maybeNotifyNewSharedHabit's local
-// notification for, per room code" - see that function's own doc comment.
-// One shared map (code -> count) rather than one key per room, matching
-// LocalStoreService's existing whole-map-per-key shape.
-const _roomNotifiedHabitCountsKey = 'roomNotifiedHabitCounts';
-
-/// Fires a local "your leader added a habit" notification for [code] at
-/// most once per distinct RoomModel.sharedHabits.length - not true push
-/// (see NotificationService.showRoomHabitAdded's own doc comment), so this
-/// only actually runs the next time this device is open and this screen's
-/// stream ticks. Without the per-count guard here, this would re-fire on
-/// every single participants/room update this screen already streams
-/// constantly (someone else's completion, a progress resync...), not just
-/// the one moment a habit was actually added.
-Future<void> _maybeNotifyNewSharedHabit({
-  required String code,
-  required String roomName,
-  required String habitName,
-  required int sharedHabitCount,
-  required bool isAr,
-}) async {
-  final stored = await LocalStoreService.getSettingsMap(_roomNotifiedHabitCountsKey);
-  final lastNotified = (stored[code] as num?)?.toInt() ?? 0;
-  if (sharedHabitCount <= lastNotified) return;
-  await LocalStoreService.putSettingsMap(_roomNotifiedHabitCountsKey, {
-    ...stored,
-    code: sharedHabitCount,
-  });
-  await NotificationService.instance.showRoomHabitAdded(
-    roomName: roomName,
-    habitName: habitName,
-    isAr: isAr,
-  );
-}
 
 /// Entry point pushed from Profile's "Rooms" row - lists every room this
 /// account belongs to and offers Create/Join. Deliberately its own pushed
@@ -343,33 +305,6 @@ class _RoomListTile extends ConsumerWidget {
       if (next.hasValue && next.value == null) {
         ref.read(roomsControllerProvider).forgetRoom(code);
       }
-    });
-
-    // Same per-room side-effect pattern as the forgetRoom listener above -
-    // watches the participants stream (already watched for real below via
-    // roomParticipantsProvider) so a shared-plan habit the leader adds
-    // while this account isn't actively looking at that specific room's
-    // detail screen still gets flagged here instead of only ever showing
-    // up once they happen to open it (see _MyPlanCard's own in-room
-    // banner for that narrower case).
-    ref.listen(roomParticipantsProvider(code), (previous, next) {
-      final room = ref.read(roomProvider(code)).valueOrNull;
-      if (room == null ||
-          room.habitMode != RoomHabitMode.shared ||
-          room.sharedHabits.isEmpty) {
-        return;
-      }
-      final uid = ref.read(authStateProvider).asData?.value?.uid;
-      final mineList = next.valueOrNull?.where((p) => p.uid == uid).toList();
-      if (mineList == null || mineList.isEmpty) return;
-      if (mineList.first.linkedHabitIds.length >= room.sharedHabits.length) return;
-      _maybeNotifyNewSharedHabit(
-        code: code,
-        roomName: room.name,
-        habitName: room.sharedHabits.last.name,
-        sharedHabitCount: room.sharedHabits.length,
-        isAr: s.isAr,
-      ).ignore();
     });
 
     return roomAsync.when(

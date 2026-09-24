@@ -13,6 +13,7 @@ const {
   lastOneCounts,
   lastOneMessage,
   lastOneMessageFor,
+  roomPushMessage,
   usableName,
 } = require("../room_messages");
 const {roomEventFor} = require("../room_events");
@@ -552,4 +553,89 @@ test("the reader's habit count prefers today's scheduled count", () => {
       habitCountFor(room, {linkedHabitIds: ["a", "b", "c"]}, DAY), 2);
   assert.strictEqual(
       habitCountFor({}, {linkedHabitIds: ["a", "__declined__"]}, DAY), 1);
+});
+
+// ── Every room push, through the one entry point (2026-09-24) ───────────
+
+test("a perfect day is worded for its own day, the only day it is sent", () => {
+  const room = {name: "اذكار الصباح"};
+  assert.deepStrictEqual(roomPushMessage({event: "perfect", locale: "ar", room}), {
+    title: "يوم كامل في \"اذكار الصباح\" 🎉",
+    body: "الكل خلّص عاداته اليوم.",
+  });
+  assert.strictEqual(
+      roomPushMessage({event: "perfect", locale: "en", room}).body,
+      "Everyone finished today.");
+});
+
+test("first to finish agrees with the finisher, and never guesses a gender",
+    () => {
+      const room = {name: ROOM};
+      const her = roomPushMessage({event: "firstToday", locale: "ar", room,
+        finisher: {displayName: "نور", gender: "female"}});
+      assert.strictEqual(her.title, `نور أول من أنهت في "${ROOM}"`);
+      assert.strictEqual(her.body, "أول وحدة تخلّص اليوم. دورك.");
+      const him = roomPushMessage({event: "firstToday", locale: "ar", room,
+        finisher: {displayName: "Aziz"}});
+      assert.strictEqual(him.body, "أول واحد يخلّص اليوم. دورك.");
+    });
+
+test("a new habit names the habit and the room, in the reader's language",
+    () => {
+      const room = {name: "اذكار الصباح"};
+      const ar = roomPushMessage(
+          {event: "habitAdded", locale: "ar", room, habitName: "صدقة"});
+      assert.strictEqual(ar.title, "عادة جديدة في \"اذكار الصباح\"");
+      assert.ok(ar.body.startsWith("انضافت «صدقة» للخطة"));
+      const en = roomPushMessage(
+          {event: "habitAdded", locale: "fr", room, habitName: "Charity"});
+      assert.strictEqual(en.title, "New habit in \"اذكار الصباح\"",
+          "anything but ar reads as en");
+    });
+
+test("an unnamed room never puts English in an Arabic title", () => {
+  for (const event of ["perfect", "firstToday", "habitAdded"]) {
+    const m = roomPushMessage({event, locale: "ar", room: {},
+      finisher: {displayName: "نور"}, habitName: "صدقة"});
+    assert.ok(!m.title.includes("your room"), event);
+    assert.ok(m.title.includes("غرفتك"), event);
+  }
+});
+
+test("no room push of any kind carries a word of blame", () => {
+  const room = {name: ROOM, habitMode: "shared",
+    sharedHabits: [{name: "a"}, {name: "b"}]};
+  const reader = {linkedHabitIds: ["h1", "h2"]};
+  const finisher = {displayName: "نور", gender: "female"};
+  const counts = {members: 2, finished: 1, excluded: 0};
+  for (const locale of ["ar", "en"]) {
+    for (const event of ["firstToday", "lastOne", "perfect", "habitAdded"]) {
+      const m = roomPushMessage({event, locale, room, finisher, reader,
+        counts, todayKey: DAY, habitName: "صدقة"});
+      const text = m.title + " " + m.body;
+      for (const word of BANNED) {
+        assert.ok(!text.includes(word),
+            `${locale} ${event}: «${word}» in «${text}»`);
+      }
+      // The removed playful nudge's verdict (2026-09-24).
+      assert.ok(!text.includes("باقي أنت") && !text.includes("باقية أنت"));
+      assert.ok(!text.includes("Still waiting on you"));
+    }
+  }
+});
+
+test("the counts read a member whose phone moved past the day", () => {
+  const room = {habitMode: "shared",
+    sharedHabits: [{name: "a"}, {name: "b"}, {name: "c"}]};
+  const linked = {linkedHabitIds: ["h1", "h2", "h3"]};
+  // Two others: one finished the day and has synced the next one since,
+  // one still has a habit left. The finisher makes it 2 of 3 finished.
+  const others = [
+    {id: "x", data: () => ({...linked, allDoneToday: false,
+      allDoneDate: "2026-09-12", dailyDoneCount: {[DAY]: 3}})},
+    {id: "y", data: () => ({...linked, allDoneToday: false,
+      allDoneDate: DAY, dailyDoneCount: {[DAY]: 2}})},
+  ];
+  assert.deepStrictEqual(lastOneCounts(others, DAY, room),
+      {members: 3, finished: 2, excluded: 0});
 });

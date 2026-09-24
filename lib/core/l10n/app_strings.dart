@@ -1182,6 +1182,35 @@ class S {
       isAr ? 'أضف المحدد ($n)' : 'Add Selected ($n)';
   String get browsePlans => isAr ? 'استعرض الخطط' : 'Browse Plans';
   String get dailyReminder => isAr ? 'تذكير يومي' : 'Daily Reminder';
+  // The question that replaced the unasked 20:30 evening note (Aziz,
+  // 2026-09-24): see daily_reminder_prompt.dart. Design ج of the canvas
+  // (ready times, one tap), in his words: «شنو» not «وش», «لا، شكرًا».
+  String get dailyReminderPromptTitle =>
+      isAr ? 'متى يناسبك التذكير؟' : 'When should we remind you?';
+  String get dailyReminderPromptBody => isAr
+      ? 'إشعار واحد باليوم، يقول لك شنو خلّصت وشنو باقي.'
+      : "One notification a day, saying what's done and what's left.";
+  // Under the 21:00 choice: after Isha all year in Bahrain's official table
+  // (Isha falls between 18:06 and 20:04 in 2026).
+  String get dailyReminderPromptAfterIsha =>
+      isAr ? 'بعد العشاء' : 'After Isha';
+  String get dailyReminderPromptOtherTime =>
+      isAr ? 'وقت ثاني' : 'Another time';
+  String get dailyReminderPromptLater => isAr ? 'بعدين' : 'Later';
+  String get dailyReminderPromptNever => isAr ? 'لا، شكرًا' : 'No thanks';
+  String get dailyReminderPromptSettingsHint => isAr
+      ? 'تقدر تغيّره من الإعدادات بأي وقت.'
+      : 'You can change it in Settings any time.';
+  // The second ask is the last and has no «بعدين»: one that meant "never"
+  // would say one thing and do another.
+  String get dailyReminderPromptLastAsk =>
+      isAr ? 'ما بنسألك مرة ثانية.' : "We won't ask again.";
+  String get dailyReminderPromptLastHint => isAr
+      ? 'تقدر تفعّله من الإعدادات بأي وقت.'
+      : 'You can turn it on in Settings any time.';
+  String dailyReminderSetToast(String time) => isAr
+      ? 'تمام، نذكّرك كل يوم الساعة $time.'
+      : "Done. We'll remind you every day at $time.";
   String get tapToSetReminder =>
       isAr ? 'اضغط لتعيين وقت التذكير' : 'Tap to set reminder time';
   String get reminderPermissionDenied => isAr
@@ -1261,13 +1290,14 @@ class S {
       isAr ? 'الحد: $amount $unit في اليوم' : 'Limit: $amount $unit a day';
 
   /// The palette's names for a QUIT habit's day. A quit habit's green is not
-  /// a task done but a day kept, and its red is a slip, not a failure: the
-  /// build vocabulary («مكتمل», «فشل») read as a verdict on the person. Same
-  /// words the evening check-in's buttons use (reminder_copy.dart's
+  /// a task done but a day kept, and its red is «ما التزمت», not a failure:
+  /// the build vocabulary («مكتمل», «فشل») read as a verdict on the person.
+  /// Same words the check-in's buttons use (reminder_copy.dart's
   /// onTrackAction / slippedAction), so the two ways of marking a day agree.
   String quitSquareLabel(SquareState state) => switch (state) {
         SquareState.complete => isAr ? 'التزام' : 'Kept',
-        SquareState.failed => isAr ? 'زلة' : 'Slipped',
+        // «زلة» until 2026-09-24 (Aziz picked «ما التزمت»).
+        SquareState.failed => isAr ? 'ما التزمت' : "Didn't keep it",
         SquareState.skipped => isAr ? 'تخطّي' : 'Skipped',
         SquareState.none => isAr ? 'بدون تسجيل' : 'Not recorded',
         // Never offered for a quit habit (see paletteStatesFor); named so the
@@ -1284,14 +1314,14 @@ class S {
         SquareState.complete =>
           isAr ? 'يُحسب يوم التزام.' : 'Counts as a clean day.',
         SquareState.failed => isAr
-            ? 'زلة تُحسب عليك، وتُحفظ في ملاحظات العادات.'
-            : 'A slip, counted against you and kept in Habit Notes.',
+            ? 'يوم ما التزمت فيه يُحسب عليك، ويُحفظ في ملاحظات العادات.'
+            : 'Counted against you and kept in Habit Notes.',
         SquareState.skipped => isAr
             ? 'راحة باختيارك. لا تُحسب عليك.'
             : 'A rest you chose. It is not counted against you.',
         SquareState.none => isAr
-            ? 'بدون تسجيل. بعد أول التزام مسجّل، اليوم الذي يمر بدون زلة يُحسب التزامًا تلقائيًا.'
-            : 'Not recorded. Once a first kept day is on record, a day with no slip counts as kept automatically.',
+            ? 'بدون تسجيل. بعد أول التزام مسجّل، اليوم الذي يمر بدون «ما التزمت» يُحسب التزامًا تلقائيًا.'
+            : "Not recorded. Once a first kept day is on record, a day not marked \"Didn't keep it\" counts as kept automatically.",
         SquareState.partial || SquareState.bonus => squareStateEffect(state),
       };
   // Stands in for the hub's Plans pill while a first habit hides the pills.
@@ -1303,7 +1333,7 @@ class S {
   /// The When step for a quit goal. It asked «ما الخطة الهادئة؟» / "What is
   /// the calm plan?", which names nothing on the screen below it: what the
   /// step actually collects is the days the commitment covers and the moment
-  /// the check-in asks «التزام أو زلة؟». So it asks that.
+  /// the check-in asks «التزام أو ما التزمت؟». So it asks that.
   String get timingQuitTitle =>
       isAr ? 'متى نسألك عن يومك؟' : 'When do we check in?';
   String get whenQuestion => isAr ? 'متى؟' : 'When?';
@@ -2594,6 +2624,23 @@ class S {
   String get heatmapTotalGreen => isAr ? 'مربّعات ملوّنة' : 'Squares filled';
   String get heatmapActiveDays => isAr ? 'أيام نشطة' : 'Active days';
   String get heatmapBestDay => isAr ? 'أفضل يوم' : 'Best day';
+
+  /// Beside «أفضل يوم» under سجلّي's month calendar, naming the day its ring
+  /// marks (see dayExtremes). The word the weekday card it replaced used.
+  String get heatmapWeakestDay => isAr ? 'أضعف يوم' : 'Weakest day';
+
+  /// The days one month mark names: «14 سبتمبر», «13 و14 سبتمبر», and past
+  /// two «13 سبتمبر +2», so a long tie never runs off its line.
+  String heatmapDaysOfMonth(List<int> days, String month) {
+    if (days.length == 1) return '${days.first} $month';
+    if (days.length == 2) {
+      return isAr
+          ? '${days[0]} و${days[1]} $month'
+          : '${days[0]} and ${days[1]} $month';
+    }
+    return '${days.first} $month +${days.length - 1}';
+  }
+
   String get heatmapLess => isAr ? 'أقل' : 'Less';
   String get heatmapMore => isAr ? 'أكثر' : 'More';
   String get gridSectionBuild => isAr ? 'عادات البناء' : 'Build habits';
@@ -2614,6 +2661,14 @@ class S {
   // 2026-09-18: «أسبوعك» for the week and «الأسبوع اللي قبله» for the one
   // before it, the same words in every line that compares the two.
   String get weeklyRecapTitle => isAr ? 'حصاد الأسبوع' : 'Weekly recap';
+  // The line under the card while the Saturday note is off: it is sent
+  // only to someone who chose it. Aziz's words, 2026-09-24. See
+  // weekly_note_offer_provider.dart.
+  String get weeklyNoteOfferAsk => isAr
+      ? 'نذكّرك بحصاد أسبوعك كل سبت الصبح؟'
+      : 'Remind you of your weekly recap every Saturday morning?';
+  String get weeklyNoteOfferYes => isAr ? 'إيه' : 'Yes';
+  String get weeklyNoteOfferNo => isAr ? 'لا، شكرًا' : 'No thanks';
   String get weeklyRecapThisWeek => isAr ? 'أسبوعك' : 'Your week';
   String get weeklyRecapLastWeek =>
       isAr ? 'الأسبوع اللي قبله' : 'The week before';
@@ -3067,6 +3122,53 @@ class S {
           _ => 'أرخص من $months شهر اشتراك',
         }
       : 'Less than $months months of monthly';
+  // ── Welcome price and sales (2026-09-22) ─────────────────────────────
+  // Drafts: Aziz picks the final words, and the Wording page can change
+  // them without a release. Each one states something the paywall
+  // enforces: an offer really ends when its countdown does, and the price
+  // named after it is the one really charged (see paywall_offer.dart).
+  /// Above the Lifetime card during a person's one welcome window.
+  String get premiumWelcomeTitle => isAr ? 'سعر الترحيب' : 'Welcome price';
+  String get premiumWelcomeEndsIn =>
+      isAr ? 'لك أنت، ينتهي بعد' : 'Just for you, ends in';
+  /// Under a sale's name (set on the admin Sale page) above the Lifetime
+  /// card.
+  String get premiumSaleEndsIn => isAr ? 'ينتهي العرض بعد' : 'Sale ends in';
+  /// Countdown box labels. Not declined by count on purpose: each labels a
+  /// changing number, the way a clock face does.
+  String get premiumCountdownDays => isAr ? 'يوم' : 'days';
+  String get premiumCountdownHours => isAr ? 'ساعة' : 'hours';
+  String get premiumCountdownMinutes => isAr ? 'دقيقة' : 'min';
+  String get premiumCountdownSeconds => isAr ? 'ثانية' : 'sec';
+  /// What a screen reader hears for the countdown, instead of a number
+  /// announced every second.
+  String premiumCountdownSpoken(String left) =>
+      isAr ? 'ينتهي بعد $left' : 'Ends in $left';
+  /// Under the welcome price: the price that really applies once the
+  /// window closes. Said as "then", not crossed out (W1, Aziz 2026-09-22):
+  /// most people buy inside their window, so a crossed-out price few ever
+  /// paid would be the false kind.
+  String premiumThenPrice(String price) =>
+      isAr ? 'بعدها $price' : 'then $price';
+  /// The saving on a sale, from the two store prices, rounded down.
+  String premiumOfferPercent(int pct) => '-$pct%';
+  /// What a screen reader hears for the crossed-out regular price on a
+  /// sale: a line through text is invisible to it.
+  String premiumRegularPriceSpoken(String price) =>
+      isAr ? 'السعر العادي $price' : 'Regular price $price';
+  /// Under the buy button during the welcome window.
+  String premiumWelcomeFinePrint(String offer, String until, String regular) =>
+      isAr
+          ? 'سعر الترحيب $offer لك أنت حتى $until، ومرة وحدة بس. بعدها يصير السعر $regular.'
+          : 'Welcome price $offer, just for you, until $until, and only once. After that it is $regular.';
+  /// Under the buy button during a sale.
+  String premiumSaleFinePrint(String offer, String until, String regular) =>
+      isAr
+          ? 'سعر العرض $offer حتى $until. بعدها يرجع السعر $regular.'
+          : 'Sale price $offer until $until. Then it goes back to $regular.';
+  /// Next to Restore on iPhone: opens Apple's own sheet for a creator's
+  /// offer code.
+  String get premiumHaveCode => isAr ? 'عندك كود؟' : 'Have a code?';
   /// The trial status line under the hero while a legacy trial is open
   /// (installs from before 2026-09-17 only; see kTrialDays): says what is
   /// true right now and when it ends, so the plans below read as "keep
@@ -3804,14 +3906,78 @@ class S {
       : 'This habit does not count for you either way. Tap to add it after all.';
 
   /// Leader-only removal of a shared habit (see
-  /// RoomsController.removeSharedHabit).
+  /// RoomsController.removeSharedHabit). Aziz's rule, 2026-09-22: it still
+  /// counts on the day it is removed, and from the next day it counts for
+  /// nobody; every day before stays as it was. The old confirm promised
+  /// «وما تتأثر الأيام السابقة» while the removal re-scored the last 45
+  /// days, so every line here says only what now actually happens.
+  /// All DRAFT wording; Aziz picks.
   String get roomCancel => isAr ? 'إلغاء' : 'Cancel';
-  String get roomRemoveSharedHabit =>
-      isAr ? 'إزالة من الخطة' : 'Remove from plan';
-  String roomRemoveSharedHabitConfirm(String habitName) => isAr
-      ? 'إزالة "$habitName" من خطة الغرفة؟ ستتوقف عن الحساب للجميع، وما تتأثر الأيام السابقة.'
-      : 'Remove "$habitName" from the room plan? It stops counting for everyone, and no past day changes.';
-  String get roomRemovedLabel => isAr ? 'مُزالة' : 'Removed';
+  String get roomRemoveHabitAction => isAr ? 'إزالة عادة' : 'Remove a habit';
+  String get roomRemoveHabitPickerTitle =>
+      isAr ? 'إزالة عادة من الخطة' : 'Remove a habit from the plan';
+  String get roomRemoveHabitPickerHint => isAr
+      ? 'تبقى محسوبة اليوم، ومن باجر ما تنحسب لأحد. الأيام اللي قبل تبقى مثل ما هي.'
+      : 'It still counts today, and from tomorrow it counts for nobody. Every day before stays as it was.';
+  String roomRemoveHabitConfirmTitle(String habitName) => isAr
+      ? 'إزالة «$habitName» من الخطة؟'
+      : 'Remove "$habitName" from the plan?';
+  String get roomRemoveHabitConfirmBody => isAr
+      ? 'تبقى محسوبة اليوم، ومن باجر ما تنحسب لأحد في الغرفة. الأيام اللي قبل تبقى مثل ما هي، والعادة تبقى في عادات كل واحد بس ما تنربط بالغرفة.'
+      : 'It still counts today, and from tomorrow it counts for no one in the room. Every day before stays as it was, and everyone keeps the habit in their own list, just not tied to the room.';
+
+  /// The confirm for a removal that never counted for anyone: the room has
+  /// not started yet, or the habit was added today (see removalStopsOn).
+  String get roomRemoveHabitConfirmBodyNow => isAr
+      ? 'ما انحسبت لأحد إلى الآن، فتنشال من الخطة على طول. والعادة تبقى في عادات كل واحد.'
+      : 'It has not counted for anyone yet, so it leaves the plan right away. Everyone keeps the habit in their own list.';
+  String get roomRemoveHabitConfirmAction => isAr ? 'إزالة' : 'Remove';
+  String roomHabitRemovedSnack(String habitName) => isAr
+      ? 'انشالت «$habitName» من الخطة'
+      : 'Removed "$habitName" from the plan';
+  String get roomRemoveLastHabitTitle =>
+      isAr ? 'آخر عادة في الخطة' : 'The last habit in the plan';
+  String get roomRemoveLastHabitBody => isAr
+      ? 'الغرفة لازم فيها عادة وحدة على الأقل. أضف عادة ثانية أول، بعدين تقدر تشيل هذه.'
+      : 'A room needs at least one habit. Add another one first, then you can remove this one.';
+  String get roomRemoveHabitAlreadyRemoved => isAr
+      ? 'هذه العادة انشالت من الخطة من قبل.'
+      : 'This habit was already removed from the plan.';
+  String get roomPlanLockedEnded => isAr
+      ? 'الغرفة خلصت، وخطتها تبقى مثل ما هي.'
+      : 'This room has ended, so its plan stays as it is.';
+
+  /// The tag on a plan chip on the day it was removed: it still counts
+  /// today, and tomorrow it is gone from the card.
+  String get roomLastDayLabel => isAr ? 'آخر يوم' : 'Last day';
+  String roomHabitRestoredSnack(String habitName) => isAr
+      ? 'رجعت «$habitName» للخطة، وتنحسب من اليوم'
+      : '"$habitName" is back in the plan and counts from today';
+
+  /// The popup a member sees the next time they open the app after the
+  /// leader changes the plan (see RoomFinaleAnnouncer). No push: Aziz, "make
+  /// it a pop up when they open, no need for notification and extra cost".
+  String get roomPlanNoticeTitle =>
+      isAr ? 'تغيير في خطة الغرفة' : 'The room plan changed';
+  String roomPlanNoticeRemovedToday(String habitName, String roomName) => isAr
+      ? 'شال القائد «$habitName» من خطة «$roomName». بتنحسب اليوم آخر يوم، بس باجر لا.'
+      : 'Your leader removed "$habitName" from "$roomName". Today is its last counted day, and from tomorrow it does not count.';
+  String roomPlanNoticeRemoved(String habitName, String roomName) => isAr
+      ? 'شال القائد «$habitName» من خطة «$roomName»، وما صارت تنحسب في الغرفة.'
+      : 'Your leader removed "$habitName" from "$roomName". It no longer counts in the room.';
+  String get roomPlanNoticeKeptHabit => isAr
+      ? 'أيامك اللي قبل محفوظة، والعادة تبقى في عاداتك بس غير مرتبطة بالغرفة.'
+      : 'Your earlier days are kept, and the habit stays in your list, just no longer tied to the room.';
+  String get roomPlanNoticeDaysKept =>
+      isAr ? 'أيامك اللي قبل محفوظة.' : 'Your earlier days are kept.';
+  /// Aziz's wording, 2026-09-23. It names no room: the popup is about one
+  /// room and opens it, and he dropped the room name here although the
+  /// removal lines above keep theirs.
+  String roomPlanNoticeRestored(String habitName) => isAr
+      ? 'القائد رجّع «$habitName» للخطة، وبتنحسب من اليوم'
+      : 'Your leader brought "$habitName" back to the plan. It counts from today.';
+  String get roomPlanNoticeOk => isAr ? 'تمام' : 'OK';
+  String get roomPlanNoticeOpenRoom => isAr ? 'فتح الغرفة' : 'Open room';
   String roomPlanPartialCreditHint(int n) => isAr
       ? 'كل عادة تُنجزها تضيف جزءًا من التقدم، وإكمال كل الـ $n يمنحك اليوم كاملًا'
       : 'Each one you finish adds partial credit. Complete all $n for the full day';
@@ -4021,11 +4187,9 @@ class S {
   String get roomNewHabitBannerAction => isAr ? 'ربط الآن' : 'Link now';
   String get roomResolveHabitsSheetTitle =>
       isAr ? 'عادة جديدة في الخطة' : 'New habit in the plan';
-  // The local notification for this same event (RoomsHubScreen noticing an
-  // unresolved plan slot) is NOT here - NotificationService.
-  // showRoomHabitAdded fires with no BuildContext available (same as every
-  // other notification body in that file, e.g. showTest), so its EN/AR
-  // copy is hardcoded directly there instead of routed through S.
+  // The notification for this same event is the server's push
+  // (functions/room_messages.js HABIT_ADDED_MESSAGES). The local one the
+  // Rooms screen used to show as well was removed on 2026-09-24.
   // Kept around for any link that went stale before habit deletion started
   // unlinking automatically (see habitLinkedRoomWarningBody below) - going
   // forward this shouldn't normally trigger. Deliberately no longer
@@ -4218,6 +4382,47 @@ class S {
   // migration.
   String get habitEdit => isAr ? 'تعديل' : 'Edit';
   String get habitActionsCancel => isAr ? 'إلغاء' : 'Cancel';
+
+  /// The pop-up a tap on a covered square (the «–» of a day the habit asks
+  /// nothing of) opens before it records anything. Aziz, 2026-09-24, on the
+  /// late-record sheet it replaced: "just make any – days clickable, but
+  /// with a pop up that it's rest and how it will be handled". Provisional
+  /// words until he picks them. [day] is «اليوم», «أمس» or a weekday name.
+  String get restDayTitle => isAr ? 'يوم راحة' : 'A rest day';
+
+  /// Why the day asks nothing (see RestDayReason).
+  String restDayOffPlan(String day, String habit) => isAr
+      ? '$day مو من أيام «$habit».'
+      : '$day is not one of the days of "$habit".';
+  String restDayCoveredBySession(String day) => isAr
+      ? '$day مغطّى، لأنك سويتها يوم ثاني هذا الأسبوع.'
+      : '$day is covered: you did it on another day this week.';
+  String restDayQuotaMet(int done, int target) => isAr
+      ? 'خلّصت هدف الأسبوع: $done من $target.'
+      : "This week's target is done: $done of $target.";
+  String get restDayNotNeeded =>
+      isAr ? 'هذا اليوم ما كان مطلوب منك.' : 'This day was not needed.';
+
+  /// What recording it would do: which of the habit's own days it stands in
+  /// for (see moved_day_plan.dart), or that it is an extra.
+  String restDayCovers(String day) => isAr
+      ? 'إذا سويتها، تنحسب من الأسبوع وتغطي $day.'
+      : 'If you did it, it counts for the week and covers $day.';
+  String get restDayExtra => isAr
+      ? 'إذا سويتها، تنحسب زيادة على خطتك.'
+      : 'If you did it, it counts as an extra.';
+  String restDayQuotaCounts(int after, int target) => isAr
+      ? 'إذا سويتها، يصير أسبوعك $after من $target.'
+      : 'If you did it, this week becomes $after of $target.';
+
+  /// Whether it earns. A day that has closed never pays (see
+  /// WeeklyGridNotifier.setSquare's past-day branch).
+  String get restDayNoPoints => isAr
+      ? 'ولأنه يوم فات، تتسجّل بدون نقاط.'
+      : 'It is a past day, so it is recorded without points.';
+  String get restDayWithPoints =>
+      isAr ? 'وتاخذ نقاطها عادي.' : 'It earns its points as usual.';
+  String get restDayConfirm => isAr ? 'سويتها' : 'I did it';
   String get habitPause => isAr ? 'إيقاف مؤقت' : 'Pause';
 
   /// Says "from tomorrow", because that is what actually happens and the
@@ -4453,12 +4658,6 @@ class S {
   // can show very different numbers. Naming the cadence is what makes that
   // gap explainable instead of arbitrary.
   String roomCadenceWeekly(int n) => isAr ? '$n× أسبوعياً' : '$n× a week';
-  // The opt-in playful nudge. Worded as an invitation, never an accusation:
-  // "still waiting on you" is banter, "you didn't" is a reprimand.
-  String get notifRoomNudges => isAr ? 'تحفيز ودّي' : 'Friendly nudges';
-  String get notifRoomNudgesDesc => isAr
-      ? 'لما أحد يكمّل قبلك، يوصلك تنبيه خفيف يذكّرك. في الغرف الصغيرة فقط، ومرّة وحدة باليوم.'
-      : 'When someone finishes before you, get a light teasing reminder. Small rooms only, once a day.';
   String get roomCadenceDaily => isAr ? 'يومي' : 'Daily';
   // Shown when a member's linked habits don't all share one cadence, so the
   // badge names the count rather than a single misleading number.
@@ -4589,8 +4788,6 @@ class S {
       : "Off by default: Fajr usually falls inside a nighttime quiet window, and that's the one reminder most people still want.";
 
   String get notifTimingSection => isAr ? 'التوقيت' : 'TIMING';
-  String get notifStreakRiskTime =>
-      isAr ? 'وقت فحص السلسلة' : 'Streak check time';
 
   String get notifSendTest =>
       isAr ? 'إرسال إشعار تجريبي' : 'Send a test notification';

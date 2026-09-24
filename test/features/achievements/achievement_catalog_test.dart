@@ -26,6 +26,22 @@ void main() {
 
   AchievementModel byId(String id) => AchievementCatalog.findById(id)!;
 
+  // No catalog medal counts a category since the Quran ladder was removed
+  // (2026-09-22), but the habitMastery trigger stays, so its counter is pinned
+  // on a stand-in.
+  const categoryMedal = AchievementModel(
+    id: 'test_category',
+    familyId: 'test',
+    name: 'Category',
+    description: 'A category, 25 times',
+    tier: AchievementTier.bronze,
+    trigger: AchievementTrigger.habitMastery,
+    threshold: 25,
+    xpReward: 0,
+    goldReward: 0,
+    targetCategory: 'quran',
+  );
+
   group('AchievementStats — one predicate for all five triggers', () {
     test('reads the right counter for each trigger', () {
       final s = stats(
@@ -41,12 +57,28 @@ void main() {
       expect(s.currentFor(byId('green_100')), 88);
       // habitMastery reads only its own targetCategory — a big count in an
       // unrelated category must not leak into it.
-      expect(s.currentFor(byId('quran_25')), 41);
+      expect(s.currentFor(categoryMedal), 41);
     });
 
     test('a missing category counts as zero, not as an error', () {
-      expect(stats().currentFor(byId('quran_25')), 0);
-      expect(stats().progressFor(byId('quran_25')), 0);
+      expect(stats().currentFor(categoryMedal), 0);
+      expect(stats().progressFor(categoryMedal), 0);
+    });
+
+    test('the Quran ladder is gone, and an old unlocked id renders nothing',
+        () {
+      // Aziz, 2026-09-22: a Quran habit someone creates is saved under faith,
+      // so only the two built-in presets ever fed it and no account earned a
+      // tier. A saved 'quran_*' id must resolve to nothing, like 'ascent_*'.
+      expect(AchievementCatalog.families.map((f) => f.id), isNot(contains('quran')));
+      for (final id in ['quran_25', 'quran_100', 'quran_300', 'quran_1000']) {
+        expect(AchievementCatalog.findById(id), isNull, reason: id);
+      }
+      expect(
+        AchievementCatalog.all
+            .where((a) => a.trigger == AchievementTrigger.habitMastery),
+        isEmpty,
+      );
     });
 
     test('meets() is inclusive at the threshold', () {

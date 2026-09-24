@@ -153,9 +153,38 @@ function weekStartKey(key) {
   console.log(`  pausedSpans : ${spans.length ? JSON.stringify(spans) : 'none'}`);
   if (Array.isArray(room.sharedHabits) && room.sharedHabits.length) {
     console.log('  shared plan :');
+    // Each slot's own timeline, the trace behind "why did my room change":
+    // when it joined the plan, who removed it and the last day it counted,
+    // the stretches it spent out, and who brought it back. A removal with
+    // no stopsOn is a LEGACY one (before 2026-09-22, or dedupe_plan_slot.js)
+    // and counts on no day at all.
+    const stamp = (t) => (t && typeof t.toDate === 'function' ?
+      t.toDate().toISOString().replace('.000Z', 'Z') : null);
     room.sharedHabits.forEach((h, i) => {
+      const bits = [];
+      if (h.addedDay || h.addedAt) {
+        bits.push(`added ${h.addedDay || stamp(h.addedAt)}`);
+      }
+      if (h.removedAt) {
+        if (typeof h.stopsOn === 'string') {
+          const last = shiftKey(h.stopsOn, -1);
+          const counted = !(h.addedDay && h.addedDay >= h.stopsOn) &&
+              h.stopsOn > startKey;
+          bits.push(`REMOVED ${stamp(h.removedAt)} by ${h.removedBy || '?'}` +
+              (counted ? `, last counted day ${last}` : ', never counted'));
+        } else {
+          bits.push('REMOVED (legacy: counts on no day)');
+        }
+      }
+      const off = Array.isArray(h.offSpans) ? h.offSpans : [];
+      if (off.length) {
+        bits.push(`out ${off.map((o) => `${o.from}..${o.to}`).join(', ')}`);
+      }
+      if (h.restoredAt) {
+        bits.push(`brought back ${stamp(h.restoredAt)} by ${h.restoredBy || '?'}`);
+      }
       console.log(`      [${i}] ${h.name}  ${h.frequencyType}/${h.frequencyTarget}` +
-                  `${h.removedAt ? '  REMOVED' : ''}`);
+                  `${bits.length ? `  ${bits.join('; ')}` : ''}`);
     });
   }
 
@@ -199,14 +228,19 @@ function weekStartKey(key) {
     const counting = [];
     linked.forEach((id, i) => {
       const isDeclined = id === DECLINED;
-      const removed = room.habitMode === 'shared' &&
-          Array.isArray(room.sharedHabits) &&
-          i < room.sharedHabits.length && !!room.sharedHabits[i].removedAt;
+      const slot = room.habitMode === 'shared' &&
+          Array.isArray(room.sharedHabits) && i < room.sharedHabits.length ?
+        room.sharedHabits[i] : null;
+      const removed = !!(slot && slot.removedAt);
       const h = habits[id];
       const label = names[i] || (h && h.name) || '(unnamed)';
       let note = '';
       if (isDeclined) note = 'SKIPPED by this person';
-      else if (removed) note = 'REMOVED from plan by leader';
+      else if (removed) {
+        note = typeof slot.stopsOn === 'string' ?
+          `REMOVED from plan by leader, counts before ${slot.stopsOn}` :
+          'REMOVED from plan by leader (legacy: counts on no day)';
+      }
       else if (!h) note = 'NOT in their custom_habits (catalog habit, or deleted)';
       console.log(`  slot[${i}] ${label}` +
                   `${h ? `   ${h.frequencyType}/${h.frequencyTarget}` : ''}` +

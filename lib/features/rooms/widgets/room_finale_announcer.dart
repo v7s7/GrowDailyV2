@@ -6,6 +6,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../models/room_model.dart';
+import '../notifiers/room_plan_notices.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../screens/room_detail_screen.dart';
 
@@ -24,6 +25,11 @@ import '../screens/room_detail_screen.dart';
 ///
 /// Renders nothing itself. Mount it once, anywhere below the app's providers
 /// and above a Navigator (see main.dart's _OnboardingOrGrid).
+///
+/// Since 2026-09-22 it also tells a member when their leader removed a habit
+/// from the plan, or brought one back ([roomPlanNoticesProvider]): Aziz
+/// wanted a popup on open rather than a push. Same one-at-a-time rule, so a
+/// finale and a plan change never stack.
 class RoomFinaleAnnouncer extends ConsumerStatefulWidget {
   final Widget child;
   const RoomFinaleAnnouncer({super.key, required this.child});
@@ -35,6 +41,7 @@ class RoomFinaleAnnouncer extends ConsumerStatefulWidget {
 
 class _RoomFinaleAnnouncerState extends ConsumerState<RoomFinaleAnnouncer> {
   ProviderSubscription<List<RoomModel>>? _sub;
+  ProviderSubscription<List<RoomPlanNotice>>? _planSub;
 
   @override
   void initState() {
@@ -54,12 +61,72 @@ class _RoomFinaleAnnouncerState extends ConsumerState<RoomFinaleAnnouncer> {
       },
       fireImmediately: true,
     );
+    _planSub = ref.listenManual<List<RoomPlanNotice>>(
+      roomPlanNoticesProvider,
+      (previous, next) {
+        if (next.isEmpty) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _announcePlanChange().ignore();
+        });
+      },
+      fireImmediately: true,
+    );
   }
 
   @override
   void dispose() {
     _sub?.close();
+    _planSub?.close();
     super.dispose();
+  }
+
+  /// The first plan change this device has not shown yet, if any. Checked
+  /// against the persisted record at the moment of showing, so a change
+  /// seen once never pops up again, and the next one waits its turn behind
+  /// whatever dialog is already up.
+  Future<void> _announcePlanChange() async {
+    if (_showing || !mounted) return;
+    final pending = ref.read(roomPlanNoticesProvider);
+    if (pending.isEmpty) return;
+    _showing = true;
+    try {
+      await loadRoomPlanNoticesSeen(ref);
+      final seen = ref.read(roomPlanNoticesSeenProvider);
+      final notice = pending.where((n) => !seen.contains(n.key)).firstOrNull;
+      if (notice == null || !mounted) return;
+      HapticFeedback.lightImpact();
+      final open = await _showPlanChangeDialog(context, notice);
+      // Seen either way, like the finale: "OK" means "I know", and the room
+      // shows the plan as it now stands whenever they look. Recorded before
+      // the room is opened, so a push-and-pop cannot show it twice. After an
+      // await, so only while this is still mounted: ref on a disposed state
+      // throws.
+      if (!mounted) return;
+      markRoomPlanNoticeSeen(ref, notice.key);
+      if (open == true && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => RoomDetailScreen(code: notice.room.code),
+          ),
+        );
+      }
+    } finally {
+      _showing = false;
+    }
+    // Another change may be waiting (two habits removed at once), or a
+    // finale that arrived while this was up: one more pass, each still one
+    // at a time.
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final finished = ref.read(unseenFinishedRoomsProvider);
+        if (finished.isNotEmpty) {
+          _announce(finished.first);
+          return;
+        }
+        _announcePlanChange().ignore();
+      });
+    }
   }
 
   /// One at a time, and never while another is already up. The provider can
@@ -86,7 +153,11 @@ class _RoomFinaleAnnouncerState extends ConsumerState<RoomFinaleAnnouncer> {
         MaterialPageRoute(builder: (_) => RoomDetailScreen(code: room.code)),
       );
     }
-    if (mounted) _showing = false;
+    if (mounted) {
+      _showing = false;
+      // A plan change that arrived while the finale was up gets its turn.
+      _announcePlanChange().ignore();
+    }
   }
 
   @override
@@ -130,6 +201,76 @@ Future<bool?> _showFinaleDialog(BuildContext context, RoomModel room) {
             foregroundColor: GameColors.onGold,
           ),
           child: Text(s.roomFinaleShow),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The plan-change popup. Returns true if they chose to open the room.
+///
+/// Says what changed, from when, and, for a removal, that their earlier days
+/// are kept and (if they had it linked) that the habit stays in their own
+/// list. Stated as facts, no blame and no verdict (see reminder_copy.dart's
+/// rule), because nothing here is anything the member did.
+Future<bool?> _showPlanChangeDialog(
+  BuildContext context,
+  RoomPlanNotice notice,
+) {
+  final s = S.of(context);
+  final gp = context.gp;
+  final removed = notice.kind == RoomPlanNoticeKind.removed;
+  final body = removed
+      ? [
+          notice.countsToday
+              ? s.roomPlanNoticeRemovedToday(notice.habitName, notice.room.name)
+              : s.roomPlanNoticeRemoved(notice.habitName, notice.room.name),
+          notice.hadLinked
+              ? s.roomPlanNoticeKeptHabit
+              : s.roomPlanNoticeDaysKept,
+        ].join('\n\n')
+      : s.roomPlanNoticeRestored(notice.habitName);
+  return showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: gp.surfaceHigh,
+      icon: Icon(
+        removed
+            ? Icons.playlist_remove_rounded
+            : Icons.playlist_add_check_rounded,
+        color: context.gp.goldInk,
+        size: 30,
+      ),
+      title: Text(
+        s.roomPlanNoticeTitle,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+          color: gp.textPrimary,
+        ),
+      ),
+      content: Text(
+        body,
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 13.5, height: 1.5, color: gp.textSec),
+      ),
+      actionsAlignment: MainAxisAlignment.center,
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text(
+            s.roomPlanNoticeOpenRoom,
+            style: TextStyle(color: gp.textTert),
+          ),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          style: FilledButton.styleFrom(
+            backgroundColor: GameColors.gold,
+            foregroundColor: GameColors.onGold,
+          ),
+          child: Text(s.roomPlanNoticeOk),
         ),
       ],
     ),

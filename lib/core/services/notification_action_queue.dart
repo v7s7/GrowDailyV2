@@ -10,11 +10,13 @@ import 'dart:convert';
 ///
 /// [day] is the effective day the tap was made on (see
 /// DateTimeGameExt.effectiveDay), as a 'YYYY-MM-DD' key. It is the whole
-/// reason this is a record and not a bare habit id like the widget's
-/// pendingWidgetCompletions queue: a reminder tapped at 22:00 and drained at
-/// 11:00 the next morning belongs to the evening, and a drain that read the
-/// clock instead of this field would credit the morning's habit, which the
-/// person has not done.
+/// reason this is a record and not a bare habit id: a reminder tapped at
+/// 22:00 and drained at 11:00 the next morning belongs to the evening, and a
+/// drain that read the clock instead of this field would credit the morning's
+/// habit, which the person has not done. The home screen widget's checkmark
+/// writes this queue too (queueWithMarkDone in HabitReminderStandDown.swift);
+/// it used to have a queue of bare ids of its own, and lost the day exactly
+/// that way.
 class QueuedNotificationAction {
   /// One of NotificationService's action ids (mark_done, quit_on_track,
   /// quit_slipped). Snooze is never queued: it acts in the isolate itself.
@@ -168,6 +170,29 @@ abstract final class NotificationActionRules {
       return name is String && name.isNotEmpty ? name : null;
     }
     return null;
+  }
+
+  /// The habits [todayHabitsJson] shows done, provided the list is [day]'s.
+  ///
+  /// The list holds no date itself. HomeWidgetService writes the day it was
+  /// built for beside it ([listDay]), and a list from another day (the app
+  /// last opened yesterday) says nothing about [day]: its checkmarks are
+  /// yesterday's. That answers empty rather than wrong, because the one
+  /// reader, ArmedReminderRecord.standDownFor, keeps a shared reminder for
+  /// any habit not known to be done.
+  static Set<String> doneOn(
+    String? todayHabitsJson, {
+    required String? listDay,
+    required String day,
+  }) {
+    if (listDay != day) return const {};
+    final list = _decodeTodayList(todayHabitsJson);
+    if (list == null) return const {};
+    return {
+      for (final entry in list)
+        if (entry['done'] == true)
+          if (entry['id'] case final String id) id,
+    };
   }
 
   static List<Map<String, Object?>>? _decodeTodayList(String? raw) {

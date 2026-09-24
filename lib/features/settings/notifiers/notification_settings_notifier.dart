@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'dart:convert' show jsonEncode;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,10 @@ import '../../../core/services/local_store_service.dart';
 import '../models/notification_settings.dart';
 
 const _kSettingsKey = 'notification_settings_v1';
+
+/// What [NotificationSettingsNotifier._mirrorUp] last put on an account from
+/// this device: `uid|settings as JSON`. See that method.
+const _kMirroredKey = 'notification_settings_mirrored_v1';
 
 /// Owns [NotificationSettings] — every toggle/time/location the
 /// Notifications settings screen edits, persisted device-locally (Hive,
@@ -26,9 +31,15 @@ const _kSettingsKey = 'notification_settings_v1';
 /// the same path main.dart's reactive listener already uses, with nothing
 /// bypassing it.
 class NotificationSettingsNotifier extends StateNotifier<NotificationSettings> {
-  NotificationSettingsNotifier() : super(const NotificationSettings()) {
+  NotificationSettingsNotifier({FirebaseFirestore? firestore})
+      : _firestore = firestore,
+        super(const NotificationSettings()) {
     _loadFuture = _load();
   }
+
+  /// A test's stand-in; the real project otherwise.
+  final FirebaseFirestore? _firestore;
+  FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
   String? _uid;
   late final Future<void> _loadFuture;
@@ -53,7 +64,7 @@ class NotificationSettingsNotifier extends StateNotifier<NotificationSettings> {
     _hasLocalValue = true;
     await LocalStoreService.putSettingsMap(_kSettingsKey, next.toMap());
     if (_uid != null) {
-      FirebaseFirestore.instance
+      _db
           .collection('users')
           .doc(_uid)
           .set({'notificationSettings': next.toMap()}, SetOptions(merge: true))
@@ -81,10 +92,12 @@ class NotificationSettingsNotifier extends StateNotifier<NotificationSettings> {
   Future<void> pullFromAccount(String uid) async {
     _uid = uid;
     await _loadFuture;
-    if (_hasLocalValue) return;
+    if (_hasLocalValue) {
+      await _mirrorUp(uid);
+      return;
+    }
     try {
-      final snap =
-          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      final snap = await _db.collection('users').doc(uid).get();
       final saved = snap.data()?['notificationSettings'];
       if (saved is! Map) return;
       final map = LocalStoreService.asStringMap(saved);
@@ -95,6 +108,39 @@ class NotificationSettingsNotifier extends StateNotifier<NotificationSettings> {
     } catch (_) {
       // No saved settings for this account yet, or offline — device-local
       // defaults keep applying, same as a guest.
+    }
+  }
+
+  /// Puts this device's own settings on the account when the account may
+  /// not have them.
+  ///
+  /// The account's copy is what the server reads to decide whether a push
+  /// may reach this person at all: the room pushes (functions/push_policy.js)
+  /// and the admin's message to everyone (scripts/admin_lookup's Messages
+  /// page) both skip someone whose all-notifications switch is off, and
+  /// hold back in their quiet hours. [_persist] writes it only for a change
+  /// made while signed in, so settings saved as a guest, while signed out,
+  /// or on a build before this existed never reached it, and a person who
+  /// had switched notifications off could still be sent one.
+  ///
+  /// Written once per account per device, then again only after a change,
+  /// never on every launch: a marker in the settings box remembers what went
+  /// up. A failed write leaves the marker alone, so the next sign-in tries
+  /// again.
+  Future<void> _mirrorUp(String uid) async {
+    final settings = state.toMap();
+    final marker = '$uid|${jsonEncode(settings)}';
+    try {
+      final box = await LocalStoreService.settingsBox();
+      if (box.get(_kMirroredKey) == marker) return;
+      await _db
+          .collection('users')
+          .doc(uid)
+          .set({'notificationSettings': settings}, SetOptions(merge: true));
+      await box.put(_kMirroredKey, marker);
+    } catch (_) {
+      // Offline, or no Firebase at all (unit tests): the account keeps what
+      // it had until the next sign-in or change.
     }
   }
 

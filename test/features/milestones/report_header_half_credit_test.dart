@@ -20,10 +20,12 @@
 // as report_open_day_wiring_test.dart does, so a screen that handed the
 // header anything but the cards' own stats would show here.
 //
-// Most of what follows fails on its numbers before this change. Four cases
+// Most of what follows fails on its numbers before this change. Three cases
 // are guards instead, which the old header already satisfied: the calendar
-// every weekday claim here rests on, the two placeholder cases where credit
-// lands on a period that owed nothing, and the 100% cap, which reads the
+// every weekday claim here rests on, the placeholder case where credit
+// lands on a period that owed nothing (a جزئي off the plan: a whole session
+// there counts for its week since 2026-09-24, and a case of its own pins
+// that, on screen too), and the 100% cap, which reads the
 // same either way and is now the only thing holding down a header holding
 // more credit than it owed. The empty-state gate is NOT one of the guards,
 // whatever it looks like: it pins this change too, because the week it reads
@@ -617,20 +619,51 @@ void main() {
   });
 
   group('nothing owed yet', () {
+    // Created well before these weeks, so a week with a blank Monday owes it
+    // (a habit with no start date would begin at its first mark).
+    IslamicHabitTemplate monThu() => habit(
+          'monThu',
+          type: HabitFrequencyType.weekly,
+          target: 2,
+          weekdays: const [DateTime.monday, DateTime.thursday],
+          createdAt: DateTime(2026, 8),
+        );
+
     test('credit with nothing owed has no rate to print', () {
-      // Monday and Thursday, done on Saturday the 5th, a day it never asked
+      // Monday and Thursday, a جزئي on Saturday the 5th, a day it never asked
       // for. At 05:19 on Tuesday the 8th Monday is still open and Thursday
-      // still ahead, so the week owes nothing yet while holding a day of
-      // credit. Divided through, that credit would print 100%.
+      // still ahead, so the week owes nothing yet while holding half a day
+      // of credit. Divided through, that credit would print 100%.
+      //
+      // A جزئي, not a whole session: since 2026-09-24 a whole session on a
+      // day off the plan counts for its week (see moved_day_plan.dart and the
+      // next two cases). A half is not a session, so it stands in for
+      // nothing and the week still owes nothing.
       final r = report(
-        habits: [
-          habit(
-            'monThu',
-            type: HabitFrequencyType.weekly,
-            target: 2,
-            weekdays: const [DateTime.monday, DateTime.thursday],
-          ),
-        ],
+        habits: [monThu()],
+        history: {
+          'monThu': {sep(5): SquareState.partial},
+        },
+        window: reportWindow(ReportScope.week, DateTime(2026, 9, 8)),
+        now: DateTime(2026, 9, 8, 5, 19),
+      );
+      expect(
+        (
+          r.summary.totalDone,
+          r.summary.expectedTotal,
+          r.summary.creditedTotal,
+        ),
+        (0, 0, 0.5),
+      );
+      expect((r.summary.hasRate, r.summary.rate), (false, 0.0));
+    });
+
+    test('a whole session off the plan counts, and stands in for Monday', () {
+      // The same week and clock, the Saturday session whole. It counts on its
+      // own day and stands in for Monday, still open and empty, so the week
+      // has asked for one session so far and holds one.
+      final r = report(
+        habits: [monThu()],
         history: {
           'monThu': {sep(5): SquareState.complete},
         },
@@ -643,9 +676,45 @@ void main() {
           r.summary.expectedTotal,
           r.summary.creditedTotal,
         ),
-        (1, 0, 1.0),
+        (1, 1, 1.0),
       );
-      expect((r.summary.hasRate, r.summary.rate), (false, 0.0));
+      expect(pct(r.summary.rate), '100%');
+    });
+
+    test('a closed week that took a session on another day reads 100%', () {
+      // Saturday the 5th instead of Monday the 7th, then Thursday the 10th,
+      // read at 11:00 on Saturday the 12th once the whole week has closed:
+      // two sessions for a week that asked for two. Without the Saturday one
+      // the same week reads 50%, Monday a real miss.
+      final window = reportWindow(ReportScope.week, DateTime(2026, 9, 11));
+      final now = DateTime(2026, 9, 12, 11);
+      final moved = report(
+        habits: [monThu()],
+        history: {
+          'monThu': {
+            sep(5): SquareState.complete,
+            sep(10): SquareState.complete,
+          },
+        },
+        window: window,
+        now: now,
+      );
+      final missed = report(
+        habits: [monThu()],
+        history: {
+          'monThu': {sep(10): SquareState.complete},
+        },
+        window: window,
+        now: now,
+      );
+      expect(
+        (moved.summary.expectedTotal, pct(moved.summary.rate)),
+        (2, '100%'),
+      );
+      expect(
+        (missed.summary.expectedTotal, pct(missed.summary.rate)),
+        (2, '50%'),
+      );
     });
   });
 
@@ -1029,10 +1098,16 @@ void main() {
       expect(headerRate(tester), '75%', reason: 'green squares read 50%');
     });
 
-    testWidgets('أسبوعي with credit and nothing owed yet prints the placeholder',
+    testWidgets('أسبوعي with a session off the plan reads it, not a dash',
         (tester) async {
-      // The pure case above, on screen: a Monday and Thursday habit done on
-      // Saturday the 5th, read at 05:19 on Tuesday the 8th.
+      // The second pure case above, on screen: a Monday and Thursday habit
+      // done on Saturday the 5th, read at 05:19 on Tuesday the 8th. This case
+      // used to print the placeholder, crediting a session the week then
+      // ignored. Since 2026-09-24 that session counts for its week and stands
+      // in for Monday (see moved_day_plan.dart), so the header has a rate.
+      // The placeholder itself is pinned on the header widget in
+      // reports_widgets_test.dart, and a green square can no longer reach
+      // it: every whole session now counts on its own day.
       await mountAt(
         tester,
         DateTime(2026, 9, 8, 5, 19),
@@ -1053,23 +1128,9 @@ void main() {
       final summary = header(tester).summary;
       expect(
         (summary.expectedTotal, summary.creditedTotal, summary.hasRate),
-        (0, 1.0, false),
+        (1, 1.0, true),
       );
-      expect(
-        find.descendant(
-          of: find.byType(ReportHeaderCard),
-          matching: find.text('–'),
-        ),
-        findsOneWidget,
-        reason: 'the best day is the 5th, so the only dash is the rate',
-      );
-      expect(
-        find.descendant(
-          of: find.byType(ReportHeaderCard),
-          matching: find.textContaining('%'),
-        ),
-        findsNothing,
-      );
+      expect(headerRate(tester), '100%');
     });
   });
 }

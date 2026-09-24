@@ -24,9 +24,18 @@ const {
   dailyDetails,
   taskDetails,
   habitDetails,
+  habitMadeAt,
   scalarDetails,
 } = require('../lib/activity');
-const { summarizeHabitDay, BASE_STYLES } = require('../lib/render');
+const {
+  summarizeHabitDay,
+  BASE_STYLES,
+  toJsDate,
+  cueLabel,
+  cueClause,
+  readableDescription,
+  renderHabitDetail,
+} = require('../lib/render');
 
 const QURAN = '64954035-f900-4891-90cd-62e861e3155b';
 const GYM = '93bfae4a-8c6c-4a53-8bd9-bf41f0efe1c7';
@@ -229,6 +238,86 @@ test('a habit carries the cadence it was set up with', () => {
   assert.ok(texts.some((x) => /3× a week/.test(x)), 'weekly target missing');
   assert.ok(texts.some((x) => /10 min timer/.test(x)), 'timer missing');
   assert.ok(texts.some((x) => /Pays 10 XP/.test(x)), 'reward missing');
+});
+
+test('a habit is created when its document was written, not at midnight', () => {
+  // createdAt is the day the habit was born, stored as a bare local
+  // midnight, so reading it as a moment put new habits hours before the
+  // account they were made in. createTime is when it was really made.
+  const written = new Date('2026-09-24T00:04:14Z'); // 03:04 in Bahrain
+  const doc = {
+    createTime: { toDate: () => written },
+    data: () => ({ name: 'Water', createdAt: '2026-09-24T00:00:00.000' }),
+  };
+  assert.strictEqual(toJsDate(habitMadeAt(doc)).getTime(), written.getTime());
+});
+
+test('a habit anchored at picked times reads as clock times, not the stored token', () => {
+  // The exact pair a live account stored on 2026-09-24.
+  const texts = textOf(habitDetails({
+    name: 'فرشي أسنانك', category: 'health', frequencyTarget: 2,
+    cueAfter: 'custom_time:06:15,19:00',
+    description: 'After custom_time:06:15,19:00, I will فرشي أسنانك.',
+  }));
+  assert.ok(texts.includes('After 06:15 and 19:00'), texts.join(' | '));
+  assert.ok(texts.includes('After 06:15 and 19:00, I will فرشي أسنانك.'), texts.join(' | '));
+  assert.ok(!texts.some((x) => x.includes('custom_time')), texts.join(' | '));
+});
+
+test('the account report reads the cue the same way the feed does', () => {
+  const html = renderHabitDetail({
+    name: 'شاور صباحي', category: 'health',
+    cueAfter: 'custom_time:06:00',
+    description: 'After custom_time:06:00, I will شاور صباحي.',
+  });
+  assert.ok(html.includes('After 06:00'), html);
+  assert.ok(!html.includes('custom_time'), html);
+});
+
+test('a preset cue reads as its name, and bedtime is never "After Before sleep"', () => {
+  assert.strictEqual(cueClause('fajr'), 'After Fajr');
+  assert.strictEqual(cueClause('Asr'), 'After Asr');
+  assert.strictEqual(cueClause('before_sleep'), 'Before sleep');
+  assert.strictEqual(cueClause('after_work_school'), 'After work/school');
+  assert.strictEqual(
+    readableDescription('After before_sleep, I will سورة الملك.', 'before_sleep', 'سورة الملك'),
+    'Before sleep, I will سورة الملك.');
+  assert.strictEqual(
+    readableDescription('After fajr, I will أذكار الصباح.', 'fajr', 'أذكار الصباح'),
+    'After Fajr, I will أذكار الصباح.');
+});
+
+test('a cue the person typed is their own words and stays as typed', () => {
+  assert.strictEqual(cueClause('قبل المغرب'), 'قبل المغرب');
+  assert.strictEqual(cueClause('النوم'), 'After النوم');
+  assert.strictEqual(
+    readableDescription('قبل الظهر, I will شرب الماء.', 'قبل الظهر', 'شرب الماء'),
+    'قبل الظهر, I will شرب الماء.');
+  // Not the sentence the app builds from this cue, so shown as stored.
+  assert.strictEqual(readableDescription('Read 3 ayat daily', 'fajr', 'Quran'), 'Read 3 ayat daily');
+  assert.strictEqual(cueClause(''), '');
+  assert.strictEqual(cueClause(null), '');
+});
+
+test('a reminder shift shows only where the app uses it: two or more times', () => {
+  assert.strictEqual(cueLabel('custom_time:05:00-10,12:30,21:00+15'),
+    '05:00 (reminder 10m before), 12:30 and 21:00 (reminder 15m after)');
+  // One time follows the habit's own reminderOffsetMinutes, not this.
+  assert.strictEqual(cueLabel('custom_time:08:00-15'), '08:00');
+  // A hand-edited run reads the way the app reads it: sorted, no repeats.
+  assert.strictEqual(cueLabel('custom_time:19:00,06:15,19:00'), '06:15 and 19:00');
+});
+
+test('a damaged custom_time says the app shows no cue, not a fake time', () => {
+  for (const bad of ['custom_time:99:99', 'custom_time:7:30', 'custom_time:06:00,xx']) {
+    assert.match(cueLabel(bad), /unreadable, so the app shows no cue/, bad);
+  }
+});
+
+test('a habit document with no createTime still gets its birth date', () => {
+  const doc = { data: () => ({ name: 'Water', createdAt: '2026-09-24T00:00:00.000' }) };
+  assert.strictEqual(habitMadeAt(doc), '2026-09-24T00:00:00.000');
+  assert.strictEqual(habitMadeAt(null), null);
 });
 
 test('scalar details skip nested blobs rather than printing [object Object]', () => {

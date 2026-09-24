@@ -24,6 +24,15 @@ import flutter_local_notifications
     FlutterLocalNotificationsPlugin.setPluginRegistrantCallback { registry in
       NSLog("[GrowDaily] background notification engine: registering plugins")
       GeneratedPluginRegistrant.register(with: registry)
+      // The alarm channel as well, which is not a plugin: a «تمت» that
+      // finishes a habit takes that day's alarms of it down along with its
+      // notifications (NotificationService.standDownHabitReminders), and
+      // without the channel AlarmService answers "unsupported" here. The
+      // plugin starts this engine once per process, so the key is claimed
+      // once.
+      if let registrar = registry.registrar(forPlugin: "GrowDailyAlarmKitBridge") {
+        AlarmKitBridge.register(with: registrar.messenger(), observingAlarms: false)
+      }
     }
     // Make this app delegate the notification centre's delegate, before
     // anything else can. FlutterAppDelegate forwards every
@@ -163,5 +172,52 @@ import flutter_local_notifications
       }
       result(nil)
     }
+
+    // Background time for queued reminder work: NotificationService asks
+    // for it the moment its lane has work and gives it back when the lane
+    // is empty (see _holdBackgroundTime in notification_service.dart).
+    let backgroundTimeChannel = FlutterMethodChannel(
+      name: "com.growdaily.v2/background_time",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    backgroundTimeChannel.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "begin":
+        self?.beginReminderBackgroundTime()
+        result(nil)
+      case "end":
+        self?.endReminderBackgroundTime()
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+  }
+
+  // MARK: - Reminder work needs a moment of background time too
+
+  /// Held while reminder schedules and cancels are still queued, so leaving
+  /// the app does not freeze them halfway. Measured on the simulator on
+  /// 2026-09-22: Home at 11:35:23.7, the process suspended by 11:35:24.9,
+  /// and the pass that would have cancelled a just-ticked habit's reminder
+  /// never ran, so the reminder rang for a habit already done (the same
+  /// thing that happened to «صلاة الضحى» on a real phone that morning).
+  /// One task at most; the expiration handler gives it back, so a lane
+  /// that outlasts what iOS grants is suspended rather than killed.
+  private var reminderBackgroundTask = UIBackgroundTaskIdentifier.invalid
+
+  private func beginReminderBackgroundTime() {
+    guard reminderBackgroundTask == .invalid else { return }
+    reminderBackgroundTask = UIApplication.shared.beginBackgroundTask(
+      withName: "GrowDaily.reminders"
+    ) { [weak self] in
+      self?.endReminderBackgroundTime()
+    }
+  }
+
+  private func endReminderBackgroundTime() {
+    guard reminderBackgroundTask != .invalid else { return }
+    UIApplication.shared.endBackgroundTask(reminderBackgroundTask)
+    reminderBackgroundTask = .invalid
   }
 }

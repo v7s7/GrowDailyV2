@@ -46,6 +46,23 @@
  *     by construction (every member finished), which is what makes a third
  *     slot affordable: the typical day is one push, a good day two, and a
  *     perfect day three.
+ *
+ *     A push counts against the day it is ABOUT, not the day it lands (see
+ *     roomPushPlan's quotaDay). A push held past quiet hours used to claim
+ *     the morning it was delivered on, so yesterday's news spent today's
+ *     slot and blocked today's real push (نور, 2026-09-24: capped from 07:02).
+ *
+ *  3. A push about a day that is over is never an ask (Aziz, 2026-09-24).
+ *     "You're the last one" and "first to finish" only mean something on
+ *     their own day. Sent the next morning they read as today and point at
+ *     the wrong day, and they went out even to someone who had finished
+ *     (نور, 24 Sep 07:02, about a day finished at 23:47). So they are sent
+ *     only while the reader is still on that day, and never held past it.
+ *     "Perfect day" too: a celebration of yesterday arriving the next
+ *     morning gives the reader nothing (Aziz, 2026-09-24: every
+ *     notification has to be useful and kind). Only "a habit was added"
+ *     still waits for the morning, because it is news that asks for
+ *     something: linking the habit.
  */
 
 /** The app's own default quiet window (NotificationSettings' defaults). */
@@ -182,16 +199,22 @@ function pushKindFor(event) {
  * Pure transition on the stored per-user quota map.
  *
  * The map is `roomPushQuota: {date, info, nudge, celebrate}` on the user
- * doc. A map from another day (or the old `{date, count}` shape) counts as
- * empty: the day rolled, so everyone starts at zero.
+ * doc. A map from an EARLIER day (or the old `{date, count}` shape) counts
+ * as empty: the day rolled, so everyone starts at zero. A map already
+ * counting a LATER day means this push is about a day the person has moved
+ * past: it is refused, since writing it would reset the later day's counts.
  * @param {object|undefined} quota The stored map, if any.
- * @param {string} dayKey The recipient's local day, "YYYY-MM-DD".
+ * @param {string} dayKey The day the push counts against, "YYYY-MM-DD"
+ *     (roomPushPlan's quotaDay).
  * @param {string} kind A KIND_CAPS key; anything else is read as "info".
  * @return {{allowed: boolean, next: object}} Whether this push may go, and
  *     the map to store if it does (unchanged when it may not).
  */
 function claimQuota(quota, dayKey, kind) {
   const q = quota || {};
+  if (typeof q.date === "string" && q.date > dayKey) {
+    return {allowed: false, next: q};
+  }
   const sameDay = q.date === dayKey;
   const counts = {date: dayKey};
   for (const k of Object.keys(KIND_CAPS)) {
@@ -204,14 +227,178 @@ function claimQuota(quota, dayKey, kind) {
   return {allowed: true, next: {...counts, [slot]: counts[slot] + 1}};
 }
 
+/**
+ * How long after quiet hours end a held push is delivered. Cloud Tasks has
+ * second-level jitter, and firing even a minute early would land back
+ * inside the window it was waiting out.
+ */
+const HOLD_BUFFER_MS = 2 * 60 * 1000;
+
+/**
+ * The moment a push held now for this person would be delivered.
+ * @param {object|undefined} settings Their mirrored notificationSettings.
+ * @param {number} tzOffsetMinutes Their device's UTC offset.
+ * @param {number} [nowMs] The moment; defaults to now.
+ * @return {number} Epoch milliseconds.
+ */
+function heldUntilMs(settings, tzOffsetMinutes, nowMs = Date.now()) {
+  return nowMs + msUntilQuietHoursEnd(settings, tzOffsetMinutes, nowMs) +
+    HOLD_BUFFER_MS;
+}
+
+/**
+ * A person's calendar day at [nowMs], from their mirrored UTC offset (UTC
+ * when they never reported one).
+ * @param {number|undefined} tzOffsetMinutes Their device's UTC offset.
+ * @param {number} [nowMs] The moment; defaults to now.
+ * @return {string} "YYYY-MM-DD".
+ */
+function localDayKey(tzOffsetMinutes, nowMs = Date.now()) {
+  const offset = typeof tzOffsetMinutes === "number" ? tzOffsetMinutes : 0;
+  return new Date(nowMs + offset * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** [key] moved by [n] days, "YYYY-MM-DD" in and out. */
+function shiftDay(key, n) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** The pushes that only mean something on the day they are about. */
+const SAME_DAY_ONLY = Object.freeze(["firstToday", "lastOne", "perfect"]);
+
+/**
+ * What to do with one room push for one reader, from the day it is about
+ * and the reader's own day. Rule 3 at the top of this file.
+ *
+ * `quotaDay` is the day the push counts against (rule 2): the day it is
+ * about, or the reader's own day when that is earlier (a reader whose clock
+ * is behind the finisher's, for whom the finisher's "today" is still their
+ * today).
+ * @param {object} p
+ * @param {string} p.event "firstToday" | "lastOne" | "perfect" |
+ *     "habitAdded".
+ * @param {string} p.dayKey The day the push is about, "YYYY-MM-DD".
+ * @param {string} p.readerToday The reader's own calendar day now.
+ * @param {boolean} [p.quiet] Whether the reader is inside quiet hours now.
+ * @param {string} [p.heldUntilDay] The reader's calendar day when a push
+ *     held now would be delivered (localDayKey of heldUntilMs). Read only
+ *     when [p.quiet].
+ * @return {{action: string, yesterday: boolean, quotaDay: string,
+ *     reason: (string|undefined)}} action is "send", "hold" or "drop";
+ *     yesterday is set when the reader's day has moved past [p.dayKey].
+ */
+function roomPushPlan({event, dayKey, readerToday, quiet = false,
+  heldUntilDay}) {
+  const yesterday = dayKey < readerToday;
+  const quotaDay = yesterday ? dayKey : readerToday;
+  const plan = (action, reason) => ({action, yesterday, quotaDay, reason});
+  const sameDayOnly = SAME_DAY_ONLY.includes(event);
+  if (yesterday && sameDayOnly) return plan("drop", "past-day");
+  // Nothing is held for more than a day, so a push about a day before
+  // yesterday is a delivery gone wrong, never news.
+  if (yesterday && shiftDay(readerToday, -1) !== dayKey) {
+    return plan("drop", "too-old");
+  }
+  if (quiet) {
+    if (sameDayOnly && (heldUntilDay || readerToday) > dayKey) {
+      return plan("drop", "quiet-past-its-day");
+    }
+    return plan("hold");
+  }
+  return plan("send");
+}
+
+/**
+ * A device token this much older than the account's freshest one belongs to
+ * an install the person no longer uses: a phone the app was deleted from, or
+ * one replaced by a newer install. The app rewrites its own token's
+ * updatedAt once a day while it is used (push_notification_service.dart),
+ * so a gap this wide is not a device in use.
+ */
+const STALE_TOKEN_GAP_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Splits one account's device tokens into the ones a push goes to and the
+ * stale ones to delete.
+ *
+ * Only ever relative to the account's own freshest token: a person using
+ * none of their devices lately keeps every token, since a room push may be
+ * what brings them back. نور had two, one not refreshed since 13 Sep, and
+ * every push reached her twice (2026-09-24).
+ * @param {Array<{updatedAtMs: (number|null|undefined)}>} tokens One entry
+ *     per token doc; any other fields are carried through untouched.
+ * @return {{live: Array, stale: Array}}
+ */
+function liveTokens(tokens) {
+  if (tokens.length <= 1) return {live: tokens.slice(), stale: []};
+  const ms = (t) => (typeof t.updatedAtMs === "number" ? t.updatedAtMs : 0);
+  const newest = Math.max(...tokens.map(ms));
+  const live = [];
+  const stale = [];
+  for (const t of tokens) {
+    (ms(t) < newest - STALE_TOKEN_GAP_MS ? stale : live).push(t);
+  }
+  return {live, stale};
+}
+
+/**
+ * How long after the admin sends a message to everyone a copy held for
+ * quiet hours may still go out. The admin tool sends to everyone at most
+ * once in this window (lib/broadcast.js), so a held copy can never land on
+ * the same day as the next message.
+ */
+const HELD_BROADCAST_MAX_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a message from the admin, held for one person's quiet hours, goes
+ * out now that they have ended (index.js deliverHeldBroadcast).
+ *
+ * Page item 6 (Aziz, 2026-09-24): someone asleep when it was sent used to
+ * never get it at all. Held to the end of their quiet hours, it is decided
+ * afresh when it lands, the way a held room push is: the person may have
+ * switched notifications off in between, and if they are still quiet (the
+ * window was moved after it was held) it is dropped rather than chased.
+ * @param {object} p
+ * @param {number|null} p.sentAtMs When the admin sent it.
+ * @param {object|undefined} p.settings Their mirrored notificationSettings.
+ * @param {number|undefined} p.tzOffsetMinutes Their device's UTC offset.
+ * @param {number} [p.nowMs] The moment; defaults to now.
+ * @return {{action: string, reason: (string|undefined)}} "send" or "drop".
+ */
+function heldBroadcastPlan({sentAtMs, settings, tzOffsetMinutes,
+  nowMs = Date.now()}) {
+  if (typeof sentAtMs !== "number" ||
+      nowMs - sentAtMs > HELD_BROADCAST_MAX_MS) {
+    return {action: "drop", reason: "too-late"};
+  }
+  if (settings && settings.masterEnabled === false) {
+    return {action: "drop", reason: "master-off"};
+  }
+  if (isQuietHoursNow(settings, tzOffsetMinutes, nowMs)) {
+    return {action: "drop", reason: "still-quiet"};
+  }
+  return {action: "send"};
+}
+
 module.exports = {
   DEFAULT_QUIET_SETTINGS,
+  HELD_BROADCAST_MAX_MS,
+  HOLD_BUFFER_MS,
   KIND_CAPS,
   PUSH_KIND,
+  SAME_DAY_ONLY,
+  STALE_TOKEN_GAP_MS,
   claimQuota,
+  heldBroadcastPlan,
+  heldUntilMs,
   isQuietAtLocalMinute,
   isQuietHoursNow,
+  liveTokens,
+  localDayKey,
   localMinutes,
   msUntilQuietHoursEnd,
   pushKindFor,
+  roomPushPlan,
+  shiftDay,
 };

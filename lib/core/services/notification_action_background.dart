@@ -26,8 +26,9 @@
 //     next morning credits the right evening.
 //  2. Makes the tap visible immediately where it can be: the widget's cached
 //     today-list flips to done and the widgets redraw, and a habit that is
-//     now done for the day has its remaining reminder slots stood down so it
-//     is not nagged about again before the app opens.
+//     now done for the day has that day's remaining reminders stood down,
+//     found in the record the last reminder pass left (ArmedReminderRecord),
+//     so it is not nagged about again before the app opens.
 //  3. Snooze is the exception that must act now, because "in an hour" cannot
 //     wait for an app open; it reschedules through the same
 //     NotificationService call the foreground path used.
@@ -127,7 +128,22 @@ Future<void> handleBackgroundNotificationAction({
       final rewritten = NotificationActionRules.markOneDone(todayList, habitId);
       if (rewritten != null) await widgets.writeTodayHabitsJson(rewritten);
       if (finishes) {
-        await NotificationService.instance.standDownHabitReminders(habitId);
+        // The habit's own reminders for the day of the tap, by the ids the
+        // last reminder pass wrote down for that day (ArmedReminderRecord),
+        // since this engine cannot resolve a fire time to tell today's copy
+        // from tomorrow's. A bundle it shares goes only once every habit in
+        // it is known done today, which the widget list can say only when
+        // it is today's list.
+        await NotificationService.instance.standDownHabitReminders(
+          habitId,
+          armedReminders: await widgets.readArmedHabitReminders(),
+          day: day,
+          doneOnDay: NotificationActionRules.doneOn(
+            rewritten ?? todayList,
+            listDay: await widgets.readTodayHabitsDay(),
+            day: day,
+          ),
+        );
         // Tonight's evening note counts today's finished habits and asks
         // for the rest («٢ من ٥ خلّصت 👏🏼 سوي عادتين بس، وتصير ٨ أيام.»), so
         // a habit finished here makes both numbers false and may earn the
@@ -136,7 +152,13 @@ Future<void> handleBackgroundNotificationAction({
         // So the note is cleared, and the next app open arms it again with
         // true counts if anything is still owed. A tap that does not finish
         // the habit leaves the note true, because it counts whole habits.
-        await NotificationService.instance.standDownEveningNote();
+        //
+        // Not for a quit habit's «التزام»: the note stopped counting quit
+        // habits on 2026-09-24, so that tap leaves it true, and clearing it
+        // would only lose tonight's note until the app is next opened.
+        if (actionId == NotificationService.actionMarkDone) {
+          await NotificationService.instance.standDownEveningNote();
+        }
         // The week's numbered note («٥ أيام خضرا في أسبوعك 👏🏼») counts the
         // week's green days and names the habit with the most. On the
         // Friday it is armed, a habit finished here can add a green day or
@@ -156,12 +178,16 @@ Future<void> handleBackgroundNotificationAction({
         //
         // The home screen widget's Done never reaches this engine, so it does
         // the same in Swift, pending requests only: MarkHabitDoneIntent, by
-        // this same whole-habit rule, removes the pending 1010 and, on a
-        // Friday, 9001; MarkTaskDoneIntent removes 1010 when it
-        // ticks an open Do First task, which the note's urgent tasks sentence
-        // counts. See standDownNotesWithStaleCounts in GrowDailyWidget.swift.
-        // Apple documents the notification center for app extensions, but
-        // that removal has not been seen working on a device.
+        // this same whole-habit rule, removes the habit's own reminders for
+        // the day from the same record (HabitReminderStandDown.swift), the
+        // pending 1010 and, on a Friday, 9001; MarkTaskDoneIntent removes
+        // 1010 when it ticks an open Do First task, which the note's urgent
+        // tasks sentence counts. See standDownNotesWithStaleCounts in
+        // GrowDailyWidget.swift. That the widget extension's own removal
+        // reaches the APP's requests was watched on the simulator on
+        // 2026-09-22: the extension read 42 pending requests of the app's,
+        // took down the one the ticked habit had left for that day, and the
+        // reminder did not ring. Not yet watched on a device.
         //
         // One path does NOT clear these notes yet: a task finished from its
         // ringing alarm's Done button, which runs in the app's own process
@@ -192,6 +218,15 @@ Future<void> handleBackgroundNotificationAction({
         day: day,
       ));
       debugPrint('[NotificationAction] queued $actionId for $habitId on $day');
+      // «ما التزمت» answers the day as surely as «التزام» does, so the
+      // habit's other check-ins for the day stand down the same way instead
+      // of asking again (Aziz, 2026-09-24). A quit habit is never bundled
+      // and is not in the evening note, so nothing else changes.
+      await NotificationService.instance.standDownHabitReminders(
+        habitId,
+        armedReminders: await widgets.readArmedHabitReminders(),
+        day: day,
+      );
       return;
 
     default:

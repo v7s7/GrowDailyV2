@@ -8,7 +8,7 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/notifiers/custom_habits_notifier.dart'
-    show habitListProvider;
+    show allHabitsEverProvider, habitListProvider;
 import '../../habits/models/habit_day_demand.dart';
 import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
@@ -125,6 +125,19 @@ class WeeklyGridState {
           ? (habitId, d) => squareFor(habitId, d).isGreen
           : null;
 
+  /// [currentWeekGreen]'s twin for the whole mark, which the moved-session
+  /// rule needs: a session on a day off a specific-days plan covers only a
+  /// planned day with nothing on it, never one marked فشل, تخطّي or جزئي
+  /// (see moved_day_plan.dart). Null exactly when [currentWeekGreen] is.
+  MarkOnDay? get currentWeekMark =>
+      isCurrentWeek ? markForWeekOf(DateTime.now().effectiveDay) : null;
+
+  /// [greenForWeekOf]'s twin; see [currentWeekMark].
+  MarkOnDay? markForWeekOf(DateTime day) =>
+      !isLoading && weekStart.isSameDayAs(startOfGridWeek(day))
+          ? squareFor
+          : null;
+
   /// The flat-rate XP banked on this square, or zero if none ever was.
   int flatPaidFor(String habitId, DateTime day) =>
       flatPaid[day.toDateKey()]?[habitId] ?? 0;
@@ -184,14 +197,21 @@ class WeeklyGridState {
   /// visible week actually contains today, for the same reason
   /// [todayCompletionRatio] guards that way: a backfilled square on some
   /// other week is history, not a claim about today.
-  Set<String> halfDoneTodayIds() {
+  Set<String> halfDoneTodayIds() => _todayIdsMarked(SquareState.partial);
+
+  /// Today's habits sitting on a تخطّي square, which leave the day's streak
+  /// count entirely (see [streakCreditOf]). Read exactly as
+  /// [halfDoneTodayIds] is.
+  Set<String> skippedTodayIds() => _todayIdsMarked(SquareState.skipped);
+
+  Set<String> _todayIdsMarked(SquareState mark) {
     final today = DateTime.now().effectiveDay;
     if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return const {};
     final row = states[today.toDateKey()];
     if (row == null) return const {};
     return {
       for (final entry in row.entries)
-        if (entry.value == SquareState.partial) entry.key,
+        if (entry.value == mark) entry.key,
     };
   }
 
@@ -589,6 +609,19 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
         _ref
             .read(dashboardProvider.notifier)
             .restoreUndoneCompletion(habitId: habitId, day: day)
+            .ignore();
+        // A day recorded late can also undo a streak-gap judgement that
+        // charged for it: the freezes it spent go back, and a streak it broke
+        // comes back once the window owes nothing. Nothing is paid here, see
+        // DashboardNotifier.refreshStreakGapCharge; this only stops a day the
+        // person really did from being counted as missed.
+        _ref
+            .read(dashboardProvider.notifier)
+            .repairStreakGapForDay(
+              day: day,
+              habits: _ref.read(allHabitsEverProvider),
+              squaresOn: storedSquaresFor,
+            )
             .ignore();
       }
       return;
@@ -1018,8 +1051,13 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   ///
   /// Callers decide *which* habits qualify — see
   /// [isQuitAutoCleanEligible] for the shared rule.
-  Future<void> autoCleanQuitDay(List<String> habitIds, DateTime day) async {
-    if (habitIds.isEmpty) return;
+  ///
+  /// Returns whether it marked anything. Only then has a stored square
+  /// changed, so only then does main.dart re-grade the rooms: it re-graded
+  /// every room on every launch that had an eligible habit, about 150 reads
+  /// for a member of three rooms, almost always to find nothing new.
+  Future<bool> autoCleanQuitDay(List<String> habitIds, DateTime day) async {
+    if (habitIds.isEmpty) return false;
     Map<String, dynamic> data;
     try {
       if (_uid != null) {
@@ -1031,10 +1069,11 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     } catch (_) {
       // Offline with no cached doc — skip rather than risk overwriting a
       // slip logged on another device that just hasn't synced here yet.
-      return;
+      return false;
     }
-    if (!mounted) return;
+    if (!mounted) return false;
     final raw = (data['squareStates'] as Map?) ?? const {};
+    var marked = false;
     // Awaited, one after another. These all write the SAME stored day, and
     // walking away from them meant this method could return while several
     // writes were still in flight, which is how three auto cleaned quit
@@ -1044,7 +1083,9 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       if (existing != SquareState.none) continue;
       await setSquareStateOnlyAsync(id, day, SquareState.complete,
           source: kSquareSourceQuitAutoClean);
+      marked = true;
     }
+    return marked;
   }
 
   /// Reloads the visible week — and, unless the user deliberately parked
@@ -1118,6 +1159,31 @@ final weeklyGridProvider =
   return WeeklyGridNotifier(uid, ref);
 });
 
+/// The roster a Grid mark on [day] judges TODAY's streak point against, in
+/// the shape [willCompleteAllHabitsToday] takes: the day's own board (see
+/// boardHabitsOn), the list the summary card counts «من N عادات اليوم» from,
+/// with [markingId], the habit being marked, kept on it whatever its week
+/// says.
+///
+/// The Grid used every habit allowed on that weekday (isScheduledFor), so a
+/// weekly quota's rest day sat in its denominator while the card, Today's
+/// Mark Done, Tasbih, steps and every grace-day mark
+/// ([willCompleteAllSquaresOn]) left it out. With تمرين resting, a day the
+/// card showed as 7 of 8 (88%) was judged 7 of 9 (78%) and earned no point.
+Iterable<({String id, int frequencyTarget})> gridStreakRoster({
+  required Iterable<IslamicHabitTemplate> habits,
+  required WeeklyGridState grid,
+  required String markingId,
+  required DateTime day,
+}) =>
+    boardHabitsOn(
+      habits: habits,
+      day: day,
+      isGreen: grid.greenForWeekOf(day),
+      markOn: grid.markForWeekOf(day),
+      alsoOwing: {markingId},
+    ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+
 /// "Will this day's whole list be done once this tap lands?", answered from
 /// the day's own SQUARES instead of from `DashboardState.completions`.
 ///
@@ -1140,39 +1206,8 @@ bool willCompleteAllSquaresOn(
   WidgetRef ref,
   IslamicHabitTemplate habit,
   DateTime day,
-) {
-  final grid = ref.read(weeklyGridProvider);
-  // The day's answerable roster, not everything allowed on it: a flexible
-  // quota's rest day leaves the denominator (see boardHabitsOn), and the habit
-  // being marked right now stays in it whatever its week says.
-  final dayHabits = boardHabitsOn(
-    habits: ref.read(habitListProvider),
-    day: day,
-    isGreen: grid.greenForWeekOf(day),
-    alsoOwing: {habit.id},
-  );
-  var total = 0;
-  var credited = 0.0;
-  var sawTarget = false;
-  for (final h in dayHabits) {
-    total++;
-    if (h.id == habit.id) {
-      sawTarget = true;
-      credited += 1;
-      continue;
-    }
-    final square = grid.squareFor(h.id, day);
-    if (square.isGreen) {
-      credited += 1;
-    } else if (square == SquareState.partial) {
-      credited += 0.5;
-    }
-  }
-  // Same guard as willCompleteAllHabitsToday: a day with nothing scheduled is
-  // a day off, not a completed one.
-  if (total == 0 || !sawTarget) return false;
-  return credited / total >= kStreakDayCompletionThreshold;
-}
+) =>
+    _squaresCrossOnMark(ref, habit, day, SquareState.complete);
 
 /// The جزئي twin of [willCompleteAllSquaresOn]: "does marking [habit] جزئي
 /// (rather than complete) cross [kStreakDayCompletionThreshold]?" — the
@@ -1195,30 +1230,83 @@ bool willCrossStreakThresholdOnPartial(
   WidgetRef ref,
   IslamicHabitTemplate habit,
   DateTime day,
+) =>
+    _squaresCrossOnMark(ref, habit, day, SquareState.partial);
+
+/// The تخطّي twin of [willCompleteAllSquaresOn]: "does marking [habit] تخطّي
+/// finish the day?" It can: the skipped habit leaves the day's count, so
+/// three habits done of four, with the fourth then skipped, is three of
+/// three. Aziz, 2026-09-22, choosing "skip a habit: fine; skip the whole
+/// day: no": a day whose every habit is skipped counts nothing, earns
+/// nothing, and is judged a miss (a freeze can cover it) like any other day
+/// that earned no point.
+bool willCrossStreakThresholdOnSkip(
+  WidgetRef ref,
+  IslamicHabitTemplate habit,
+  DateTime day,
+) =>
+    _squaresCrossOnMark(ref, habit, day, SquareState.skipped);
+
+/// [squaresCrossStreakThreshold] over the day's own board and the Grid's
+/// loaded squares: the day's answerable roster, not everything allowed on it
+/// (a flexible quota's rest day leaves the denominator, see boardHabitsOn),
+/// with the habit being marked right now kept in it whatever its week says.
+bool _squaresCrossOnMark(
+  WidgetRef ref,
+  IslamicHabitTemplate habit,
+  DateTime day,
+  SquareState mark,
 ) {
   final grid = ref.read(weeklyGridProvider);
-  final dayHabits = boardHabitsOn(
-    habits: ref.read(habitListProvider),
-    day: day,
-    isGreen: grid.greenForWeekOf(day),
-    alsoOwing: {habit.id},
+  return squaresCrossStreakThreshold(
+    dayHabits: boardHabitsOn(
+      habits: ref.read(habitListProvider),
+      day: day,
+      isGreen: grid.greenForWeekOf(day),
+      markOn: grid.markForWeekOf(day),
+      alsoOwing: {habit.id},
+    ).map((h) => h.id),
+    squareOf: (id) => grid.squareFor(id, day),
+    habitId: habit.id,
+    mark: mark,
   );
+}
+
+/// What one square is worth toward its day's streak point: a green square
+/// 1, a جزئي half, anything else nothing, and a تخطّي NULL, meaning it
+/// leaves the day's count entirely. Aziz, 2026-09-22: skipping a habit is
+/// rest («لا تُحسب عليك»), so the other habits need their 80% without it.
+double? streakCreditOf(SquareState square) => switch (square) {
+      SquareState.complete || SquareState.bonus => 1,
+      SquareState.partial => 0.5,
+      SquareState.skipped => null,
+      _ => 0,
+    };
+
+/// Whether [habitId]'s square turning [mark] takes its day to
+/// [kStreakDayCompletionThreshold], judged on the day's squares
+/// ([squareOf]) over [dayHabits], every square worth [streakCreditOf].
+///
+/// The one rule behind a مكتمل pick ([willCompleteAllSquaresOn]), a جزئي
+/// pick ([willCrossStreakThresholdOnPartial]) and a تخطّي pick
+/// ([willCrossStreakThresholdOnSkip]). A day with nothing left to count, a
+/// day off or a day skipped whole, is never a completed day.
+bool squaresCrossStreakThreshold({
+  required Iterable<String> dayHabits,
+  required SquareState Function(String habitId) squareOf,
+  required String habitId,
+  required SquareState mark,
+}) {
   var total = 0;
   var credited = 0.0;
   var sawTarget = false;
-  for (final h in dayHabits) {
+  for (final id in dayHabits) {
+    final isTarget = id == habitId;
+    if (isTarget) sawTarget = true;
+    final credit = streakCreditOf(isTarget ? mark : squareOf(id));
+    if (credit == null) continue;
     total++;
-    if (h.id == habit.id) {
-      sawTarget = true;
-      credited += 0.5;
-      continue;
-    }
-    final square = grid.squareFor(h.id, day);
-    if (square.isGreen) {
-      credited += 1;
-    } else if (square == SquareState.partial) {
-      credited += 0.5;
-    }
+    credited += credit;
   }
   if (total == 0 || !sawTarget) return false;
   return credited / total >= kStreakDayCompletionThreshold;

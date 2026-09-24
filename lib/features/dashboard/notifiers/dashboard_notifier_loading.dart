@@ -89,6 +89,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
       // indefinitely as long as *something* got tapped occasionally,
       // regardless of whether any day since actually qualified.
       final lastActive = DateTime.tryParse(saved['lastActiveDate'] as String? ?? '');
+      final lastStreakDay =
+          lastActive == null ? null : DashboardNotifier._dateOnly(lastActive);
 
       if (lastActive != null) {
         final today = DateTime.now().effectiveDay;
@@ -129,6 +131,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
             List<String>.from(saved['unlockedAchievements'] as List? ?? []),
         didUseStreakFreeze: didUseStreakFreeze,
         pendingStreakGapFrom: pendingStreakGapFrom,
+        streakGapCharge: StreakGapCharge.fromJson(saved['streakGap']),
+        lastStreakDay: lastStreakDay,
         previousStreak: previousStreak,
         isLoading: false,
         intentionsSetToday: intentionsSetToday,
@@ -154,6 +158,9 @@ extension DashboardNotifierLoading on DashboardNotifier {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
       return;
     }
+    // Yesterday's counts while it is still open, for its square. The state
+    // above is new and does not carry them over.
+    await readGraceDay(dayPlus(_clock().effectiveDay, -1));
     // Outside the try on purpose — a failure in here must not be caught by
     // the handler above and mistaken for "the load failed", which would
     // wipe the state that just loaded correctly.
@@ -200,6 +207,10 @@ extension DashboardNotifierLoading on DashboardNotifier {
           for (final entry in state.undoneCompletions.entries)
             entry.key: entry.value.toJson(),
         },
+        // Null once the charge is spent or repaired, and written either way:
+        // this map is put back WHOLE, so leaving the key out would keep a
+        // repaired charge alive for another refund.
+        'streakGap': state.streakGapCharge?.toJson(),
         if (lastActiveDate != null)
           'lastActiveDate': lastActiveDate.toIso8601String(),
       },
@@ -433,6 +444,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
           previousStreak = 0;
       bool didUseStreakFreeze = false;
       DateTime? pendingStreakGapFrom;
+      StreakGapCharge? streakGapCharge;
+      DateTime? lastStreakDay;
       List<String> unlockedAchievements = [];
       Map<String, int> completions = {};
       Set<String> dayCounted = {};
@@ -472,6 +485,9 @@ extension DashboardNotifierLoading on DashboardNotifier {
         // doc comment for why this can no longer be a fresh-every-load
         // local.
         previousStreak = (d['previousStreak'] as int?) ?? 0;
+        // What the last gap judgement charged, for the repair a day recorded
+        // late can still make — see StreakGapCharge.
+        streakGapCharge = StreakGapCharge.fromJson(d['streakGap']);
         final lastFreezeGrantWeek = d['lastFreezeGrantWeek'] as String?;
         unlockedAchievements =
             List<String>.from(d['unlockedAchievements'] as List? ?? []);
@@ -602,6 +618,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
             : (lastActiveTs == null
                 ? null
                 : DashboardNotifier._dateOnly(lastActiveTs.toDate()));
+        lastStreakDay = lastDay;
         if (lastDay != null) {
           final today = DateTime.now().effectiveDay;
           final gapDays = today.difference(lastDay).inDays;
@@ -663,6 +680,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
           newlyUnlocked: const [],
           didUseStreakFreeze: didUseStreakFreeze,
           pendingStreakGapFrom: pendingStreakGapFrom,
+          streakGapCharge: streakGapCharge,
+          lastStreakDay: lastStreakDay,
           isLoading: false,
           previousStreak: previousStreak,
           intentionsSetToday: intentionsSetToday,
@@ -705,6 +724,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
       if (mounted) state = state.copyWith(isLoading: false, loadFailed: true);
       return;
     }
+    // Yesterday's counts while it is still open, as _loadGuestToday reads them.
+    await readGraceDay(dayPlus(_clock().effectiveDay, -1));
     // Outside the try for the same reason as _loadGuestToday's — see there.
     // Unreachable after the catch, which returns: a failed load has nothing
     // trustworthy to reconcile against, and _reconcileAchievements' own
@@ -728,7 +749,8 @@ extension DashboardNotifierLoading on DashboardNotifier {
   ///  * the Quran-category fix in IslamicHabitCatalog.fromJson (see its own
   ///    comment) restored `categoryCompletions['quran']` for habits whose
   ///    category had been collapsed to 'faith' — the count came back, but
-  ///    the quran_25/100/... tiers it had already passed did not;
+  ///    the quran_25/100/... tiers it had already passed did not (those
+  ///    tiers were removed on 2026-09-22);
   ///  * a Firestore restore, a field edited by hand, or signing in on a
   ///    device that had been progressing offline;
   ///  * any threshold added to the catalog *below* where an existing user

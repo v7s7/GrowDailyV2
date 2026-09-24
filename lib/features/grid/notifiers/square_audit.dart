@@ -19,6 +19,11 @@ const String kSquareSourceQuitAutoClean = 'quit-autoclean';
 const String kSquareSourceTapUndo = 'tap-undo';
 const String kSquareSourceTasbih = 'tasbih';
 
+/// The habit row's «سويتها يوم ثاني» sheet, removed 2026-09-24 the day after
+/// it shipped: a tap on the square does the same. Nothing writes this any
+/// more; it stays so the trail rows recorded through the sheet still read.
+const String kSquareSourceLatePick = 'late-pick';
+
 /// The default. Deliberately not one of the real sources: a trail row that
 /// names the WRONG writer is worse than one that admits it does not know, so
 /// an untagged call site says so instead of borrowing a plausible label.

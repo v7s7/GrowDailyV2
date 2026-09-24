@@ -15,6 +15,8 @@ import '../../../shared/widgets/segmented_tabs.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
+import '../../habits/models/habit_day_demand.dart'
+    show DayDemand, movedDemandOn;
 import '../../habits/models/habit_model.dart' show GoalType;
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../habits/notifiers/custom_habits_notifier.dart';
@@ -26,6 +28,7 @@ import '../../grid/screens/monthly_heatmap_screen.dart'
     show
         HeatmapInputs,
         HeatmapMonthSection,
+        heatmapScheduledOn,
         showHeatmapDayDetail,
         watchHeatmapInputs;
 import '../models/milestone_event.dart';
@@ -321,7 +324,16 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       for (final stat in splitArchived(stats).active)
         if (!stat.marks.containsKey(key) &&
             missIsAttributableOn(stat.habit, day) &&
-            stat.habit.isScheduledFor(day))
+            stat.habit.isScheduledFor(day) &&
+            // Not a planned day a session elsewhere in its week stood in for
+            // (see moved_day_plan.dart): nothing was still required of it.
+            movedDemandOn(
+                  habit: stat.habit,
+                  day: day,
+                  isGreen: (_, d) => stat.markOn(d).isGreen,
+                  markOn: (_, d) => stat.markOn(d),
+                ) !=
+                DayDemand.earned)
           stat,
     ];
     showModalBottomSheet<void>(
@@ -500,14 +512,13 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // also keeps the label answering "which month am I reading" at every
     // scroll position, which is the question a long grid keeps raising.
     // What the month, year and «الكل» views draw with, read the map's way
-    // (see watchHeatmapInputs). Not read on the week, which draws none of
-    // them; the note index only where note corners are drawn.
-    final inputs = _all || _scope != ReportScope.week
-        ? watchHeatmapInputs(
-            ref,
-            withNotes: !_all && _scope == ReportScope.month,
-          )
-        : null;
+    // (see watchHeatmapInputs). The week reads it too, for how full each
+    // of its days was, which is what «أفضل يوم» is judged on (see
+    // dayExtremes); the note index only where note corners are drawn.
+    final inputs = watchHeatmapInputs(
+      ref,
+      withNotes: !_all && _scope == ReportScope.month,
+    );
     final lifetime = _all ? ref.watch(recordLifetimeProvider) : null;
     // Where the record begins (see recordStartOf): «منذ» names it, «الكل»
     // counts from it, and a year's small months open from it.
@@ -627,7 +638,7 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
                           : _all
                               ? _allBody(
                                   lifetime: lifetime,
-                                  inputs: inputs!,
+                                  inputs: inputs,
                                   today: today,
                                   isPremium: isPremium,
                                   locale: locale,
@@ -792,8 +803,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     required DateTime? recordStart,
 
     /// The map's inputs, for the month's calendar and the year's twelve
-    /// months drawn above those tabs. Null on the week, which draws neither.
-    required HeatmapInputs? inputs,
+    /// months drawn above those tabs, and for how full each day was.
+    required HeatmapInputs inputs,
     required S s,
   }) {
     // Two views of the same period, and the split is the whole point.
@@ -849,11 +860,34 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
       floor: lockedBefore,
       now: now,
     );
-    final summary = computePeriodSummary(
+    final counted = computePeriodSummary(
       dayCounts: dayCounts,
       days: visibleDays,
       habitStats: visibleStats,
       now: now,
+    );
+    // The best and weakest days, judged on how full each day was: the two
+    // numbers the month calendar draws each cell from, so its star and
+    // «أفضل يوم» below it always name the same day (see dayExtremes). The
+    // header shows the first of a tie; the month calendar marks them all.
+    final extremes = dayExtremes(
+      days: visibleDays,
+      doneOn: (day) => inputs.counts[day.toDateKey()] ?? 0,
+      owedOn: (day) => heatmapScheduledOn(
+        inputs.habits,
+        day,
+        inputs.isGreen,
+        markOn: inputs.markOn,
+      ),
+      settledOn: (day) => day.isSettledAt(
+        now,
+        answered: inputs.failedOpenDays.contains(day.toDateKey()),
+      ),
+    );
+    final bestDay = extremes.best.isEmpty ? null : extremes.best.first;
+    final summary = counted.withBestDay(
+      bestDay,
+      bestDay == null ? 0 : inputs.counts[bestDay.toDateKey()] ?? 0,
     );
 
     if (!summary.hasAnything && stats.every((st) => st.doneCount == 0)) {
@@ -891,8 +925,7 @@ void tapDay(DateTime day) => _showDay(
           stats: stats,
           history: history,
           summary: summary,
-          dayCounts: dayCounts,
-          days: visibleDays,
+          extremes: extremes,
           delta: delta,
           dash: dash,
           today: today,
@@ -900,15 +933,13 @@ void tapDay(DateTime day) => _showDay(
           locale: locale,
           lockedBefore: lockedBefore,
           onTapDay: tapDay,
-          inputs: inputs!,
+          inputs: inputs,
           s: s,
         ),
       ReportScope.year => _yearBody(
           stats: stats,
           history: history,
           summary: summary,
-          dayCounts: dayCounts,
-          days: visibleDays,
           delta: delta,
           dash: dash,
           today: today,
@@ -917,7 +948,7 @@ void tapDay(DateTime day) => _showDay(
           isRtl: isRtl,
           lockedBefore: lockedBefore,
           recordStart: recordStart,
-          inputs: inputs!,
+          inputs: inputs,
           s: s,
         ),
     };
@@ -1002,6 +1033,7 @@ void tapDay(DateTime day) => _showDay(
         day: d,
         habits: inputs.habits,
         isGreen: inputs.isGreen,
+        markOn: inputs.markOn,
         dark: dark,
       );
     }
@@ -1088,13 +1120,11 @@ void tapDay(DateTime day) => _showDay(
     /// sessions done before it began (see [cellStatesByWeek]).
     required Map<String, Map<String, SquareState>> history,
     required PeriodSummary summary,
-    required int? delta,
-    required Map<String, int> dayCounts,
 
-    /// The days the viewer may actually SEE, already floored. Handed down
-    /// rather than recomputed from the period so the weekday rhythm card
-    /// cannot describe days the grids below it are muting.
-    required List<DateTime> days,
+    /// The month's best and weakest days (see dayExtremes), over the days
+    /// the viewer may actually see, so no mark lands on a walled day.
+    required ({List<DateTime> best, List<DateTime> weakest}) extremes,
+    required int? delta,
     required DashboardState dash,
     required DateTime today,
     required DateTime now,
@@ -1133,6 +1163,7 @@ void tapDay(DateTime day) => _showDay(
           counts: inputs.counts,
           habits: inputs.habits,
           isGreen: inputs.isGreen,
+          markOn: inputs.markOn,
           today: today,
           now: now,
           failedOpenDays: inputs.failedOpenDays,
@@ -1141,6 +1172,26 @@ void tapDay(DateTime day) => _showDay(
               const <int>{},
           onTapDay: (day, _) => showHeatmapDayDetail(context, day),
           showHeader: false,
+          // In dates, not weekdays: Aziz, 2026-09-22, «in month we need to
+          // choose a day of month like 23th, not a Monday». The star and
+          // the ring replace the weekday card that used to sit below.
+          bestDays: {for (final d in extremes.best) d.day},
+          weakestDays: {for (final d in extremes.weakest) d.day},
+          footer: extremes.best.isEmpty && extremes.weakest.isEmpty
+              ? null
+              : _MonthExtremes(
+                  best: extremes.best,
+                  weakest: extremes.weakest,
+                  doneOn: (day) => inputs.counts[day.toDateKey()] ?? 0,
+                  owedOn: (day) => heatmapScheduledOn(
+                    inputs.habits,
+                    day,
+                    inputs.isGreen,
+                    markOn: inputs.markOn,
+                  ),
+                  locale: locale,
+                  onTap: (day) => showHeatmapDayDetail(context, day),
+                ),
         ),
         const SizedBox(height: 14),
         ReportHeaderCard(
@@ -1150,12 +1201,6 @@ void tapDay(DateTime day) => _showDay(
           chips: milestoneChips(context, story),
         ),
         const SizedBox(height: 10),
-        ..._rhythm(
-          dayCounts: dayCounts,
-          days: days,
-          now: now,
-          locale: locale,
-        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         _monthCards(
@@ -1235,11 +1280,6 @@ void tapDay(DateTime day) => _showDay(
     required Map<String, Map<String, SquareState>> history,
     required PeriodSummary summary,
     required int? delta,
-    required Map<String, int> dayCounts,
-
-    /// See [_monthBody]'s identical parameter: the floored days, so the
-    /// rhythm card never speaks for a walled part of the year.
-    required List<DateTime> days,
     required DashboardState dash,
     required DateTime today,
     required DateTime now,
@@ -1268,6 +1308,7 @@ void tapDay(DateTime day) => _showDay(
           counts: inputs.counts,
           habits: inputs.habits,
           isGreen: inputs.isGreen,
+          markOn: inputs.markOn,
           today: today,
           firstMark: recordStart,
           lockedBefore: lockedBefore,
@@ -1281,12 +1322,6 @@ void tapDay(DateTime day) => _showDay(
         const SizedBox(height: 14),
         ReportHeaderCard(summary: summary, locale: locale, delta: delta),
         const SizedBox(height: 10),
-        ..._rhythm(
-          dayCounts: dayCounts,
-          days: days,
-          now: now,
-          locale: locale,
-        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         for (final st in active) ...[
@@ -1327,49 +1362,106 @@ void tapDay(DateTime day) => _showDay(
       ],
     );
   }
+}
 
-  /// The rhythm card, or nothing at all.
-  ///
-  /// Returns an empty list unless the period actually has a strongest and a
-  /// weakest weekday worth naming. A year's weekday averages are almost
-  /// always even, so on the سنوي tab this block used to fill most of a
-  /// screen in order to report that there was no pattern. Silence is the
-  /// better answer: the card showing up now means there is something in it.
-  List<Widget> _rhythm({
-    required Map<String, int> dayCounts,
+/// The two lines under the «شهر» calendar naming the days its star and ring
+/// mark (see dayExtremes), each with how full that day was, «8 من 8». A tap
+/// opens the day, as tapping its square does; a tie opens the first of it.
+class _MonthExtremes extends StatelessWidget {
+  final List<DateTime> best;
+  final List<DateTime> weakest;
+  final int Function(DateTime day) doneOn;
+  final int Function(DateTime day) owedOn;
+  final String locale;
+  final void Function(DateTime day) onTap;
+
+  const _MonthExtremes({
+    required this.best,
+    required this.weakest,
+    required this.doneOn,
+    required this.owedOn,
+    required this.locale,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (best.isNotEmpty)
+          _line(
+            context,
+            days: best,
+            label: s.heatmapBestDay,
+            mark: Icon(Icons.star_rounded, size: 15, color: gp.goldInk),
+          ),
+        if (weakest.isNotEmpty)
+          _line(
+            context,
+            days: weakest,
+            label: s.heatmapWeakestDay,
+            mark: Container(
+              width: 11,
+              height: 11,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: gp.textSec, width: 1.8),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _line(
+    BuildContext context, {
     required List<DateTime> days,
-    required DateTime now,
-    required String locale,
+    required String label,
+    required Widget mark,
   }) {
-    final periodLabel = _periodLabel(locale);
-    // Closed days only. An open day is a sample holding a few hours of work,
-    // and averaged in it pulls its whole weekday down. One list feeds both
-    // the sentence and the bars, so they describe the same days.
-    final settled = settledDaysAt(days: days, now: now);
-    final insight =
-        computeWeekdayInsight(dayCounts: dayCounts, days: settled);
-    if (insight == null || !insight.isMeaningful) return const [];
-    final totals = <int, int>{};
-    final counts = <int, int>{};
-    for (final day in settled) {
-      totals[day.weekday] =
-          (totals[day.weekday] ?? 0) + (dayCounts[day.toDateKey()] ?? 0);
-      counts[day.weekday] = (counts[day.weekday] ?? 0) + 1;
-    }
-    final averages = {
-      for (final entry in counts.entries)
-        entry.key:
-            entry.value == 0 ? 0.0 : (totals[entry.key] ?? 0) / entry.value,
-    };
-    return [
-      WeekdayRhythmCard(
-        insight: insight,
-        averages: averages,
-        locale: locale,
-        periodLabel: periodLabel,
+    final gp = context.gp;
+    final s = S.of(context);
+    final first = days.first;
+    return InkWell(
+      onTap: () => onTap(first),
+      borderRadius: BorderRadius.circular(10),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Row(
+          children: [
+            SizedBox(width: 18, child: Center(child: mark)),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 12.5, color: gp.textSec)),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                s.heatmapDaysOfMonth(
+                  [for (final d in days) d.day],
+                  westernDate(first, 'MMM', locale),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: gp.textPrimary,
+                ),
+              ),
+            ),
+            Text(
+              s.progressScoreFraction(doneOn(first), owedOn(first)),
+              style: TextStyle(fontSize: 12, color: gp.textSec),
+            ),
+            // Mirrors itself in Arabic (matchTextDirection), like the
+            // Profile rows' arrows.
+            Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
+          ],
+        ),
       ),
-      const SizedBox(height: 14),
-    ];
+    );
   }
 }
 

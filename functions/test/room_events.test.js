@@ -11,7 +11,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
-const {isRoomPausedOn, roomEventFor} = require("../room_events");
+const {
+  finishedOn,
+  isRoomPausedOn,
+  roomEventFor,
+  slotPendingFor,
+} = require("../room_events");
 
 const DAY = "2026-08-18";
 
@@ -299,4 +304,73 @@ test("a pause is read the way the room model reads it", () => {
   assert.strictEqual(isRoomPausedOn(
       [{from: "2026-08-19", to: "2026-08-17"}, {from: "2026-08-10", to: DAY}],
       DAY), true);
+});
+
+// ── A day read after the member's phone moved on (2026-09-24) ───────────
+
+/** A shared room with three live slots, the shape PBYAS5 has. */
+const ROOM3 = {
+  habitMode: "shared",
+  sharedHabits: [{name: "أذكار الصباح"}, {name: "سورة الملك"}, {name: "صدقة"}],
+};
+const linked3 = {linkedHabitIds: ["h1", "h2", "h3"]};
+
+test("finishedOn reads the flags for the day they describe", () => {
+  assert.strictEqual(
+      finishedOn({allDoneToday: true, allDoneDate: DAY}, DAY, ROOM3), true);
+  assert.strictEqual(
+      finishedOn({allDoneToday: false, allDoneDate: DAY}, DAY, ROOM3), false);
+});
+
+test("finishedOn reads a day the phone has moved past from its numbers", () => {
+  const nextDay = "2026-08-19";
+  // Finished the 18th, then the phone synced the 19th after midnight.
+  const done = {...linked3, allDoneToday: false, allDoneDate: nextDay,
+    dailyDoneCount: {[DAY]: 3}};
+  assert.strictEqual(finishedOn(done, DAY, ROOM3), true);
+  const short = {...linked3, allDoneToday: false, allDoneDate: nextDay,
+    dailyDoneCount: {[DAY]: 2}};
+  assert.strictEqual(finishedOn(short, DAY, ROOM3), false);
+  // A stored scheduled count wins over the slots: two were owed that day.
+  const excused = {...short, dailyScheduledCount: {[DAY]: 2}};
+  assert.strictEqual(finishedOn(excused, DAY, ROOM3), true);
+  // Nothing owed is finished, as the app writes it.
+  const rest = {...linked3, allDoneDate: nextDay,
+    dailyScheduledCount: {[DAY]: 0}};
+  assert.strictEqual(finishedOn(rest, DAY, ROOM3), true);
+});
+
+test("finishedOn never guesses about a day the phone has not reached", () => {
+  const behind = {...linked3, allDoneToday: true, allDoneDate: "2026-08-17",
+    dailyDoneCount: {[DAY]: 3}};
+  assert.strictEqual(finishedOn(behind, DAY, ROOM3), false);
+  // And without the room there is no knowing what was owed.
+  const movedOn = {...linked3, allDoneDate: "2026-08-19",
+    dailyDoneCount: {[DAY]: 3}};
+  assert.strictEqual(finishedOn(movedOn, DAY), false);
+});
+
+test("a room finished after midnight is a perfect day, not a last one", () => {
+  // The member finished the 18th at 23:50 and their phone synced the 19th
+  // at 00:10. The finisher closes the 18th at 00:33, in the app's window
+  // for finishing yesterday.
+  const other = {id: "noor", data: () => ({...linked3, allDoneToday: false,
+    allDoneDate: "2026-08-19", dailyDoneCount: {[DAY]: 3}})};
+  const decision = roomEventFor([other], DAY, [], ROOM3);
+  assert.strictEqual(decision.event, "perfect");
+  // Without the room, the old flag-only reading: she looked unfinished.
+  assert.strictEqual(roomEventFor([other], DAY).event, "lastOne");
+});
+
+test("slotPendingFor mirrors pendingPlanSlotsIn for one slot", () => {
+  const room = {habitMode: "shared", sharedHabits: [
+    {name: "a"}, {name: "b"}, {name: "c", removedAt: {}}]};
+  const p = {linkedHabitIds: ["h1"]};
+  assert.strictEqual(slotPendingFor(room, p, 1), true, "unanswered");
+  assert.strictEqual(slotPendingFor(room, p, 0), false, "already linked");
+  assert.strictEqual(slotPendingFor(room, p, 2), false, "taken out");
+  assert.strictEqual(slotPendingFor(room, p, 3), false, "no such slot");
+  assert.strictEqual(slotPendingFor(room, p, null), false);
+  assert.strictEqual(
+      slotPendingFor({...room, habitMode: "own"}, p, 1), false);
 });

@@ -157,9 +157,9 @@ struct StopGrowDailyAlarmIntent: LiveActivityIntent {
 }
 
 /// Copy of MarkAlarmTargetDoneIntent in AlarmKitBridge.swift, see the note
-/// there: on a task's alarm it stops the alarm and queues the task as done;
-/// for a habit (only alarms armed by an earlier build still carry the
-/// button) it only stops.
+/// there: on a task's alarm it stops the alarm, queues the task as done and
+/// takes down whatever else that task still had armed; for a habit (only
+/// alarms armed by an earlier build still carry the button) it only stops.
 @available(iOS 26.0, *)
 struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Mark task done"
@@ -192,6 +192,12 @@ struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
         }
         if kind == "task" {
             AlarmDoneQueue.recordTask(targetId)
+            // Stopping this alarm silences this one moment. A task can carry
+            // a stack of up to eight (a nudge before, the time itself, two
+            // after), and the rest of them were still armed for a task the
+            // person just said they had finished.
+            await standDownTaskReminders(
+                of: targetId, in: UserDefaults(suiteName: AlarmDoneQueue.appGroupId))
         }
         return .result()
     }

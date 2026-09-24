@@ -118,6 +118,123 @@ const QUADRANT_META = {
 
 const WEEKDAY_ABBR = { 1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun' };
 
+// ---- A habit's cue, read the way the app reads it ----
+//
+// custom_habits' cueAfter is a STORAGE value (HabitCue.toStorageValue in
+// habit_cue.dart), not text for a person: a preset key ('fajr',
+// 'before_sleep'), a run of picked times ('custom_time:06:15,19:00', where
+// each time may carry a signed reminder shift, '08:00-15'), or whatever the
+// person typed. The app turns it into a label before any screen shows it.
+// This tool printed it as stored, so a habit anchored at two times read
+// "After: custom_time:06:15,19:00", and a bedtime habit "After: before_sleep".
+//
+// The stored description has the same token in it: CustomHabitsNotifier
+// builds "After <cue>, I will <name>." from the storage value, not the label.
+// No app screen shows that sentence, so only this tool ever printed it.
+
+// HabitCue._presetLabel, English side.
+const CUE_PRESET_LABELS = {
+  fajr: 'Fajr',
+  dhuhr: 'Dhuhr',
+  asr: 'Asr',
+  maghrib: 'Maghrib',
+  isha: 'Isha',
+  before_sleep: 'Before sleep',
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  after_work_school: 'After work/school',
+  after_school_work: 'After school/work',
+  work_block: 'Work block',
+};
+
+// HabitCue._timePart: HH:MM, then an optional signed minute shift.
+const CUE_TIME_PART = /^(\d{2}):(\d{2})([+-]\d{1,3})?$/;
+
+/**
+ * [stored] as a label, the way HabitCue.labelForLocale(false) reads it, with
+ * this tool's 24-hour clocks in place of the app's "6:15 AM".
+ *
+ * Times join the way the app joins them ("06:15, 12:00 and 19:00"). A shift
+ * is shown only when there are two or more times, because only then does the
+ * app use it (HabitCue.offsetsAreOwn); a single time's reminder follows the
+ * habit's own reminderOffsetMinutes instead. A 'custom_time:' value the app
+ * cannot parse is damage, and the app shows no cue for it at all
+ * (HabitCue.fromStoredValue), so this says that rather than passing the
+ * token off as text the person typed. Anything else is their own words and
+ * comes back untouched. Empty for no cue.
+ */
+function cueLabel(stored) {
+  const raw = String(stored == null ? '' : stored).trim();
+  if (!raw) return '';
+  if (Object.prototype.hasOwnProperty.call(CUE_PRESET_LABELS, raw.toLowerCase())) {
+    return CUE_PRESET_LABELS[raw.toLowerCase()];
+  }
+  if (!raw.startsWith('custom_time:')) return raw;
+  const damaged = `${raw} (unreadable, so the app shows no cue)`;
+  const parsed = [];
+  for (const part of raw.slice('custom_time:'.length).split(',')) {
+    const m = CUE_TIME_PART.exec(part);
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return damaged;
+    parsed.push({ clock: `${m[1]}:${m[2]}`, shift: m[3] ? Number(m[3]) : 0 });
+  }
+  // The canonical form HabitCue.timesWithOffsets reads every run into: one
+  // time per minute (the first wins), earliest first, at most 12.
+  const times = parsed
+    .filter((t, i) => parsed.findIndex((u) => u.clock === t.clock) === i)
+    .sort((a, b) => (a.clock < b.clock ? -1 : a.clock > b.clock ? 1 : 0))
+    .slice(0, 12);
+  const labels = times.map((t) => (times.length > 1 && t.shift !== 0
+    ? `${t.clock} (reminder ${Math.abs(t.shift)}m ${t.shift < 0 ? 'before' : 'after'})`
+    : t.clock));
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
+// intention_phrase.dart's cueHasOwnPreposition: "Before sleep" and «قبل
+// المغرب» already say when, so they must not be prefixed with "After".
+function cueHasOwnPreposition(cue) {
+  const trimmed = String(cue).trim();
+  const lower = trimmed.toLowerCase();
+  if (['before', 'after', 'during', 'when', 'once', 'while']
+    .some((p) => lower.startsWith(`${p} `))) return true;
+  return ['قبل', 'بعد', 'أثناء', 'خلال', 'عند', 'وقت']
+    .some((p) => trimmed.startsWith(`${p} `));
+}
+
+// intention_phrase.dart's buildIntentionSentence, exactly.
+function intentionSentence(cue, habitName) {
+  const t = String(cue == null ? '' : cue).trim();
+  if (!t) return '';
+  const clause = cueHasOwnPreposition(t) ? t[0].toUpperCase() + t.slice(1) : `After ${t}`;
+  return `${clause}, I will ${habitName}.`;
+}
+
+/**
+ * When the habit happens, as a phrase: "After 06:15 and 19:00", "After
+ * Fajr", or "Before sleep" (never "After Before sleep"). Empty for no cue.
+ */
+function cueClause(stored) {
+  const label = cueLabel(stored);
+  if (!label) return '';
+  return cueHasOwnPreposition(label) ? label[0].toUpperCase() + label.slice(1) : `After ${label}`;
+}
+
+/**
+ * The habit's description with its cue made readable. The app writes it as
+ * intentionSentence(<stored cue>, name), so a description that is exactly
+ * that sentence is rebuilt from the label. Any other description is shown
+ * as stored.
+ */
+function readableDescription(description, cueAfter, habitName) {
+  const desc = String(description == null ? '' : description);
+  const cue = String(cueAfter == null ? '' : cueAfter).trim();
+  if (cue && desc === intentionSentence(cue, habitName)) {
+    return intentionSentence(cueLabel(cue), habitName);
+  }
+  return desc;
+}
+
 // Reads a date out of any of the three shapes this schema actually uses -
 // a Firestore Timestamp (matrix_tasks' createdAt/completedAt/reminderAt),
 // a plain ISO-8601 string (custom_habits' createdAt/archivedAt - see
@@ -1100,7 +1217,7 @@ function renderHabitDetail(data, ctx) {
     detailRow('Frequency', escapeHtml(freq) + (days ? ` <span class="muted">(${escapeHtml(days)})</span>` : '')),
     history.length ? detailRow('Before', history.join('<br>')) : '',
     detailRow('Goal', escapeHtml(goal)),
-    data.cueAfter ? detailRow('Cue', `After ${escapeHtml(data.cueAfter)}`) : '',
+    data.cueAfter ? detailRow('Cue', escapeHtml(cueClause(data.cueAfter))) : '',
     data.hasTimer ? detailRow('Timer', `${Math.round((data.timerDurationSeconds || 0) / 60)} min`) : '',
     // Only the GOAL lives here (IslamicHabitTemplate.toFirestore); the day's
     // actual step count never reaches Firestore at all - it stays on the
@@ -1117,7 +1234,7 @@ function renderHabitDetail(data, ctx) {
 
   return `
     <div class="detail-title">${swatch}${escapeHtml(data.name || '(unnamed habit)')}</div>
-    ${data.description ? `<div class="detail-desc">${escapeHtml(data.description)}</div>` : ''}
+    ${data.description ? `<div class="detail-desc">${escapeHtml(readableDescription(data.description, data.cueAfter, data.name))}</div>` : ''}
     <div class="detail-rows">${rows}</div>
   `;
 }
@@ -3170,6 +3287,9 @@ module.exports = {
   CATEGORY_META,
   MOOD_META,
   QUADRANT_META,
+  cueLabel,
+  cueClause,
+  readableDescription,
   escapeHtml,
   safeCssColor,
   fmtDate,

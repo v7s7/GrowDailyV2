@@ -184,11 +184,52 @@ class RoomHabitTemplate {
   /// [RoomParticipant.linkedHabitIds] is positionally parallel to this list
   /// and each participant may only write their OWN participant doc (see
   /// firestore.rules), the leader has no way to re-align everyone else's
-  /// arrays to match. Stamping it instead keeps every index stable forever;
-  /// syncLinkedHabitsProgress simply skips a removed slot (it counts for
-  /// nothing, exactly like [kDeclinedSlot]), and the UI greys it out. Also
-  /// makes the removal reversible, which a real delete would not be.
+  /// arrays to match. Stamping it instead keeps every index stable forever,
+  /// and makes the removal reversible, which a real delete would not be.
+  ///
+  /// WHICH DAYS it stops counting on is [stopsOn], not this instant. A stamp
+  /// with no [stopsOn] is a LEGACY removal (before 2026-09-22, or the
+  /// dedupe_plan_slot.js repair) and keeps its old meaning: the slot never
+  /// counted, on any day. That is what the two duplicate fixes in A8GEL7 and
+  /// BKWVN9 rely on, so their boards do not move.
   final DateTime? removedAt;
+
+  /// Who removed it (a uid) - the trace an admin reads to answer "why did my
+  /// room change". Null on a legacy removal.
+  final String? removedBy;
+
+  /// The first day this slot no longer counts, for anyone - stamped ONCE by
+  /// the leader's phone and read as-is by everybody, the same "one day,
+  /// stamped once" shape as [addedDay] and for the same reason.
+  ///
+  /// Aziz, 2026-09-22: a removed habit still counts on the day the leader
+  /// removes it, and from the next day it counts for nobody. Days before
+  /// stay exactly as they were played. Measured on the real grader before
+  /// this existed: removal re-scored every day in the sync window as if the
+  /// habit had never been in the plan, and the leader who removed the habit
+  /// they were weakest at went from 63% (third) to 100% (first) while the
+  /// member who had done it every day fell from 82% to 63%.
+  ///
+  /// So this is normally the day AFTER the removal. It is the removal day
+  /// itself (an empty window, nothing ever counted) when the room had not
+  /// started yet, or when the slot was added that same day: a mistake put
+  /// right the day it was made is not a day anybody was asked for it. See
+  /// [removalStopsOn].
+  final String? stopsOn;
+
+  /// Stretches this slot spent OUT of the plan and was then brought back
+  /// (see RoomsController.restoreSharedHabit), as inclusive date keys. A
+  /// restore does not reach back: the days it was out stay days nobody was
+  /// asked for it, for the member who had linked it and for the one who had
+  /// not.
+  final List<({String from, String to})> offSpans;
+
+  /// The latest time the leader brought this slot back after removing it,
+  /// and who did - what the members' "the plan changed" popup announces.
+  /// Null when it was never removed, or was only undone on the removal day
+  /// itself (an undo that day leaves no trace, nothing had happened yet).
+  final DateTime? restoredAt;
+  final String? restoredBy;
 
   /// When this entry joined the plan - null for every entry the room was
   /// actually *created* with (every one of those is born together, so
@@ -234,6 +275,11 @@ class RoomHabitTemplate {
     this.addedAt,
     this.addedDay,
     this.removedAt,
+    this.removedBy,
+    this.stopsOn,
+    this.offSpans = const [],
+    this.restoredAt,
+    this.restoredBy,
   });
 
   Map<String, dynamic> toFirestore() => {
@@ -245,6 +291,14 @@ class RoomHabitTemplate {
         if (addedAt != null) 'addedAt': Timestamp.fromDate(addedAt!),
         if (addedDay != null) 'addedDay': addedDay,
         if (removedAt != null) 'removedAt': Timestamp.fromDate(removedAt!),
+        if (removedBy != null) 'removedBy': removedBy,
+        if (stopsOn != null) 'stopsOn': stopsOn,
+        if (offSpans.isNotEmpty)
+          'offSpans': [
+            for (final s in offSpans) {'from': s.from, 'to': s.to},
+          ],
+        if (restoredAt != null) 'restoredAt': Timestamp.fromDate(restoredAt!),
+        if (restoredBy != null) 'restoredBy': restoredBy,
       };
 
   factory RoomHabitTemplate.fromMap(Map<String, dynamic> d) =>
@@ -259,10 +313,97 @@ class RoomHabitTemplate {
         addedAt: (d['addedAt'] as Timestamp?)?.toDate(),
         addedDay: d['addedDay'] as String?,
         removedAt: (d['removedAt'] as Timestamp?)?.toDate(),
+        removedBy: d['removedBy'] as String?,
+        stopsOn: d['stopsOn'] as String?,
+        offSpans: RoomModel.spansFrom(d['offSpans']),
+        restoredAt: (d['restoredAt'] as Timestamp?)?.toDate(),
+        restoredBy: d['restoredBy'] as String?,
       );
 
-  /// Whether the leader has withdrawn this slot - see [removedAt].
+  /// Every field carried over except the ones named. The plan edits rewrite
+  /// one element of the array in place, and rebuilding it field by field is
+  /// how the old removal dropped [addedDay]: every phone then keyed the
+  /// slot's start from [addedAt] in its own timezone again, the exact
+  /// ELQVF8 split addedDay exists to end.
+  RoomHabitTemplate copyWith({
+    DateTime? removedAt,
+    String? removedBy,
+    String? stopsOn,
+    List<({String from, String to})>? offSpans,
+    DateTime? restoredAt,
+    String? restoredBy,
+    bool clearRemoval = false,
+    bool clearRestore = false,
+  }) =>
+      RoomHabitTemplate(
+        name: name,
+        category: category,
+        iconColorHex: iconColorHex,
+        frequencyType: frequencyType,
+        frequencyTarget: frequencyTarget,
+        addedAt: addedAt,
+        addedDay: addedDay,
+        removedAt: clearRemoval ? null : (removedAt ?? this.removedAt),
+        removedBy: clearRemoval ? null : (removedBy ?? this.removedBy),
+        stopsOn: clearRemoval ? null : (stopsOn ?? this.stopsOn),
+        offSpans: offSpans ?? this.offSpans,
+        restoredAt: clearRestore ? null : (restoredAt ?? this.restoredAt),
+        restoredBy: clearRestore ? null : (restoredBy ?? this.restoredBy),
+      );
+
+  /// Whether the leader has withdrawn this slot - see [removedAt]. True from
+  /// the moment of the removal, including the removal day on which the slot
+  /// still counts: "is it on its way out", not "does it count today". Ask
+  /// [liveOn] for the second question.
   bool get isRemoved => removedAt != null;
+
+  /// A removal from before [stopsOn] existed: counts on no day at all.
+  bool get isLegacyRemoval => removedAt != null && stopsOn == null;
+
+  /// Whether the leader's plan edits leave this slot in the plan on
+  /// [dateKey] - not inside an [offSpans] stretch, and before [stopsOn] if
+  /// it has been removed. Says nothing about when the slot JOINED the plan;
+  /// that floor is [RoomModel.slotJoinedPlanKey] and the member's rules.
+  bool liveOn(String dateKey) {
+    for (final s in offSpans) {
+      if (dateKey.compareTo(s.from) >= 0 && dateKey.compareTo(s.to) <= 0) {
+        return false;
+      }
+    }
+    if (removedAt == null) return true;
+    final stops = stopsOn;
+    if (stops == null) return false;
+    return dateKey.compareTo(stops) < 0;
+  }
+}
+
+/// The first day a slot removed at [now] stops counting (see
+/// [RoomHabitTemplate.stopsOn]): the day after the removal, so the removal
+/// day itself still counts in full, except where nothing was ever asked -
+/// a room that has not started, or a slot added that same day.
+///
+/// Days are CALENDAR days on the leader's phone (startOfDay), the same clock
+/// addSharedHabit stamps [RoomHabitTemplate.addedDay] with, so an addition
+/// and a removal made the same evening land on the same day.
+String removalStopsOn({
+  required RoomModel room,
+  required int index,
+  required DateTime now,
+}) {
+  final today = now.startOfDay;
+  final todayKey = today.toDateKey();
+  if (!room.hasStartedAt(now)) return todayKey;
+  // Only a LATE addition can be a same-day mistake. A slot the room was
+  // created with carries no addition stamp, and removing it on day one is an
+  // ordinary removal whose day still counts.
+  final template = room.sharedHabits[index];
+  final added = template.addedAt;
+  final addedKey = template.addedDay ??
+      (added == null
+          ? null
+          : DateTime(added.year, added.month, added.day).toDateKey());
+  if (addedKey != null && addedKey.compareTo(todayKey) >= 0) return todayKey;
+  return DateTime(today.year, today.month, today.day + 1).toDateKey();
 }
 
 /// Stored at: rooms/{code}
@@ -361,6 +502,59 @@ class RoomModel {
   /// more than any sniper will sit out and less than any genuine joiner
   /// minds; a fixed room shorter than a month never reaches it.
   static const int kPlaceTenureCapDays = 14;
+
+  /// Whether shared slot [i] is in the plan on [dateKey] as far as the
+  /// leader's plan edits go (see [RoomHabitTemplate.liveOn]). THE one test
+  /// every day-keyed reader asks before a slot can count for or against
+  /// anyone on that day: the sync's grading, the room score's phantoms and
+  /// plan weights, the day card. Always true outside a shared room.
+  bool slotLiveOn(int i, String dateKey) {
+    if (habitMode != RoomHabitMode.shared) return true;
+    if (i < 0 || i >= sharedHabits.length) return true;
+    return sharedHabits[i].liveOn(dateKey);
+  }
+
+  /// Whether slot [i] still counts on a day that is OPEN at [now]: today,
+  /// or yesterday while its grace tail runs to kDayCutoffHour. The question
+  /// "is this habit still linked to the room right now" (the Grid's room
+  /// badge and 2x boost, and which rooms a tap is routed to), so a square
+  /// marked for the removal day during its grace tail still reaches the
+  /// room, and from 10:00 the next morning the link is gone.
+  ///
+  /// Only days the slot was really in the plan answer: on or after the day
+  /// it joined ([slotJoinedPlanKey]), and not before the room starts at all,
+  /// where a slot is linked unless the leader removed it. Without that floor
+  /// a habit added and removed the same morning (never counted) would read
+  /// as linked until 10:00 through yesterday's grace tail, a day it was
+  /// never part of.
+  bool slotLiveOnOpenDayAt(int i, DateTime now) {
+    if (habitMode != RoomHabitMode.shared) return true;
+    if (i < 0 || i >= sharedHabits.length) return true;
+    final t = sharedHabits[i];
+    if (!hasStartedAt(now)) return !t.isRemoved;
+    // Nothing the leader has edited: linked, full stop. The floor below is
+    // only ever about a slot whose window has an end, and applying it to an
+    // untouched slot would unlink a habit whose addedDay is a day ahead of
+    // this phone's calendar (a leader stamping from another timezone).
+    if (!t.isRemoved && t.offSpans.isEmpty) return true;
+    final floor = slotJoinedPlanKey(i);
+    bool on(DateTime day) {
+      final key = day.toDateKey();
+      return key.compareTo(floor) >= 0 && t.liveOn(key);
+    }
+
+    final today = now.startOfDay;
+    if (on(today)) return true;
+    final yesterday = DateTime(today.year, today.month, today.day - 1);
+    return yesterday.isOpenDayAt(now) && on(yesterday);
+  }
+
+  /// Slots still in the plan going forward: not removed. A slot removed
+  /// today still counts today, but it is on its way out, so it is not one
+  /// the plan can be left standing on (see RoomsController.removeSharedHabit's
+  /// last-habit guard).
+  int get remainingSlotCount =>
+      sharedHabits.where((t) => !t.isRemoved).length;
 
   /// The first day slot [i] was part of the plan at all - the room's own
   /// start for everything it was created with, the addition day for a slot
@@ -470,8 +664,12 @@ class RoomModel {
       !isLobby && DateTime.now().effectiveDay.isBefore(startDate);
 
   /// The challenge is actually running: started, first day reached.
-  bool get hasStarted =>
-      !isLobby && !DateTime.now().effectiveDay.isBefore(startDate);
+  bool get hasStarted => hasStartedAt(DateTime.now());
+
+  /// [hasStarted] against an explicit clock, like [isEndedAt], so the sync
+  /// can be run at a chosen moment in a test.
+  bool hasStartedAt(DateTime now) =>
+      !isLobby && !now.effectiveDay.isBefore(startDate);
 
   /// Running right now — the 2x reward window (see
   /// roomBoostedHabitsProvider) and the "progress counts" window.
@@ -1366,24 +1564,85 @@ class RoomParticipant {
   List<String> get countedHabitIds =>
       linkedHabitIds.where((id) => id != kDeclinedSlot).toList();
 
-  /// The counting ids that also survive [room]'s own plan edits - i.e. minus
-  /// any slot whose shared-plan template the leader has withdrawn (see
-  /// [RoomHabitTemplate.removedAt]). THE one place that decision lives:
-  /// grading, the per-tap fast path, and the Grid's room-boost index all read
-  /// this, so a skipped or withdrawn slot can never be counted by one of them
-  /// and ignored by another. Identical to [countedHabitIds] for an
+  /// The counting ids that are still linked to [room] RIGHT NOW: minus any
+  /// slot the leader's plan edits have taken out of every day that is open
+  /// at [now] (see [RoomModel.slotLiveOnOpenDayAt]). What the Grid's room
+  /// badge, its 2x boost and the per-tap routing ask, so a habit the leader
+  /// removed keeps them through its last counted day (and that day's grace
+  /// tail) and loses them after. Identical to [countedHabitIds] for an
   /// 'own'-mode room, which has no shared templates to withdraw.
-  List<String> countedHabitIdsIn(RoomModel room) {
+  ///
+  /// Grading does NOT read this: a removed slot still counts on the days
+  /// before its [RoomHabitTemplate.stopsOn], so the sync grades
+  /// [gradedHabitIdsIn] and asks [RoomModel.slotLiveOn] day by day. A tap
+  /// writing TODAY's count reads [countedHabitIdsOn] for today.
+  List<String> countedHabitIdsIn(RoomModel room, {DateTime? now}) {
+    final clock = now ?? DateTime.now();
+    final out = <String>[];
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      if (linkedHabitIds[i] == kDeclinedSlot) continue;
+      if (!room.slotLiveOnOpenDayAt(i, clock)) continue;
+      out.add(linkedHabitIds[i]);
+    }
+    return out;
+  }
+
+  /// The counting ids whose slot is in [room]'s plan on [dateKey] - the set
+  /// a day's count is taken over (the per-tap fast path, for today).
+  List<String> countedHabitIdsOn(RoomModel room, String dateKey) {
+    final out = <String>[];
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      if (linkedHabitIds[i] == kDeclinedSlot) continue;
+      if (!room.slotLiveOn(i, dateKey)) continue;
+      out.add(linkedHabitIds[i]);
+    }
+    return out;
+  }
+
+  /// Every counting id the sync has to grade on SOME day: all linked slots
+  /// but a legacy removal, which counts on none (see
+  /// [RoomHabitTemplate.isLegacyRemoval]). A slot removed since keeps being
+  /// graded on the days before its [RoomHabitTemplate.stopsOn], which is
+  /// what keeps those days exactly as they were played; which days is
+  /// [RoomModel.slotLiveOn]'s answer, asked per day by the sync.
+  List<String> gradedHabitIdsIn(RoomModel room) {
     final shared = room.habitMode == RoomHabitMode.shared
         ? room.sharedHabits
         : const <RoomHabitTemplate>[];
     final out = <String>[];
     for (var i = 0; i < linkedHabitIds.length; i++) {
       if (linkedHabitIds[i] == kDeclinedSlot) continue;
-      if (i < shared.length && shared[i].isRemoved) continue;
+      if (i < shared.length && shared[i].isLegacyRemoval) continue;
       out.add(linkedHabitIds[i]);
     }
     return out;
+  }
+
+  /// The shared slots this member has not answered yet (added after they
+  /// joined or last resolved) that are still in the plan - the ones worth a
+  /// banner, a prompt or a resolve row. A slot the leader removed is never
+  /// among them: nobody is asked to link a habit that is on its way out,
+  /// and the resolve sheet holds its place without asking (see
+  /// declineSharedHabit). Empty outside a shared room.
+  List<int> pendingPlanSlotsIn(RoomModel room) {
+    if (room.habitMode != RoomHabitMode.shared) return const [];
+    return [
+      for (var i = linkedHabitIds.length; i < room.sharedHabits.length; i++)
+        if (!room.sharedHabits[i].isRemoved) i,
+    ];
+  }
+
+  /// Whether shared slot [i] was already on its way out of [room]'s plan
+  /// when this member joined. Such a slot was never asked of them: the join
+  /// never offered it (RoomsController.joinRoom holds its place with
+  /// [kDeclinedSlot]), so it cannot be a phantom against them either, not
+  /// even on the removal day itself, which still counts for everyone who was
+  /// there when it was removed.
+  bool slotRemovedBeforeJoin(RoomModel room, int i) {
+    if (room.habitMode != RoomHabitMode.shared) return false;
+    if (i < 0 || i >= room.sharedHabits.length) return false;
+    final removed = room.sharedHabits[i].removedAt;
+    return removed != null && !removed.isAfter(joinedAt);
   }
 
   /// Whether anything counts here at all - the allocation-free counterpart to
@@ -1887,7 +2146,15 @@ class RoomParticipant {
     for (var i = 0; i < linkedHabitIds.length; i++) {
       final id = linkedHabitIds[i];
       if (id == kDeclinedSlot) continue;
-      if (i < shared.length && shared[i].isRemoved) return const {};
+      // Any plan edit on a linked slot (a removal, or a stretch it spent out
+      // of the plan) and the inference stands aside: it replays the phone's
+      // grading from rules alone, and the day-by-day plan is not a rule.
+      // The old fallback applies instead, as it does for every other case
+      // this cannot prove.
+      if (i < shared.length &&
+          (shared[i].isRemoved || shared[i].offSpans.isNotEmpty)) {
+        return const {};
+      }
       final rules = habitRules[id];
       if (rules == null || rules.isEmpty) return const {};
       slots.add((i, id));
@@ -2531,7 +2798,7 @@ class RoomParticipant {
     final shared = room.sharedHabits;
     var n = 0;
     for (var i = 0; i < shared.length; i++) {
-      if (shared[i].isRemoved) continue;
+      if (!room.slotLiveOn(i, dateKey)) continue;
       if (!_slotIsPhantomOn(room, i, dateKey)) continue;
       n++;
     }
@@ -2546,6 +2813,9 @@ class RoomParticipant {
   /// unlinked member ([RoomModel.slotAsksFromKey]).
   bool _slotIsPhantomOn(RoomModel room, int i, String dateKey) {
     if (room.slotAsksFromKey(i).compareTo(dateKey) > 0) return false;
+    // Already on its way out when they joined: never asked of them, not
+    // even on the removal day that still counts for everyone else.
+    if (slotRemovedBeforeJoin(room, i)) return false;
     if (i >= linkedHabitIds.length) return true; // never resolved
     final habit = habitInSlotOn(i, dateKey);
     if (habit == null) {
@@ -2597,7 +2867,7 @@ class RoomParticipant {
     var weight = 0.0;
     for (var i = 0; i < shared.length; i++) {
       final slot = shared[i];
-      if (slot.isRemoved) continue;
+      if (!room.slotLiveOn(i, dateKey)) continue;
       if (!_slotIsPhantomOn(room, i, dateKey)) continue;
       weight += _slotWeight(slot);
     }
@@ -2633,7 +2903,7 @@ class RoomParticipant {
     final shared = room.sharedHabits;
     var weight = 0.0;
     for (var i = 0; i < shared.length; i++) {
-      if (shared[i].isRemoved) continue;
+      if (!room.slotLiveOn(i, dateKey)) continue;
       final habit = habitInSlotOn(i, dateKey);
       // Empty for them that day, or linked but not yet running — the same
       // two tests _slotIsPhantomOn uses to call a slot missing.
@@ -2758,13 +3028,20 @@ class RoomParticipant {
   /// over the plan's live slots. What the board prints beside the score so a
   /// smaller plan is visible rather than a silent advantage. Null for an
   /// 'own'-mode room, where there is no shared plan to be a fraction of.
-  ({int linked, int total})? planCoverageIn(RoomModel room) {
+  ///
+  /// Live means in the plan TODAY ([RoomModel.slotLiveOn]): a slot the leader
+  /// removed today still counts today and still reads here; from tomorrow it
+  /// is gone from both numbers. A slot removed before this member joined was
+  /// never theirs to carry, so it is not in their total either.
+  ({int linked, int total})? planCoverageIn(RoomModel room, {DateTime? now}) {
     if (room.habitMode != RoomHabitMode.shared) return null;
+    final todayKey = (now ?? DateTime.now()).startOfDay.toDateKey();
     final shared = room.sharedHabits;
     var linked = 0;
     var total = 0;
     for (var i = 0; i < shared.length; i++) {
-      if (shared[i].isRemoved) continue;
+      if (!room.slotLiveOn(i, todayKey)) continue;
+      if (slotRemovedBeforeJoin(room, i)) continue;
       total++;
       if (i < linkedHabitIds.length && linkedHabitIds[i] != kDeclinedSlot) {
         linked++;

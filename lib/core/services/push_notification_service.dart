@@ -5,6 +5,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
+import 'local_store_service.dart';
 import 'notification_service.dart';
 
 /// The room-finish push notification's client-side half — the one remote
@@ -93,6 +94,61 @@ Duration? pushRetryDelay(int attempt) => switch (attempt) {
       5 => const Duration(minutes: 3),
       _ => null,
     };
+
+/// This install's last device-token registration, as the phone remembers it:
+/// which account it was written for, the token, and when.
+class PushRegistration {
+  const PushRegistration({
+    required this.uid,
+    required this.token,
+    required this.writtenAt,
+  });
+
+  final String uid;
+  final String token;
+  final DateTime writtenAt;
+}
+
+/// What one registration attempt writes: whether to (re)write this token's
+/// doc, and which of this install's older tokens to delete.
+class TokenSyncPlan {
+  const TokenSyncPlan({required this.write, this.deleteToken});
+
+  final bool write;
+
+  /// The token this install registered before the current one. Its doc is
+  /// deleted, or the account keeps a second token for the same phone and
+  /// every room push reaches it twice (نور, 2026-09-24).
+  final String? deleteToken;
+}
+
+/// How often an unchanged token is written again, so `updatedAt` on its doc
+/// says the phone is still in use. The server drops a token that trails the
+/// account's freshest by a week (functions/push_policy.js liveTokens), so
+/// this has to be well under that. Under a day on purpose: someone who opens
+/// the app at 08:00 one morning and 07:30 the next still refreshes.
+const kPushTokenRefreshEvery = Duration(hours: 20);
+
+/// The registration decision, pure so it can be tested. A different account
+/// than the remembered one always writes and deletes nothing: the old doc
+/// lives under the other account, and sign-out already removed it.
+TokenSyncPlan tokenSyncPlan({
+  required String uid,
+  required String token,
+  required PushRegistration? last,
+  required DateTime now,
+}) {
+  if (last == null || last.uid != uid) return const TokenSyncPlan(write: true);
+  if (last.token != token) {
+    return TokenSyncPlan(write: true, deleteToken: last.token);
+  }
+  return TokenSyncPlan(
+    write: now.difference(last.writtenAt) >= kPushTokenRefreshEvery,
+  );
+}
+
+/// Hive settings-box key for [PushRegistration].
+const _kPushRegistrationKey = 'push_registration_v1';
 
 class PushNotificationService {
   PushNotificationService._();
@@ -184,7 +240,7 @@ class PushNotificationService {
     // token, and so the FCM token, can only follow the permission grant, so
     // this is the moment a first registration most often succeeds. Safe to
     // call unconditionally: _syncToken no-ops without a uid, and no-ops
-    // again if the token is unchanged.
+    // again if the token is unchanged and was written within the day.
     _failedAttempts = 0;
     await _syncToken('permission');
   }
@@ -225,8 +281,9 @@ class PushNotificationService {
   /// Registers (or re-registers) this device's FCM token for [uid] and
   /// starts watching for a refreshed one. Call from main.dart's `_authSub`
   /// listener alongside every other pullFromAccount call, and again on
-  /// app resume (harmless - [_syncToken] only ever writes when the token
-  /// actually changed).
+  /// app resume (harmless - [_syncToken] only writes when the token changed
+  /// or was last written more than [kPushTokenRefreshEvery] ago, see
+  /// [tokenSyncPlan]).
   ///
   /// The refresh listener is attached BEFORE the first attempt, not after
   /// it. On iOS the FCM token is issued a moment after APNs answers, and the
@@ -337,25 +394,39 @@ class PushNotificationService {
         _finish(uid, trigger, 'no-fcm-token');
         return;
       }
-      if (token == _lastToken) {
-        // Already mirrored by this process. Nothing to write, and nothing
-        // to retry.
+      final now = DateTime.now();
+      final plan = tokenSyncPlan(
+        uid: uid,
+        token: token,
+        last: await _readRegistration(),
+        now: now,
+      );
+      if (!plan.write) {
+        // Written for this account within the day. Nothing to write, and
+        // nothing to retry.
+        _lastToken = token;
         _settle(trigger, 'unchanged');
         return;
       }
-      await FirebaseFirestore.instance
+      final tokens = FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
-          .collection('fcmTokens')
-          .doc(token)
-          .set(
+          .collection('fcmTokens');
+      await tokens.doc(token).set(
         {
           'platform': defaultTargetPlatform.name,
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
+      final replaced = plan.deleteToken;
+      if (replaced != null) {
+        unawaited(tokens.doc(replaced).delete().catchError((_) {}));
+      }
       _lastToken = token;
+      await _writeRegistration(
+        PushRegistration(uid: uid, token: token, writtenAt: now),
+      );
       outcome = 'registered';
     } catch (e, st) {
       // The one thing this used to do here was nothing. The exception's
@@ -412,6 +483,45 @@ class PushNotificationService {
     _retryTimer = null;
   }
 
+  /// This install's last registration, or null (none yet, a fresh install,
+  /// or a store that cannot be read, which just means writing again).
+  Future<PushRegistration?> _readRegistration() async {
+    try {
+      final box = await LocalStoreService.settingsBox();
+      final raw = box.get(_kPushRegistrationKey);
+      if (raw is! Map) return null;
+      final uid = raw['uid'];
+      final token = raw['token'];
+      final at = raw['at'];
+      if (uid is! String || token is! String || at is! int) return null;
+      return PushRegistration(
+        uid: uid,
+        token: token,
+        writtenAt: DateTime.fromMillisecondsSinceEpoch(at),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Remembers [r] on this install, or forgets it when null.
+  Future<void> _writeRegistration(PushRegistration? r) async {
+    try {
+      final box = await LocalStoreService.settingsBox();
+      if (r == null) {
+        await box.delete(_kPushRegistrationKey);
+      } else {
+        await box.put(_kPushRegistrationKey, {
+          'uid': r.uid,
+          'token': r.token,
+          'at': r.writtenAt.millisecondsSinceEpoch,
+        });
+      }
+    } catch (_) {
+      // No store (unit tests): the next attempt simply writes again.
+    }
+  }
+
   /// Mirrors the latest outcome onto the account, once per distinct
   /// outcome per process, so an account that never registers can be read
   /// from its own document (scripts/admin_lookup) instead of guessed at.
@@ -452,6 +562,9 @@ class PushNotificationService {
     _retryTimer = null;
     _refreshSub?.cancel();
     _refreshSub = null;
+    // Forgotten with the doc, or signing back in to the same account within
+    // the day would read as "written already" and leave no doc at all.
+    await _writeRegistration(null);
     if (uid == null || token == null) return;
     try {
       await FirebaseFirestore.instance

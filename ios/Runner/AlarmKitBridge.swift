@@ -1,6 +1,7 @@
 import Flutter
 import Foundation
 import UIKit
+import UserNotifications
 import WidgetKit
 import AlarmKit
 import AppIntents
@@ -25,9 +26,14 @@ import SwiftUI
 enum AlarmKitBridge {
   static let channelName = "com.growdaily.v2/alarm"
 
-  static func register(with messenger: FlutterBinaryMessenger) {
+  /// [observingAlarms] is for the main engine only. The headless engine a
+  /// notification action runs in gets the channel too, so a «تمت» tapped
+  /// there can cancel the day's alarms of the habit it finished, but not the
+  /// watcher: one is enough, and a second would hand each alarm that rings
+  /// with the app open over twice.
+  static func register(with messenger: FlutterBinaryMessenger, observingAlarms: Bool = true) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
-    if #available(iOS 26.0, *) {
+    if #available(iOS 26.0, *), observingAlarms {
       AlarmKitBridgeImpl.observeAlarms(reportingTo: channel)
     }
     channel.setMethodCallHandler { call, result in
@@ -448,6 +454,10 @@ struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
     }
     if kind == "task" {
       AlarmDoneQueue.recordTask(targetId)
+      // Stopping this alarm silences this one moment. A task can carry a
+      // stack of up to eight, and the rest of them were still armed for a
+      // task the person just said they had finished.
+      await AlarmDoneQueue.standDownTaskReminders(targetId)
     }
     return .result()
   }
@@ -458,6 +468,45 @@ struct MarkAlarmTargetDoneIntent: LiveActivityIntent {
 /// the same queue MarkTaskDoneIntent in GrowDailyWidget.swift appends to.
 enum AlarmDoneQueue {
   static let appGroupId = "group.com.growdaily.v2.widget"
+
+  /// Takes down every reminder the finished task still holds, the way the
+  /// Matrix widget's checkmark does: a copy of standDownTaskReminders in
+  /// ios/GrowDailyWidget/GrowDailyWidget.swift, reading the record described
+  /// in TaskReminderStandDown.swift, because a Live Activity intent can run
+  /// in either process and both must behave the same.
+  ///
+  /// Pending requests only, never delivered ones: a reminder already on the
+  /// lock screen was right when it came. The ids are the app's own
+  /// (NotificationService), so removing them here is exactly what the app
+  /// would do at its next open, only sooner.
+  @available(iOS 26.0, *)
+  static func standDownTaskReminders(_ taskId: String) async {
+    guard let defaults = UserDefaults(suiteName: appGroupId),
+      let raw = defaults.string(forKey: "armedTaskRemindersJson"),
+      let data = raw.data(using: .utf8),
+      let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      // ArmedTaskRecord.version on the Dart side; another version reads as
+      // no record at all.
+      record["v"] as? Int == 1,
+      let task = (record["tasks"] as? [String: Any])?[taskId] as? [String: Any]
+    else { return }
+    let ids = (task["notifications"] as? [Int]) ?? []
+    let center = UNUserNotificationCenter.current()
+    if !ids.isEmpty {
+      center.removePendingNotificationRequests(withIdentifiers: ids.map(String.init))
+    }
+    // An alarm that has already rung is gone from AlarmKit and cancelling it
+    // throws, which is the only reason one of these fails.
+    for slot in (task["alarms"] as? [Int]) ?? [] {
+      try? AlarmManager.shared.cancel(id: AlarmKitBridgeImpl.alarmId(for: slot))
+    }
+    // Read back over the same connection, so the removal has reached the
+    // system before this process can be suspended.
+    let pending = await center.pendingNotificationRequests()
+    let left = pending.filter { ids.map(String.init).contains($0.identifier) }.count
+    NSLog(
+      "[AlarmKitBridge] task \(taskId) done: \(ids.count) reminder id(s) stood down, \(left) still pending")
+  }
 
   static func recordTask(_ taskId: String) {
     guard !taskId.isEmpty, let defaults = UserDefaults(suiteName: appGroupId) else { return }

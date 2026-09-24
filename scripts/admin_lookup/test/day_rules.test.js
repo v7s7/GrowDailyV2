@@ -290,6 +290,27 @@ test('a habit no room links never reads as counting in one', () => {
     { room: ELQVF8, participant: hoor, habitId: 'witr', dayKey: '2026-09-05' }), true);
 });
 
+test('a habit the leader removed counts through its removal day, not after', () => {
+  // 2026-09-22: removal stamps stopsOn, the first day it no longer counts.
+  // A removal with no stopsOn is a legacy one and counts on no day, which is
+  // what the A8GEL7 and BKWVN9 duplicate repairs rely on.
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [
+      { name: 'quran' },
+      { name: 'train', removedAt: 'x', stopsOn: '2026-09-23' },
+      { name: 'walk', removedAt: 'x' },
+    ],
+  };
+  const member = { linkedHabitIds: ['q', 't', 'w'], habitRules: {} };
+  const on = (habitId, dayKey) =>
+    R.roomCountsHabitOn({ room, participant: member, habitId, dayKey });
+  assert.equal(on('t', '2026-09-22'), true);
+  assert.equal(on('t', '2026-09-23'), false);
+  assert.equal(on('w', '2026-09-01'), false);
+  assert.equal(on('q', '2026-09-23'), true);
+});
+
 // ── The three real shapes ────────────────────────────────────────────────
 
 test('FIXTURE Aziz 2026-09-10: the day really paid 235 XP and 80 gold', () => {

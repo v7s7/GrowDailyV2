@@ -697,21 +697,24 @@ class _MilestoneRow extends StatelessWidget {
 /// are (see RoomsController.toggleHideDetails) - a decision only the
 /// participant themself makes, so this card only ever renders for "mine".
 /// One habit chip in "Your plan", aware of which shared-plan slot it sits in
-/// so it can render the three states a slot can actually be in, and offer
-/// the one action that makes sense for each:
+/// so it can render the states a slot can actually be in, and offer the one
+/// action that makes sense for each:
 ///
 ///  - **Counting** (the normal case): gold chip. For the room's leader in a
-///    shared-plan room, a long-press withdraws it from the plan for
-///    everyone (see RoomsController.removeSharedHabit) - long-press, not a
-///    visible X, so a destructive plan-wide change can't happen from a
-///    mis-tap on a chip this small.
+///    shared-plan room that has not ended, a long-press opens the same
+///    remove confirm as the menu's «إزالة عادة» (see
+///    _confirmRemoveSharedHabit) - long-press, not a visible X, so a
+///    destructive plan-wide change can't happen from a mis-tap on a chip
+///    this small.
 ///  - **Skipped by this person** (see kDeclinedSlot): muted, struck through.
 ///    Tapping offers to add it after all, which resolves the slot to a fresh
 ///    habit cloned from the plan's own template - a skip was never meant to
 ///    be permanent.
-///  - **Withdrawn by the leader** (see RoomHabitTemplate.removedAt): muted
-///    with a "Removed" note, no action. It counts for nobody now, and only
-///    the leader could bring it back.
+///  - **Removed by the leader, last day** (see RoomHabitTemplate.stopsOn):
+///    it still counts today, so it keeps its look and says «آخر يوم». No
+///    action on it. From the next day it has no chip at all (see
+///    [_planChipShown]): the habit stays in the member's Grid, no longer tied
+///    to the room (Aziz, 2026-09-22).
 class _PlanSlotChip extends ConsumerWidget {
   final RoomModel room;
   final RoomParticipant mine;
@@ -726,7 +729,7 @@ class _PlanSlotChip extends ConsumerWidget {
       index < mine.linkedHabitIds.length &&
       mine.linkedHabitIds[index] == kDeclinedSlot;
 
-  bool get _isWithdrawn =>
+  bool get _isRemoved =>
       room.habitMode == RoomHabitMode.shared &&
       index < room.sharedHabits.length &&
       room.sharedHabits[index].isRemoved;
@@ -761,38 +764,16 @@ class _PlanSlotChip extends ConsumerWidget {
     await ref.read(roomsControllerProvider).resolvePlanHabit(room, index);
   }
 
-  Future<void> _confirmRemove(BuildContext context, WidgetRef ref) async {
-    final s = S.of(context);
-    final name = mine.linkedHabitNames[index];
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.roomRemoveSharedHabit),
-        content: Text(s.roomRemoveSharedHabitConfirm(name)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(s.roomCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(s.roomRemoveSharedHabit),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await ref.read(roomsControllerProvider).removeSharedHabit(room, index);
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
     final label = mine.linkedHabitNames[index];
-    final muted = _isSkipped || _isWithdrawn;
+    final muted = _isSkipped;
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
     final canRemove = !muted &&
+        !_isRemoved &&
+        !room.isEnded &&
         room.habitMode == RoomHabitMode.shared &&
         uid != null &&
         uid == room.createdBy &&
@@ -818,21 +799,21 @@ class _PlanSlotChip extends ConsumerWidget {
               decoration: _isSkipped ? TextDecoration.lineThrough : null,
             ),
           ),
-          if (muted) ...[
+          if (muted || _isRemoved) ...[
             const SizedBox(width: 4),
             Text(
-              _isWithdrawn ? s.roomRemovedLabel : s.roomSkippedLabel,
+              _isRemoved ? s.roomLastDayLabel : s.roomSkippedLabel,
               style: TextStyle(
                   fontSize: 8.5,
                   fontWeight: FontWeight.w600,
-                  color: gp.textTert),
+                  color: muted ? gp.textTert : context.gp.goldInk),
             ),
           ],
         ],
       ),
     );
 
-    if (_isWithdrawn) return chip;
+    if (_isRemoved) return chip;
     if (_isSkipped) {
       return GestureDetector(
         onTap: () => _undoSkip(context, ref),
@@ -843,11 +824,23 @@ class _PlanSlotChip extends ConsumerWidget {
     return GestureDetector(
       onLongPress: () {
         HapticFeedback.mediumImpact();
-        _confirmRemove(context, ref);
+        _confirmRemoveSharedHabit(context, ref, room, index);
       },
       child: chip,
     );
   }
+}
+
+/// Whether slot [i] still has a chip on this member's plan card: always,
+/// unless the leader removed it and its last counted day is over (including
+/// that day's grace tail, see RoomModel.slotLiveOnOpenDayAt), or it was
+/// removed before this member joined and so was never theirs.
+bool _planChipShown(RoomModel room, RoomParticipant mine, int i) {
+  if (room.habitMode != RoomHabitMode.shared) return true;
+  if (i >= room.sharedHabits.length) return true;
+  if (!room.sharedHabits[i].isRemoved) return true;
+  if (mine.slotRemovedBeforeJoin(room, i)) return false;
+  return room.slotLiveOnOpenDayAt(i, DateTime.now());
 }
 
 /// One flexible weekly-quota habit's standing in the current grid week, for
@@ -968,6 +961,8 @@ class _MyPlanCard extends ConsumerWidget {
     // what decides between the reassuring and the standing-down hint below.
     final anyGradableLeft = roomHasGradableHabit(
         mine.countedHabitIdsIn(room), {for (final h in myHabits) h.id});
+    // The habits today's room day is taken over (see countedHabitIdsOn).
+    final countedToday = mine.countedHabitIdsOn(room, today).length;
     // Habits whose live settings no longer match what this room scores them
     // by - see roomRuleMismatches for why the room deliberately keeps the
     // original rule rather than following the edit.
@@ -1118,7 +1113,8 @@ class _MyPlanCard extends ConsumerWidget {
               runSpacing: 6,
               children: [
                 for (var i = 0; i < mine.linkedHabitNames.length; i++)
-                  if (mine.linkedHabitNames[i].trim().isNotEmpty)
+                  if (mine.linkedHabitNames[i].trim().isNotEmpty &&
+                      _planChipShown(room, mine, i))
                     _PlanSlotChip(room: room, mine: mine, index: i),
               ],
             ),
@@ -1163,13 +1159,14 @@ class _MyPlanCard extends ConsumerWidget {
               ],
             ),
           ],
-          // countedHabitCount, not names.length: a skipped slot still has a
+          // Today's counted set, not names.length: a skipped slot still has a
           // name (struck through in the chips above) but contributes nothing,
-          // so counting it here would promise "complete all 3" when only 2
-          // can actually be completed.
-          if (mine.countedHabitCount > 1) ...[
+          // and a slot the leader removed stops counting after its last day,
+          // so counting either here would promise "complete all 3" when only
+          // 2 can actually be completed.
+          if (countedToday > 1) ...[
             const SizedBox(height: 8),
-            Text(s.roomPlanPartialCreditHint(mine.countedHabitCount),
+            Text(s.roomPlanPartialCreditHint(countedToday),
                 style:
                     TextStyle(fontSize: 10.5, color: gp.textTert, height: 1.3)),
           ],
@@ -1263,8 +1260,9 @@ class _MyPlanCard extends ConsumerWidget {
           // resolved leaves their own linkedHabitIds shorter than the
           // room's current sharedHabits, and that gap *is* the unresolved
           // count - nothing else needs to track it separately.
-          if (room.habitMode == RoomHabitMode.shared &&
-              mine.linkedHabitIds.length < room.sharedHabits.length) ...[
+          // Only slots still in the plan: a habit the leader removed before
+          // this member answered is never asked of them (pendingPlanSlotsIn).
+          if (mine.pendingPlanSlotsIn(room).isNotEmpty) ...[
             const SizedBox(height: 10),
             _NewHabitBanner(room: room, mine: mine),
           ],
@@ -1294,7 +1292,8 @@ class _NewHabitBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final newest = room.sharedHabits.last.name;
+    final pending = mine.pendingPlanSlotsIn(room);
+    final newest = room.sharedHabits[pending.last].name;
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () {

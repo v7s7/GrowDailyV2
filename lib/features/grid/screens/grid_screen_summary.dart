@@ -788,6 +788,7 @@ class _SummaryCard extends StatelessWidget {
       habits: habits,
       day: today,
       isGreen: state.currentWeekGreen,
+      markOn: state.currentWeekMark,
     ).map((h) => h.id).toList();
     final greens = state.greenSquares(habitIds);
     final partialUnits = {..._stepPartials(), ..._countedHabitPartials()};

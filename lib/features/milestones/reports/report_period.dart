@@ -3,6 +3,7 @@ import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../grid/models/square_state.dart';
+import '../../habits/models/habit_day_demand.dart' show movedDemandOn;
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
 import '../../habits/models/weekly_quota_plan.dart'
     show DayDemand, weeklyQuotaDemand;
@@ -279,7 +280,22 @@ int expectedCompletions({
     // rest day is not a missed day: before it, choosing to rest lowered
     // your percentage exactly as much as forgetting would have.
     if (restDays.contains(day.toDateKey())) continue;
-    if (habit.isScheduledFor(day) && settled(day)) count++;
+    // A specific-days week holding a session off its plan: the planned day
+    // that session stands in for leaves the count, and the session itself
+    // enters it on its own day, on both sides (see moved_day_plan.dart), so
+    // one week's spare session can never pad another week's real miss. Read
+    // over every mark, so a week cut by the window's edge still sees the
+    // sessions on its far side.
+    final moved = movedDemandOn(
+      habit: habit,
+      day: day,
+      isGreen: (_, d) =>
+          ((allMarks ?? marks)[d.toDateKey()] ?? SquareState.none).isGreen,
+      markOn: (_, d) => (allMarks ?? marks)[d.toDateKey()] ?? SquareState.none,
+      now: now,
+    );
+    final owes = moved == null ? habit.isScheduledFor(day) : !moved.isRest;
+    if (owes && settled(day)) count++;
   }
   // Quota habits are counted per Saturday-anchored week: a week the habit
   // was alive for only two days can never owe three completions, so the
@@ -762,6 +778,89 @@ class PeriodSummary {
   /// Whether anything was owed yet, which is whether [rate] means anything.
   /// See [HabitPeriodStat.hasRate].
   bool get hasRate => expectedTotal > 0;
+
+  /// This summary with «أفضل يوم» replaced, for a tab that judges its best
+  /// day on how full each day was (see [dayExtremes]) rather than on the
+  /// raw count this summary picked it by.
+  PeriodSummary withBestDay(DateTime? day, int count) => PeriodSummary(
+        totalDone: totalDone,
+        expectedTotal: expectedTotal,
+        creditedTotal: creditedTotal,
+        bestDay: day,
+        bestDayCount: count,
+        activeDays: activeDays,
+        longestRun: longestRun,
+      );
+}
+
+/// A window's best and weakest days, judged on how FULL each day was: what
+/// was done against what the day asked for, the same two numbers a month
+/// calendar cell is drawn from.
+///
+/// Aziz's rule, 2026-09-22: the fullest day is the best; between equally
+/// full days the one with more habits wins (a full 8 of 8 over a full 7 of
+/// 7); days still equal after that all share the mark. It replaced a
+/// weekday card on the month page, which named a weekday ("الاثنين") where
+/// a month is read in dates.
+///
+/// The weakest mirrors it: the emptiest day, only among days that have
+/// closed (a day still being lived is not a weak day, see
+/// DateTimeGameExt.isSettledAt) and that asked for something; between
+/// equally empty days the one that asked for more; still equal, all of
+/// them. There is no weakest when it would be as full as the best, so a
+/// month of full days names no weak day.
+///
+/// A day that asked for nothing is never a weak day. Work done on it anyway
+/// reads full, exactly as its calendar cell draws it (dayFill), so it can be
+/// a best day, counted by the habits done on it. Returned in date order.
+({List<DateTime> best, List<DateTime> weakest}) dayExtremes({
+  required Iterable<DateTime> days,
+  required int Function(DateTime day) doneOn,
+  required int Function(DateTime day) owedOn,
+  required bool Function(DateTime day) settledOn,
+}) {
+  // Fractions compared by cross-multiplying, never as doubles: 2 of 6 and
+  // 1 of 3 are equally full and must tie, exactly.
+  int fuller(({int done, int owed}) a, ({int done, int owed}) b) =>
+      (a.done * b.owed).compareTo(b.done * a.owed);
+  final best = <DateTime>[];
+  final weakest = <DateTime>[];
+  ({int done, int owed})? top;
+  ({int done, int owed})? bottom;
+  for (final day in days) {
+    final owedRaw = owedOn(day);
+    final doneRaw = doneOn(day);
+    if (owedRaw <= 0 && doneRaw <= 0) continue;
+    // Nothing owed but something done: a full day of what was done.
+    final owed = owedRaw > 0 ? owedRaw : doneRaw;
+    final cell = (done: doneRaw.clamp(0, owed).toInt(), owed: owed);
+    if (cell.done > 0) {
+      final c = top == null ? 1 : fuller(cell, top);
+      if (c > 0 || (c == 0 && cell.done > top!.done)) {
+        top = cell;
+        best
+          ..clear()
+          ..add(day);
+      } else if (c == 0 && cell.done == top!.done) {
+        best.add(day);
+      }
+    }
+    if (owedRaw > 0 && settledOn(day)) {
+      final c = bottom == null ? -1 : fuller(cell, bottom);
+      if (c < 0 || (c == 0 && cell.owed > bottom!.owed)) {
+        bottom = cell;
+        weakest
+          ..clear()
+          ..add(day);
+      } else if (c == 0 && cell.owed == bottom!.owed) {
+        weakest.add(day);
+      }
+    }
+  }
+  if (top != null && bottom != null && fuller(bottom, top) >= 0) {
+    weakest.clear();
+  }
+  return (best: best, weakest: weakest);
 }
 
 /// Summarises one window from [dayCounts] (see [dayCountsFrom]) plus the

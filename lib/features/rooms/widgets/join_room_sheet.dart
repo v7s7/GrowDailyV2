@@ -98,6 +98,14 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
     final usedIds = <String>{};
     final result = <String?>[];
     for (final t in templates) {
+      // A slot the leader removed is not part of what anyone joins: its
+      // place is held as a skip (RoomsController.joinRoom does the same on
+      // the write side), it is never shown as a row, and it never counts
+      // against the habit limit, since _newHabitCount only counts nulls.
+      if (t.isRemoved) {
+        result.add(kDeclinedSlot);
+        continue;
+      }
       final available =
           myHabits.where((h) => !usedIds.contains(h.id)).toList();
       final match = suggestExistingMatch(t.name, available)?.id;
@@ -541,8 +549,11 @@ class _PlanReviewList extends ConsumerWidget {
             style: TextStyle(
                 fontSize: 12, fontWeight: FontWeight.w700, color: gp.textTert)),
         const SizedBox(height: 8),
-        for (var i = 0; i < room.sharedHabits.length; i++) ...[
-          if (i != 0) const SizedBox(height: 10),
+        for (final (n, i) in [
+          for (var i = 0; i < room.sharedHabits.length; i++)
+            if (!room.sharedHabits[i].isRemoved) i,
+        ].indexed) ...[
+          if (n != 0) const SizedBox(height: 10),
           _PlanReviewRow(
             templateName: room.sharedHabits[i].name,
             myHabits: myHabits,

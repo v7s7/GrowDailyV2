@@ -16,6 +16,10 @@ extension DashboardNotifierStreakFromPartial on DashboardNotifier {
   /// completeHabit. Reported live (Aziz, 2026-09-21): "i am already above
   /// 80% with the 0.5 habit."
   ///
+  /// A تخطّي can be that last mark too, since a skipped habit leaves the
+  /// day's count (Aziz, 2026-09-22), so the palette also calls this after
+  /// [willCrossStreakThresholdOnSkip]. Nothing else about it differs.
+  ///
   /// Callers must already have confirmed [willCrossStreakThresholdOnPartial]
   /// for this exact day — that predicate, not this method, is what keeps a
   /// day made entirely of جزئي squares from ever earning anything (see its
@@ -149,6 +153,8 @@ extension DashboardNotifierStreakFromPartial on DashboardNotifier {
       didJustLevelUp: didLevelUp,
       setMilestone: newMilestone,
       streakEarnedToday: isGraceDay ? null : true,
+      // Moves with the stored lastActiveDay below, same as completeHabit.
+      lastStreakDay: !_lastActiveIsAfter(dayKey) ? markDay : null,
       perfectDayCelebration: isGraceDay ? false : true,
       levelGrantPaidThrough: unlocks.levelGrantPaidThrough,
     );

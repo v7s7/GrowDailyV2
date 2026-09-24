@@ -138,11 +138,11 @@ void main() {
     test('a follow-up set for after the moment counts up', () {
       expect(
         taskReminderTitle(offsetMinutes: 20, isAr: true),
-        'صار لها ٢٠ دقيقة، وبعدها بانتظارك',
+        'صار لها ٢٠ دقيقة. تقدر تخلّصها الحين.',
       );
       expect(
         taskReminderTitle(offsetMinutes: 20, isAr: false),
-        "It's been 20 minutes. Still waiting.",
+        "It's been 20 minutes. You can do it now.",
       );
     });
 
@@ -857,11 +857,11 @@ void main() {
       expect(markDoneAction(true), 'تمت');
       expect(snoozeAction(true), 'تأجيل ساعة');
       expect(onTrackAction(true), 'التزام');
-      expect(slippedAction(true), 'زلة');
+      expect(slippedAction(true), 'ما التزمت');
       expect(markDoneAction(false), 'Mark Done');
       expect(snoozeAction(false), 'Snooze 1h');
       expect(onTrackAction(false), 'On Track');
-      expect(slippedAction(false), 'Slipped');
+      expect(slippedAction(false), "Didn't keep it");
     });
 
     test('are nominal, so no button has a gender to get wrong', () {

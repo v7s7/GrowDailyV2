@@ -46,6 +46,8 @@ const {
   CATEGORY_META,
   MOOD_META,
   QUADRANT_META,
+  cueClause,
+  readableDescription,
   SQUARE_META,
   summarizeHabitDay,
   readUndoneReceipts,
@@ -409,11 +411,39 @@ function habitDetails(h) {
   const xp = Number(h.xpReward) || 0;
   const gold = Number(h.goldReward) || 0;
   if (xp || gold) out.push(chip(`Pays ${xp} XP \u00b7 ${gold} gold`, 'plain'));
-  const cue = clip(h.cueAfter, 90);
-  if (cue) out.push(chip(`After: ${cue}`, 'note'));
-  const desc = clip(h.description, 160);
+  // Read as the app reads it, never as stored: see cueLabel in render.js.
+  const cue = clip(cueClause(h.cueAfter), 90);
+  if (cue) out.push(chip(cue, 'note'));
+  const desc = clip(readableDescription(h.description, h.cueAfter, h.name), 160);
   if (desc) out.push(chip(desc, 'quote'));
   return out.filter(Boolean);
+}
+
+/**
+ * The moment a habit was made, for its "Created a habit" row.
+ *
+ * Not the habit's own [createdAt]: the app stamps that as the START of the
+ * day it was made (DateTime.now().effectiveDay in CustomHabitsNotifier), a
+ * birth DATE whose job is to stop history painting the days before the
+ * habit existed as misses, and it is stored as a bare local string
+ * ("2026-09-24T00:00:00.000"). Read as a moment, every habit ever made
+ * lands at 00:00. On 2026-09-24 that drew an account's six new habits at
+ * 00:00, three hours before the account itself was created at 03:02; they
+ * were really written between 03:04 and 03:16.
+ *
+ * The document's Firestore createTime is the real moment, the same source
+ * dayWriteContext reads for a day doc. A later set() does not move it, so
+ * an edit, or an unarchive moving createdAt to the resume day, still leaves
+ * it naming the first creation. A habit made offline, or made as a guest and
+ * carried over at sign-up (GuestMigrationService), reads as the moment it
+ * reached the server. createdAt is only the fallback for a doc that has no
+ * createTime.
+ */
+function habitMadeAt(doc) {
+  if (!doc) return null;
+  if (doc.createTime) return doc.createTime;
+  const h = typeof doc.data === 'function' ? doc.data() : null;
+  return (h && h.createdAt) || null;
 }
 
 /**
@@ -583,7 +613,7 @@ async function scanOneAccount(uid, profile, authRow) {
   for (const doc of habitDocs) {
     const h = doc.data();
     const cat = CATEGORY_META[h.category];
-    push(h.createdAt, 'habit_new', 'Created a habit',
+    push(habitMadeAt(doc), 'habit_new', 'Created a habit',
       `${cat ? cat.emoji + ' ' : ''}${h.name || '(unnamed habit)'}`, '', habitDetails(h));
     if (h.archivedAt) {
       // What it was worth by the time they put it away, which is the whole
@@ -891,5 +921,6 @@ module.exports = {
   dailyDetails,
   taskDetails,
   habitDetails,
+  habitMadeAt,
   scalarDetails,
 };

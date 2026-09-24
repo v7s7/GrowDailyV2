@@ -645,6 +645,7 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       habits: ref.read(habitListProvider),
       day: effectiveDay,
       isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      markOn: ref.read(weeklyGridProvider).currentWeekMark,
       alsoOwing: {habit.id},
     ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
     final mirroredBySingleTap =
@@ -665,6 +666,8 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
                 // score it as zero.
                 halfDoneHabitIds:
                     ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                skippedHabitIds:
+                    ref.read(weeklyGridProvider).skippedTodayIds(),
               ),
               scheduledHabitCount: todayHabits.length,
               category: habit.category.name,

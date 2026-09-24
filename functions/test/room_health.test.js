@@ -16,6 +16,7 @@ const {
   closedDaysToCheck,
   countingHabitIds,
   shiftKey,
+  slotLiveOn,
   todayKeyIn,
   undercountedDays,
 } = require("../room_health");
@@ -104,13 +105,31 @@ test("closed days to check skip paused days and stop at the room's start",
 
 test("closed days to check honour a room that already ended", () => {
   const days = closedDaysToCheck(
-      {startKey: "2026-08-01", endKey: "2026-08-03", pausedSpans: []},
+      {startKey: "2026-08-24", endKey: "2026-08-27", pausedSpans: []},
       "2026-09-06", 10);
-  assert.deepStrictEqual(days, ["2026-08-01", "2026-08-02", "2026-08-03"]);
+  assert.deepStrictEqual(days,
+      ["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27"]);
   assert.deepStrictEqual(closedDaysToCheck(
       {startKey: "2026-09-10", endKey: null, pausedSpans: []},
       "2026-09-06", 10), [], "not started yet");
 });
+
+test("a room that ended over two weeks ago is not re-read every Monday",
+    () => {
+      // Its last days were checked by at least two earlier weekly runs.
+      assert.deepStrictEqual(closedDaysToCheck(
+          {startKey: "2026-08-01", endKey: "2026-08-03", pausedSpans: []},
+          "2026-09-06", 10), []);
+      // The edge: fourteen days before the last closed day is still checked,
+      // fifteen is not.
+      assert.deepStrictEqual(closedDaysToCheck(
+          {startKey: "2026-08-20", endKey: "2026-08-23", pausedSpans: []},
+          "2026-09-06", 10),
+      ["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"]);
+      assert.deepStrictEqual(closedDaysToCheck(
+          {startKey: "2026-08-19", endKey: "2026-08-22", pausedSpans: []},
+          "2026-09-06", 10), []);
+    });
 
 test("a closed day whose squares say done but whose count is zero is " +
     "reported, with the real number", () => {
@@ -315,4 +334,69 @@ test("a stood-down day and a rest day are never short", () => {
     },
   });
   assert.deepStrictEqual(out, []);
+});
+
+// ── The leader removing a habit, 2026-09-22 ────────────────────────────────
+// Aziz's rule: it still counts on the day it is removed, and from the next
+// day it counts for nobody. The app stamps `stopsOn` (the first day it no
+// longer counts); a removal with no stopsOn is a legacy one and counts on no
+// day, which is what keeps the A8GEL7 and BKWVN9 duplicate repairs as they
+// are.
+
+test("a removed slot counts through its removal day, and not after", () => {
+  const room = {
+    habitMode: "shared",
+    sharedHabits: [
+      {name: "quran"},
+      {name: "train", removedAt: "x", stopsOn: "2026-09-23"},
+      {name: "walk", removedAt: "x"},
+      {name: "adhkar", offSpans: [{from: "2026-09-10", to: "2026-09-12"}]},
+    ],
+  };
+  assert.strictEqual(slotLiveOn(room, 1, "2026-09-22"), true);
+  assert.strictEqual(slotLiveOn(room, 1, "2026-09-23"), false);
+  assert.strictEqual(slotLiveOn(room, 2, "2026-09-01"), false, "legacy");
+  assert.strictEqual(slotLiveOn(room, 3, "2026-09-09"), true);
+  assert.strictEqual(slotLiveOn(room, 3, "2026-09-11"), false);
+  assert.strictEqual(slotLiveOn(room, 3, "2026-09-13"), true);
+
+  const part = {linkedHabitIds: ["h1", "h2", "h3", "h4"]};
+  // Graded on SOME day: all but the legacy removal.
+  assert.deepStrictEqual(countingHabitIds(room, part), ["h1", "h2", "h4"]);
+  assert.deepStrictEqual(
+      countingHabitIds(room, part, "2026-09-22"), ["h1", "h2", "h4"]);
+  assert.deepStrictEqual(
+      countingHabitIds(room, part, "2026-09-23"), ["h1", "h4"]);
+  assert.deepStrictEqual(
+      countingHabitIds(room, part, "2026-09-11"), ["h1", "h2"]);
+});
+
+test("after its removal day a removed habit's green square is not an " +
+    "undercount", () => {
+  const room = {
+    habitMode: "shared",
+    sharedHabits: [
+      {name: "quran"},
+      {name: "train", removedAt: "x", stopsOn: "2026-09-21"},
+    ],
+  };
+  const part = {
+    linkedHabitIds: ["q", "t"],
+    dailyDoneCount: {"2026-09-20": 1, "2026-09-21": 1},
+  };
+  const out = undercountedDays({
+    days: ["2026-09-20", "2026-09-21"],
+    countingIds: countingHabitIds(room, part),
+    squaresByDay: {
+      // The removal day still asked for both, and only one was stored.
+      "2026-09-20": {q: "complete", t: "complete"},
+      // Trained after the removal: the member's own business.
+      "2026-09-21": {q: "complete", t: "complete"},
+    },
+    part,
+    room,
+  });
+  assert.deepStrictEqual(
+      out.map((u) => ({day: u.day, real: u.real, stored: u.stored})),
+      [{day: "2026-09-20", real: 2, stored: 1}]);
 });

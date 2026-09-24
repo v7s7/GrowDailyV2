@@ -89,6 +89,9 @@ class _RoomBody extends ConsumerWidget {
               if (value == 'delete') onDelete();
               if (value == 'extend') onExtend();
               if (value == 'addHabit') _addHabitToPlan(context, ref, room);
+              if (value == 'removeHabit') {
+                _removeHabitFromPlan(context, ref, room);
+              }
               if (value == 'report') {
                 showReportMemberPicker(
                   context,
@@ -121,9 +124,21 @@ class _RoomBody extends ConsumerWidget {
               // add to in the first place (every participant, leader
               // included, already has their own always-open "Add another
               // habit" on _MyPlanCard instead - see addMyLinkedHabit).
-              if (isLeader && room.habitMode == RoomHabitMode.shared)
+              // Not once the room has ended: its plan is final, and both
+              // edits refuse it (RoomsController.addSharedHabit /
+              // removeSharedHabit). Extending the room opens it again.
+              if (isLeader &&
+                  room.habitMode == RoomHabitMode.shared &&
+                  !room.isEnded) ...[
                 PopupMenuItem(
                     value: 'addHabit', child: Text(s.roomAddHabitAction)),
+                // Right under add, where a leader looks for it. The long
+                // press on a plan chip (see _PlanSlotChip) still reaches the
+                // same confirm, but nobody had found it: no leader used it in
+                // any of the 15 rooms (2026-09-22).
+                PopupMenuItem(
+                    value: 'removeHabit', child: Text(s.roomRemoveHabitAction)),
+              ],
               if (isLeader)
                 PopupMenuItem(
                   value: 'delete',
@@ -292,8 +307,17 @@ Future<void> _addHabitToPlan(
   // guards the same window with `mine != null`.
   final roster = await ref.read(roomParticipantsProvider(room.code).future);
   final myParticipant = roster.where((p) => p.uid == uid);
+  // Only the habits sitting in a slot still in the plan: one whose slot the
+  // leader removed is offered, because picking it brings that slot back
+  // (see RoomsController.addSharedHabit's restore) instead of being refused
+  // as "already in the plan".
   final mineHabitIds = myParticipant.isNotEmpty
-      ? myParticipant.first.linkedHabitIds
+      ? [
+          for (var i = 0; i < myParticipant.first.linkedHabitIds.length; i++)
+            if (i >= room.sharedHabits.length ||
+                !room.sharedHabits[i].isRemoved)
+              myParticipant.first.linkedHabitIds[i],
+        ]
       : const <String>[];
   if (!context.mounted) return;
   final picked = await pickOwnHabitSheet(
@@ -304,18 +328,291 @@ Future<void> _addHabitToPlan(
     isSharedTemplate: true,
   );
   if (picked == null || !context.mounted) return;
-  final result =
+  final outcome =
       await ref.read(roomsControllerProvider).addSharedHabit(room, picked.id);
   if (!context.mounted) return;
   // The confirmation used to be unconditional, so a refused add still said
   // «تمت الإضافة» and the leader had no way to know the plan was unchanged.
+  if (outcome.result == AddSharedHabitResult.refused) return;
+  // outcome.habitName, not picked.name: a restore brings back the SLOT, and
+  // the plan's name for it is the one every member sees.
   ScaffoldMessenger.of(context).showOne(
     SnackBar(
-      content: Text(result == AddSharedHabitResult.alreadyInPlan
-          ? s.roomHabitAlreadyInPlan(picked.name)
-          : s.roomHabitAddedConfirmation(picked.name)),
+      content: Text(switch (outcome.result) {
+        AddSharedHabitResult.alreadyInPlan =>
+          s.roomHabitAlreadyInPlan(outcome.habitName),
+        AddSharedHabitResult.restored =>
+          s.roomHabitRestoredSnack(outcome.habitName),
+        _ => s.roomHabitAddedConfirmation(outcome.habitName),
+      }),
     ),
   );
+}
+
+/// Leader-only, 'shared'-mode-only: the «إزالة عادة» menu item. Lists the
+/// habits still in the plan, then hands the pick to the same confirm the
+/// plan chip's long press opens ([_confirmRemoveSharedHabit]).
+///
+/// A plan down to one habit is answered before anything opens: a room needs
+/// at least one, and a list with a single row the leader cannot remove would
+/// only find that out one tap later.
+Future<void> _removeHabitFromPlan(
+  BuildContext context,
+  WidgetRef ref,
+  RoomModel room,
+) async {
+  final candidates = [
+    for (var i = 0; i < room.sharedHabits.length; i++)
+      if (!room.sharedHabits[i].isRemoved) i,
+  ];
+  if (candidates.length <= 1) {
+    await _showLastHabitDialog(context);
+    return;
+  }
+  final picked = await showModalBottomSheet<int>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    useSafeArea: true,
+    builder: (_) => _RemovePlanHabitSheet(room: room, candidates: candidates),
+  );
+  if (picked == null || !context.mounted) return;
+  HapticFeedback.selectionClick();
+  await _confirmRemoveSharedHabit(context, ref, room, picked);
+}
+
+Future<void> _showLastHabitDialog(BuildContext context) {
+  final s = S.of(context);
+  return showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(s.roomRemoveLastHabitTitle),
+      content: Text(s.roomRemoveLastHabitBody),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(s.roomPlanNoticeOk),
+        ),
+      ],
+    ),
+  );
+}
+
+/// The one confirm for removing a shared habit, whichever way the leader got
+/// here (the menu's list, or a long press on the plan chip). Says exactly
+/// what happens: it still counts today and for nobody from tomorrow, days
+/// before stay, everyone keeps the habit in their own list. Or, when nothing
+/// has counted yet (a room not started, a habit added today), that it goes
+/// at once. Then an undo bar: «تراجع» puts it back as if never removed.
+Future<void> _confirmRemoveSharedHabit(
+  BuildContext context,
+  WidgetRef ref,
+  RoomModel room,
+  int index,
+) async {
+  final s = S.of(context);
+  final gp = context.gp;
+  if (index < 0 || index >= room.sharedHabits.length) return;
+  final name = room.sharedHabits[index].name;
+  final now = DateTime.now();
+  final countedNothing = removalStopsOn(room: room, index: index, now: now) ==
+      now.startOfDay.toDateKey();
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(s.roomRemoveHabitConfirmTitle(name)),
+      content: Text(
+        countedNothing
+            ? s.roomRemoveHabitConfirmBodyNow
+            : s.roomRemoveHabitConfirmBody,
+        style: TextStyle(height: 1.45, color: gp.textSec),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(s.roomCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: GameColors.error,
+            foregroundColor: Colors.white,
+          ),
+          child: Text(s.roomRemoveHabitConfirmAction),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true || !context.mounted) return;
+  HapticFeedback.mediumImpact();
+  final controller = ref.read(roomsControllerProvider);
+  final result = await controller.removeSharedHabit(room, index);
+  if (!context.mounted) return;
+  switch (result) {
+    case RemoveSharedHabitResult.removed:
+      ScaffoldMessenger.of(context).showOne(
+        SnackBar(
+          content: Text(s.roomHabitRemovedSnack(name)),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          duration: const Duration(seconds: 6),
+          // Never pinned open. See AppSnackBar.
+          persist: false,
+          action: SnackBarAction(
+            label: s.undo,
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              controller.restoreSharedHabit(room, index, undo: true).ignore();
+            },
+          ),
+        ),
+      );
+    case RemoveSharedHabitResult.lastHabit:
+      await _showLastHabitDialog(context);
+    case RemoveSharedHabitResult.roomEnded:
+      ScaffoldMessenger.of(context)
+          .showOne(SnackBar(content: Text(s.roomPlanLockedEnded)));
+    case RemoveSharedHabitResult.alreadyRemoved:
+      ScaffoldMessenger.of(context)
+          .showOne(SnackBar(content: Text(s.roomRemoveHabitAlreadyRemoved)));
+    case RemoveSharedHabitResult.refused:
+      break;
+  }
+}
+
+/// The «إزالة عادة» list: the plan's habits still in it, each with its
+/// cadence, one tap to pick. Same sheet shape as pickOwnHabitSheet.
+class _RemovePlanHabitSheet extends StatelessWidget {
+  final RoomModel room;
+  final List<int> candidates;
+  const _RemovePlanHabitSheet({required this.room, required this.candidates});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+      decoration: BoxDecoration(
+        color: gp.surfaceHigh,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 4),
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+            child: Text(
+              s.roomRemoveHabitPickerTitle,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Text(
+              s.roomRemoveHabitPickerHint,
+              style: TextStyle(fontSize: 12, color: gp.textSec, height: 1.35),
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                20,
+                4,
+                20,
+                24 + MediaQuery.of(context).padding.bottom,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: gp.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: gp.border, width: 0.5),
+                ),
+                child: Column(
+                  children: [
+                    for (final (n, i) in candidates.indexed) ...[
+                      if (n != 0) Divider(height: 1, color: gp.border),
+                      InkWell(
+                        onTap: () => Navigator.of(context).pop(i),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                room.sharedHabits[i].category.icon,
+                                size: 16,
+                                color: gp.textSec,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  room.sharedHabits[i].name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: gp.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                room.sharedHabits[i].frequencyType ==
+                                        HabitFrequencyType.weekly
+                                    ? s.habitWeeklyTimes(
+                                        room.sharedHabits[i].frequencyTarget,
+                                      )
+                                    : s.habitDaily,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: gp.textTert,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Icon(
+                                Icons.remove_circle_outline_rounded,
+                                size: 18,
+                                color: context.gp.errorInk,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Flips this account's own [RoomParticipant.notificationsMuted] for [room]

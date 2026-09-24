@@ -209,12 +209,6 @@ abstract final class AchievementCatalog {
       titleAr: 'الشبكة',
       icon: Icons.grid_view_rounded,
     ),
-    AchievementFamily(
-      id: 'quran',
-      title: 'Daily Quran',
-      titleAr: 'ورد القرآن',
-      icon: Icons.menu_book_rounded,
-    ),
     // Appended, never inserted beside their sibling ladders:
     // achievements_screen.dart renders `families` in list order, so slotting
     // a new family beside its sibling ladder would silently reorder a
@@ -228,6 +222,15 @@ abstract final class AchievementCatalog {
     //
     // النَفَس carries the fatha on purpose: undiacritised نفس reads as نَفْس
     // (self) rather than نَفَس (breath).
+    //
+    // A family 'quran' («ورد القرآن»: 25, 100, 300 and 1000 of a Quran habit)
+    // sat after 'grid' until 2026-09-22, when Aziz had it removed. It counted
+    // categoryCompletions['quran'], which only the two built-in Quran presets
+    // ever fed: a Quran habit someone creates is saved under faith (see
+    // HabitCategory.toJson), so the ladder could never move for them, and 0
+    // of 121 accounts had earned a tier. habitMastery and targetCategory stay
+    // for a future category ladder; findById returns null for an old
+    // 'quran_*' id, as for 'ascent_*', and nothing renders.
     AchievementFamily(
       id: 'endurance',
       title: 'The Long Haul',
@@ -395,63 +398,6 @@ abstract final class AchievementCatalog {
       threshold: 5000,
       xpReward: 6000,
       goldReward: 1500,
-    ),
-    // ── Quran Devotion ───────────────────────────────────────────
-    AchievementModel(
-      id: 'quran_25',
-      familyId: 'quran',
-      tier: AchievementTier.bronze,
-      name: 'Never Misses a Reading',
-      nameAr: 'ما يفوته ورد',
-      description: 'A Quran habit, 25 times',
-      descriptionAr: 'عادة قرآن، 25 مرة',
-      trigger: AchievementTrigger.habitMastery,
-      threshold: 25,
-      xpReward: 150,
-      goldReward: 40,
-      targetCategory: 'quran',
-    ),
-    AchievementModel(
-      id: 'quran_100',
-      familyId: 'quran',
-      tier: AchievementTier.silver,
-      name: 'Keeper of the Reading',
-      nameAr: 'صاحب الورد',
-      description: 'A Quran habit, 100 times',
-      descriptionAr: 'عادة قرآن، 100 مرة',
-      trigger: AchievementTrigger.habitMastery,
-      threshold: 100,
-      xpReward: 750,
-      goldReward: 200,
-      targetCategory: 'quran',
-    ),
-    AchievementModel(
-      id: 'quran_300',
-      familyId: 'quran',
-      tier: AchievementTier.gold,
-      name: 'Companion of the Mushaf',
-      nameAr: 'رفيق المصحف',
-      description: 'A Quran habit, 300 times',
-      descriptionAr: 'عادة قرآن، 300 مرة',
-      trigger: AchievementTrigger.habitMastery,
-      threshold: 300,
-      xpReward: 2000,
-      goldReward: 500,
-      targetCategory: 'quran',
-    ),
-    AchievementModel(
-      id: 'quran_1000',
-      familyId: 'quran',
-      tier: AchievementTier.platinum,
-      name: 'Light upon Light',
-      nameAr: 'نور على نور',
-      description: 'A Quran habit, 1,000 times',
-      descriptionAr: 'عادة قرآن، 1000 مرة',
-      trigger: AchievementTrigger.habitMastery,
-      threshold: 1000,
-      xpReward: 5000,
-      goldReward: 1200,
-      targetCategory: 'quran',
     ),
     // ── Victory Grid ────────────────────────────────────────────
     AchievementModel(

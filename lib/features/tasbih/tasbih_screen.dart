@@ -197,6 +197,7 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
       habits: ref.read(habitListProvider),
       day: DateTime.now().effectiveDay,
       isGreen: ref.read(weeklyGridProvider).currentWeekGreen,
+      markOn: ref.read(weeklyGridProvider).currentWeekMark,
       alsoOwing: {habit.id},
     ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
     final isAr = Directionality.of(context) == TextDirection.rtl;
@@ -219,6 +220,8 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
                 // same day scores lower here than on the Grid.
                 halfDoneHabitIds:
                     ref.read(weeklyGridProvider).halfDoneTodayIds(),
+                skippedHabitIds:
+                    ref.read(weeklyGridProvider).skippedTodayIds(),
               ),
               scheduledHabitCount: todayHabits.length,
               category: habit.category.name,

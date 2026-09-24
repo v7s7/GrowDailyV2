@@ -433,6 +433,9 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       // The board on screen is today's, so a correction to another day must
       // not touch it — same split completeHabit makes.
       completions: isGraceDay ? null : newCompletions,
+      // Yesterday's own counts, as completeHabit keeps them.
+      graceCompletions: isGraceDay ? newCompletions : null,
+      graceDayKey: isGraceDay ? dayKey : null,
       categoryCompletions: newCategoryCompletions,
       totalGreenSquares: newTotalGreenSquares,
       dailyGreenCounts: newDailyGreenCounts,

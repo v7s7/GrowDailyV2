@@ -1,3 +1,4 @@
+import 'package:adhan_dart/adhan_dart.dart' as adhan;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -653,4 +654,195 @@ void main() {
       expect(PrayerTimesService.parseAladhanTime('3', day), isNull);
     });
   });
+
+  group('high latitude: the live path and its offline fallback agree', () {
+    // The two halves of PrayerTimesService.calculate used to disagree
+    // above roughly 48 degrees, and neither half had chosen to. Aladhan
+    // defaults to angle based; adhan_dart defaults to
+    // middleOfTheNight. So a Londoner online got one fajr and the same
+    // Londoner offline got another, 89 minutes apart on 2026-06-21, with
+    // the offline path putting fajr and isha on the SAME minute because
+    // middleOfTheNight clamps both to the midpoint of the night.
+    //
+    // Both sides now name the rule explicitly (see
+    // PrayerTimesService's _highLatitudeRule), so these tests pin the
+    // offline figures to the live ones rather than to whichever default
+    // either package happens to ship next.
+    //
+    // The live column below is what api.aladhan.com returned for the
+    // same request on 2026-06-21, Muslim World League, shafi. The steady
+    // one-minute lag is adhan_dart truncating seconds where Aladhan
+    // rounds them, not a disagreement about the rule.
+    const day = (year: 2026, month: 6, dayOfMonth: 21);
+    const places = [
+      (
+        zone: 'Europe/London',
+        latitude: 51.51,
+        longitude: -0.13,
+        fajr: '02:30',
+        isha: '23:26',
+        liveFajr: '02:31',
+        liveIsha: '23:27',
+      ),
+      (
+        zone: 'Europe/Stockholm',
+        latitude: 59.33,
+        longitude: 18.07,
+        fajr: '01:53',
+        isha: '23:39',
+        liveFajr: '01:54',
+        liveIsha: '23:40',
+      ),
+      (
+        zone: 'Europe/Oslo',
+        latitude: 59.91,
+        longitude: 10.75,
+        fajr: '02:20',
+        isha: '00:11',
+        liveFajr: '02:21',
+        liveIsha: '00:12',
+      ),
+    ];
+
+    tearDown(() => tz.setLocalLocation(tz.getLocation('Asia/Riyadh')));
+
+    for (final place in places) {
+      test('${place.zone} in June lands on the live figures, and fajr and '
+          'isha are separate times', () {
+        tz.setLocalLocation(tz.getLocation(place.zone));
+        final result = PrayerTimesService.calculateOffline(
+          latitude: place.latitude,
+          longitude: place.longitude,
+          date: DateTime(day.year, day.month, day.dayOfMonth),
+          method: PrayerCalcMethod.muslimWorldLeague,
+          madhab: PrayerMadhab.shafi,
+        );
+
+        expect(_hhmm(result.fajr), place.fajr);
+        expect(_hhmm(result.isha), place.isha);
+
+        // Within a minute of what the live request returns for the same
+        // inputs. This is the assertion the old bug would have failed,
+        // by 89, 64 and 62 minutes respectively.
+        expect(
+          _minutesApart(_hhmm(result.fajr), place.liveFajr),
+          lessThanOrEqualTo(1),
+        );
+        expect(
+          _minutesApart(_hhmm(result.isha), place.liveIsha),
+          lessThanOrEqualTo(1),
+        );
+
+        // middleOfTheNight's signature failure: both clamped to the same
+        // instant, so a phone offline in London in June armed fajr and
+        // isha for one minute.
+        expect(result.fajr, isNot(equals(result.isha)));
+        expect(result.maghrib.isBefore(result.isha), isTrue);
+        expect(result.fajr.isBefore(result.sunrise), isTrue);
+      });
+    }
+
+    test('the rule is what separates them: middleOfTheNight collapses '
+        "London's fajr and isha onto one minute", () {
+      // Not testing our code — testing that the London case above is
+      // actually sensitive to the rule, so those goldens cannot silently
+      // pass under the old default.
+      final collapsed = adhan.PrayerTimes(
+        coordinates: const adhan.Coordinates(51.51, -0.13),
+        date: DateTime(day.year, day.month, day.dayOfMonth),
+        calculationParameters:
+            adhan.CalculationMethodParameters.muslimWorldLeague()
+              ..highLatitudeRule = adhan.HighLatitudeRule.middleOfTheNight,
+        precision: true,
+      );
+      final separated = adhan.PrayerTimes(
+        coordinates: const adhan.Coordinates(51.51, -0.13),
+        date: DateTime(day.year, day.month, day.dayOfMonth),
+        calculationParameters:
+            adhan.CalculationMethodParameters.muslimWorldLeague()
+              ..highLatitudeRule = adhan.HighLatitudeRule.twilightAngle,
+        precision: true,
+      );
+
+      // Midnight-clamped fajr and isha are the same wall-clock minute a
+      // day apart.
+      expect(collapsed.fajr.hour, collapsed.isha.hour);
+      expect(collapsed.fajr.minute, collapsed.isha.minute);
+      expect(separated.fajr.hour, isNot(separated.isha.hour));
+    });
+
+    test('below the high-latitude band the rule changes nothing at all, '
+        'so every verified region computes exactly as before', () {
+      // Manama, mid-summer: the clamp never fires because real fajr is
+      // always later than any night portion, so the two rules return the
+      // identical instant. This is why switching the rule could not move
+      // Bahrain, the UAE or any other entry in _regions.
+      for (final coordinates in [
+        const adhan.Coordinates(26.2285, 50.586), // Manama
+        const adhan.Coordinates(24.4539, 54.3773), // Abu Dhabi
+        const adhan.Coordinates(21.3891, 39.8579), // Mecca
+      ]) {
+        final middle = adhan.PrayerTimes(
+          coordinates: coordinates,
+          date: DateTime(day.year, day.month, day.dayOfMonth),
+          calculationParameters:
+              adhan.CalculationMethodParameters.muslimWorldLeague()
+                ..highLatitudeRule = adhan.HighLatitudeRule.middleOfTheNight,
+          precision: true,
+        );
+        final angle = adhan.PrayerTimes(
+          coordinates: coordinates,
+          date: DateTime(day.year, day.month, day.dayOfMonth),
+          calculationParameters:
+              adhan.CalculationMethodParameters.muslimWorldLeague()
+                ..highLatitudeRule = adhan.HighLatitudeRule.twilightAngle,
+          precision: true,
+        );
+
+        expect(angle.fajr, middle.fajr);
+        expect(angle.isha, middle.isha);
+      }
+    });
+
+    test('both Aladhan endpoints state the rule in the request, rather '
+        'than inheriting a remote default', () {
+      final day1 = PrayerTimesService.aladhanRequestUri(
+        latitude: 51.51,
+        longitude: -0.13,
+        date: DateTime(2026, 6, 21),
+        method: PrayerCalcMethod.muslimWorldLeague,
+        madhab: PrayerMadhab.shafi,
+      );
+      final month = PrayerTimesService.aladhanCalendarUri(
+        latitude: 51.51,
+        longitude: -0.13,
+        year: 2026,
+        month: 6,
+        method: PrayerCalcMethod.muslimWorldLeague,
+        madhab: PrayerMadhab.shafi,
+      );
+
+      // 3 is Aladhan's ANGLE_BASED, the spelling of
+      // HighLatitudeRule.twilightAngle. The two endpoints must agree, or
+      // a day read from the month calendar would differ from the same
+      // day read on its own.
+      expect(day1.queryParameters['latitudeAdjustmentMethod'], '3');
+      expect(month.queryParameters['latitudeAdjustmentMethod'], '3');
+    });
+  });
+}
+
+String _hhmm(tz.TZDateTime value) =>
+    '${value.hour.toString().padLeft(2, '0')}:'
+    '${value.minute.toString().padLeft(2, '0')}';
+
+int _minutesApart(String a, String b) {
+  int toMinutes(String hhmm) {
+    final parts = hhmm.split(':');
+    return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+  }
+
+  final diff = (toMinutes(a) - toMinutes(b)).abs();
+  // A pair straddling midnight is a minute apart, not 1439.
+  return diff > 720 ? 1440 - diff : diff;
 }

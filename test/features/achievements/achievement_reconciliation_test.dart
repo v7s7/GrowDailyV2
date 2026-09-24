@@ -103,14 +103,15 @@ void main() {
         'level_10', // level 12
         'completions_50', 'completions_500', // 600 completions
         'green_1', 'green_100', // 150 squares
-        'quran_25', // the category-fix case
       ]),
     );
     // Thresholds genuinely not reached stay locked.
     expect(unlocked, isNot(contains('level_25')));
     expect(unlocked, isNot(contains('completions_2000')));
     expect(unlocked, isNot(contains('green_500')));
-    expect(unlocked, isNot(contains('quran_100')));
+    // The Quran ladder was removed on 2026-09-22: a stored Quran count
+    // awards nothing any more.
+    expect(unlocked.where((id) => id.startsWith('quran_')), isEmpty);
     // Streak is 0 here, so no streak tier may appear.
     expect(unlocked.where((id) => id.startsWith('streak_')), isEmpty);
   });

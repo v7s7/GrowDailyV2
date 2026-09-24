@@ -11,6 +11,7 @@ import '../../../shared/widgets/history_demo_gate.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show weeklyGridProvider;
+import '../../habits/models/habit_day_demand.dart' show runsOnExcusing;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/models/habit_model.dart'
@@ -229,10 +230,17 @@ class _HabitDetailSheetState extends ConsumerState<_HabitDetailSheet> {
     //
     // `best` stays raw on purpose. A lifetime best is a record, not a claim
     // about now, and records do not go stale.
+    // A day of its plan that a session on another day of the same week stood
+    // in for is not a miss (see moved_day_plan.dart), so it does not zero the
+    // streak either. Read off the same marks this sheet draws.
     final streak = dash.habitStreak(
       habit.id,
       scheduledWeekdays: habit.scheduledWeekdays.toSet(),
-      runsOn: habit.runsOn,
+      runsOn: runsOnExcusing(
+        habit,
+        (id, day) => (marks[day.toDateKey()] ?? SquareState.none).isGreen,
+        markOn: (id, day) => marks[day.toDateKey()] ?? SquareState.none,
+      ),
     );
     final best = dash.habitLongestStreaks[habit.id] ?? 0;
 

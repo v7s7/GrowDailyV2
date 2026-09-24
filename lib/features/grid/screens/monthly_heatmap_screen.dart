@@ -103,6 +103,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
     final now = inputs.now;
     final counts = inputs.counts;
     final isGreen = inputs.isGreen;
+    final markOn = inputs.markOn;
     final failedOpenDays = inputs.failedOpenDays;
     final noteDays = inputs.noteDays;
 
@@ -207,6 +208,7 @@ class _MonthlyHeatmapScreenState extends ConsumerState<MonthlyHeatmapScreen> {
                           counts: counts,
                           habits: habits,
                           isGreen: isGreen,
+                          markOn: markOn,
                           today: today,
                           now: now,
                           failedOpenDays: failedOpenDays,
@@ -423,7 +425,14 @@ int _todayDoneCount(
   final gridKnowsToday = grid.weekStart == startOfGridWeek(today);
   var done = 0;
   for (final h in habits) {
-    if (!h.isScheduledFor(today)) continue;
+    // A session on a day off a specific-days plan counts on its own day (see
+    // moved_day_plan.dart), and the denominator already takes it through
+    // habitOwesDay, so today's numerator has to see it too.
+    final offPlanToday = !h.isScheduledFor(today) &&
+        h.isAliveOn(today) &&
+        gridKnowsToday &&
+        grid.squareFor(h.id, today).isGreen;
+    if (!h.isScheduledFor(today) && !offPlanToday) continue;
     final target = h.frequencyTarget < 1 ? 1 : h.frequencyTarget;
     final byCount = (completions[h.id] ?? 0) >= target;
     final bySquare = gridKnowsToday && grid.squareFor(h.id, today).isGreen;
@@ -438,6 +447,7 @@ typedef HeatmapInputs = ({
   Map<String, int> counts,
   List<IslamicHabitTemplate> habits,
   GreenOnDay isGreen,
+  MarkOnDay markOn,
   Set<String> failedOpenDays,
   Map<String, Set<int>> noteDays,
   DateTime now,
@@ -575,6 +585,15 @@ HeatmapInputs watchHeatmapInputs(WidgetRef ref, {bool withNotes = true}) {
         ? grid.squareFor(id, day)
         : null,
   );
+  // The whole mark, over the same two sources, for the one question a green
+  // cannot answer: whether a planned day a moved session could stand in for
+  // was left empty, or marked by the person (see moved_day_plan.dart).
+  final markOn = markFromMirror(
+    ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+    live: (id, day) => grid.weekStart == startOfGridWeek(day)
+        ? grid.squareFor(id, day)
+        : null,
+  );
 
   // The days still open that already hold a فشل, which settles its day at
   // once. See heatmapFailedOpenDays.
@@ -602,6 +621,7 @@ HeatmapInputs watchHeatmapInputs(WidgetRef ref, {bool withNotes = true}) {
     counts: counts,
     habits: habits,
     isGreen: isGreen,
+    markOn: markOn,
     failedOpenDays: failedOpenDays,
     noteDays: noteDays,
     now: now,
@@ -692,6 +712,9 @@ class HeatmapMonthSection extends StatelessWidget {
   /// Which days a flexible weekly quota banked a session on, for
   /// [heatmapScheduledOn]. See its doc comment.
   final GreenOnDay isGreen;
+
+  /// The whole mark, for [heatmapScheduledOn]'s moved-session reading.
+  final MarkOnDay markOn;
   final DateTime today;
 
   /// The day clock, for which days are still open (see _HeatCell.settled).
@@ -714,12 +737,22 @@ class HeatmapMonthSection extends StatelessWidget {
   /// Days of THIS month that carry writing, from the note index.
   final Set<int> noteDays;
 
+  /// Days of THIS month to mark as the month's best (a star) and weakest (a
+  /// ring), from [dayExtremes]. Empty on the map, which names no days.
+  final Set<int> bestDays;
+  final Set<int> weakestDays;
+
+  /// Drawn inside the card under the grid, where سجلّي's «شهر» tab names
+  /// the marked days.
+  final Widget? footer;
+
   const HeatmapMonthSection({
     super.key,
     required this.month,
     required this.counts,
     required this.habits,
     required this.isGreen,
+    required this.markOn,
     required this.today,
     required this.now,
     required this.failedOpenDays,
@@ -728,6 +761,9 @@ class HeatmapMonthSection extends StatelessWidget {
     required this.onTapDay,
     this.onTapMonth,
     this.showHeader = true,
+    this.bestDays = const {},
+    this.weakestDays = const {},
+    this.footer,
   });
 
   @override
@@ -894,6 +930,12 @@ class HeatmapMonthSection extends StatelessWidget {
               ],
             ),
           ),
+          if (footer != null) ...[
+            const SizedBox(height: 12),
+            Container(height: 0.5, color: gp.border),
+            const SizedBox(height: 4),
+            footer!,
+          ],
         ],
       ),
     );
@@ -903,7 +945,7 @@ class HeatmapMonthSection extends StatelessWidget {
     final count = counts[day.toDateKey()] ?? 0;
     // Named rather than inlined so the "no archived filter" rule has one
     // place to live and one place to be tested — see heatmapScheduledOn.
-    final scheduled = heatmapScheduledOn(habits, day, isGreen);
+    final scheduled = heatmapScheduledOn(habits, day, isGreen, markOn: markOn);
     return _HeatCell(
       day: day,
       count: count,
@@ -918,6 +960,8 @@ class HeatmapMonthSection extends StatelessWidget {
       // effectiveDay hasn't caught up yet — see DateTimeGameExt.isRealToday.
       isFuture: day.isAfter(today) && !day.isRealToday,
       hasNote: noteDays.contains(day.day),
+      isBest: bestDays.contains(day.day),
+      isWeakest: weakestDays.contains(day.day),
       onTap: onTapDay,
     );
   }
@@ -1009,13 +1053,27 @@ enum _DayFill { rest, empty, partial, full }
 /// the days it was done, and the days skipping it put the target out of
 /// reach. [isGreen] is what tells those apart, hence the extra argument:
 /// nothing about one day can answer it.
+///
+/// A specific-days habit is windowed the same way in a week that holds a
+/// session on one of its off days: that session stands in for one of its
+/// empty planned days, which then owes nothing (see moved_day_plan.dart).
+/// [markOn] keeps a day the person marked themselves out of that; without
+/// it every day that is not green reads as empty.
 int heatmapScheduledOn(
   List<IslamicHabitTemplate> habits,
   DateTime day,
-  GreenOnDay isGreen,
-) =>
+  GreenOnDay isGreen, {
+  MarkOnDay? markOn,
+}) =>
     habits
-        .where((h) => habitOwesDay(habit: h, day: day, isGreen: isGreen))
+        .where(
+          (h) => habitOwesDay(
+            habit: h,
+            day: day,
+            isGreen: isGreen,
+            markOn: markOn,
+          ),
+        )
         .length;
 
 /// The days still open at [now] that already hold an explicit فشل for one
@@ -1091,6 +1149,11 @@ class _HeatCell extends StatelessWidget {
   /// per habit: this cell is a picture of the whole day.
   final bool hasNote;
 
+  /// The month's best day (a star) or weakest day (a ring), see
+  /// HeatmapMonthSection.bestDays.
+  final bool isBest;
+  final bool isWeakest;
+
   const _HeatCell({
     required this.day,
     required this.count,
@@ -1100,6 +1163,8 @@ class _HeatCell extends StatelessWidget {
     required this.isFuture,
     required this.hasNote,
     required this.onTap,
+    this.isBest = false,
+    this.isWeakest = false,
   });
 
   /// The bar is solid, never translucent. Opacity on a near-black card is
@@ -1252,6 +1317,28 @@ class _HeatCell extends StatelessWidget {
                               : (isRest ? gp.textTert : gp.textPrimary),
                         ),
                       ),
+                    // The leading corner of the same 12pt number strip, so
+                    // neither mark can meet the note wedge or the bar.
+                    if (isBest)
+                      Positioned(
+                        top: 1,
+                        left: 1.5,
+                        child: Icon(Icons.star_rounded,
+                            size: 10.5, color: gp.goldInk),
+                      ),
+                    if (isWeakest)
+                      Positioned(
+                        top: 2.5,
+                        left: 2.5,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: gp.textSec, width: 1.4),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -1322,6 +1409,7 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     Map<String, dynamic> doc,
     List<IslamicHabitTemplate> habits,
     GreenOnDay isGreen,
+    MarkOnDay markOn,
     bool isAr,
     String deletedLabel,
   ) {
@@ -1387,7 +1475,12 @@ class _HeatDayDetailSheet extends ConsumerWidget {
     // cell did not count, or the reverse. A blank row outside it says «غير
     // مطلوب» rather than «لم يكتمل»: 13 September listed تمرين as not done on
     // the second day of its own 4x week.
-    final owed = owedHabitIdsOn(habits: habits, day: day, isGreen: isGreen);
+    final owed = owedHabitIdsOn(
+      habits: habits,
+      day: day,
+      isGreen: isGreen,
+      markOn: markOn,
+    );
 
     final outcomes = <_DayHabitOutcome>[
       for (final id in ids)
@@ -1450,6 +1543,11 @@ class _HeatDayDetailSheet extends ConsumerWidget {
       live: (id, d) =>
           grid.weekStart == startOfGridWeek(d) ? grid.squareFor(id, d) : null,
     );
+    final markOn = markFromMirror(
+      ref.watch(habitYearHistoryProvider).asData?.value ?? const {},
+      live: (id, d) =>
+          grid.weekStart == startOfGridWeek(d) ? grid.squareFor(id, d) : null,
+    );
     // Whether this day can still be marked. Its blank habits are not misses
     // yet, so they say «مطلوب» instead (see _OutcomeRow.stillOpen).
     final stillOpen = !day.isSettledAt(ref.watch(dayClockProvider));
@@ -1506,6 +1604,7 @@ class _HeatDayDetailSheet extends ConsumerWidget {
                     snap.data!,
                     habits,
                     isGreen,
+                    markOn,
                     s.isAr,
                     s.gridJournalDeletedHabit,
                   );

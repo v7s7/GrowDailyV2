@@ -648,9 +648,30 @@ function slotFloorFor(participant, habitId) {
 }
 
 /**
+ * Whether shared slot [i] is in [room]'s plan on [dayKey] as far as the
+ * leader's plan edits go (RoomHabitTemplate.liveOn in the app, slotLiveOn in
+ * functions/room_health.js): not inside an `offSpans` stretch, and before
+ * `stopsOn` when the leader removed it. A removal with no `stopsOn` is a
+ * legacy one (before 2026-09-22, or dedupe_plan_slot.js) and counts on no
+ * day at all.
+ */
+function slotLiveOnDay(room, i, dayKey) {
+  if ((room || {}).habitMode !== 'shared') return true;
+  const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
+  if (i < 0 || i >= shared.length) return true;
+  const t = shared[i] || {};
+  const spans = Array.isArray(t.offSpans) ? t.offSpans : [];
+  if (spans.some((s) => s && s.from <= dayKey && dayKey <= s.to)) return false;
+  if (!t.removedAt) return true;
+  if (typeof t.stopsOn !== 'string') return false;
+  return dayKey < t.stopsOn;
+}
+
+/**
  * Whether this room counted [habitId] for this member on [dayKey]: linked,
- * not declined, not withdrawn from a shared plan by the leader, and past the
- * day its own rule starts.
+ * not declined, in the shared plan that day (a habit the leader removed
+ * still counts on its removal day and before, see slotLiveOnDay), and past
+ * the day its own rule starts.
  *
  * This is the question the ledger's "Counts where" column was never asking.
  * It printed "Rooms count it" for any green square, so Hoor's المشي on
@@ -664,9 +685,7 @@ function roomCountsHabitOn({ room, participant, habitId, dayKey }) {
   const shared = Array.isArray((room || {}).sharedHabits) ? room.sharedHabits : [];
   const i = linked.indexOf(habitId);
   if (i < 0 || habitId === DECLINED_SLOT) return false;
-  if ((room || {}).habitMode === 'shared' && i < shared.length && shared[i] && shared[i].removedAt) {
-    return false;
-  }
+  if (i < shared.length && !slotLiveOnDay(room, i, dayKey)) return false;
   if (p.leftAt) return false;
   const floor = slotFloorFor(p, habitId);
   if (floor && dayKey < floor) return false;

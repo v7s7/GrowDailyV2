@@ -144,34 +144,82 @@ function clipSpansToPast(spans, todayKey) {
 }
 
 /**
+ * Whether shared slot [i] of [room] is in the plan on [dayKey] as far as the
+ * leader's plan edits go: RoomHabitTemplate.liveOn in the app. Not inside an
+ * `offSpans` stretch, and before `stopsOn` if the leader removed it. A
+ * removal with no `stopsOn` is a legacy one (before 2026-09-22, or
+ * dedupe_plan_slot.js) and counts on no day at all.
+ * @param {object} room The room doc's data.
+ * @param {number} i The slot index.
+ * @param {string} dayKey "YYYY-MM-DD".
+ * @return {boolean}
+ */
+function slotLiveOn(room, i, dayKey) {
+  if (room.habitMode !== "shared") return true;
+  const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
+  if (i < 0 || i >= shared.length) return true;
+  const t = shared[i] || {};
+  const spans = Array.isArray(t.offSpans) ? t.offSpans : [];
+  if (spans.some((s) => s && s.from <= dayKey && dayKey <= s.to)) return false;
+  if (!t.removedAt) return true;
+  if (typeof t.stopsOn !== "string") return false;
+  return dayKey < t.stopsOn;
+}
+
+/**
  * The linked habit ids that actually count for a participant: every slot
- * except one the person declined and, in a shared-plan room, one the
- * leader has removed. The same filter diagnose_room.js applies.
+ * except one the person declined and, in a shared-plan room, one the leader
+ * has taken out of the plan. The same filter diagnose_room.js applies.
+ *
+ * With [dayKey], the ids whose slot is in the plan THAT day (a habit the
+ * leader removed still counts on its removal day and the days before, see
+ * slotLiveOn). Without it, every id graded on SOME day: all but a legacy
+ * removal.
  * @param {object} room The room doc's data.
  * @param {object} part The participant doc's data.
+ * @param {string} [dayKey] "YYYY-MM-DD".
  * @return {Array<string>}
  */
-function countingHabitIds(room, part) {
+function countingHabitIds(room, part, dayKey) {
   const linked = Array.isArray(part.linkedHabitIds) ? part.linkedHabitIds : [];
   const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
   return linked.filter((id, i) => {
     if (id === DECLINED) return false;
-    const removed = room.habitMode === "shared" && i < shared.length &&
-        !!shared[i].removedAt;
-    return !removed;
+    if (room.habitMode !== "shared" || i >= shared.length) return true;
+    if (dayKey !== undefined) return slotLiveOn(room, i, dayKey);
+    const t = shared[i] || {};
+    return !(t.removedAt && typeof t.stopsOn !== "string");
   });
 }
+
+/**
+ * How long after its last day an ended room is still checked. Two weekly runs
+ * at least (the lookback is wider than the gap between runs), after which a
+ * room that ended keeps nothing new to find.
+ */
+const ENDED_ROOM_CHECK_DAYS = 14;
 
 /**
  * The closed days of a room worth re-checking: the last [lookback] days of
  * the room's window that ended before [lastClosedKey], skipping days the
  * room was paused on.
+ *
+ * Nothing for a room that ended more than ENDED_ROOM_CHECK_DAYS before
+ * [lastClosedKey]. No room is ever marked ended, so every room ever finished
+ * came back each Monday to have its same last days re-read for every member,
+ * a cost that grew with every room forever (2026-09-22). Its final days were
+ * already checked by at least two earlier runs, and a room its leader
+ * extends has a later endKey and is checked again.
  * @param {{startKey: string, endKey: (string|null), pausedSpans: Array}} r
  * @param {string} lastClosedKey The newest day that has fully closed.
  * @param {number} lookback How many closed days back to look.
  * @return {Array<string>}
  */
 function closedDaysToCheck(r, lastClosedKey, lookback) {
+  if (r.endKey &&
+      r.endKey < shiftKey(lastClosedKey, -ENDED_ROOM_CHECK_DAYS)) {
+    return [];
+  }
   const last = r.endKey && r.endKey < lastClosedKey ? r.endKey : lastClosedKey;
   if (last < r.startKey) return [];
   const spans = Array.isArray(r.pausedSpans) ? r.pausedSpans : [];
@@ -231,12 +279,14 @@ function closedDaysToCheck(r, lastClosedKey, lookback) {
  * that a held day was first opened on time.
  * @param {number} [args.offsetMinutes] The member's phone offset, positive
  * east of UTC. Defaults to Asia/Bahrain.
+ * @param {object} [args.room] The room doc's data. When given, each day is
+ * checked against the habits in the plan that day (slotLiveOn).
  * @return {Array<{day: string, real: number, stored: number, held: boolean,
  * why: string}>} `held` days are reported for information and must never be
  * handed a set_room_day.js command.
  */
 function undercountedDays({days, countingIds, squaresByDay, part,
-  lastUpdatedByDay, createdByDay, offsetMinutes}) {
+  lastUpdatedByDay, createdByDay, offsetMinutes, room}) {
   const done = part.dailyDoneCount || {};
   const scheduled = part.dailyScheduledCount || {};
   const stood = new Set(Array.isArray(part.standDownDays) ?
@@ -275,7 +325,14 @@ function undercountedDays({days, countingIds, squaresByDay, part,
     // A day the sync recorded as owing nothing (rest day) cannot be short.
     if (scheduled[day] === 0) continue;
     const squares = squaresByDay[day] || {};
-    const real = countingIds.filter((id) => {
+    // Only the habits in the plan that day: one the leader removed is not
+    // owed after its removal day, and its green square there is the
+    // member's own business. Without [room] every day reads the same set,
+    // as before.
+    const dayIds = room ?
+      countingHabitIds(room, part, day).filter((id) => countingIds.includes(id)) :
+      countingIds;
+    const real = dayIds.filter((id) => {
       const floor = floors.get(id);
       if (floor !== null && floor !== undefined && day < floor) return false;
       // The whole-day rest test above only catches a day where EVERY habit
@@ -324,6 +381,7 @@ module.exports = {
   clipSpansToPast,
   closedDaysToCheck,
   countingHabitIds,
+  slotLiveOn,
   keyOf,
   shiftKey,
   todayKeyIn,

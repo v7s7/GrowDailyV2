@@ -627,9 +627,12 @@ MatrixCellState cellStateFor({
     // cell and the number beside it always agree about which days count.
     // Asked of the schedule the habit had ON [day] (missIsAttributableOn), so
     // a habit made daily this week does not turn last week's rest into a miss.
+    // A planned day a session on another day of its week stood in for
+    // (demand `earned`, see moved_day_plan.dart) is covered, not missed.
     SquareState.none =>
       missIsAttributableOn(stat.habit, day) &&
               stat.habit.isScheduledFor(day) &&
+              demand != DayDemand.earned &&
               day.isSettledAt(now ?? DateTime.now())
           ? MatrixCellState.missed
           : isCoveredDay(
@@ -662,6 +665,8 @@ List<MatrixCellState> weekCellStates({
     habit: stat.habit,
     days: weekDays,
     isGreenAt: (i) => stat.markOn(weekDays[i]).isGreen,
+    isUnmarkedAt: (i) => stat.markOn(weekDays[i]) == SquareState.none,
+    now: now,
   );
   return [
     for (var i = 0; i < weekDays.length; i++)

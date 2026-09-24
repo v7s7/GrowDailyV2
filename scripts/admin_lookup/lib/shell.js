@@ -270,6 +270,9 @@ function sidebar({ active, inPageViews = false, projectId = '', counts = {} } = 
     <div class="nav-label">Change</div>
     <a class="nav-item${active === 'wording' ? ' active' : ''}" href="/wording">${icon('languages')}<span>Wording</span></a>
     <a class="nav-item${active === 'achievements' ? ' active' : ''}" href="/achievements">${icon('trophy')}<span>Achievements</span></a>
+    <a class="nav-item${active === 'creators' ? ' active' : ''}" href="/creators">${icon('ticket')}<span>Creators</span></a>
+    <a class="nav-item${active === 'sale' ? ' active' : ''}" href="/sale">${icon('tag')}<span>Sale</span></a>
+    <a class="nav-item${active === 'messages' ? ' active' : ''}" href="/messages">${icon('megaphone')}<span>Messages</span></a>
     <div class="side-foot">
       <span class="env-pill">${icon('radio', 12)} PRODUCTION</span><br>
       ${projectId ? `<code>${projectId}</code><br>` : ''}

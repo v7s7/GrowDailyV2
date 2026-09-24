@@ -354,15 +354,20 @@ void main() {
     return DateTime(at.year, at.month, at.day, at.hour, at.minute);
   }
 
-  // ONE evening notification, id 1010. The streak ask, the daily reminder's
-  // board line and the quit habits' check-ins are sentences inside it now,
-  // not three notifications inside half an hour — see scheduleEveningNote.
+  // ONE evening notification, id 1010. The streak ask and the daily
+  // reminder's board line are sentences inside it, not notifications inside
+  // half an hour of each other — see scheduleEveningNote. Quit habits are
+  // not in it at all since 2026-09-24.
   group('the evening note, where it is armed', () {
+    // Each test starts on a phone that has never had an evening note: the
+    // service is a singleton, and what one test armed would otherwise read
+    // as already gone out in the next.
+    setUp(() => NotificationService.instance.debugResetEveningRecord());
+
     Future<void> recompute({
       required bool earned,
       required DateTime now,
       NotificationSettings? with_,
-      List<QuitCheckInInput> quit = const [],
     }) =>
         NotificationService.instance.scheduleEveningNote(
           settings: with_ ?? settings,
@@ -373,7 +378,6 @@ void main() {
           done: 2,
           total: 5,
           pendingBuildHabitCount: 3,
-          quitHabits: quit,
           isAr: true,
           now: now,
         );
@@ -402,39 +406,20 @@ void main() {
       );
     });
 
-    // A quit habit is a sentence in the same banner, not one banner each.
-    test('quit habits ride along in the one note', () async {
-      await recompute(
-        earned: false,
-        now: fridayAhead(18),
-        quit: [
-          (id: 'a', name: 'تدخين', isLimit: false, isResolvedToday: false),
-          (id: 'b', name: 'قهوة', isLimit: true, isResolvedToday: false),
-        ],
-      );
+    // Aziz, 2026-09-24: a quit habit notifies only through a reminder the
+    // person set for it. The note has no quit sentence, no quit buttons, and
+    // always opens Today.
+    test('never asks about a quit habit, and opens Today', () async {
+      await recompute(earned: false, now: fridayAhead(18));
       final note = armedUnder(1010).single;
-      expect(note['body'], endsWith('وعندك عادتين تسجّلهن، التزام أو زلة.'));
+      expect(note['body'], isNot(contains('التزام')));
+      expect(note['body'], isNot(contains('التزمت')));
+      expect(note['payload'], NotificationService.openTodayPayload);
       expect(
         pending.where((id) => id >= 70000 && id < 71000),
         isEmpty,
-        reason: 'two quit habits used to mean two more banners, both '
-            'stamped the same minute as the streak note',
+        reason: 'the retired per-quit-habit band stays empty',
       );
-    });
-
-    // With exactly one waiting, the banner keeps that habit's two buttons,
-    // so the day can still be settled without opening the app.
-    test('a lone quit habit keeps its actions and its payload', () async {
-      await recompute(
-        earned: false,
-        now: fridayAhead(18),
-        quit: [
-          (id: 'habit-a', name: 'تدخين', isLimit: false, isResolvedToday: false),
-        ],
-      );
-      final note = armedUnder(1010).single;
-      expect(note['body'], endsWith('و«تدخين»: التزمت اليوم؟'));
-      expect(note['payload'], 'habit-a');
     });
 
     test("once today's point is earned, the streak ask gives way to the "
@@ -574,6 +559,71 @@ void main() {
       expect(cancelled(), contains(1010));
     });
 
+    // Page item 7 (2026-09-24): the note came at 20:30, the time was moved
+    // to 21:00, and a second one came at 21:00.
+    group('one note a night', () {
+      Future<void> at(DateTime now, {required int hour, int minute = 0}) =>
+          NotificationService.instance.scheduleEveningNote(
+            settings: settings,
+            hour: hour,
+            minute: minute,
+            streak: 7,
+            streakEarnedToday: false,
+            done: 2,
+            total: 5,
+            pendingBuildHabitCount: 3,
+            isAr: true,
+            now: now,
+          );
+      int todaysFallback(DateTime day) => 1000 + day.weekday;
+
+      test('a time moved later after it came brings no second one', () async {
+        final friday = fridayAhead(18);
+        await at(friday, hour: 20, minute: 30);
+        expect(pending, contains(1010));
+        pending.remove(1010); // 20:30: delivered
+        notificationCalls.clear();
+
+        final quarterTo9 = DateTime(friday.year, friday.month, friday.day, 20, 45);
+        await at(quarterTo9, hour: 21);
+        expect(armedUnder(1010), isEmpty,
+            reason: 'tonight already had its note at 20:30');
+        expect(pending, isNot(contains(todaysFallback(friday))),
+            reason: "and today's weekly copy must not stand in for it");
+
+        // Tomorrow starts over, at the new time.
+        notificationCalls.clear();
+        final saturday = DateTime(friday.year, friday.month, friday.day + 1, 18);
+        await at(saturday, hour: 21);
+        final note = armedUnder(1010).single;
+        expect(firesAt(note),
+            DateTime(saturday.year, saturday.month, saturday.day, 21));
+      });
+
+      test('a time moved before it came moves it', () async {
+        final friday = fridayAhead(18);
+        await at(friday, hour: 20, minute: 30);
+        notificationCalls.clear();
+        final seven = DateTime(friday.year, friday.month, friday.day, 19);
+        await at(seven, hour: 21);
+        final note = armedUnder(1010).single;
+        expect(firesAt(note),
+            DateTime(friday.year, friday.month, friday.day, 21));
+      });
+
+      test('switched off and on again the same night stays one', () async {
+        final friday = fridayAhead(18);
+        await at(friday, hour: 20, minute: 30);
+        pending.remove(1010); // 20:30: delivered
+        await NotificationService.instance.cancelDailyReminder(
+            now: DateTime(friday.year, friday.month, friday.day, 20, 40));
+        notificationCalls.clear();
+        await at(DateTime(friday.year, friday.month, friday.day, 20, 50),
+            hour: 21);
+        expect(armedUnder(1010), isEmpty);
+      });
+    });
+
     // Every pass clears the ids the merge retired, so a phone upgrading
     // from a build that armed them does not keep hearing them tonight.
     test('the retired streak and quit ids are swept', () async {
@@ -597,7 +647,8 @@ void main() {
 
     Future<void> recompute(DateTime now) =>
         NotificationService.instance.scheduleWeeklyDigest(
-          settings: settings,
+          settings: settings.copyWith(weeklyNoteOn: true),
+          hasHabits: true,
           topHabit: top,
           longestStreak: 14,
           isAr: true,
@@ -731,7 +782,8 @@ void main() {
 
     test('switched off, every id the note can hold is cleared', () async {
       await NotificationService.instance.scheduleWeeklyDigest(
-        settings: settings.copyWith(weeklyDigestEnabled: false),
+        settings: settings.copyWith(weeklyNoteOn: false),
+        hasHabits: true,
         topHabit: top,
         longestStreak: 14,
         isAr: true,
@@ -742,6 +794,39 @@ void main() {
         {9000, 9001, 9002},
         reason: 'exactly the ids weeklyNotePlan can arm, and no id it cannot',
       );
+    });
+
+    // Page items 5 and 8 (2026-09-24): on for everyone from the start, and
+    // sent to accounts with no habit at all, a signed-out phone included.
+    test('never chosen, nothing is armed', () async {
+      await NotificationService.instance.scheduleWeeklyDigest(
+        settings: settings, // the defaults: off until chosen
+        hasHabits: true,
+        topHabit: top,
+        longestStreak: 14,
+        isAr: true,
+        now: fridayAhead(15),
+      );
+      expect(const NotificationSettings().weeklyNoteOn, isFalse);
+      expect(armedUnder(9000), isEmpty);
+      expect(armedUnder(9001), isEmpty);
+      expect(armedUnder(9002), isEmpty);
+    });
+
+    test('chosen but with no habit, every id is cleared', () async {
+      await recompute(fridayAhead(15));
+      expect(pending.where((id) => id >= 9000 && id < 9010), isNotEmpty);
+      notificationCalls.clear();
+      await NotificationService.instance.scheduleWeeklyDigest(
+        settings: settings.copyWith(weeklyNoteOn: true),
+        hasHabits: false,
+        topHabit: null,
+        longestStreak: 14,
+        isAr: true,
+        now: fridayAhead(15),
+      );
+      expect(pending.where((id) => id >= 9000 && id < 9010), isEmpty);
+      expect(armedUnder(9000), isEmpty);
     });
 
     test('a Grid pinned to another week, and back, leaves one copy tonight',
@@ -759,7 +844,8 @@ void main() {
       // than firing at 19:00 with a count nothing can vouch for.
       notificationCalls.clear();
       await NotificationService.instance.scheduleWeeklyDigest(
-        settings: settings,
+        settings: settings.copyWith(weeklyNoteOn: true),
+        hasHabits: true,
         topHabit: null,
         longestStreak: 14,
         isAr: true,
@@ -795,7 +881,8 @@ void main() {
       // The Grid is on the new week now, so topHabit is null — the reading
       // that would otherwise swap in the claim-free copy.
       await NotificationService.instance.scheduleWeeklyDigest(
-        settings: settings,
+        settings: settings.copyWith(weeklyNoteOn: true),
+        hasHabits: true,
         topHabit: null,
         longestStreak: 14,
         isAr: true,

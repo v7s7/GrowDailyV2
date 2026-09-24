@@ -257,6 +257,16 @@ const List<String> kEditableWordingKeys = [
   'addRemainingPlanHabits',
   'browsePlans',
   'dailyReminder',
+  'dailyReminderPromptTitle',
+  'dailyReminderPromptBody',
+  'dailyReminderPromptAfterIsha',
+  'dailyReminderPromptOtherTime',
+  'dailyReminderPromptLater',
+  'dailyReminderPromptNever',
+  'dailyReminderPromptSettingsHint',
+  'dailyReminderPromptLastAsk',
+  'dailyReminderPromptLastHint',
+  'dailyReminderSetToast',
   'tapToSetReminder',
   'reminderPermissionDenied',
   'noHabitsYet',
@@ -654,6 +664,7 @@ const List<String> kEditableWordingKeys = [
   'heatmapTotalGreen',
   'heatmapActiveDays',
   'heatmapBestDay',
+  'heatmapWeakestDay',
   'heatmapLess',
   'heatmapMore',
   'gridSectionBuild',
@@ -661,6 +672,9 @@ const List<String> kEditableWordingKeys = [
   'gridFullRow',
   'perfectDayMsg',
   'weeklyRecapTitle',
+  'weeklyNoteOfferAsk',
+  'weeklyNoteOfferYes',
+  'weeklyNoteOfferNo',
   'weeklyRecapThisWeek',
   'weeklyRecapLastWeek',
   'weeklyRecapNeedsLove',
@@ -790,6 +804,19 @@ const List<String> kEditableWordingKeys = [
   'premiumSave',
   'premiumBestValueBadge',
   'premiumCta',
+  'premiumWelcomeTitle',
+  'premiumWelcomeEndsIn',
+  'premiumSaleEndsIn',
+  'premiumCountdownDays',
+  'premiumCountdownHours',
+  'premiumCountdownMinutes',
+  'premiumCountdownSeconds',
+  'premiumCountdownSpoken',
+  'premiumThenPrice',
+  'premiumRegularPriceSpoken',
+  'premiumWelcomeFinePrint',
+  'premiumSaleFinePrint',
+  'premiumHaveCode',
   'premiumLifetimeOwned',
   'premiumRestore',
   'premiumRetry',
@@ -982,9 +1009,28 @@ const List<String> kEditableWordingKeys = [
   'roomSkippedLabel',
   'roomSkippedHint',
   'roomCancel',
-  'roomRemoveSharedHabit',
-  'roomRemoveSharedHabitConfirm',
-  'roomRemovedLabel',
+  'roomRemoveHabitAction',
+  'roomRemoveHabitPickerTitle',
+  'roomRemoveHabitPickerHint',
+  'roomRemoveHabitConfirmTitle',
+  'roomRemoveHabitConfirmBody',
+  'roomRemoveHabitConfirmBodyNow',
+  'roomRemoveHabitConfirmAction',
+  'roomHabitRemovedSnack',
+  'roomRemoveLastHabitTitle',
+  'roomRemoveLastHabitBody',
+  'roomRemoveHabitAlreadyRemoved',
+  'roomPlanLockedEnded',
+  'roomLastDayLabel',
+  'roomHabitRestoredSnack',
+  'roomPlanNoticeTitle',
+  'roomPlanNoticeRemovedToday',
+  'roomPlanNoticeRemoved',
+  'roomPlanNoticeKeptHabit',
+  'roomPlanNoticeDaysKept',
+  'roomPlanNoticeRestored',
+  'roomPlanNoticeOk',
+  'roomPlanNoticeOpenRoom',
   'roomPlanPartialCreditHint',
   'roomTeamProgressTitle',
   'roomTeamProgressDays',
@@ -1051,6 +1097,17 @@ const List<String> kEditableWordingKeys = [
   'habitPauseAnywayAction',
   'habitEdit',
   'habitActionsCancel',
+  'restDayTitle',
+  'restDayOffPlan',
+  'restDayCoveredBySession',
+  'restDayQuotaMet',
+  'restDayNotNeeded',
+  'restDayCovers',
+  'restDayExtra',
+  'restDayQuotaCounts',
+  'restDayNoPoints',
+  'restDayWithPoints',
+  'restDayConfirm',
   'habitPause',
   'habitPauseHint',
   'pauseUntilTitle',
@@ -1097,8 +1154,6 @@ const List<String> kEditableWordingKeys = [
   'roomExtendAction',
   'roomExtendTitle',
   'roomCadenceWeekly',
-  'notifRoomNudges',
-  'notifRoomNudgesDesc',
   'roomCadenceDaily',
   'roomExtendBody',
   'roomExtended',
@@ -1136,7 +1191,6 @@ const List<String> kEditableWordingKeys = [
   'notifQuietAppliesToPrayer',
   'notifQuietAppliesToPrayerDesc',
   'notifTimingSection',
-  'notifStreakRiskTime',
   'notifSendTest',
   'notifTestSent',
   'prayerLocationTitle',
@@ -1297,8 +1351,10 @@ const List<String> kBuiltInOnlyWordingKeys = [
   'rewardsEffort',
   'gridGreenSquaresCount',
   'squareStateEffect',
+  'heatmapDaysOfMonth',
   'insightDetailRate',
   'premiumLifetimeBreakEven',
+  'premiumOfferPercent',
   'premiumTrialLine',
   'roomNameSuggestions',
   'roomPlanSelectedCount',
@@ -2465,6 +2521,50 @@ class _EditedS extends S {
 
   @override
   String get dailyReminder => plainWording(_edits['dailyReminder']) ?? super.dailyReminder;
+
+  @override
+  String get dailyReminderPromptTitle => plainWording(_edits['dailyReminderPromptTitle']) ?? super.dailyReminderPromptTitle;
+
+  @override
+  String get dailyReminderPromptBody => plainWording(_edits['dailyReminderPromptBody']) ?? super.dailyReminderPromptBody;
+
+  @override
+  String get dailyReminderPromptAfterIsha => plainWording(_edits['dailyReminderPromptAfterIsha']) ?? super.dailyReminderPromptAfterIsha;
+
+  @override
+  String get dailyReminderPromptOtherTime => plainWording(_edits['dailyReminderPromptOtherTime']) ?? super.dailyReminderPromptOtherTime;
+
+  @override
+  String get dailyReminderPromptLater => plainWording(_edits['dailyReminderPromptLater']) ?? super.dailyReminderPromptLater;
+
+  @override
+  String get dailyReminderPromptNever => plainWording(_edits['dailyReminderPromptNever']) ?? super.dailyReminderPromptNever;
+
+  @override
+  String get dailyReminderPromptSettingsHint => plainWording(_edits['dailyReminderPromptSettingsHint']) ?? super.dailyReminderPromptSettingsHint;
+
+  @override
+  String get dailyReminderPromptLastAsk => plainWording(_edits['dailyReminderPromptLastAsk']) ?? super.dailyReminderPromptLastAsk;
+
+  @override
+  String get dailyReminderPromptLastHint => plainWording(_edits['dailyReminderPromptLastHint']) ?? super.dailyReminderPromptLastHint;
+
+  @override
+  String dailyReminderSetToast(String time) {
+    final wordingEdit = _edits['dailyReminderSetToast'];
+    if (wordingEdit == null) return super.dailyReminderSetToast(time);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'time': () => '$time',
+                }
+              : <String, String Function()>{
+                  'time': () => '$time',
+                },
+        ) ??
+        super.dailyReminderSetToast(time);
+  }
 
   @override
   String get tapToSetReminder => plainWording(_edits['tapToSetReminder']) ?? super.tapToSetReminder;
@@ -4363,6 +4463,9 @@ class _EditedS extends S {
   String get heatmapBestDay => plainWording(_edits['heatmapBestDay']) ?? super.heatmapBestDay;
 
   @override
+  String get heatmapWeakestDay => plainWording(_edits['heatmapWeakestDay']) ?? super.heatmapWeakestDay;
+
+  @override
   String get heatmapLess => plainWording(_edits['heatmapLess']) ?? super.heatmapLess;
 
   @override
@@ -4396,6 +4499,15 @@ class _EditedS extends S {
 
   @override
   String get weeklyRecapTitle => plainWording(_edits['weeklyRecapTitle']) ?? super.weeklyRecapTitle;
+
+  @override
+  String get weeklyNoteOfferAsk => plainWording(_edits['weeklyNoteOfferAsk']) ?? super.weeklyNoteOfferAsk;
+
+  @override
+  String get weeklyNoteOfferYes => plainWording(_edits['weeklyNoteOfferYes']) ?? super.weeklyNoteOfferYes;
+
+  @override
+  String get weeklyNoteOfferNo => plainWording(_edits['weeklyNoteOfferNo']) ?? super.weeklyNoteOfferNo;
 
   @override
   String get weeklyRecapThisWeek => plainWording(_edits['weeklyRecapThisWeek']) ?? super.weeklyRecapThisWeek;
@@ -5067,6 +5179,123 @@ class _EditedS extends S {
 
   @override
   String get premiumCta => plainWording(_edits['premiumCta']) ?? super.premiumCta;
+
+  @override
+  String get premiumWelcomeTitle => plainWording(_edits['premiumWelcomeTitle']) ?? super.premiumWelcomeTitle;
+
+  @override
+  String get premiumWelcomeEndsIn => plainWording(_edits['premiumWelcomeEndsIn']) ?? super.premiumWelcomeEndsIn;
+
+  @override
+  String get premiumSaleEndsIn => plainWording(_edits['premiumSaleEndsIn']) ?? super.premiumSaleEndsIn;
+
+  @override
+  String get premiumCountdownDays => plainWording(_edits['premiumCountdownDays']) ?? super.premiumCountdownDays;
+
+  @override
+  String get premiumCountdownHours => plainWording(_edits['premiumCountdownHours']) ?? super.premiumCountdownHours;
+
+  @override
+  String get premiumCountdownMinutes => plainWording(_edits['premiumCountdownMinutes']) ?? super.premiumCountdownMinutes;
+
+  @override
+  String get premiumCountdownSeconds => plainWording(_edits['premiumCountdownSeconds']) ?? super.premiumCountdownSeconds;
+
+  @override
+  String premiumCountdownSpoken(String left) {
+    final wordingEdit = _edits['premiumCountdownSpoken'];
+    if (wordingEdit == null) return super.premiumCountdownSpoken(left);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'left': () => '$left',
+                }
+              : <String, String Function()>{
+                  'left': () => '$left',
+                },
+        ) ??
+        super.premiumCountdownSpoken(left);
+  }
+
+  @override
+  String premiumThenPrice(String price) {
+    final wordingEdit = _edits['premiumThenPrice'];
+    if (wordingEdit == null) return super.premiumThenPrice(price);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'price': () => '$price',
+                }
+              : <String, String Function()>{
+                  'price': () => '$price',
+                },
+        ) ??
+        super.premiumThenPrice(price);
+  }
+
+  @override
+  String premiumRegularPriceSpoken(String price) {
+    final wordingEdit = _edits['premiumRegularPriceSpoken'];
+    if (wordingEdit == null) return super.premiumRegularPriceSpoken(price);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'price': () => '$price',
+                }
+              : <String, String Function()>{
+                  'price': () => '$price',
+                },
+        ) ??
+        super.premiumRegularPriceSpoken(price);
+  }
+
+  @override
+  String premiumWelcomeFinePrint(String offer, String until, String regular) {
+    final wordingEdit = _edits['premiumWelcomeFinePrint'];
+    if (wordingEdit == null) return super.premiumWelcomeFinePrint(offer, until, regular);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'offer': () => '$offer',
+                  'until': () => '$until',
+                  'regular': () => '$regular',
+                }
+              : <String, String Function()>{
+                  'offer': () => '$offer',
+                  'until': () => '$until',
+                  'regular': () => '$regular',
+                },
+        ) ??
+        super.premiumWelcomeFinePrint(offer, until, regular);
+  }
+
+  @override
+  String premiumSaleFinePrint(String offer, String until, String regular) {
+    final wordingEdit = _edits['premiumSaleFinePrint'];
+    if (wordingEdit == null) return super.premiumSaleFinePrint(offer, until, regular);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'offer': () => '$offer',
+                  'until': () => '$until',
+                  'regular': () => '$regular',
+                }
+              : <String, String Function()>{
+                  'offer': () => '$offer',
+                  'until': () => '$until',
+                  'regular': () => '$regular',
+                },
+        ) ??
+        super.premiumSaleFinePrint(offer, until, regular);
+  }
+
+  @override
+  String get premiumHaveCode => plainWording(_edits['premiumHaveCode']) ?? super.premiumHaveCode;
 
   @override
   String get premiumLifetimeOwned => plainWording(_edits['premiumLifetimeOwned']) ?? super.premiumLifetimeOwned;
@@ -5907,12 +6136,18 @@ class _EditedS extends S {
   String get roomCancel => plainWording(_edits['roomCancel']) ?? super.roomCancel;
 
   @override
-  String get roomRemoveSharedHabit => plainWording(_edits['roomRemoveSharedHabit']) ?? super.roomRemoveSharedHabit;
+  String get roomRemoveHabitAction => plainWording(_edits['roomRemoveHabitAction']) ?? super.roomRemoveHabitAction;
 
   @override
-  String roomRemoveSharedHabitConfirm(String habitName) {
-    final wordingEdit = _edits['roomRemoveSharedHabitConfirm'];
-    if (wordingEdit == null) return super.roomRemoveSharedHabitConfirm(habitName);
+  String get roomRemoveHabitPickerTitle => plainWording(_edits['roomRemoveHabitPickerTitle']) ?? super.roomRemoveHabitPickerTitle;
+
+  @override
+  String get roomRemoveHabitPickerHint => plainWording(_edits['roomRemoveHabitPickerHint']) ?? super.roomRemoveHabitPickerHint;
+
+  @override
+  String roomRemoveHabitConfirmTitle(String habitName) {
+    final wordingEdit = _edits['roomRemoveHabitConfirmTitle'];
+    if (wordingEdit == null) return super.roomRemoveHabitConfirmTitle(habitName);
     return fillWording(
           wordingEdit,
           isAr
@@ -5923,11 +6158,136 @@ class _EditedS extends S {
                   'habitName': () => '$habitName',
                 },
         ) ??
-        super.roomRemoveSharedHabitConfirm(habitName);
+        super.roomRemoveHabitConfirmTitle(habitName);
   }
 
   @override
-  String get roomRemovedLabel => plainWording(_edits['roomRemovedLabel']) ?? super.roomRemovedLabel;
+  String get roomRemoveHabitConfirmBody => plainWording(_edits['roomRemoveHabitConfirmBody']) ?? super.roomRemoveHabitConfirmBody;
+
+  @override
+  String get roomRemoveHabitConfirmBodyNow => plainWording(_edits['roomRemoveHabitConfirmBodyNow']) ?? super.roomRemoveHabitConfirmBodyNow;
+
+  @override
+  String get roomRemoveHabitConfirmAction => plainWording(_edits['roomRemoveHabitConfirmAction']) ?? super.roomRemoveHabitConfirmAction;
+
+  @override
+  String roomHabitRemovedSnack(String habitName) {
+    final wordingEdit = _edits['roomHabitRemovedSnack'];
+    if (wordingEdit == null) return super.roomHabitRemovedSnack(habitName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'habitName': () => '$habitName',
+                }
+              : <String, String Function()>{
+                  'habitName': () => '$habitName',
+                },
+        ) ??
+        super.roomHabitRemovedSnack(habitName);
+  }
+
+  @override
+  String get roomRemoveLastHabitTitle => plainWording(_edits['roomRemoveLastHabitTitle']) ?? super.roomRemoveLastHabitTitle;
+
+  @override
+  String get roomRemoveLastHabitBody => plainWording(_edits['roomRemoveLastHabitBody']) ?? super.roomRemoveLastHabitBody;
+
+  @override
+  String get roomRemoveHabitAlreadyRemoved => plainWording(_edits['roomRemoveHabitAlreadyRemoved']) ?? super.roomRemoveHabitAlreadyRemoved;
+
+  @override
+  String get roomPlanLockedEnded => plainWording(_edits['roomPlanLockedEnded']) ?? super.roomPlanLockedEnded;
+
+  @override
+  String get roomLastDayLabel => plainWording(_edits['roomLastDayLabel']) ?? super.roomLastDayLabel;
+
+  @override
+  String roomHabitRestoredSnack(String habitName) {
+    final wordingEdit = _edits['roomHabitRestoredSnack'];
+    if (wordingEdit == null) return super.roomHabitRestoredSnack(habitName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'habitName': () => '$habitName',
+                }
+              : <String, String Function()>{
+                  'habitName': () => '$habitName',
+                },
+        ) ??
+        super.roomHabitRestoredSnack(habitName);
+  }
+
+  @override
+  String get roomPlanNoticeTitle => plainWording(_edits['roomPlanNoticeTitle']) ?? super.roomPlanNoticeTitle;
+
+  @override
+  String roomPlanNoticeRemovedToday(String habitName, String roomName) {
+    final wordingEdit = _edits['roomPlanNoticeRemovedToday'];
+    if (wordingEdit == null) return super.roomPlanNoticeRemovedToday(habitName, roomName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'habitName': () => '$habitName',
+                  'roomName': () => '$roomName',
+                }
+              : <String, String Function()>{
+                  'habitName': () => '$habitName',
+                  'roomName': () => '$roomName',
+                },
+        ) ??
+        super.roomPlanNoticeRemovedToday(habitName, roomName);
+  }
+
+  @override
+  String roomPlanNoticeRemoved(String habitName, String roomName) {
+    final wordingEdit = _edits['roomPlanNoticeRemoved'];
+    if (wordingEdit == null) return super.roomPlanNoticeRemoved(habitName, roomName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'habitName': () => '$habitName',
+                  'roomName': () => '$roomName',
+                }
+              : <String, String Function()>{
+                  'habitName': () => '$habitName',
+                  'roomName': () => '$roomName',
+                },
+        ) ??
+        super.roomPlanNoticeRemoved(habitName, roomName);
+  }
+
+  @override
+  String get roomPlanNoticeKeptHabit => plainWording(_edits['roomPlanNoticeKeptHabit']) ?? super.roomPlanNoticeKeptHabit;
+
+  @override
+  String get roomPlanNoticeDaysKept => plainWording(_edits['roomPlanNoticeDaysKept']) ?? super.roomPlanNoticeDaysKept;
+
+  @override
+  String roomPlanNoticeRestored(String habitName) {
+    final wordingEdit = _edits['roomPlanNoticeRestored'];
+    if (wordingEdit == null) return super.roomPlanNoticeRestored(habitName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'habitName': () => '$habitName',
+                }
+              : <String, String Function()>{
+                  'habitName': () => '$habitName',
+                },
+        ) ??
+        super.roomPlanNoticeRestored(habitName);
+  }
+
+  @override
+  String get roomPlanNoticeOk => plainWording(_edits['roomPlanNoticeOk']) ?? super.roomPlanNoticeOk;
+
+  @override
+  String get roomPlanNoticeOpenRoom => plainWording(_edits['roomPlanNoticeOpenRoom']) ?? super.roomPlanNoticeOpenRoom;
 
   @override
   String roomPlanPartialCreditHint(int n) {
@@ -6406,6 +6766,115 @@ class _EditedS extends S {
   String get habitActionsCancel => plainWording(_edits['habitActionsCancel']) ?? super.habitActionsCancel;
 
   @override
+  String get restDayTitle => plainWording(_edits['restDayTitle']) ?? super.restDayTitle;
+
+  @override
+  String restDayOffPlan(String day, String habit) {
+    final wordingEdit = _edits['restDayOffPlan'];
+    if (wordingEdit == null) return super.restDayOffPlan(day, habit);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'day': () => '$day',
+                  'habit': () => '$habit',
+                }
+              : <String, String Function()>{
+                  'day': () => '$day',
+                  'habit': () => '$habit',
+                },
+        ) ??
+        super.restDayOffPlan(day, habit);
+  }
+
+  @override
+  String restDayCoveredBySession(String day) {
+    final wordingEdit = _edits['restDayCoveredBySession'];
+    if (wordingEdit == null) return super.restDayCoveredBySession(day);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'day': () => '$day',
+                }
+              : <String, String Function()>{
+                  'day': () => '$day',
+                },
+        ) ??
+        super.restDayCoveredBySession(day);
+  }
+
+  @override
+  String restDayQuotaMet(int done, int target) {
+    final wordingEdit = _edits['restDayQuotaMet'];
+    if (wordingEdit == null) return super.restDayQuotaMet(done, target);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'done': () => '$done',
+                  'target': () => '$target',
+                }
+              : <String, String Function()>{
+                  'done': () => '$done',
+                  'target': () => '$target',
+                },
+        ) ??
+        super.restDayQuotaMet(done, target);
+  }
+
+  @override
+  String get restDayNotNeeded => plainWording(_edits['restDayNotNeeded']) ?? super.restDayNotNeeded;
+
+  @override
+  String restDayCovers(String day) {
+    final wordingEdit = _edits['restDayCovers'];
+    if (wordingEdit == null) return super.restDayCovers(day);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'day': () => '$day',
+                }
+              : <String, String Function()>{
+                  'day': () => '$day',
+                },
+        ) ??
+        super.restDayCovers(day);
+  }
+
+  @override
+  String get restDayExtra => plainWording(_edits['restDayExtra']) ?? super.restDayExtra;
+
+  @override
+  String restDayQuotaCounts(int after, int target) {
+    final wordingEdit = _edits['restDayQuotaCounts'];
+    if (wordingEdit == null) return super.restDayQuotaCounts(after, target);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'after': () => '$after',
+                  'target': () => '$target',
+                }
+              : <String, String Function()>{
+                  'after': () => '$after',
+                  'target': () => '$target',
+                },
+        ) ??
+        super.restDayQuotaCounts(after, target);
+  }
+
+  @override
+  String get restDayNoPoints => plainWording(_edits['restDayNoPoints']) ?? super.restDayNoPoints;
+
+  @override
+  String get restDayWithPoints => plainWording(_edits['restDayWithPoints']) ?? super.restDayWithPoints;
+
+  @override
+  String get restDayConfirm => plainWording(_edits['restDayConfirm']) ?? super.restDayConfirm;
+
+  @override
   String get habitPause => plainWording(_edits['habitPause']) ?? super.habitPause;
 
   @override
@@ -6712,12 +7181,6 @@ class _EditedS extends S {
   }
 
   @override
-  String get notifRoomNudges => plainWording(_edits['notifRoomNudges']) ?? super.notifRoomNudges;
-
-  @override
-  String get notifRoomNudgesDesc => plainWording(_edits['notifRoomNudgesDesc']) ?? super.notifRoomNudgesDesc;
-
-  @override
   String get roomCadenceDaily => plainWording(_edits['roomCadenceDaily']) ?? super.roomCadenceDaily;
 
   @override
@@ -6827,9 +7290,6 @@ class _EditedS extends S {
 
   @override
   String get notifTimingSection => plainWording(_edits['notifTimingSection']) ?? super.notifTimingSection;
-
-  @override
-  String get notifStreakRiskTime => plainWording(_edits['notifStreakRiskTime']) ?? super.notifStreakRiskTime;
 
   @override
   String get notifSendTest => plainWording(_edits['notifSendTest']) ?? super.notifSendTest;

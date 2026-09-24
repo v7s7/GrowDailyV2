@@ -15,6 +15,8 @@ import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../../core/providers/day_clock_provider.dart'
+    show dayClockSourceProvider;
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/providers/nav_layout_provider.dart' show NavTab;
@@ -56,6 +58,7 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../models/covered_day.dart';
+import '../models/rest_day_tap.dart';
 import '../models/square_state.dart';
 import '../notifiers/square_audit.dart'
     show kSquareSourcePalette, kSquareSourceTap, kSquareSourceTapUndo;

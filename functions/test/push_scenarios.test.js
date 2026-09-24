@@ -6,8 +6,8 @@
  * RULES in isolation: quiet hours and one push of each kind per day. Neither
  * says what a real day feels like when they compose: a person in five rooms,
  * a room of a hundred where most members arrived muted, a finisher at Fajr,
- * two time zones in one room, the same finish reported twice, and the
- * evening sweep after a silent day.
+ * two time zones in one room, the same finish reported twice, a push held
+ * past someone's quiet hours, and a day finished after midnight.
  *
  * So this file rebuilds the callable's and the sweep's orchestration over
  * an in-memory world (users, rooms, participant docs, quota maps), calling
@@ -27,8 +27,11 @@ const {roomEventFor} = require("../room_events");
 const {
   KIND_CAPS,
   claimQuota,
+  heldUntilMs,
   isQuietHoursNow,
+  localDayKey,
   pushKindFor,
+  roomPushPlan,
 } = require("../push_policy");
 
 const AUTO_MUTE_LIMIT = 12;
@@ -40,14 +43,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const bahrain = (hour, minute = 0) =>
   Date.UTC(2026, 8, 5, hour - 3, minute);
 
-/** Same rule as index.js: the recipient's own calendar day. */
-function localDayKey(tzOffsetMinutes, nowMs) {
-  const offset = typeof tzOffsetMinutes === "number" ? tzOffsetMinutes : 0;
-  return new Date(nowMs + offset * 60 * 1000).toISOString().slice(0, 10);
-}
-
 function makeWorld() {
-  return {users: new Map(), rooms: new Map(), sent: []};
+  return {users: new Map(), rooms: new Map(), sent: [], held: []};
 }
 
 /**
@@ -90,12 +87,15 @@ function addRoom(world, code, uids, opts = {}) {
 /**
  * One member finishes their habits in one room: the client's own write,
  * then exactly what notifyRoomFinish does with it.
+ * @param {object} [opts] dayKey: the day finished, when it is not the
+ *     finisher's calendar day (a day finished after midnight, in the app's
+ *     00:00 to 10:00 window, is yesterday's).
  * @return {object} What happened, in the callable's own terms.
  */
-function finish(world, code, uid, nowMs) {
+function finish(world, code, uid, nowMs, opts = {}) {
   const room = world.rooms.get(code);
   const me = world.users.get(uid);
-  const dayKey = localDayKey(me.tz, nowMs);
+  const dayKey = opts.dayKey || localDayKey(me.tz, nowMs);
   const mine = room.participants.get(uid);
   // RoomsController writes allDoneToday/allDoneDate, then calls.
   mine.allDoneToday = true;
@@ -120,7 +120,8 @@ function finish(world, code, uid, nowMs) {
   const out = {
     event: decision.event,
     sent: [],
-    skipped: {muted: 0, quiet: 0, noToken: 0, capped: 0},
+    held: [],
+    skipped: {muted: 0, pastDay: 0, noToken: 0, capped: 0},
     reads: 0,
   };
   for (const doc of decision.recipients) {
@@ -131,8 +132,24 @@ function finish(world, code, uid, nowMs) {
       continue;
     }
     out.reads++; // isEligible: the user doc
-    if (isQuietHoursNow(u.settings, u.tz, nowMs)) {
-      out.skipped.quiet++;
+    const quiet = isQuietHoursNow(u.settings, u.tz, nowMs);
+    const atMs = quiet ? heldUntilMs(u.settings, u.tz, nowMs) : null;
+    const plan = roomPushPlan({
+      event: decision.event,
+      dayKey,
+      readerToday: localDayKey(u.tz, nowMs),
+      quiet,
+      heldUntilDay: quiet ? localDayKey(u.tz, atMs) : undefined,
+    });
+    if (plan.action === "drop") {
+      out.skipped.pastDay++;
+      continue;
+    }
+    if (plan.action === "hold") {
+      out.held.push(doc.id);
+      world.held.push(
+          {uid: doc.id, code, event: decision.event, dayKey, finisher: uid,
+            atMs});
       continue;
     }
     out.reads++; // the tokens subcollection
@@ -141,15 +158,72 @@ function finish(world, code, uid, nowMs) {
       continue;
     }
     out.reads++; // the quota transaction
-    const theirDay = localDayKey(u.tz, nowMs);
-    const claim = claimQuota(u.quota, theirDay, kind);
+    const claim = claimQuota(u.quota, plan.quotaDay, kind);
     if (!claim.allowed) {
       out.skipped.capped++;
       continue;
     }
     u.quota = claim.next;
     out.sent.push(doc.id);
-    world.sent.push({uid: doc.id, code, event: decision.event, kind, nowMs});
+    world.sent.push({uid: doc.id, code, event: decision.event, kind, nowMs,
+      yesterday: plan.yesterday});
+  }
+  return out;
+}
+
+/**
+ * Cloud Tasks firing every held push due by [nowMs]: what
+ * deliverDeferredRoomPush does with each, over the in-memory world. The
+ * push is decided afresh, the way the real one is: the reader's day now,
+ * and the room's own decision for the day the push is about, run again.
+ * @return {Array<object>} One entry per push that came due, with `sent` or
+ *     `dropped` (the reason).
+ */
+function deliverHeld(world, nowMs) {
+  const due = world.held.filter((h) => h.atMs <= nowMs);
+  world.held = world.held.filter((h) => h.atMs > nowMs);
+  const out = [];
+  for (const h of due) {
+    const u = world.users.get(h.uid);
+    const room = world.rooms.get(h.code);
+    if (isQuietHoursNow(u.settings, u.tz, nowMs)) {
+      out.push({...h, dropped: "still-quiet"});
+      continue;
+    }
+    const plan = roomPushPlan(
+        {event: h.event, dayKey: h.dayKey, readerToday: localDayKey(u.tz, nowMs)});
+    if (plan.action !== "send") {
+      out.push({...h, dropped: plan.reason});
+      continue;
+    }
+    const others = [...room.participants.entries()]
+        .filter(([id]) => id !== h.finisher)
+        .map(([id, data]) => ({id, data: () => data}));
+    // The room's own decision, run again, for the finish events. (A held
+    // "habit was added" is checked against its slot instead, which this
+    // world does not model.)
+    const decision = h.event === "habitAdded" ?
+      null : roomEventFor(others, h.dayKey);
+    if (h.event !== "habitAdded" && (!decision ||
+        decision.event !== h.event ||
+        !decision.recipients.some((d) => d.id === h.uid))) {
+      out.push({...h, dropped: "no-longer-true"});
+      continue;
+    }
+    if (!u.token) {
+      out.push({...h, dropped: "no-token"});
+      continue;
+    }
+    const kind = pushKindFor(h.event);
+    const claim = claimQuota(u.quota, plan.quotaDay, kind);
+    if (!claim.allowed) {
+      out.push({...h, dropped: "capped"});
+      continue;
+    }
+    u.quota = claim.next;
+    world.sent.push({uid: h.uid, code: h.code, event: h.event, kind, nowMs,
+      yesterday: plan.yesterday});
+    out.push({...h, sent: true, yesterday: plan.yesterday});
   }
   return out;
 }
@@ -382,7 +456,7 @@ test("last one standing in five rooms is one nudge for the whole day",
 
 // ── Clocks ───────────────────────────────────────────────────────────────
 
-test("a Fajr finish wakes nobody with default settings, and is still spent",
+test("a Fajr finish wakes nobody with default settings: held to 07:02",
     () => {
       const world = makeWorld();
       const members = uids(5);
@@ -394,7 +468,12 @@ test("a Fajr finish wakes nobody with default settings, and is still spent",
       const r = finish(world, "R", "u0", bahrain(4, 30));
       assert.equal(r.event, "firstToday");
       assert.deepEqual(r.sent, ["u4"]);
-      assert.equal(r.skipped.quiet, 3);
+      assert.deepEqual(r.held.sort(), ["u1", "u2", "u3"],
+          "still the same day when their quiet hours end, so it waits");
+      // 07:02: the day is still the one the heads-up is about, and none of
+      // the three has finished, so each hears it then.
+      const morning = deliverHeld(world, bahrain(7, 2));
+      assert.deepEqual(morning.map((h) => h.sent), [true, true, true]);
 
       // A second finisher at 08:00 does not re-fire the heads-up for the
       // three who slept through it: the event was claimed.
@@ -419,7 +498,7 @@ test("two time zones in one room are judged on their own clocks", () => {
   const r = finish(world, "R", "bh0", nowMs);
   assert.equal(r.event, "firstToday");
   assert.deepEqual(r.sent.sort(), ["la0", "la1"]);
-  assert.equal(r.skipped.quiet, 1);
+  assert.deepEqual(r.held, ["bh1"]);
   // Their quota is charged to THEIR day, which is still the 4th.
   assert.equal(world.users.get("la0").quota.date, "2026-09-04");
 });
@@ -503,4 +582,113 @@ test("a solo room and a room where nothing happens send nothing", () => {
   // used to be the exception here; it was removed on 2026-09-16, and a
   // room that stays quiet now stays quiet.
   assert.equal(world.sent.length, 0);
+});
+
+// ── A push about a day that is over (Aziz, 2026-09-24) ──────────────────
+
+test("23 Sep in PBYAS5: no stale morning push, and today's slot stays free",
+    () => {
+      const world = makeWorld();
+      addUser(world, "aziz", {settings: {quietHoursEnabled: false}});
+      // نور never mirrored her settings: the default 22:00 to 07:00 window.
+      addUser(world, "noor");
+      addRoom(world, "PBYAS5", ["aziz", "noor"]);
+
+      const r1 = finish(world, "PBYAS5", "aziz", bahrain(22, 39));
+      assert.equal(r1.event, "lastOne");
+      assert.equal(r1.skipped.pastDay, 1,
+          "held to 07:02 it would be about yesterday, so it is not held");
+      assert.equal(world.held.length, 0);
+
+      const r2 = finish(world, "PBYAS5", "noor", bahrain(23, 47));
+      assert.equal(r2.event, "perfect");
+      assert.deepEqual(r2.sent, ["aziz"]);
+
+      // The next morning brings her nothing. It used to bring «سوي عادتك
+      // الحين» at 07:02 about the day she had finished at 23:47.
+      assert.deepEqual(deliverHeld(world, bahrain(7, 2) + DAY_MS), []);
+      assert.equal(world.sent.filter((s) => s.uid === "noor").length, 0);
+
+      // And the next evening's real last one reaches her. The held push
+      // used to claim this day's nudge slot at 07:02 and cap it.
+      const r3 = finish(world, "PBYAS5", "aziz", bahrain(18) + DAY_MS);
+      assert.equal(r3.event, "lastOne");
+      assert.deepEqual(r3.sent, ["noor"]);
+    });
+
+test("a perfect day finished in someone's quiet hours is not saved for " +
+    "the morning", () => {
+  // Aziz, 2026-09-24: a celebration of yesterday arriving the next morning
+  // has no benefit.
+  const world = makeWorld();
+  addUser(world, "a");
+  addUser(world, "b", {settings: {quietHoursEnabled: false}});
+  addRoom(world, "R", ["a", "b"]);
+  finish(world, "R", "a", bahrain(21));
+  const r = finish(world, "R", "b", bahrain(23, 10));
+  assert.equal(r.event, "perfect");
+  assert.deepEqual(r.held, []);
+  assert.equal(r.skipped.pastDay, 1);
+  assert.deepEqual(deliverHeld(world, bahrain(7, 2) + DAY_MS), []);
+  assert.equal(world.users.get("a").quota, undefined,
+      "nothing was sent, so nothing was counted");
+});
+
+test("a day finished after midnight sends nothing about yesterday", () => {
+  const world = makeWorld();
+  addUser(world, "a", {settings: {quietHoursEnabled: false}});
+  addUser(world, "b", {settings: {quietHoursEnabled: false}});
+  addRoom(world, "R", ["a", "b"]);
+  // a finishes the 5th at 00:33 on the 6th, inside the app's window for
+  // finishing yesterday (rooms_notifier.dart finishDayKey).
+  const r1 = finish(world, "R", "a", bahrain(0, 33) + DAY_MS,
+      {dayKey: "2026-09-05"});
+  assert.equal(r1.event, "lastOne");
+  assert.deepEqual(r1.sent, []);
+  assert.equal(r1.skipped.pastDay, 1,
+      "«سوي عادتك الحين» after midnight would point at the wrong day");
+
+  const r2 = finish(world, "R", "b", bahrain(0, 50) + DAY_MS,
+      {dayKey: "2026-09-05"});
+  assert.equal(r2.event, "perfect");
+  assert.deepEqual(r2.sent, []);
+  assert.equal(r2.skipped.pastDay, 1);
+  assert.equal(world.sent.length, 0);
+});
+
+test("a held same-day push is dropped when its reader finished meanwhile",
+    () => {
+      const world = makeWorld();
+      // A daytime window: quiet 13:00 to 15:00, so a hold stays same-day.
+      const nap = {quietHoursEnabled: true, quietHoursStart: "13:0",
+        quietHoursEnd: "15:0"};
+      addUser(world, "a");
+      addUser(world, "b", {settings: nap});
+      addRoom(world, "R", ["a", "b"]);
+      const r = finish(world, "R", "a", bahrain(13, 30));
+      assert.equal(r.event, "lastOne");
+      assert.deepEqual(r.held, ["b"]);
+      finish(world, "R", "b", bahrain(14, 10));
+      const due = deliverHeld(world, bahrain(15, 2));
+      assert.equal(due.length, 1);
+      assert.equal(due[0].dropped, "no-longer-true",
+          "b finished at 14:10: the ask is moot, so it is never delivered");
+    });
+
+test("nothing held is ever delivered about the day before yesterday", () => {
+  const world = makeWorld();
+  addUser(world, "a");
+  addUser(world, "b");
+  addRoom(world, "R", ["a", "b"]);
+  // A new habit added at 23:00, held for a's morning, and Cloud Tasks
+  // running a full day late.
+  world.held.push({uid: "a", code: "R", event: "habitAdded",
+    dayKey: "2026-09-05", finisher: null, atMs: bahrain(7, 2) + DAY_MS});
+  const late = deliverHeld(world, bahrain(7, 2) + 2 * DAY_MS);
+  assert.equal(late[0].dropped, "too-old");
+  const onTime = [{uid: "a", code: "R", event: "habitAdded",
+    dayKey: "2026-09-05", finisher: null, atMs: bahrain(7, 2) + DAY_MS}];
+  world.held.push(...onTime);
+  assert.equal(deliverHeld(world, bahrain(7, 2) + DAY_MS)[0].sent, true,
+      "the morning after it was added, it still goes");
 });

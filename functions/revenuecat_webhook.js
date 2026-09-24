@@ -30,9 +30,43 @@ const ENTITLEMENT_ID = "Grow Daily Premium";
  * alone cannot answer (see [productionPurchaseVerdict]). The monthly is a
  * PREFIX because RevenueCat's v1 record can key a Play subscription with its
  * base plan appended ("growdaily_monthly:monthly-autorenew").
+ *
+ * There are TWO lifetimes since 2026-09-22, and they are the same permanent
+ * Premium unlock at two prices: growdaily_lifetime is the regular price, and
+ * growdaily_lifetime_offer is the lower one shown during a person's 72-hour
+ * welcome window and during dated sales. Anything that asks "is this a
+ * lifetime" asks this list, never one id, so a buyer who came through the
+ * cheaper door can never read as less Premium than one who paid in full.
+ * purchase_facts.js re-exports it rather than keeping its own copy, so the
+ * mirror and the purchase log cannot disagree about what a lifetime is.
  */
-const LIFETIME_PRODUCT_ID = "growdaily_lifetime";
+const LIFETIME_PRODUCT_IDS = Object.freeze([
+  "growdaily_lifetime",
+  "growdaily_lifetime_offer",
+]);
 const MONTHLY_PRODUCT_PREFIX = "growdaily_monthly";
+
+/**
+ * A product id without the suffix RevenueCat can append for Play, or null
+ * when there is no id at all.
+ *
+ * RevenueCat names a Play product "id:suffix" (a subscription's base plan,
+ * "growdaily_monthly:monthly-autorenew", and possibly a one-time product's
+ * purchase option, "growdaily_lifetime_offer:lifetime"), while the same
+ * product on the App Store is the bare id. The part before the first ":" is
+ * the product both stores sell.
+ */
+function baseProductId(productId) {
+  if (typeof productId !== "string") return null;
+  const cut = productId.indexOf(":");
+  const base = cut < 0 ? productId : productId.slice(0, cut);
+  return base === "" ? null : base;
+}
+
+/** Whether [productId], suffix or not, is one of [LIFETIME_PRODUCT_IDS]. */
+function isLifetimeProduct(productId) {
+  return LIFETIME_PRODUCT_IDS.includes(baseProductId(productId));
+}
 
 /**
  * A RevenueCat app_user_id we are willing to write a mirror for.
@@ -168,14 +202,21 @@ function isSandboxBacked(subscriber, productId) {
  * (review, 2026-09-17). So look past it: any real, unrefunded lifetime is
  * Premium with no expiry; otherwise the real monthly with the latest end
  * (the later of expiry and grace) decides; otherwise free.
+ *
+ * "Any lifetime" means either product in [LIFETIME_PRODUCT_IDS], keyed with
+ * or without a Play suffix: a tester whose sandbox regular lifetime hides a
+ * real growdaily_lifetime_offer must read Premium exactly as if they had
+ * paid the regular price for real.
  */
 function productionPurchaseVerdict(subscriber, nowMs, checkedAtMs) {
   const off = {active: false, expiresAtMs: null, checkedAtMs};
   const nons = subscriber.non_subscriptions || {};
-  const lifetime = nons[LIFETIME_PRODUCT_ID];
-  if (Array.isArray(lifetime) &&
-      lifetime.some((p) => p && p.is_sandbox !== true && !p.refunded_at)) {
-    return {active: true, expiresAtMs: null, checkedAtMs};
+  for (const [id, lifetime] of Object.entries(nons)) {
+    if (!isLifetimeProduct(id)) continue;
+    if (Array.isArray(lifetime) &&
+        lifetime.some((p) => p && p.is_sandbox !== true && !p.refunded_at)) {
+      return {active: true, expiresAtMs: null, checkedAtMs};
+    }
   }
   let end = null;
   const subs = subscriber.subscriptions || {};
@@ -263,6 +304,9 @@ function shouldWrite(checkedAtMs, stored) {
 
 module.exports = {
   ENTITLEMENT_ID,
+  LIFETIME_PRODUCT_IDS,
+  baseProductId,
+  isLifetimeProduct,
   isProduction,
   isRealUid,
   premiumFromCustomerInfo,
