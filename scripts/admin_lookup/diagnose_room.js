@@ -62,8 +62,24 @@ const DECLINED = '__declined__';
 
 // The one implementation of "is this day short", shared with check_rooms.js
 // and the nightly roomsHealthSweep, so all three agree about what is wrong.
-const { shiftKey, undercountedDays } = require(
+const { countingHabitIds, shiftKey, undercountedDays } = require(
     path.join(__dirname, '..', '..', 'functions', 'room_health.js'));
+
+/**
+ * The habit that filled shared slot [i] on [dayKey]: a habit the member had
+ * in the slot before relinking it (slotHabitHistory, each with the last day
+ * it filled the slot), else the current link. RoomParticipant.habitInSlotOn
+ * in the app.
+ */
+function slotHabitOn(p, i, dayKey) {
+  const list = ((p.slotHabitHistory || {})[String(i)]) || [];
+  const held = (Array.isArray(list) ? list : [])
+      .filter((h) => h && typeof h.habitId === 'string' && typeof h.until === 'string')
+      .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0))
+      .find((h) => dayKey <= h.until);
+  const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
+  return held ? held.habitId : linked[i];
+}
 const {
   APP_FALLBACK_OFFSET_MINUTES,
   keyAtOffset,
@@ -253,9 +269,19 @@ function weekStartKey(key) {
       // column. Same floor room_health.js applies, same fail-open when no
       // rule is recorded.
       const floor = floorOf(p, id);
+      // A slot the member relinked (RoomsController.relinkPlanHabit): the
+      // habits it held before, each up to its last day. Those days are
+      // graded on THAT habit, so its column below shows that habit's square.
+      const earlier = ((p.slotHabitHistory || {})[String(i)]) || [];
+      for (const h of Array.isArray(earlier) ? earlier : []) {
+        if (h && h.habitId) {
+          console.log(`          earlier: ${h.habitId} until ${h.until}` +
+                      `${habits[h.habitId] ? `  (${habits[h.habitId].name})` : ''}`);
+        }
+      }
       if (!isDeclined && !removed) {
         if (floor) console.log(`          counts from: ${floor}`);
-        counting.push({ id, label, floor });
+        counting.push({ id, label, floor, slot: i });
       }
     });
     if (counting.length === 0) {
@@ -286,13 +312,22 @@ function weekStartKey(key) {
       // A slot the room had not asked for on this day is drawn as "n/a", so
       // the row reads the way the app graded it rather than counting a habit
       // the room had not yet asked for.
+      // Each slot's cell reads the habit that filled the slot that day
+      // (slotHabitOn), marked with a star when that is an earlier habit.
+      const onDay = (c) => {
+        const id = room.habitMode === 'shared' ? slotHabitOn(p, c.slot, dk) : c.id;
+        return { id, floor: id === c.id ? c.floor : floorOf(p, id), earlier: id !== c.id };
+      };
       const cells = counting.map((c) => {
-        if (c.floor && dk < c.floor) return 'n/a'.padEnd(16);
-        const st = raw[c.id] === undefined ? '-' : String(raw[c.id]);
-        return (GREEN.has(st) ? `${st} OK` : st).padEnd(16);
+        const d = onDay(c);
+        if (d.floor && dk < d.floor) return 'n/a'.padEnd(16);
+        const st = raw[d.id] === undefined ? '-' : String(raw[d.id]);
+        return ((GREEN.has(st) ? `${st} OK` : st) + (d.earlier ? '*' : '')).padEnd(16);
       });
-      const nGreen = counting.filter((c) => (!c.floor || dk >= c.floor) &&
-          GREEN.has(String(raw[c.id]))).length;
+      const nGreen = counting.filter((c) => {
+        const d = onDay(c);
+        return (!d.floor || dk >= d.floor) && GREEN.has(String(raw[d.id]));
+      }).length;
       if (nGreen > 0) greenDays++;
       squaresByDay[dk] = raw;
       lastUpdatedByDay[dk] = data.lastUpdated;
@@ -424,7 +459,9 @@ function weekStartKey(key) {
     // because the next step is a set_room_day.js write that breaks it.
     const short = undercountedDays({
       days,
-      countingIds: counting.map((c) => c.id),
+      // The sweep's own set (room_health.js), so the three tools agree:
+      // every habit graded on some day, a relinked slot's earlier ones too.
+      countingIds: countingHabitIds(room, p),
       squaresByDay,
       part: p,
       // Without these a day the anti-backdating clamp is holding on purpose
@@ -432,6 +469,12 @@ function weekStartKey(key) {
       lastUpdatedByDay,
       createdByDay,
       offsetMinutes: ROOM_OFFSET_MINUTES,
+      // Each day checked against the habits in the plan THAT day, as the
+      // sweep and check_rooms.js do. Without it every day counted every
+      // habit above, so a relinked slot's new habit was read back over the
+      // days before the change (and the old one after it), and this printed
+      // a set_room_day.js --confirm line that would have paid for them.
+      room,
     });
     const real = short.filter((s) => !s.held);
     const held = short.filter((s) => s.held);

@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
-    show Offering, Package, StoreProduct;
+    show CustomerInfo, Offering, Package, StoreProduct;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
@@ -110,12 +110,17 @@ class PremiumScreen extends ConsumerStatefulWidget {
   @visibleForTesting
   final PaywallOffersSource? offersSource;
 
+  /// For widget tests only: a fixed CustomerInfo instead of RevenueCat's.
+  @visibleForTesting
+  final Future<CustomerInfo?> Function()? customerInfoLoader;
+
   const PremiumScreen({
     super.key,
     this.reason = PremiumReason.general,
     this.source = 'unknown',
     this.offeringLoader,
     this.offersSource,
+    this.customerInfoLoader,
   });
 
   @override
@@ -144,6 +149,18 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   /// itself for buyers who have nothing to manage.
   bool _isLifetimeBuyer = false;
 
+  /// Whether a subscription is still set to renew beside the lifetime, see
+  /// subscriptionStillRenews. Only read while [_isLifetimeBuyer]: it keeps
+  /// the Manage subscription button on screen for someone who would
+  /// otherwise be told there is nothing to manage while a Monthly bills.
+  bool _stillRenewing = false;
+
+  /// Reads both flags above from [info], the one place they are set.
+  void _applyOwnership(CustomerInfo info) {
+    _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
+    _stillRenewing = subscriptionStillRenews(info);
+  }
+
   /// The admin's offers (`offers/live`), read once when the paywall opens.
   /// Until they arrive no offer is shown: the paywall first appears exactly
   /// as it always has.
@@ -164,6 +181,20 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     _loadOffering();
     _loadOffers();
     _checkLifetimeBuyer();
+    // Kept current while the screen is open: a Monthly stuck on a failed
+    // payment is retried the moment the card is updated, which is often
+    // right after that same card bought Lifetime here.
+    _infoSub = PurchaseService.instance.customerInfoUpdates.listen((info) {
+      if (mounted) setState(() => _applyOwnership(info));
+    });
+  }
+
+  StreamSubscription<CustomerInfo>? _infoSub;
+
+  @override
+  void dispose() {
+    _infoSub?.cancel();
+    super.dispose();
   }
 
   /// Null for a guest, and when Firebase is not set up at all (widget tests).
@@ -280,12 +311,10 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   }
 
   Future<void> _checkLifetimeBuyer() async {
-    final info = await PurchaseService.instance.getCustomerInfo();
+    final info = await (widget.customerInfoLoader ??
+        PurchaseService.instance.getCustomerInfo)();
     if (!mounted || info == null) return;
-    final lifetime = PurchaseService.instance.isLifetimeEntitled(info);
-    if (lifetime != _isLifetimeBuyer) {
-      setState(() => _isLifetimeBuyer = lifetime);
-    }
+    setState(() => _applyOwnership(info));
   }
 
   Future<void> _loadOffering() async {
@@ -392,6 +421,22 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     if (!mounted) return;
     setState(() => _isPurchasing = false);
     if (outcome.cancelled) return; // Silent — the user just backed out.
+    if (outcome.pending) {
+      // Waiting on a parent's approval or a cash payment. Not an error, and
+      // "try again" would only place a second order; it lands by itself.
+      AnalyticsService.instance.track('premium_purchase_pending', props: {
+        'plan': kind.name,
+      });
+      ScaffoldMessenger.of(context).showOne(
+        SnackBar(
+          content: Text(S.of(context).premiumPurchasePending),
+          duration: const Duration(seconds: 8),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        ),
+      );
+      return;
+    }
     if (outcome.success) {
       HapticFeedback.mediumImpact();
       // Flip premiumProvider right now with the CustomerInfo this call
@@ -413,9 +458,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
         // From the entitlement the store just handed back, not from the
         // selection: isLifetimeEntitled reads the real productIdentifier, so
         // this stays right even if the store resolved a different package.
-        setState(() {
-          _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
-        });
+        setState(() => _applyOwnership(info));
       }
       // A cleared purchase whose CustomerInfo does not actually carry the
       // entitlement used to return here silently: applyCustomerInfo would
@@ -467,9 +510,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
       // A restore is the other way a lifetime buyer arrives on this screen.
       // Without this the flag stayed false and they were offered "manage
       // subscription" for a purchase that has nothing to manage.
-      setState(() {
-        _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
-      });
+      setState(() => _applyOwnership(info));
     }
     final message = !outcome.success
         ? s.premiumPurchaseError
@@ -782,13 +823,24 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                 // cancel; RevenueCat's Customer Center is all subscription
                 // language, so showing it to them reads as "wait, is this
                 // going to charge me again?". They get a plain sentence.
-                if (_isLifetimeBuyer)
+                //
+                // Unless a Monthly is still renewing beside the lifetime:
+                // then "nothing to manage" is untrue and the store keeps
+                // charging it, so they get the warning and the button.
+                if (_isLifetimeBuyer && !_stillRenewing)
                   Text(
                     s.premiumLifetimeOwned,
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12, color: gp.textSec),
                   )
-                else
+                else ...[
+                  if (_isLifetimeBuyer)
+                    Text(
+                      s.premiumLifetimeStillRenewing,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 12.5, color: gp.textPrimary, height: 1.4),
+                    ),
                   TextButton(
                     onPressed:
                         _isOpeningCustomerCenter ? null : _manageSubscription,
@@ -800,6 +852,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                           )
                         : Text(s.premiumManageSubscription),
                   ),
+                ],
               ] else if (_loadingOffering) ...[
                 const SizedBox(height: 32),
                 const Center(child: CircularProgressIndicator()),

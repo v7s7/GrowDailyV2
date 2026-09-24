@@ -524,3 +524,23 @@ test('a day nothing was scheduled on is full credit, not zero', () => {
   // Never above 1, however generous the stored numbers are.
   assert.equal(R.creditForStored({ done: 5, partial: 2, scheduled: 2 }), 1);
 });
+
+test('a relinked slot counts each habit only on the days it filled the slot', () => {
+  // RoomsController.relinkPlanHabit: «تمرين» filled slot 0 until 07-10,
+  // «صلاة الضحى» from 07-11. The ledger's "Counts where" asks this.
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [{ name: 'الضحى' }, { name: 'قراءة القرآن' }],
+  };
+  const member = {
+    linkedHabitIds: ['m-duha', 'm-q'],
+    slotHabitHistory: { 0: [{ habitId: 'm-wrong', until: '2026-07-10' }] },
+  };
+  const counts = (habitId, dayKey) =>
+    R.roomCountsHabitOn({ room, participant: member, habitId, dayKey });
+  assert.equal(counts('m-wrong', '2026-07-06'), true);
+  assert.equal(counts('m-wrong', '2026-07-11'), false);
+  assert.equal(counts('m-duha', '2026-07-06'), false, 'not in the slot yet');
+  assert.equal(counts('m-duha', '2026-07-11'), true);
+  assert.equal(counts('m-q', '2026-07-06'), true, 'other slots untouched');
+});

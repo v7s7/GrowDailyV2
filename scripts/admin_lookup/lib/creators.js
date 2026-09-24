@@ -38,12 +38,23 @@
   /** GrowDaily's App Store id, for the redeem link. */
   const APP_APPLE_ID = '6788149393';
 
-  /** The two products a code can take its discount off. */
+  /**
+   * The two products a code can take its discount off, at what Apple charges
+   * for them in the US today. A code's price and the percent it is sold as
+   * are worked out from `priceUsd`, so it has to be Apple's real price:
+   * Preview refuses a code whenever Apple's live US price differs (see
+   * previewAppleCode), rather than let "20% off" name a price that is not.
+   *
+   * Aziz, 2026-09-24: no welcome price for now, Lifetime stays $29.99, and
+   * growdaily_lifetime_offer is not submitted with 1.1.0. So codes go on the
+   * regular, approved Lifetime. The offer product stays listed for when it
+   * is approved; Apple makes codes only on an approved product.
+   */
   const PRODUCTS = {
-    growdaily_lifetime_offer: { productId: 'growdaily_lifetime_offer', iapId: '6814748258', priceUsd: 29.99, label: 'Lifetime, $29.99' },
-    growdaily_lifetime: { productId: 'growdaily_lifetime', iapId: '6791138092', priceUsd: 39.99, label: 'Lifetime, $39.99' },
+    growdaily_lifetime: { productId: 'growdaily_lifetime', iapId: '6791138092', priceUsd: 29.99, label: 'Lifetime, $29.99' },
+    growdaily_lifetime_offer: { productId: 'growdaily_lifetime_offer', iapId: '6814748258', priceUsd: 29.99, label: 'Lifetime offer product, $29.99 (not approved yet)' },
   };
-  const DEFAULT_PRODUCT = 'growdaily_lifetime_offer';
+  const DEFAULT_PRODUCT = 'growdaily_lifetime';
 
   const DEFAULT_SHARE_PERCENT = 25;
   /** Apple allows 10 active offers per app. */
@@ -329,11 +340,13 @@
 
   /**
    * Per creator and in total: sales, refunds, earned (the PRODUCTION shares,
-   * refunds taken off), paid, waiting (earned on sales younger than 60
-   * days) and owed (earned on sales 60 or more days old, minus what was
-   * paid, never below zero). A refund counts against the age of the sale it
-   * refunds, found by transaction id, so refunding an old sale lowers what
-   * is owed, even after a payment (it comes off the next one).
+   * refunds taken off), paid, owed (earned on sales 60 or more days old,
+   * minus what was paid, never below zero and never more than is unpaid)
+   * and waiting (the rest of what is unpaid: earned on sales younger than
+   * 60 days, less any part already paid early). A refund counts against the
+   * age of the sale it refunds, found by transaction id, so refunding an old
+   * sale lowers what is owed, even after a payment (it comes off the next
+   * one).
    *
    *   creators  [{ id (the code), ...creators doc }]
    *   ledger    creator_ledger rows
@@ -414,9 +427,15 @@
     const rows = [];
     const totals = { sales: 0, refunds: 0, earnedCents: 0, paidCents: 0, waitingCents: 0, owedCents: 0, sales30: 0, refunds30: 0, needsReview: 0 };
     for (const t of byId.values()) {
-      t.waitingCents = Math.max(0, t.youngCents);
-      t.owedCents = Math.max(0, t.maturedCents - t.paidCents);
+      // Owed is capped at what is earned and unpaid, and waiting is the rest
+      // of that, so paid + owed + waiting always adds up to what was earned.
+      // A payment made before the 60 days comes off waiting, and a fresh
+      // refund comes off owed, rather than either being shown twice. The
+      // creator's own page (functions/creator_statement.js) sums the same
+      // way, and a test there holds the two to it.
       t.unpaidCents = Math.max(0, t.earnedCents - t.paidCents);
+      t.owedCents = Math.min(t.unpaidCents, Math.max(0, t.maturedCents - t.paidCents));
+      t.waitingCents = t.unpaidCents - t.owedCents;
       rows.push(t);
       for (const k of Object.keys(totals)) totals[k] += t[k];
     }
@@ -497,6 +516,44 @@
     };
   }
 
+  /**
+   * What Apple charges in the US on [todayKey], in cents, from a price
+   * schedule's manual prices (GET /v1/inAppPurchasePriceSchedules/{id}/
+   * manualPrices, with the price points and territories included), or null
+   * when no price covers that day. A price covers the days from its
+   * startDate (none: from the beginning) up to, not including, its endDate
+   * (none: open), which is how a scheduled price change is laid out.
+   *
+   * Why the Preview asks this rather than trusting PRODUCTS: PRODUCTS once
+   * held a planned Lifetime at $39.99 while Apple still sold it at $29.99,
+   * so a code worked out from the plan cost MORE than the price it claimed
+   * to discount (20% off $39.99 is $31.99, measured against Apple on
+   * 2026-09-24), and 30% off came to $27.99, only 7% below the real price.
+   */
+  function currentUsPriceCents({ prices, included, todayKey }) {
+    const points = new Map();
+    for (const x of included || []) {
+      if (x && x.type === 'inAppPurchasePricePoints' && x.attributes) points.set(x.id, x.attributes.customerPrice);
+    }
+    let best = null;
+    for (const p of prices || []) {
+      const rel = (p && p.relationships) || {};
+      const territory = rel.territory && rel.territory.data && rel.territory.data.id;
+      if (territory && territory !== 'USA') continue;
+      const a = (p && p.attributes) || {};
+      if (a.startDate && a.startDate > todayKey) continue;
+      if (a.endDate && a.endDate <= todayKey) continue;
+      const pointId = rel.inAppPurchasePricePoint && rel.inAppPurchasePricePoint.data && rel.inAppPurchasePricePoint.data.id;
+      const price = Number(points.get(pointId));
+      if (!points.has(pointId) || !Number.isFinite(price)) continue;
+      // Two prices covering one day would be Apple contradicting itself;
+      // the one that started later is the one in force.
+      const start = String(a.startDate || '');
+      if (!best || start > best.start) best = { cents: toCents(price), start };
+    }
+    return best ? best.cents : null;
+  }
+
   /** The US price point whose customer price is exactly [targetCents], from GET /v2/inAppPurchases/{id}/pricePoints. */
   function pickUsPricePoint(points, targetCents) {
     for (const p of points || []) {
@@ -511,28 +568,90 @@
   }
 
   /**
-   * One price per territory: the US point, then Apple's equalized point for
-   * every other territory (GET /v1/inAppPurchasePricePoints/{id}/equalizations),
-   * kept to the territories the product is sold in when that list is known.
-   * This is what App Store Connect's own "comparable prices" step does.
+   * The price in force on [todayKey] in each territory of a price
+   * schedule's prices (GET /v1/inAppPurchasePriceSchedules/{id}/manualPrices
+   * or /automaticPrices, price points and territories included), in cents:
+   * a Map of territory to cents. The day rule is [currentUsPriceCents]'s;
+   * an entry without a territory says nothing and is skipped.
    */
-  function equalizedPrices({ usPoint, equalizations, currencies, availableTerritories }) {
-    const allowed = availableTerritories ? new Set(availableTerritories) : null;
-    const out = [{ territory: 'USA', pricePointId: usPoint.id, customerPrice: usPoint.customerPrice, currency: 'USD' }];
-    const seen = new Set(['USA']);
-    for (const p of equalizations || []) {
-      const t = p && p.relationships && p.relationships.territory && p.relationships.territory.data && p.relationships.territory.data.id;
-      if (!t || seen.has(t)) continue;
-      if (allowed && !allowed.has(t)) continue;
-      seen.add(t);
-      out.push({
+  function pricesInForce({ prices, included, todayKey }) {
+    const points = new Map();
+    for (const x of included || []) {
+      if (x && x.type === 'inAppPurchasePricePoints' && x.attributes) points.set(x.id, x.attributes.customerPrice);
+    }
+    const best = new Map();
+    for (const p of prices || []) {
+      const rel = (p && p.relationships) || {};
+      const territory = rel.territory && rel.territory.data && rel.territory.data.id;
+      if (!territory) continue;
+      const a = (p && p.attributes) || {};
+      if (a.startDate && a.startDate > todayKey) continue;
+      if (a.endDate && a.endDate <= todayKey) continue;
+      const pointId = rel.inAppPurchasePricePoint && rel.inAppPurchasePricePoint.data && rel.inAppPurchasePricePoint.data.id;
+      const price = Number(points.get(pointId));
+      if (!points.has(pointId) || !Number.isFinite(price)) continue;
+      const start = String(a.startDate || '');
+      const seen = best.get(territory);
+      if (!seen || start > seen.start) best.set(territory, { cents: toCents(price), start });
+    }
+    return new Map([...best].map(([t, v]) => [t, v.cents]));
+  }
+
+  /**
+   * The offer's price in each territory: the highest of that territory's
+   * [candidates] at or below [discountPercent] off what the product costs
+   * there today ([regular]). So "20% off" is at least 20% off in every
+   * country, never less.
+   *
+   * Why not Apple's equalized prices: each currency steps differently, so
+   * the US $23.99 (20% off $29.99) lands at SAR 99.99 (23% off 129.99),
+   * AED 99.99 (17% off 119.99), Bahrain $24.99 (17%) and QAR 89.99 (10% off
+   * 99.99), measured 2026-09-25. Apple does have SAR 103.99, AED 95.99 and
+   * QAR 79.99, exactly 20% off; they just are not what a US price converts
+   * to.
+   *
+   * [regular]: Map of territory to today's price in cents (pricesInForce).
+   * [candidates]: Map of territory to [{ id, cents, customerPrice }], the
+   * price points to choose from there. [availableTerritories]: where the
+   * product sells, null when unknown (then every territory with a regular
+   * price). Returns { prices, dropped }: prices is
+   * [{ territory, pricePointId, customerPrice, currency, regularCents,
+   * percentOff }], the US first; dropped lists the territories left out
+   * for want of a regular price or a point low enough, where the code then
+   * does not work at all rather than give less than it says.
+   */
+  function truePercentPrices({ regular, candidates, currencies, discountPercent, availableTerritories }) {
+    const d = Number(discountPercent);
+    const territories = availableTerritories ? availableTerritories.slice() : [...regular.keys()];
+    territories.sort((a, b) => (a === 'USA' ? -1 : b === 'USA' ? 1 : a < b ? -1 : a > b ? 1 : 0));
+    const prices = [];
+    const dropped = [];
+    for (const t of territories) {
+      const reg = regular.get(t);
+      if (!Number.isFinite(reg) || reg <= 0) {
+        dropped.push(t);
+        continue;
+      }
+      const ceiling = Math.floor((reg * (100 - d)) / 100);
+      let pick = null;
+      for (const c of candidates.get(t) || []) {
+        if (!c || !Number.isFinite(c.cents) || c.cents <= 0 || c.cents > ceiling) continue;
+        if (!pick || c.cents > pick.cents) pick = c;
+      }
+      if (!pick) {
+        dropped.push(t);
+        continue;
+      }
+      prices.push({
         territory: t,
-        pricePointId: p.id,
-        customerPrice: p.attributes ? p.attributes.customerPrice : null,
+        pricePointId: pick.id,
+        customerPrice: pick.customerPrice,
         currency: (currencies && currencies[t]) || null,
+        regularCents: reg,
+        percentOff: Math.floor((1 - pick.cents / reg) * 100 + 1e-9),
       });
     }
-    return out;
+    return { prices, dropped };
   }
 
   /** The territories a plan summary names first, the ones GrowDaily sells most in. */
@@ -581,7 +700,9 @@
     priceLocalId,
     buildOfferCodeRequest,
     buildCustomCodeRequest,
+    currentUsPriceCents,
     pickUsPricePoint,
-    equalizedPrices,
+    pricesInForce,
+    truePercentPrices,
   };
 });

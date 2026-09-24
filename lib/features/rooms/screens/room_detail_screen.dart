@@ -53,6 +53,7 @@ import '../models/room_strip_day.dart';
 import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/pick_own_habit_sheet.dart';
+import '../widgets/relink_plan_habit_sheet.dart';
 import '../widgets/report_member_sheet.dart';
 import '../widgets/resolve_new_shared_habits_sheet.dart';
 import '../widgets/room_reactions.dart';

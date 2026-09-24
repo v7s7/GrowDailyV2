@@ -33,27 +33,84 @@ const sara = {
 
 /**
  * A fake App Store Connect. [state] per product, the offers already there,
- * and how each POST answers.
+ * what each product sells for in the US today ([usPrices], in cents; the
+ * plan's prices unless a test says otherwise, null for "Apple lists no
+ * price"), and how each POST answers.
  */
-function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {}, postAnswers = [], configOk = true } = {}) {
+/**
+ * Lifetime's regular price outside the US, as Apple's automatic prices had
+ * it on 2026-09-25, plus DEU and ISL (whose list has no point low enough,
+ * so it is left out).
+ */
+const REGULAR = { BHR: [2999, 'USD'], SAU: [12999, 'SAR'], ARE: [11999, 'AED'], QAT: [9999, 'QAR'], DEU: [2999, 'EUR'], ISL: [449900, 'ISK'] };
+/** Each territory's own price points, around a true 20% off (the Gulf ones as read 2026-09-25). */
+const POINTS = {
+  BHR: [2299, 2399, 2499, 2999],
+  SAU: [8999, 9999, 10399, 10999, 11999, 12999],
+  ARE: [7999, 8999, 9599, 9999, 11999],
+  QAT: [6999, 7999, 8999, 9999],
+  DEU: [1799, 2349, 2399, 2449],
+  ISL: [],
+};
+
+function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {}, postAnswers = [], configOk = true, usPrices = {} } = {}) {
   const posts = [];
   const gets = [];
   const iapOf = (productId) => C.PRODUCTS[productId].iapId;
   const byIap = {};
   for (const p of Object.values(C.PRODUCTS)) {
-    byIap[p.iapId] = { state: states[p.productId] || 'APPROVED', offers: offers[p.productId] || [] };
+    const price = Object.prototype.hasOwnProperty.call(usPrices, p.productId) ? usPrices[p.productId] : Math.round(p.priceUsd * 100);
+    byIap[p.iapId] = { state: states[p.productId] || 'APPROVED', offers: offers[p.productId] || [], usCents: price };
   }
   function answer(path, query) {
     gets.push({ path, query });
     let m;
     if ((m = path.match(/^\/v2\/inAppPurchases\/(\d+)$/))) return { data: { id: m[1], attributes: { state: byIap[m[1]].state } } };
+    // An IAP's price schedule has the IAP's own id, as Apple's does.
+    if ((m = path.match(/^\/v2\/inAppPurchases\/(\d+)\/iapPriceSchedule$/))) return { data: { id: m[1], type: 'inAppPurchasePriceSchedules' } };
+    if ((m = path.match(/^\/v1\/inAppPurchasePriceSchedules\/(\d+)\/manualPrices$/))) {
+      // Only the US price is set by hand; the rest are Apple's automatic ones.
+      if (query['filter[territory]'] !== undefined) assert.strictEqual(query['filter[territory]'], 'USA');
+      const cents = byIap[m[1]].usCents;
+      if (cents === null) return { data: [], included: [] };
+      return {
+        data: [{
+          id: 'MP-' + m[1], type: 'inAppPurchasePrices', attributes: { startDate: null, endDate: null, manual: true },
+          relationships: { territory: { data: { type: 'territories', id: 'USA' } }, inAppPurchasePricePoint: { data: { type: 'inAppPurchasePricePoints', id: 'PP-' + m[1] } } },
+        }],
+        included: [
+          { type: 'inAppPurchasePricePoints', id: 'PP-' + m[1], attributes: { customerPrice: (cents / 100).toFixed(2), proceeds: '0' } },
+          { type: 'territories', id: 'USA', attributes: { currency: 'USD' } },
+        ],
+      };
+    }
+    if ((m = path.match(/^\/v1\/inAppPurchasePriceSchedules\/(\d+)\/automaticPrices$/))) {
+      const ts = Object.keys(REGULAR);
+      return {
+        data: ts.map((t) => ({
+          id: 'AP-' + t, type: 'inAppPurchasePrices', attributes: { startDate: null, endDate: null, manual: false },
+          relationships: { territory: { data: { type: 'territories', id: t } }, inAppPurchasePricePoint: { data: { type: 'inAppPurchasePricePoints', id: 'RP-' + t } } },
+        })),
+        included: [
+          ...ts.map((t) => ({ type: 'inAppPurchasePricePoints', id: 'RP-' + t, attributes: { customerPrice: (REGULAR[t][0] / 100).toFixed(2) } })),
+          ...ts.map((t) => ({ type: 'territories', id: t, attributes: { currency: REGULAR[t][1] } })),
+        ],
+      };
+    }
     if ((m = path.match(/^\/v2\/inAppPurchases\/(\d+)\/offerCodes$/))) {
       return { data: byIap[m[1]].offers.map((o) => ({ id: o.id, type: 'inAppPurchaseOfferCodes', attributes: { name: o.name, active: o.active !== false } })), included: [] };
     }
     if ((m = path.match(/^\/v2\/inAppPurchases\/(\d+)\/pricePoints$/))) {
-      assert.strictEqual(query['filter[territory]'], 'USA');
+      const t = query['filter[territory]'];
+      if (t !== 'USA') {
+        assert.ok(POINTS[t], 'asked for every price point of ' + t + ', which the product does not sell in here');
+        return {
+          data: POINTS[t].map((cents) => ({ id: 'PT-' + t + '-' + cents, attributes: { customerPrice: (cents / 100).toFixed(2) }, relationships: { territory: { data: { type: 'territories', id: t } } } })),
+          included: [],
+        };
+      }
       return {
-        data: [2349, 2399, 2449].map((cents) => ({
+        data: [1799, 2349, 2399, 2449, 2699, 2799, 3199].map((cents) => ({
           id: 'US-' + m[1] + '-' + cents,
           attributes: { customerPrice: (cents / 100).toFixed(2), proceeds: (Math.round(0.7 * (cents + 1)) / 100).toFixed(2) },
           relationships: { territory: { data: { type: 'territories', id: 'USA' } } },
@@ -61,15 +118,9 @@ function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {},
         included: [],
       };
     }
-    if ((m = path.match(/^\/v1\/inAppPurchasePricePoints\/(.+)\/equalizations$/))) {
-      return {
-        data: ['BHR', 'SAU', 'ARE', 'XXX'].map((t) => ({ id: 'EQ-' + t, attributes: { customerPrice: t === 'SAU' ? '99.99' : '24.99' }, relationships: { territory: { data: { type: 'territories', id: t } } } })),
-        included: [{ type: 'territories', id: 'BHR', attributes: { currency: 'USD' } }, { type: 'territories', id: 'SAU', attributes: { currency: 'SAR' } }],
-      };
-    }
     if ((m = path.match(/^\/v2\/inAppPurchases\/(\d+)\/inAppPurchaseAvailability$/))) return { data: { id: m[1], type: 'inAppPurchaseAvailabilities' } };
     if ((m = path.match(/^\/v1\/inAppPurchaseAvailabilities\/(\d+)\/availableTerritories$/))) {
-      return { data: ['USA', 'BHR', 'SAU', 'ARE'].map((id) => ({ id, type: 'territories' })), included: [] };
+      return { data: ['USA', 'BHR', 'SAU', 'ARE', 'QAT', 'DEU', 'ISL'].map((id) => ({ id, type: 'territories' })), included: [] };
     }
     if ((m = path.match(/^\/v1\/inAppPurchaseOfferCodes\/(.+)\/prices$/))) {
       const cents = offerPrices[m[1]];
@@ -179,14 +230,27 @@ test('Preview builds the exact requests and sends nothing that changes anything'
   assert.strictEqual(offer.body.data.attributes.name, 'creator-sara');
   assert.deepStrictEqual(offer.body.data.attributes.customerEligibilities, ['NON_SPENDER']);
   assert.strictEqual(offer.body.data.relationships.inAppPurchase.data.id, '6814748258');
-  // US first, then the equalized territories the product is sold in (XXX is not).
-  assert.deepStrictEqual(offer.body.included.map((x) => x.relationships.territory.data.id), ['USA', 'BHR', 'SAU', 'ARE']);
-  assert.strictEqual(offer.body.included[0].relationships.pricePoint.data.id, 'US-6814748258-2399');
+  // US first, then every territory the product sells in, each at a true
+  // 20% off its own price (ISL's list has no price low enough).
+  assert.deepStrictEqual(offer.body.included.map((x) => x.relationships.territory.data.id), ['USA', 'ARE', 'BHR', 'DEU', 'QAT', 'SAU']);
+  const pointOf = (t) => offer.body.included.find((x) => x.relationships.territory.data.id === t).relationships.pricePoint.data.id;
+  assert.strictEqual(pointOf('USA'), 'US-6814748258-2399');
+  // SAR 103.99 from Saudi's own list, where a US $23.99 converts to SAR
+  // 99.99; QAR 79.99, where it converts to QAR 89.99, only 10% off.
+  assert.strictEqual(pointOf('SAU'), 'PT-SAU-10399');
+  assert.strictEqual(pointOf('ARE'), 'PT-ARE-9599');
+  assert.strictEqual(pointOf('QAT'), 'PT-QAT-7999');
+  assert.strictEqual(pointOf('BHR'), 'PT-BHR-2399');
+  assert.strictEqual(pointOf('DEU'), 'PT-DEU-2399');
+  assert.deepStrictEqual(p.summary.dropped, ['ISL']);
+  assert.strictEqual(p.summary.deeper, 0);
+  const saudi = p.summary.sample.find((x) => x.territory === 'SAU');
+  assert.deepStrictEqual(saudi, { territory: 'SAU', customerPrice: '103.99', currency: 'SAR', regularPrice: '129.99', percentOff: 20 });
   assert.strictEqual(code.path, '/v1/inAppPurchaseOfferCodeCustomCodes');
   assert.deepStrictEqual(code.body.data.attributes, { customCode: 'SARA', numberOfCodes: 1000, expirationDate: '2027-03-22' });
   assert.strictEqual(p.summary.usPrice, '$23.99');
   assert.strictEqual(p.summary.usProceeds, '16.80');
-  assert.strictEqual(p.summary.territories, 4);
+  assert.strictEqual(p.summary.territories, 6);
   assert.strictEqual(p.summary.offersLeftAfter, 9);
 });
 
@@ -206,6 +270,76 @@ test('Preview is blocked when all 10 of Apple\'s offer slots are in use', async 
   const ten = Array.from({ length: 10 }, (_, i) => ({ id: 'O' + i, name: 'creator-x' + i }));
   const p = await Admin.previewAppleCode(db, fakeAsc({ offers: { growdaily_lifetime: ten } }), { input: sara }, NOW);
   assert.match(p.blocked.join(' '), /All 10 of Apple's offer slots are in use/);
+});
+
+// Codes go on the regular Lifetime since Aziz kept it at $29.99 (2026-09-24).
+const onRegular = { ...sara, discountOff: 'growdaily_lifetime' };
+
+test('Preview refuses a code that is not a discount on what Apple charges today', async () => {
+  // 20% off $29.99 is $23.99; were Apple selling Lifetime for $19.99, that
+  // code would cost MORE than the price it claims to cut (the $31.99 case
+  // measured on 2026-09-24 was the same mistake the other way round).
+  const db = fakeDb({ nowMs: NOW });
+  const asc = fakeAsc({ usPrices: { growdaily_lifetime: 1999 } });
+  const p = await Admin.previewAppleCode(db, asc, { input: onRegular }, NOW);
+  assert.strictEqual(p.summary.usPrice, '$23.99');
+  assert.strictEqual(p.summary.usPriceToday, '$19.99');
+  assert.match(p.blocked.join(' '), /sells growdaily_lifetime for \$19\.99 in the US today, so a code at \$23\.99 would not be a discount/);
+  await assert.rejects(() => Admin.createAppleCode(db, deps, asc, { planId: p.planId }, NOW), /would not be a discount/);
+  assert.strictEqual(asc.posts.length, 0);
+  assert.strictEqual(db.state.writes, 0);
+});
+
+test('Preview refuses a percent that Apple\'s price today does not bear out', async () => {
+  // 2026-09-25: the tool still worked codes out from a planned $39.99 while
+  // Apple sold Lifetime at $29.99, so a "30% off" code came to $27.99, only
+  // 7% below the real price: a false discount claim. The tool's price must
+  // now be Apple's, or nothing is made.
+  const db = fakeDb({ nowMs: NOW });
+  const asc = fakeAsc({ usPrices: { growdaily_lifetime: 3999 } });
+  const p = await Admin.previewAppleCode(db, asc, { input: onRegular }, NOW);
+  assert.match(p.blocked.join(' '), /works out 20% off from \$29\.99, but Apple sells growdaily_lifetime for \$39\.99 in the US today, so the code would not be 20% off/);
+  await assert.rejects(() => Admin.createAppleCode(db, deps, asc, { planId: p.planId }, NOW), /would not be 20% off/);
+  assert.strictEqual(asc.posts.length, 0);
+  assert.strictEqual(db.state.writes, 0);
+
+  // When the tool and Apple agree, the same deal goes through at a true 20%.
+  const agreed = await Admin.previewAppleCode(db, fakeAsc(), { input: onRegular }, NOW);
+  assert.deepStrictEqual(agreed.blocked, []);
+  assert.strictEqual(agreed.summary.usPriceToday, '$29.99');
+  assert.strictEqual(agreed.summary.usPrice, '$23.99');
+});
+
+test('the default is the approved regular Lifetime at Apple\'s $29.99', () => {
+  assert.strictEqual(C.DEFAULT_PRODUCT, 'growdaily_lifetime');
+  assert.strictEqual(C.PRODUCTS.growdaily_lifetime.priceUsd, 29.99);
+  const m = C.moneyPreview({ productId: C.DEFAULT_PRODUCT, discountPercent: 20, sharePercent: 25, keepRate: 0.7 });
+  assert.strictEqual(C.money(m.buyerCents), '$23.99');
+  assert.strictEqual(m.percentOffShown, 20);
+});
+
+test('Preview refuses when Apple lists no US price for today, rather than guess', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  const p = await Admin.previewAppleCode(db, fakeAsc({ usPrices: { growdaily_lifetime_offer: null } }), { input: sara }, NOW);
+  assert.match(p.blocked.join(' '), /did not say what growdaily_lifetime_offer costs in the US today/);
+  assert.strictEqual(p.summary.usPriceToday, null);
+});
+
+test('a code on the regular Lifetime at or above a welcome price is allowed, with a warning', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  // Only while a welcome price sits below Lifetime (none today: both are
+  // $29.99). With one at $24.99, 10% off Lifetime is $26.99, above it.
+  const welcome = { usPrices: { growdaily_lifetime: 2999, growdaily_lifetime_offer: 2499 } };
+  const p = await Admin.previewAppleCode(db, fakeAsc(welcome), { input: { ...onRegular, discountPercent: 10 } }, NOW);
+  assert.deepStrictEqual(p.blocked, []);
+  assert.strictEqual(p.warnings.length, 1);
+  assert.match(p.warnings[0], /first 72 hours/);
+  // 20% off is $23.99, below that welcome price: nothing to warn about.
+  const deeper = await Admin.previewAppleCode(db, fakeAsc(welcome), { input: onRegular }, NOW);
+  assert.deepStrictEqual(deeper.warnings, []);
+  // With no welcome price (today), the default deal never warns.
+  const usual = await Admin.previewAppleCode(db, fakeAsc(), { input: onRegular }, NOW);
+  assert.deepStrictEqual(usual.warnings, []);
 });
 
 test('without the App Store Connect settings, Preview names what is missing', async () => {
@@ -322,4 +456,41 @@ test('reading the page: tiles, per-creator money and what matches no creator', a
   assert.strictEqual(s.creators[0].codeEndsOn, '2027-03-22');
   assert.ok(s.creators[0].codeEndsAtMs > NOW);
   assert.ok(creatorDoc(db, 'SARA').codeEndsAt instanceof FakeTimestamp);
+});
+
+// ---- The statement link ----------------------------------------------------------------
+
+test('a statement link stores only the key\'s hash, and a new link retires the old one', async () => {
+  const crypto = require('node:crypto');
+  const db = fakeDb({ nowMs: NOW });
+  await Admin.addCreator(db, deps, sara, NOW);
+  const keys = ['A'.repeat(43), 'B'.repeat(43)];
+  const first = await Admin.makeStatementLink(db, deps, { code: 'sara' }, { randomKey: () => keys[0] });
+  assert.strictEqual(first.code, 'SARA');
+  assert.strictEqual(first.link, 'https://grow-daily-339ef.web.app/creator/#k=' + keys[0]);
+  let doc = creatorDoc(db, 'SARA');
+  assert.strictEqual(doc.statementKeyHash, crypto.createHash('sha256').update(keys[0]).digest('hex'));
+  assert.ok(!JSON.stringify(doc).includes(keys[0]), 'the key itself is never stored');
+
+  const second = await Admin.makeStatementLink(db, deps, { code: 'SARA' }, { randomKey: () => keys[1] });
+  doc = creatorDoc(db, 'SARA');
+  assert.strictEqual(doc.statementKeyHash, Admin.statementKeyHash(keys[1]));
+  assert.notStrictEqual(second.link, first.link);
+
+  // The page learns that a link exists and when, never the hash.
+  const s = await Admin.readCreatorsState(db, { nowMs: NOW, ascConfig: { ok: true, missing: [] } });
+  assert.strictEqual(s.creators[0].hasStatementLink, true);
+  assert.ok(!JSON.stringify(s).includes(doc.statementKeyHash));
+
+  await assert.rejects(() => Admin.makeStatementLink(db, deps, { code: 'NOBODY' }), (e) => e.status === 404);
+});
+
+test('a real statement key is 43 base64url characters and never repeats', () => {
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) {
+    const k = Admin.newStatementKey();
+    assert.match(k, /^[A-Za-z0-9_-]{43}$/);
+    seen.add(k);
+  }
+  assert.strictEqual(seen.size, 200);
 });

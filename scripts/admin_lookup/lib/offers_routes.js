@@ -29,6 +29,9 @@
  *   POST /api/creators/share          creators/{CODE}.sharePercent
  *   POST /api/creators/active         creators/{CODE}.active
  *   POST /api/creators/payout         creator_payouts/{new id}
+ *   POST /api/creators/statement-link creators/{CODE}.statementKeyHash (the
+ *                                     creator's own page link; the link
+ *                                     itself is answered once, never kept)
  *   POST /api/creators/apple/create   App Store Connect (an offer code and a
  *                                     custom code), then creators/{CODE}
  *                                     (and the Apple ids it returned)
@@ -149,6 +152,7 @@ function mountOffers(app, { admin, projectId, localWriteOnly, asc = createAscCli
   creatorWrite('/api/creators/share', (b) => CreatorsAdmin.setShare(db(), deps(), { code: b.code, sharePercent: b.sharePercent }));
   creatorWrite('/api/creators/active', (b) => CreatorsAdmin.setActive(db(), deps(), { code: b.code, active: b.active }));
   creatorWrite('/api/creators/payout', (b) => CreatorsAdmin.recordPayout(db(), deps(), { code: b.code, amountUsd: b.amountUsd, note: b.note }, now()));
+  creatorWrite('/api/creators/statement-link', (b) => CreatorsAdmin.makeStatementLink(db(), deps(), { code: b.code }));
 
   // Step one: build and show the exact requests. Reads from Apple, writes nothing.
   app.post('/api/creators/apple/preview', localWriteOnly, json, async (req, res) => {

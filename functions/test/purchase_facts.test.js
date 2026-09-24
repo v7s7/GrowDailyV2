@@ -19,6 +19,7 @@ const assert = require("node:assert");
 const webhook = require("../revenuecat_webhook");
 const {
   LIFETIME_PRODUCT_IDS,
+  creatorCodeOf,
   creatorLedgerRow,
   factDocId,
   ledgerRowFor,
@@ -593,4 +594,16 @@ test("a followed refund has the ledger's one shape, nothing undefined", () => {
     assert.notStrictEqual(value, undefined, key);
   }
   assert.equal(bare.needsReview, true);
+});
+
+test("the second lookup reads a creator's code out of either offer_code form", () => {
+  // The reference name the admin tool gives the offer, as RevenueCat
+  // documents it, and the custom code the buyer typed, in case it is that.
+  assert.strictEqual(creatorCodeOf(offerRefOf(sale({offer_code: "creator-sara"}))), "SARA");
+  assert.strictEqual(creatorCodeOf(offerRefOf(sale({offer_code: " Creator-Fajr10 "}))), "FAJR10");
+  assert.strictEqual(creatorCodeOf(offerRefOf(sale({offer_code: "SARA"}))), "SARA");
+  // Nothing that could not be a creators document id.
+  for (const bad of [null, "", "ab", "creator-", "sara/../x", "creator-s a", "x".repeat(65), 42]) {
+    assert.strictEqual(creatorCodeOf(bad), null, String(bad));
+  }
 });

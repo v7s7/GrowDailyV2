@@ -9,6 +9,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
+import '../notifiers/habit_name_match.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../screens/room_detail_screen.dart';
 
@@ -55,6 +56,11 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
   /// moment a 'shared'-mode room is found (see [_search]), but always
   /// editable per row (see [_PlanReviewList]) before actually joining.
   List<String?> _planResolutions = [];
+
+  /// Per plan slot, the habits of this person's that fit it equally well
+  /// when there are two or more (see suggestPlanMatches): that row opens on
+  /// nothing and names them. Empty lists everywhere else.
+  List<List<String>> _planTorn = [];
   bool _isJoining = false;
 
   @override
@@ -81,38 +87,33 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
     super.dispose();
   }
 
-  /// One best-guess habit id per [templates] entry, in order - like calling
-  /// [suggestExistingMatch] separately for each one, except a habit already
-  /// suggested for an earlier row is taken off the table for every later
-  /// row. Without this, a plan with two similarly-named habits (say, two
-  /// prayer-related entries) could suggest the *same* one of the joiner's
-  /// habits for both rows, and someone who didn't notice and fix it before
-  /// tapping Join would end up with one entry silently uncovered - exactly
-  /// the kind of auto-link glitch the "auto only when confident, otherwise
-  /// ask" design (see suggestExistingMatch's doc comment) is meant to rule
-  /// out.
-  List<String?> _resolvePlanSuggestions(
+  /// One best-guess habit id per [templates] entry, in order, and the
+  /// entries two or more habits fit equally - see suggestPlanMatches, which
+  /// settles the whole plan at once: a habit goes to the row it matches
+  /// best rather than to whichever row is listed first, is never suggested
+  /// for two rows, and a row torn between two habits opens on neither. A
+  /// wrong guess is exactly the auto-link glitch the "auto only when
+  /// confident, otherwise ask" design (see suggestExistingMatch's doc
+  /// comment) is meant to rule out.
+  (List<String?>, List<List<String>>) _resolvePlanSuggestions(
     List<RoomHabitTemplate> templates,
     List<IslamicHabitTemplate> myHabits,
   ) {
-    final usedIds = <String>{};
-    final result = <String?>[];
-    for (final t in templates) {
-      // A slot the leader removed is not part of what anyone joins: its
-      // place is held as a skip (RoomsController.joinRoom does the same on
-      // the write side), it is never shown as a row, and it never counts
-      // against the habit limit, since _newHabitCount only counts nulls.
-      if (t.isRemoved) {
-        result.add(kDeclinedSlot);
-        continue;
-      }
-      final available =
-          myHabits.where((h) => !usedIds.contains(h.id)).toList();
-      final match = suggestExistingMatch(t.name, available)?.id;
-      if (match != null) usedIds.add(match);
-      result.add(match);
-    }
-    return result;
+    // A slot the leader removed is not part of what anyone joins: its place
+    // is held as a skip (RoomsController.joinRoom does the same on the write
+    // side), it is never shown as a row, and it never counts against the
+    // habit limit, since _newHabitCount only counts nulls.
+    final matches = suggestPlanMatches(
+      [for (final t in templates) t.isRemoved ? null : t.name],
+      myHabits,
+    );
+    return (
+      [
+        for (var i = 0; i < templates.length; i++)
+          templates[i].isRemoved ? kDeclinedSlot : matches[i].habitId,
+      ],
+      [for (final m in matches) m.tornBetween],
+    );
   }
 
   Future<void> _search() async {
@@ -126,6 +127,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
       _foundRoom = null;
       _ownHabitIds = [];
       _planResolutions = [];
+      _planTorn = [];
     });
     final room = await ref.read(roomsControllerProvider).previewRoom(code);
     if (!mounted) return;
@@ -134,9 +136,12 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
       _isSearching = false;
       _foundRoom = room;
       _notFound = room == null;
-      _planResolutions = room == null || room.habitMode != RoomHabitMode.shared
-          ? []
-          : _resolvePlanSuggestions(room.sharedHabits, myHabits);
+      final (resolutions, torn) =
+          room == null || room.habitMode != RoomHabitMode.shared
+              ? (<String?>[], <List<String>>[])
+              : _resolvePlanSuggestions(room.sharedHabits, myHabits);
+      _planResolutions = resolutions;
+      _planTorn = torn;
     });
   }
 
@@ -329,6 +334,7 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
                         _PlanReviewList(
                           room: _foundRoom!,
                           resolutions: _planResolutions,
+                          torn: _planTorn,
                           onChanged: (resolutions) =>
                               setState(() => _planResolutions = resolutions),
                         ),
@@ -529,10 +535,14 @@ class _InlineNotice extends StatelessWidget {
 class _PlanReviewList extends ConsumerWidget {
   final RoomModel room;
   final List<String?> resolutions;
+
+  /// Per slot, the habits it is torn between (see _planTorn).
+  final List<List<String>> torn;
   final ValueChanged<List<String?>> onChanged;
   const _PlanReviewList({
     required this.room,
     required this.resolutions,
+    this.torn = const [],
     required this.onChanged,
   });
 
@@ -557,6 +567,7 @@ class _PlanReviewList extends ConsumerWidget {
           _PlanReviewRow(
             templateName: room.sharedHabits[i].name,
             myHabits: myHabits,
+            tornIds: i < torn.length ? torn[i] : const [],
             value: i < resolutions.length ? resolutions[i] : null,
             onChanged: (id) {
               final next = [...resolutions];
@@ -576,11 +587,16 @@ class _PlanReviewList extends ConsumerWidget {
 class _PlanReviewRow extends StatelessWidget {
   final String templateName;
   final List<IslamicHabitTemplate> myHabits;
+
+  /// The habits this row fits equally (see suggestPlanMatches): listed first
+  /// in the dropdown, and named under the row until one is picked.
+  final List<String> tornIds;
   final String? value;
   final ValueChanged<String?> onChanged;
   const _PlanReviewRow({
     required this.templateName,
     required this.myHabits,
+    this.tornIds = const [],
     required this.value,
     required this.onChanged,
   });
@@ -592,6 +608,18 @@ class _PlanReviewRow extends StatelessWidget {
     final resolvedValue = value != null && myHabits.any((h) => h.id == value)
         ? value
         : null;
+    // Torn between two or more habits: they go first, and the row says so
+    // until one is picked (see suggestPlanMatches).
+    final torn = [
+      for (final h in myHabits)
+        if (tornIds.contains(h.id)) h,
+    ];
+    final ordered = [
+      ...torn,
+      for (final h in myHabits)
+        if (!tornIds.contains(h.id)) h,
+    ];
+    final showTorn = resolvedValue == null && torn.length > 1;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -599,44 +627,60 @@ class _PlanReviewRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         border: Border.all(color: gp.border, width: 0.5),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.flag_rounded, size: 15, color: gp.textTert),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 4,
-            child: Text(templateName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 12.5, fontWeight: FontWeight.w700, color: gp.textPrimary)),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            flex: 5,
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String?>(
-                value: resolvedValue,
-                isExpanded: true,
-                isDense: true,
-                hint: Text(s.roomPlanAddAsNew,
-                    style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
-                items: [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text(s.roomPlanAddAsNew,
+          Row(
+            children: [
+              Icon(Icons.flag_rounded, size: 15, color: gp.textTert),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 4,
+                child: Text(templateName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w700, color: gp.textPrimary)),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                flex: 5,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    value: resolvedValue,
+                    isExpanded: true,
+                    isDense: true,
+                    hint: Text(s.roomPlanAddAsNew,
                         style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
+                    items: [
+                      DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text(s.roomPlanAddAsNew,
+                            style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
+                      ),
+                      ...ordered.map((h) => DropdownMenuItem<String?>(
+                            value: h.id,
+                            child: Text(s.roomPlanLinkExisting(h.name),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                          )),
+                    ],
+                    onChanged: onChanged,
                   ),
-                  ...myHabits.map((h) => DropdownMenuItem<String?>(
-                        value: h.id,
-                        child: Text(s.roomPlanLinkExisting(h.name),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                      )),
-                ],
-                onChanged: onChanged,
+                ),
+              ),
+            ],
+          ),
+          if (showTorn)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 23, bottom: 6),
+              child: Text(
+                s.roomPlanTornHint(
+                    torn.map((h) => h.name).join(s.isAr ? '، ' : ', ')),
+                style: TextStyle(
+                    fontSize: 11, height: 1.35, color: context.gp.goldInk),
               ),
             ),
-          ),
         ],
       ),
     );

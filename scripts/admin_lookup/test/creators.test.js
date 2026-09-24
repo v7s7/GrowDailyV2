@@ -34,9 +34,11 @@ test('the buyer price is the .49/.99 point at or below the discount, rounded dow
   assert.strictEqual(C.pricePointAtOrBelow(2449), 2449);
   assert.strictEqual(C.pricePointAtOrBelow(2448), 2399);
   assert.strictEqual(C.pricePointAtOrBelow(48), null);
-  // 20% off 29.99 is 23.992: 23.99. 10% off 39.99 is 35.991: 35.99. 10% off 29.99 is 26.991: 26.99.
+  // 20% off 29.99 is 23.992: 23.99. 10% off 29.99 is 26.991: 26.99. Both
+  // Lifetimes are $29.99 since Aziz kept that price (2026-09-24).
   assert.strictEqual(C.offerPriceCents('growdaily_lifetime_offer', 20), 2399);
-  assert.strictEqual(C.offerPriceCents('growdaily_lifetime', 10), 3599);
+  assert.strictEqual(C.offerPriceCents('growdaily_lifetime', 20), 2399);
+  assert.strictEqual(C.offerPriceCents('growdaily_lifetime', 10), 2699);
   assert.strictEqual(C.offerPriceCents('growdaily_lifetime_offer', 10), 2699);
   // 25% off 29.99 is 22.4925, so 22.49; 26% off is 22.1926, so 21.99, never 22.49.
   assert.strictEqual(C.offerPriceCents('growdaily_lifetime_offer', 25), 2249);
@@ -308,20 +310,130 @@ test('the US point is the one whose price is exactly the buyer price', () => {
   assert.strictEqual(C.pickUsPricePoint(usPoints, 2349), null);
 });
 
-test('equalized prices: the US first, then every other territory the product is sold in', () => {
-  const eq = [
-    { id: 'E-BHR', attributes: { customerPrice: '24.99' }, relationships: { territory: { data: { id: 'BHR' } } } },
-    { id: 'E-SAU', attributes: { customerPrice: '99.99' }, relationships: { territory: { data: { id: 'SAU' } } } },
-    { id: 'E-XXX', attributes: { customerPrice: '1.0' }, relationships: { territory: { data: { id: 'XXX' } } } },
-  ];
-  const prices = C.equalizedPrices({
-    usPoint: { id: 'P2399', customerPrice: '23.99' },
-    equalizations: eq,
-    currencies: { BHR: 'USD', SAU: 'SAR' },
-    availableTerritories: ['USA', 'BHR', 'SAU'],
+// ---- A true percent in every country ---------------------------------------------
+
+test('each country pays at least the promised percent off its own price, never less', () => {
+  // 2026-09-25, read from App Store Connect: the US $23.99 converts to
+  // SAR 99.99, AED 99.99, $24.99 in Bahrain and QAR 89.99, which is 23%,
+  // 17%, 17% and 10% off. Each country's own list has the true 20%.
+  const pt = (id, price) => ({ id, cents: C.toCents(price), customerPrice: price.toFixed(2) });
+  const regular = new Map([['USA', 2999], ['SAU', 12999], ['ARE', 11999], ['BHR', 2999], ['QAT', 9999], ['JPN', 450000], ['NOR', 34900]]);
+  const candidates = new Map([
+    ['USA', [pt('U2349', 23.49), pt('U2399', 23.99), pt('U2449', 24.49)]],
+    ['SAU', [pt('S9999', 99.99), pt('S10399', 103.99), pt('S10999', 109.99)]],
+    ['ARE', [pt('A8999', 89.99), pt('A9999', 99.99)]],
+    ['BHR', [pt('B2399', 23.99), pt('B2499', 24.99)]],
+    ['QAT', [pt('Q7999', 79.99), pt('Q8999', 89.99)]],
+    ['JPN', [pt('J3800', 3800), pt('J3600', 3600)]],
+    ['NOR', [pt('N299', 299)]],
+  ]);
+  const { prices, dropped } = C.truePercentPrices({
+    regular,
+    candidates,
+    currencies: { SAU: 'SAR', ARE: 'AED', QAT: 'QAR', JPN: 'JPY', NOR: 'NOK' },
+    discountPercent: 20,
+    availableTerritories: ['SAU', 'QAT', 'USA', 'ARE', 'BHR', 'JPN', 'NOR', 'ISL'],
   });
-  assert.deepStrictEqual(prices.map((p) => p.territory), ['USA', 'BHR', 'SAU']);
-  assert.deepStrictEqual(prices[2], { territory: 'SAU', pricePointId: 'E-SAU', customerPrice: '99.99', currency: 'SAR' });
-  const everywhere = C.equalizedPrices({ usPoint: { id: 'P2399', customerPrice: '23.99' }, equalizations: eq, currencies: {}, availableTerritories: null });
-  assert.strictEqual(everywhere.length, 4);
+  assert.deepStrictEqual(prices.map((p) => p.territory), ['USA', 'ARE', 'BHR', 'JPN', 'QAT', 'SAU']);
+  const by = Object.fromEntries(prices.map((p) => [p.territory, p]));
+  assert.strictEqual(by.USA.pricePointId, 'U2399');
+  assert.strictEqual(by.SAU.pricePointId, 'S10399', 'SAR 103.99 is 20% off 129.99; the converted 99.99 would be 23%');
+  assert.strictEqual(by.QAT.pricePointId, 'Q7999', 'QAR 79.99, never the 89.99 that is only 10% off');
+  assert.strictEqual(by.BHR.pricePointId, 'B2399', '$24.99 would be only 16% off $29.99');
+  // No AED point between 89.99 and 95.99 here, so the UAE gets more off, not less.
+  assert.strictEqual(by.ARE.pricePointId, 'A8999');
+  assert.strictEqual(by.ARE.percentOff, 25);
+  // Whole-yen prices: 20% off 4,500 is 3,600 exactly.
+  assert.strictEqual(by.JPN.pricePointId, 'J3600');
+  assert.deepStrictEqual(by.SAU, { territory: 'SAU', pricePointId: 'S10399', customerPrice: '103.99', currency: 'SAR', regularCents: 12999, percentOff: 20 });
+  for (const p of prices) assert.ok(p.percentOff >= 20, p.territory + ' gets only ' + p.percentOff + '%');
+  // NOR: its only point is 299, above 20% off 349. ISL: no price at all. Both left out.
+  assert.deepStrictEqual(dropped, ['ISL', 'NOR']);
+});
+
+test('without a known territory list, every territory with a regular price is priced', () => {
+  const regular = new Map([['USA', 2999], ['DEU', 2999]]);
+  const candidates = new Map([['USA', [{ id: 'U', cents: 2399, customerPrice: '23.99' }]], ['DEU', [{ id: 'D', cents: 2399, customerPrice: '23.99' }]]]);
+  const { prices, dropped } = C.truePercentPrices({ regular, candidates, currencies: {}, discountPercent: 20, availableTerritories: null });
+  assert.deepStrictEqual(prices.map((p) => p.territory), ['USA', 'DEU']);
+  assert.deepStrictEqual(dropped, []);
+});
+
+test('prices in force: one per territory, the latest started, ended ones skipped', () => {
+  const row = (id, territory, point, startDate, endDate) => ({
+    id, attributes: { startDate, endDate },
+    relationships: { territory: { data: { id: territory } }, inAppPurchasePricePoint: { data: { id: point } } },
+  });
+  const included = [
+    { type: 'inAppPurchasePricePoints', id: 'P1', attributes: { customerPrice: '129.99' } },
+    { type: 'inAppPurchasePricePoints', id: 'P2', attributes: { customerPrice: '149.99' } },
+    { type: 'inAppPurchasePricePoints', id: 'P3', attributes: { customerPrice: '29.99' } },
+  ];
+  const prices = [
+    row('a', 'SAU', 'P1', null, '2026-10-01'),
+    row('b', 'SAU', 'P2', '2026-10-01', null),
+    row('c', 'BHR', 'P3', null, null),
+    { id: 'd', attributes: {}, relationships: { inAppPurchasePricePoint: { data: { id: 'P3' } } } },
+  ];
+  const before = C.pricesInForce({ prices, included, todayKey: '2026-09-25' });
+  assert.deepStrictEqual([...before], [['SAU', 12999], ['BHR', 2999]]);
+  const after = C.pricesInForce({ prices, included, todayKey: '2026-10-01' });
+  assert.strictEqual(after.get('SAU'), 14999);
+});
+
+test('a payment made before the 60 days comes off waiting, so paid, owed and waiting add up to earned', () => {
+  const creators = [{ id: 'SARA' }];
+  const ledger = [
+    ledgerRow('SARA', 'sale', 4.2, NOW - 70 * DAY),
+    ledgerRow('SARA', 'sale', 4.2, NOW - 10 * DAY),
+    ledgerRow('SARA', 'sale', 4.2, NOW - 5 * DAY),
+  ];
+  // Aziz paid $6 early: more than the $4.20 that is 60 days old.
+  const t = C.creatorTotals({ creators, ledger, payouts: [{ creatorId: 'SARA', amountUsd: 6 }], nowMs: NOW }).rows[0];
+  assert.strictEqual(t.earnedCents, 1260);
+  assert.strictEqual(t.owedCents, 0);
+  assert.strictEqual(t.waitingCents, 660, 'the $1.80 paid early is not shown as still waiting');
+  assert.strictEqual(t.paidCents + t.owedCents + t.waitingCents, t.earnedCents);
+});
+
+test('a refund of a young sale never leaves more owed than is unpaid', () => {
+  const creators = [{ id: 'SARA' }];
+  const ledger = [
+    ledgerRow('SARA', 'sale', 4.2, NOW - 80 * DAY, { transactionId: 'OLD' }),
+    // A refund for a sale the ledger never saw ages from its own date.
+    ledgerRow('SARA', 'refund', -4.2, NOW - 3 * DAY, { transactionId: 'UNSEEN' }),
+  ];
+  const t = C.creatorTotals({ creators, ledger, payouts: [], nowMs: NOW }).rows[0];
+  assert.strictEqual(t.earnedCents, 0);
+  assert.strictEqual(t.owedCents, 0, 'the $4.20 matured, but the refund took it back');
+  assert.strictEqual(t.waitingCents, 0);
+});
+
+// ---- What Apple charges today --------------------------------------------------------
+
+function manual(entries) {
+  return {
+    prices: entries.map((e, i) => ({
+      id: 'MP' + i,
+      attributes: { startDate: e.start || null, endDate: e.end || null },
+      relationships: {
+        territory: { data: { type: 'territories', id: e.territory || 'USA' } },
+        inAppPurchasePricePoint: { data: { type: 'inAppPurchasePricePoints', id: 'PP' + i } },
+      },
+    })),
+    included: entries.map((e, i) => ({ type: 'inAppPurchasePricePoints', id: 'PP' + i, attributes: { customerPrice: e.price } })),
+  };
+}
+
+test('today\'s US price is the one whose dates cover today, a scheduled change included', () => {
+  // One open price, the shape Apple answered with on 2026-09-24.
+  assert.strictEqual(C.currentUsPriceCents({ ...manual([{ price: '29.99' }]), todayKey: '2026-09-24' }), 2999);
+  // A change scheduled for 1 October: $29.99 until then, $39.99 from then.
+  const scheduled = manual([{ price: '29.99', end: '2026-10-01' }, { price: '39.99', start: '2026-10-01' }]);
+  assert.strictEqual(C.currentUsPriceCents({ ...scheduled, todayKey: '2026-09-30' }), 2999);
+  assert.strictEqual(C.currentUsPriceCents({ ...scheduled, todayKey: '2026-10-01' }), 3999);
+  // Other territories and a price with no point are ignored; nothing covering today is null.
+  assert.strictEqual(C.currentUsPriceCents({ ...manual([{ price: '99.99', territory: 'SAU' }]), todayKey: '2026-09-24' }), null);
+  assert.strictEqual(C.currentUsPriceCents({ prices: manual([{ price: '29.99' }]).prices, included: [], todayKey: '2026-09-24' }), null);
+  assert.strictEqual(C.currentUsPriceCents({ ...manual([{ price: '29.99', start: '2026-12-01' }]), todayKey: '2026-09-24' }), null);
 });

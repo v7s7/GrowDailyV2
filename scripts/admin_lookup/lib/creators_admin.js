@@ -7,9 +7,19 @@
  *
  * Writes:
  *   creators/{CODE}       a creator's deal; later only sharePercent,
- *                         active, and the two Apple ids change
+ *                         active, the two Apple ids, and the statement
+ *                         key's hash change
  *   creator_payouts/{id}  one row per payment Aziz made
  * Never written here: creator_ledger (the webhook's), purchase_log.
+ *
+ * The statement link (Aziz, 2026-09-24: "the code that content creator will
+ * use to see their money"). Each creator gets a private link to their own
+ * page, public/creator/index.html, which reads their sales and payments
+ * through the creatorStatement function. The link carries a random key;
+ * only its SHA-256 is stored, so the link is shown once, when it is made,
+ * and making a new one is how a lost or leaked link is replaced (the old
+ * one stops working at once). functions/creator_statement.js hashes the
+ * key the same way, and a test there holds the two to it.
  *
  * The Apple code, in two steps (Aziz, 2026-09-22):
  *   Preview  reads what it needs from App Store Connect (the product's
@@ -35,6 +45,24 @@ const CREATORS = 'creators';
 const LEDGER = 'creator_ledger';
 const PAYOUTS = 'creator_payouts';
 const PLAN_TTL_MS = 15 * 60 * 1000;
+
+/** The creator's page, on the site hosting target (firebase.json). */
+const STATEMENT_PAGE_URL = 'https://grow-daily-339ef.web.app/creator/';
+
+/** A new statement key: 32 random bytes, base64url, 43 characters. */
+function newStatementKey() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+/** What is stored for a key: its SHA-256 in lowercase hex (as functions/creator_statement.js). */
+function statementKeyHash(key) {
+  return crypto.createHash('sha256').update(String(key), 'utf8').digest('hex');
+}
+
+/** The link a creator opens. The key rides in the #fragment, which browsers never send to a server. */
+function statementLinkFor(key) {
+  return STATEMENT_PAGE_URL + '#k=' + key;
+}
 
 /** A request the page should show as a message, not as a server fault. */
 class CreatorsInputError extends Error {
@@ -78,6 +106,10 @@ function shapeCreator(id, data) {
     usesAllowed: num(d.usesAllowed),
     appleOfferCodeId: str(d.appleOfferCodeId),
     appleCustomCodeId: str(d.appleCustomCodeId),
+    // When the creator's statement link was last made. The hash itself
+    // never leaves the server.
+    statementKeyAtMs: str(d.statementKeyHash) ? msOf(d.statementKeyAt) : null,
+    hasStatementLink: !!str(d.statementKeyHash),
     createdAtMs: msOf(d.createdAt),
     updatedAtMs: msOf(d.updatedAt),
   };
@@ -167,6 +199,91 @@ async function readAppleStatus(asc) {
   return { products, activeOffers: active, maxOffers: Creators.MAX_ACTIVE_OFFERS };
 }
 
+/**
+ * What each Lifetime product costs in the US today, as App Store Connect
+ * has it (not as PRODUCTS plans it): { productId: cents or null }. Read-only.
+ * An IAP's price schedule has the IAP's own id.
+ */
+async function readUsPrices(asc, nowMs) {
+  const todayKey = Creators.pacificDateKey(nowMs);
+  const out = {};
+  for (const product of Object.values(Creators.PRODUCTS)) {
+    const schedule = await asc.get('/v2/inAppPurchases/' + product.iapId + '/iapPriceSchedule');
+    const id = schedule && schedule.data && schedule.data.id;
+    if (!id) {
+      out[product.productId] = null;
+      continue;
+    }
+    const manual = await asc.getAll('/v1/inAppPurchasePriceSchedules/' + id + '/manualPrices', {
+      include: 'inAppPurchasePricePoint,territory', 'filter[territory]': 'USA', limit: 50,
+    });
+    out[product.productId] = Creators.currentUsPriceCents({ prices: manual.data, included: manual.included, todayKey });
+  }
+  return out;
+}
+
+/**
+ * The offer's price in every territory the product sells in, each at least
+ * [discountPercent] below what the product costs there today (see
+ * Creators.truePercentPrices for why Apple's equalized prices are not
+ * enough). Read-only. [usPoints] is the product's US price point list,
+ * already fetched by the caller.
+ *
+ * Every territory chooses from its own full list of Apple's price points,
+ * one GET each, ten at a time (about 175 GETs, measured at 10 to 20
+ * seconds). Choosing from converted US prices instead left 78 territories
+ * deeper than promised, Germany at EUR 25.00 on EUR 34.99 (28%), on
+ * 2026-09-25. Returns { prices, dropped }.
+ */
+async function readTruePercentPrices(asc, product, { usPoints, discountPercent, nowMs }) {
+  const todayKey = Creators.pacificDateKey(nowMs);
+  const schedule = await asc.get('/v2/inAppPurchases/' + product.iapId + '/iapPriceSchedule');
+  const scheduleId = schedule && schedule.data && schedule.data.id;
+  if (!scheduleId) return { prices: [], dropped: [] };
+  const priceQuery = { include: 'inAppPurchasePricePoint,territory', limit: 200 };
+  const [manual, automatic, availability] = await Promise.all([
+    asc.getAll('/v1/inAppPurchasePriceSchedules/' + scheduleId + '/manualPrices', priceQuery),
+    asc.getAll('/v1/inAppPurchasePriceSchedules/' + scheduleId + '/automaticPrices', priceQuery),
+    asc.get('/v2/inAppPurchases/' + product.iapId + '/inAppPurchaseAvailability'),
+  ]);
+  // A price set by hand beats the one Apple worked out from it.
+  const regular = Creators.pricesInForce({ prices: automatic.data, included: automatic.included, todayKey });
+  for (const [t, cents] of Creators.pricesInForce({ prices: manual.data, included: manual.included, todayKey })) regular.set(t, cents);
+  const territories = await asc.getAll('/v1/inAppPurchaseAvailabilities/' + availability.data.id + '/availableTerritories', { limit: 200 });
+  const available = territories.data.map((t) => t.id);
+
+  const currencies = {};
+  const candidates = new Map();
+  const noteCurrencies = (included) => {
+    for (const x of included || []) if (x && x.type === 'territories' && x.attributes) currencies[x.id] = x.attributes.currency;
+  };
+  const add = (territory, point) => {
+    const price = point && point.attributes && Number(point.attributes.customerPrice);
+    if (!territory || !Number.isFinite(price)) return;
+    if (!candidates.has(territory)) candidates.set(territory, []);
+    candidates.get(territory).push({ id: point.id, cents: Creators.toCents(price), customerPrice: point.attributes.customerPrice });
+  };
+  noteCurrencies(manual.included);
+  noteCurrencies(automatic.included);
+
+  for (const p of usPoints) add('USA', p);
+  const others = (available.length ? available : [...regular.keys()]).filter((t) => t !== 'USA');
+  for (let i = 0; i < others.length; i += 10) {
+    const batch = others.slice(i, i + 10);
+    const lists = await Promise.all(batch.map((t) => asc.getAll('/v2/inAppPurchases/' + product.iapId + '/pricePoints', { 'filter[territory]': t, limit: 8000 })));
+    batch.forEach((t, j) => {
+      for (const p of lists[j].data) add(t, p);
+    });
+  }
+  return Creators.truePercentPrices({
+    regular,
+    candidates,
+    currencies,
+    discountPercent,
+    availableTerritories: available.length ? available : null,
+  });
+}
+
 // ---- The four small writes -------------------------------------------------
 
 /** Saves a new creator with no Apple code yet. Refuses a code that is taken. */
@@ -253,6 +370,28 @@ async function recordPayout(db, deps, { code, amountUsd, note }, nowMs) {
   });
 }
 
+/**
+ * Makes [code]'s statement link: a fresh key, its hash stored on the
+ * creator, the link handed back once. A creator who already had a link
+ * loses the old one here, which is the point when it was lost or shared.
+ * [randomKey] is for tests.
+ */
+async function makeStatementLink(db, deps, { code }, { randomKey = newStatementKey } = {}) {
+  const id = codeParam(code);
+  const key = randomKey();
+  const ref = db.doc(CREATORS + '/' + id);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new CreatorsInputError('There is no creator with the code ' + id + '.', 404);
+    tx.update(ref, {
+      statementKeyHash: statementKeyHash(key),
+      statementKeyAt: deps.FieldValue.serverTimestamp(),
+      updatedAt: deps.FieldValue.serverTimestamp(),
+    });
+  });
+  return { code: id, link: statementLinkFor(key) };
+}
+
 // ---- The Apple code ------------------------------------------------------------
 
 const plans = new Map();
@@ -310,10 +449,43 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
 
   const product = Creators.PRODUCTS[creator.discountOff];
   const blocked = [];
+  // Things worth knowing before pressing Create that do not stop it.
+  const warnings = [];
   const status = await readAppleStatus(asc);
   const mine = status.products.find((p) => p.productId === product.productId);
   if (mine.state !== 'APPROVED') {
     blocked.push('Apple lists ' + product.productId + ' as ' + (mine.state || 'unknown') + ', not APPROVED. Apple only makes custom codes for an approved product, so this waits until it passes review.');
+  }
+
+  // The code has to be a real discount on what Apple charges TODAY, not on
+  // the planned price: see currentUsPriceCents for the $31.99 it prevents.
+  const targetCents = Creators.toCents(creator.offerPriceUsd);
+  const usPrices = await readUsPrices(asc, nowMs);
+  const todayCents = usPrices[product.productId];
+  if (todayCents === null || todayCents === undefined) {
+    blocked.push('Apple did not say what ' + product.productId + ' costs in the US today, so there is no way to check that ' + Creators.money(targetCents) + ' is a discount.');
+  } else if (targetCents >= todayCents) {
+    blocked.push('Apple sells ' + product.productId + ' for ' + Creators.money(todayCents) + ' in the US today, so a code at ' + Creators.money(targetCents) +
+      ' would not be a discount. Move Lifetime to its new price in App Store Connect first, or take the discount off the other Lifetime.');
+  }
+  // The percent is worked out from PRODUCTS, so PRODUCTS has to be what
+  // Apple charges. When they differ, "20% off" names a price that is not 20%
+  // off anything a buyer can see: a false discount claim, which is what
+  // Apple 2.3.1(a) and consumer law punish.
+  const planCents = Creators.toCents(product.priceUsd);
+  if (Number.isFinite(todayCents) && todayCents !== planCents) {
+    blocked.push('This tool works out ' + creator.discountPercent + '% off from ' + Creators.money(planCents) + ', but Apple sells ' + product.productId +
+      ' for ' + Creators.money(todayCents) + ' in the US today, so the code would not be ' + creator.discountPercent + '% off. Set priceUsd in lib/creators.js to Apple\'s price first.');
+  }
+  // A code above the welcome price is still a discount, but every new user
+  // already pays less than it for their first 72 hours, so it only helps
+  // people whose window has ended. Worth saying, not worth refusing.
+  const welcomeCents = usPrices.growdaily_lifetime_offer;
+  const regularCents = usPrices.growdaily_lifetime;
+  if (product.productId === 'growdaily_lifetime' && Number.isFinite(welcomeCents) && Number.isFinite(regularCents) &&
+      welcomeCents < regularCents && targetCents >= welcomeCents) {
+    warnings.push('Every new user already gets Lifetime for ' + Creators.money(welcomeCents) + ' during their first 72 hours, and a sale sells at that price too, so this ' +
+      Creators.money(targetCents) + ' code only helps people after that. A discount off the ' + Creators.money(welcomeCents) + ' Lifetime gives followers a price nobody else gets.');
   }
 
   // Which offer the code goes under: the one this creator already has, one
@@ -340,9 +512,9 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
     }
   }
 
-  const targetCents = Creators.toCents(creator.offerPriceUsd);
   let offerRequest = null;
   let prices = [];
+  let dropped = [];
   let usPoint = null;
   let codeStep = 'create';
   let customCodeId = null;
@@ -352,13 +524,14 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
     if (!usPoint) {
       blocked.push('Apple has no US price point at ' + Creators.money(targetCents) + ' for ' + product.productId + '.');
     } else {
-      const eq = await asc.getAll('/v1/inAppPurchasePricePoints/' + usPoint.id + '/equalizations', { limit: 8000, include: 'territory', 'fields[territories]': 'currency' });
-      const currencies = {};
-      for (const t of eq.included) if (t.type === 'territories') currencies[t.id] = t.attributes && t.attributes.currency;
-      const availability = await asc.get('/v2/inAppPurchases/' + product.iapId + '/inAppPurchaseAvailability');
-      const territories = await asc.getAll('/v1/inAppPurchaseAvailabilities/' + availability.data.id + '/availableTerritories', { limit: 200 });
-      const available = territories.data.map((t) => t.id);
-      prices = Creators.equalizedPrices({ usPoint, equalizations: eq.data, currencies, availableTerritories: available.length ? available : null });
+      ({ prices, dropped } = await readTruePercentPrices(asc, product, {
+        usPoints: points.data, discountPercent: creator.discountPercent, nowMs,
+      }));
+      const us = prices.find((p) => p.territory === 'USA');
+      if (!us || us.pricePointId !== usPoint.id) {
+        blocked.push('Worked out country by country, the US price came to ' + (us ? '$' + us.customerPrice : 'nothing') + ', not the deal\'s ' +
+          Creators.money(targetCents) + '. Check the US price in App Store Connect.');
+      }
       offerRequest = Creators.buildOfferCodeRequest({ iapId: product.iapId, offerRef: creator.offerRef, prices });
     }
   } else if (offerId && !blocked.length) {
@@ -387,7 +560,15 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
   const sample = Creators.SAMPLE_TERRITORIES
     .map((t) => prices.find((p) => p.territory === t))
     .filter(Boolean)
-    .map((p) => ({ territory: p.territory, customerPrice: p.customerPrice, currency: p.currency }));
+    .map((p) => ({
+      territory: p.territory,
+      customerPrice: p.customerPrice,
+      currency: p.currency,
+      regularPrice: p.regularCents === undefined ? null : (p.regularCents / 100).toFixed(2),
+      percentOff: p.percentOff === undefined ? null : p.percentOff,
+    }));
+  // Where the rounding of a currency's steps gives more than promised.
+  const deeper = prices.filter((p) => Number.isFinite(p.percentOff) && p.percentOff > creator.discountPercent).length;
 
   const plan = {
     id: crypto.randomUUID(),
@@ -412,6 +593,7 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
     planId: plan.id,
     expiresAtMs: plan.expiresAtMs,
     blocked,
+    warnings,
     isNew,
     summary: {
       name: creator.name,
@@ -420,6 +602,7 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
       productId: product.productId,
       iapId: product.iapId,
       productState: mine.state,
+      usPriceToday: todayCents === null || todayCents === undefined ? null : Creators.money(todayCents),
       eligibility: ELIGIBILITY_TEXT,
       offerStep,
       offerId,
@@ -428,6 +611,8 @@ async function previewAppleCode(db, asc, { input, code }, nowMs) {
       usProceeds: usPoint && usPoint.proceeds !== undefined ? usPoint.proceeds : null,
       territories: prices.length,
       sample,
+      dropped,
+      deeper,
       usesAllowed: creator.usesAllowed,
       codeEndsOn: creator.codeEndsOn,
       activeOffers: status.activeOffers,
@@ -503,12 +688,18 @@ module.exports = {
   CreatorsInputError,
   shapeCreator,
   creatorDocument,
+  STATEMENT_PAGE_URL,
+  newStatementKey,
+  statementKeyHash,
+  statementLinkFor,
   readCreatorsState,
   readAppleStatus,
+  readUsPrices,
   addCreator,
   setShare,
   setActive,
   recordPayout,
+  makeStatementLink,
   previewAppleCode,
   createAppleCode,
   _plans: plans,

@@ -90,6 +90,7 @@ const {
   uidsToRefresh,
 } = require("./revenuecat_webhook");
 const {
+  creatorCodeOf,
   factDocId,
   ledgerRowFor,
   offerRefOf,
@@ -97,6 +98,7 @@ const {
   purchaseLogRow,
   saleLookupKeys,
 } = require("./purchase_facts");
+const {buildStatement, statementKeyHash} = require("./creator_statement");
 
 /**
  * The shared secret RevenueCat sends as the Authorization header. Set with
@@ -1273,7 +1275,14 @@ async function recordPurchaseFacts(event) {
   if (sale === null && offerRef !== null) {
     const found = await db.collection("creators")
         .where("offerRef", "==", offerRef).limit(1).get();
-    const creatorDoc = found.empty ? null : found.docs[0];
+    let creatorDoc = found.empty ? null : found.docs[0];
+    // Second lookup, by the code itself, in case RevenueCat named the code
+    // the buyer typed rather than the offer (see creatorCodeOf).
+    const code = creatorDoc ? null : creatorCodeOf(offerRef);
+    if (code) {
+      const byCode = await db.collection("creators").doc(code).get();
+      if (byCode.exists) creatorDoc = byCode;
+    }
     if (!creatorDoc) {
       logger.warn("revenueCatWebhook: no creator claims this offer code, " +
           "ledger row flagged for review", {
@@ -1476,4 +1485,72 @@ exports.revenueCatWebhook = onRequest(
         return;
       }
       ok("ok");
+    });
+
+// ── A creator's own statement ──────────────────────────────────────────────
+
+/**
+ * A creator's statement, for their private page (public/creator/index.html).
+ * The page reaches this as /api/creator-statement through the site's
+ * hosting rewrite (firebase.json), so the page and its answer share one
+ * origin and no CORS header is needed.
+ *
+ * The page posts {key}, the random key from the creator's link. The key's
+ * SHA-256 finds the creator (creators/{CODE}.statementKeyHash, written by
+ * the admin tool's statement-link button). A malformed key, an unknown one,
+ * and one replaced by a newer link all get the same bare 404, so the answer
+ * never says which creators exist. What comes back is that one creator's
+ * money and rows, with no buyer in it (see creator_statement.js).
+ *
+ * POST only, so the key is never part of a URL; no-store, so nothing keeps
+ * a copy. maxInstances is small on purpose: this is a handful of creators
+ * checking their numbers, and a flood of guesses should cost next to
+ * nothing (a 43-character random key cannot be guessed anyway).
+ *
+ * Deploy with `firebase deploy --only functions:creatorStatement,hosting:site`
+ * (the page and the rewrite ship with the site).
+ */
+exports.creatorStatement = onRequest(
+    {maxInstances: 2, memory: "256MiB"},
+    async (req, res) => {
+      res.set("Cache-Control", "no-store");
+      res.set("X-Content-Type-Options", "nosniff");
+      res.set("Referrer-Policy", "no-referrer");
+      if (req.method !== "POST") {
+        res.status(405).json({ok: false});
+        return;
+      }
+      const hash = statementKeyHash(req.body && req.body.key);
+      if (!hash) {
+        res.status(404).json({ok: false});
+        return;
+      }
+      try {
+        const found = await db.collection("creators")
+            .where("statementKeyHash", "==", hash).limit(1).get();
+        if (found.empty) {
+          res.status(404).json({ok: false});
+          return;
+        }
+        const doc = found.docs[0];
+        const [ledger, payouts] = await Promise.all([
+          db.collection("creator_ledger")
+              .where("creatorId", "==", doc.id).get(),
+          db.collection("creator_payouts")
+              .where("creatorId", "==", doc.id).get(),
+        ]);
+        res.status(200).json({
+          ok: true,
+          statement: buildStatement({
+            id: doc.id,
+            creator: doc.data(),
+            ledger: ledger.docs.map((d) => d.data()),
+            payouts: payouts.docs.map((d) => d.data()),
+            nowMs: Date.now(),
+          }),
+        });
+      } catch (e) {
+        logger.error("creatorStatement: read failed", String(e));
+        res.status(500).json({ok: false});
+      }
     });

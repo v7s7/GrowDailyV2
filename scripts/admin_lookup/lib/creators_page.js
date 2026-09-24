@@ -121,8 +121,8 @@ ${OFFERS_STYLES}</style>
                 <div class="fld">
                   <label for="cBase">Discount off</label>
                   <select id="cBase">
-                    <option value="growdaily_lifetime_offer">Lifetime, $29.99</option>
-                    <option value="growdaily_lifetime">Lifetime, $39.99</option>
+                    <option value="growdaily_lifetime">Lifetime, $29.99</option>
+                    <option value="growdaily_lifetime_offer">Lifetime offer product, $29.99 (not approved yet)</option>
                   </select>
                 </div>
                 <div class="fld">

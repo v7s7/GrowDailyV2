@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>أرباحك | Grow Daily</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+
+<!--
+  A creator's own page: what their code sold and what they earned.
+
+  Each creator gets a private link from the admin tool's Creators page
+  (Make statement link), shaped /creator/#k=<key>. The key rides in the
+  #fragment, which a browser never sends to a server on its own, so it is in
+  no log and no Referer. This page posts it to /api/creator-statement (the
+  creatorStatement function, through the site's hosting rewrite in
+  firebase.json) and draws the answer. Only the key's hash is stored, so a
+  lost or leaked link is replaced by making a new one, which retires the old.
+
+  /creator/#demo draws the same page from made-up numbers, marked as an
+  example on screen: for showing a creator what they will get before they
+  have a code, and for checking the layout.
+
+  No dependencies, no fonts or scripts from anywhere else, and every value
+  from the server goes in as text, never as markup.
+
+  The Arabic is easy spoken Arabic with Latin digits, like the app. Aziz picks
+  the final wording.
+-->
+
+<style>
+  :root{
+    --ground:#FBF6EA; --panel:#FFFCF4; --panel-2:#F5EFE3;
+    --ink:#17301F; --ink2:#4A5B4E; --ink3:#7E897C;
+    --gold:#8A5F12; --gold-fill:#DFA83F; --gold-soft:rgba(223,168,63,.16); --gold-edge:rgba(183,130,42,.45);
+    --green:#1B6B4C; --green-ink:#146B4E; --green-soft:rgba(20,107,78,.10);
+    --edge:#E6DCC6; --line:#EFE7D6;
+    --danger:#9B2C22; --danger-soft:rgba(155,44,34,.09);
+    --shadow:0 1px 2px rgba(23,48,31,.04), 0 12px 32px rgba(23,48,31,.07);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#12160F; --panel:#1A2018; --panel-2:#212A1F;
+      --ink:#EDF2E6; --ink2:#B4C0B2; --ink3:#8A9789;
+      --gold:#E8B85C; --gold-fill:#DFA83F; --gold-soft:rgba(223,168,63,.13); --gold-edge:rgba(232,184,92,.40);
+      --green:#2ECF8F; --green-ink:#8FE3C0; --green-soft:rgba(143,227,192,.13);
+      --edge:#2E382C; --line:#26301F;
+      --danger:#FF8A7E; --danger-soft:rgba(255,138,126,.10);
+      --shadow:none;
+    }
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,"Noto Sans Arabic",sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    padding:20px 16px 48px;
+  }
+  .wrap{max-width:560px; margin:0 auto}
+  bdi{unicode-bidi:isolate}
+  .ltr{direction:ltr; unicode-bidi:isolate}
+  .num{font-variant-numeric:tabular-nums}
+
+  .top{display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 20px}
+  .brand{display:flex; align-items:center; gap:11px; min-width:0}
+  .mark{width:40px; height:40px; flex:none; display:block}
+  .kicker{font-size:12px; color:var(--ink3); line-height:1.3}
+  .appname{font-size:15px; font-weight:700; line-height:1.3}
+  .lang{
+    font:inherit; font-size:13px; font-weight:600; color:var(--ink2);
+    background:var(--panel); border:1px solid var(--edge); border-radius:999px;
+    padding:8px 14px; min-height:40px; cursor:pointer;
+  }
+  .lang:focus-visible,.btn:focus-visible,.copy:focus-visible,summary:focus-visible{outline:2px solid var(--gold-fill); outline-offset:2px}
+
+  .demo{
+    background:var(--danger-soft); color:var(--danger); border-radius:14px;
+    padding:11px 14px; font-size:13.5px; line-height:1.55; margin:0 0 16px; font-weight:600;
+  }
+
+  h1{font-size:24px; line-height:1.25; margin:0 0 10px; letter-spacing:-.015em; font-weight:800}
+  h2{font-size:15.5px; margin:0 0 12px; font-weight:800}
+  .codeline{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 18px; color:var(--ink2); font-size:14px}
+  .code{
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-weight:700; letter-spacing:.04em;
+    background:var(--panel); border:1px solid var(--edge); border-radius:9px; padding:3px 9px; color:var(--ink);
+    direction:ltr; unicode-bidi:isolate;
+  }
+
+  .card{
+    background:var(--panel); border:1px solid var(--edge); border-radius:18px;
+    padding:18px; box-shadow:var(--shadow); margin:0 0 12px;
+  }
+  .hero{background:linear-gradient(135deg,var(--gold-soft),var(--panel) 70%); border-color:var(--gold-edge)}
+  .k{font-size:13px; font-weight:700; color:var(--ink2); margin:0 0 6px}
+  .big{font-size:40px; font-weight:800; letter-spacing:-.02em; line-height:1.05; margin:0 0 8px}
+  .mid{font-size:24px; font-weight:800; letter-spacing:-.01em; line-height:1.1; margin:0 0 6px}
+  .s{font-size:12.5px; color:var(--ink2); line-height:1.55; margin:0}
+  .pair{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+  .pair .card{margin:0}
+  .pair{margin:0 0 12px}
+  @media (max-width:360px){ .pair{grid-template-columns:1fr} }
+
+  .stats{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; text-align:center}
+  .stat .v{font-size:22px; font-weight:800; line-height:1.2}
+  .stat .l{font-size:11.5px; color:var(--ink2); line-height:1.35; margin-top:2px}
+
+  .deal p{font-size:14px; line-height:1.65; margin:0 0 8px}
+  .deal p:last-of-type{margin-bottom:0}
+  .warn{color:var(--danger); font-weight:600}
+  .linkbox{
+    display:flex; align-items:center; gap:8px; margin-top:12px;
+    background:var(--panel-2); border:1px solid var(--edge); border-radius:12px; padding:8px 8px 8px 12px;
+    direction:ltr;
+  }
+  .linkbox code{
+    flex:1; min-width:0; font-size:12px; color:var(--ink2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  .copy{
+    flex:none; font:inherit; font-size:13px; font-weight:700; min-height:36px; padding:6px 12px;
+    border-radius:10px; border:0; background:var(--green-ink); color:#fff; cursor:pointer;
+  }
+  @media (prefers-color-scheme: dark){ .copy{color:#0E1A13} }
+  .hint{font-size:12px; color:var(--ink3); line-height:1.5; margin:8px 2px 0}
+
+  table{width:100%; border-collapse:collapse; font-size:13.5px}
+  th{font-size:11.5px; color:var(--ink3); font-weight:700; text-align:start; padding:0 0 8px}
+  td{padding:9px 0; border-top:1px solid var(--line)}
+  th.n, td.n{text-align:end}
+
+  .rows{list-style:none; margin:0; padding:0}
+  .rows li{display:flex; justify-content:space-between; align-items:center; gap:12px; padding:11px 0; border-top:1px solid var(--line)}
+  .rows li:first-child{border-top:0; padding-top:2px}
+  .rows .t{font-size:14px; font-weight:600; line-height:1.35}
+  .rows .d{font-size:12px; color:var(--ink3); line-height:1.4; margin-top:2px}
+  .rows .end{text-align:end; flex:none}
+  .rows .amt{font-size:15px; font-weight:800}
+  .chip{display:inline-block; font-size:11px; font-weight:700; border-radius:999px; padding:3px 9px; margin-top:4px; white-space:nowrap}
+  .chip.waiting{background:var(--gold-soft); color:var(--gold)}
+  .chip.cleared{background:var(--green-soft); color:var(--green-ink)}
+  .chip.refund,.chip.refunded{background:var(--danger-soft); color:var(--danger)}
+  .chip.review{background:var(--panel-2); color:var(--ink2)}
+  .neg{color:var(--danger)}
+  /* A sale the buyer took back: its share is shown, but crossed out, so the
+     list never reads as money earned; the refund row below it is what
+     takes it off. */
+  .void{text-decoration:line-through; color:var(--ink3)}
+  .muted{color:var(--ink3); font-size:13.5px; line-height:1.6; margin:0}
+  .more{font:inherit; font-size:13px; font-weight:700; color:var(--green-ink); background:none; border:0; padding:10px 0 0; cursor:pointer}
+
+  details.how{padding:0}
+  details.how summary{list-style:none; cursor:pointer; padding:16px 18px; font-weight:800; font-size:15px; display:flex; justify-content:space-between; align-items:center}
+  details.how summary::-webkit-details-marker{display:none}
+  details.how summary::after{content:"+"; font-size:20px; color:var(--ink3); line-height:1}
+  details.how[open] summary::after{content:"\2212"}
+  details.how ul{margin:0; padding:0 18px 16px; padding-inline-start:36px}
+  details.how li{font-size:13.5px; line-height:1.65; color:var(--ink2); margin:0 0 8px}
+
+  .foot{font-size:12px; color:var(--ink3); line-height:1.7; margin:18px 4px 0}
+  .foot a{color:var(--green-ink)}
+
+  .screen-msg{text-align:center; padding:28px 20px}
+  .screen-msg h1{font-size:21px}
+  .screen-msg p{color:var(--ink2); font-size:14.5px; line-height:1.6; margin:0 0 16px}
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:12px 22px;
+    font:inherit; font-size:15px; font-weight:700; border-radius:14px; border:0; cursor:pointer;
+    background:var(--gold-fill); color:#17301F;
+  }
+  .skel{height:14px; border-radius:7px; background:var(--panel-2); margin:0 0 10px}
+  .skel.tall{height:120px; border-radius:18px; margin-bottom:12px}
+  .toast{
+    position:fixed; inset-inline:16px; bottom:20px; max-width:360px; margin:0 auto; text-align:center;
+    background:var(--ink); color:var(--ground); border-radius:12px; padding:11px 14px; font-size:13.5px; font-weight:600;
+    opacity:0; transform:translateY(8px); transition:opacity .2s, transform .2s; pointer-events:none;
+  }
+  .toast.on{opacity:1; transform:none}
+  @media (prefers-reduced-motion:reduce){ .toast{transition:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="17" fill="#1B6B4C"/>
+        <path d="M25.4 40.5h13.2l-1.5 9a2.7 2.7 0 0 1-2.7 2.2h-4.8a2.7 2.7 0 0 1-2.7-2.2Z" fill="#E4B45F"/>
+        <path d="M32 41V26.5" stroke="#E4B45F" stroke-width="3" stroke-linecap="round"/>
+        <path d="M31.4 31.2c-1.1-5.7-5-8.7-10.4-8.7-.2 5.9 3.9 8.9 10.4 8.7Z" fill="#E4B45F"/>
+        <path d="M32.6 27.6c.9-6.8 5-9.9 11.3-9.9.2 6.9-4.6 10-11.3 9.9Z" fill="#E4B45F"/>
+      </svg>
+      <div>
+        <div class="appname">Grow Daily</div>
+        <div class="kicker" id="kicker"></div>
+      </div>
+    </div>
+    <button class="lang" id="lang" type="button"></button>
+  </header>
+
+  <main id="main" aria-live="polite">
+    <div class="skel" style="width:55%;height:22px"></div>
+    <div class="skel" style="width:35%"></div>
+    <div class="skel tall"></div>
+    <div class="skel tall" style="height:90px"></div>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API = '/api/creator-statement';
+  var SUPPORT = 'alkubaisi1818@gmail.com';
+  var LANG_KEY = 'creator_page_lang';
+
+  var T = {
+    ar: {
+      title: 'أرباحك | Grow Daily',
+      kicker: 'صفحة المبدع',
+      other: 'English',
+      loading: 'نجيب أرقامك…',
+      hello: 'أهلًا {name}',
+      helloNoName: 'أهلًا',
+      yourCode: 'كودك',
+      demo: 'هذا مثال بأرقام وهمية، عشان تشوف شكل صفحتك. صفحتك الحقيقية توصلك برابط خاص.',
+      ready: 'جاهز للتحويل',
+      readySub: 'حصتك من المبيعات اللي مضى عليها {days} يوم، بعد ما نخصم اللي حوّلناه لك.',
+      waiting: 'بالانتظار',
+      waitingNext: 'أول جزء منه يجهز في {date}',
+      waitingNone: 'ما في شي بالانتظار',
+      paid: 'حوّلنا لك',
+      paidLast: 'آخر تحويل {date}',
+      paidNone: 'ما في تحويلات إلى الآن',
+      statSales: 'عملية شراء بكودك',
+      stat30: 'في آخر 30 يوم',
+      statRefunds: 'مسترجعة',
+      dealTitle: 'اتفاقك',
+      dealPrice: 'بكودك، متابعينك يشترون النسخة الدائمة بخصم {pct}% من سعرها في بلدهم ({price} في أمريكا).',
+      dealShare: 'لك {share}% مما يوصلنا من Apple عن كل عملية شراء بكودك، بعد الضريبة وعمولة Apple.',
+      dealEnds: 'الكود يشتغل لين {date}، الساعة {time} بتوقيت البحرين.',
+      dealEnded: 'الكود انتهى في {date}. راسلنا ونجدده لك.',
+      dealPaused: 'الكود متوقف حاليًا.',
+      dealNotLive: 'الكود ما تفعّل في App Store إلى الآن. نبلغك أول ما يشتغل.',
+      dealIphone: 'الكود يشتغل على iPhone. الشراء من أندرويد ما يحمل كودك.',
+      linkLabel: 'رابط كودك',
+      linkHint: 'شاركه مع متابعينك: يفتح App Store والكود مكتوب، ويثبّت التطبيق إذا ما كان عندهم.',
+      copy: 'نسخ',
+      copied: 'تم النسخ',
+      copyFail: 'ما قدرنا ننسخ. حدد الرابط وانسخه بنفسك.',
+      review: 'فيه {n} عملية نراجعها، وتنضاف لأرقامك بعد المراجعة.',
+      monthsTitle: 'حسب الشهر',
+      colMonth: 'الشهر',
+      colSales: 'شراء',
+      colRefunds: 'مسترجع',
+      colShare: 'حصتك',
+      recentTitle: 'آخر العمليات',
+      noSales: 'ما في عمليات شراء بكودك إلى الآن. أول ما يشتري أحد، تطلع هنا.',
+      showMore: 'عرض المزيد',
+      lifetime: 'النسخة الدائمة',
+      monthly: 'الاشتراك الشهري',
+      premium: 'Premium',
+      refundRow: 'استرجاع',
+      paidAt: 'دفع {price}',
+      st_waiting: 'ينتظر إلى {date}',
+      st_cleared: 'محسوب',
+      st_refunded: 'استرجعها المشتري',
+      st_refund: 'انخصمت',
+      st_review: 'نراجعها',
+      payoutsTitle: 'التحويلات',
+      noPayouts: 'ما حوّلنا لك شي إلى الآن.',
+      howTitle: 'كيف نحسب أرباحك',
+      how1: 'كل عملية شراء بكودك تعطيك {share}% من المبلغ اللي يوصلنا فعليًا من Apple، يعني بعد الضريبة وعمولة Apple.',
+      how2: 'كل عملية تنتظر {days} يوم قبل ما تصير جاهزة للتحويل، لأن أغلب طلبات الاسترجاع تصير خلال هذه الفترة.',
+      how3: 'إذا استرجع المشتري فلوسه من Apple، تنخصم حصتها. وإذا صار الاسترجاع بعد ما حوّلنا لك، ينخصم من التحويل اللي بعده.',
+      how4: 'الأرقام هنا تقديرية وتتحدث أول بأول، والرقم النهائي من كشف Apple الشهري.',
+      how5: 'كل المبالغ بالدولار الأمريكي.',
+      updated: 'آخر تحديث {time}',
+      private: 'هذه الصفحة خاصة فيك. لا تنشر رابطها، وإذا انتشر راسلنا ونعطيك رابطًا جديدًا.',
+      contact: 'عندك سؤال؟ راسلنا على',
+      deadTitle: 'الرابط ما يشتغل',
+      deadSub: 'ممكن الرابط تغيّر. راسلنا ونرسل لك الجديد.',
+      noKeyTitle: 'الرابط ناقص',
+      noKeySub: 'افتح الرابط كامل، مثل ما وصلك.',
+      netTitle: 'ما قدرنا نجيب أرقامك',
+      netSub: 'تأكد من الإنترنت وجرّب مرة ثانية.',
+      retry: 'جرّب مرة ثانية'
+    },
+    en: {
+      title: 'Your earnings | Grow Daily',
+      kicker: 'Creator page',
+      other: 'العربية',
+      loading: 'Loading your numbers…',
+      hello: 'Hi {name}',
+      helloNoName: 'Hi',
+      yourCode: 'Your code',
+      demo: 'This is an example with made-up numbers, to show what your page looks like. Your real page comes with a private link.',
+      ready: 'Ready to be paid',
+      readySub: 'Your share of sales at least {days} days old, minus what we have paid you.',
+      waiting: 'On hold',
+      waitingNext: 'The first part is ready on {date}',
+      waitingNone: 'Nothing on hold',
+      paid: 'Paid to you',
+      paidLast: 'Last payment {date}',
+      paidNone: 'No payments yet',
+      statSales: 'purchases with your code',
+      stat30: 'in the last 30 days',
+      statRefunds: 'refunded',
+      dealTitle: 'Your deal',
+      dealPrice: 'With your code, your followers get Lifetime at {pct}% off the price in their country ({price} in the US).',
+      dealShare: 'You get {share}% of what Apple pays us for each purchase with your code, after tax and Apple\'s fee.',
+      dealEnds: 'Your code works until {date} at {time}, Bahrain time.',
+      dealEnded: 'Your code ended on {date}. Message us and we will renew it.',
+      dealPaused: 'Your code is paused for now.',
+      dealNotLive: 'Your code is not live on the App Store yet. We will tell you as soon as it is.',
+      dealIphone: 'Codes work on iPhone. A purchase on Android does not carry your code.',
+      linkLabel: 'Your code link',
+      linkHint: 'Share it with your followers: it opens the App Store with your code filled in, and installs the app if they do not have it.',
+      copy: 'Copy',
+      copied: 'Copied',
+      copyFail: 'Could not copy. Select the link and copy it yourself.',
+      review: '{n} purchase(s) are being checked and join your numbers once checked.',
+      monthsTitle: 'By month',
+      colMonth: 'Month',
+      colSales: 'Sales',
+      colRefunds: 'Refunds',
+      colShare: 'Your share',
+      recentTitle: 'Latest purchases',
+      noSales: 'No purchases with your code yet. They show here as soon as someone buys.',
+      showMore: 'Show more',
+      lifetime: 'Lifetime',
+      monthly: 'Monthly',
+      premium: 'Premium',
+      refundRow: 'Refund',
+      paidAt: 'paid {price}',
+      st_waiting: 'On hold until {date}',
+      st_cleared: 'Counted',
+      st_refunded: 'Refunded by the buyer',
+      st_refund: 'Taken off',
+      st_review: 'Being checked',
+      payoutsTitle: 'Payments',
+      noPayouts: 'No payments yet.',
+      howTitle: 'How your earnings work',
+      how1: 'Each purchase with your code earns you {share}% of what actually reaches us from Apple, after tax and Apple\'s fee.',
+      how2: 'Each purchase waits {days} days before it is ready to be paid, because most refunds happen in that time.',
+      how3: 'If a buyer gets a refund from Apple, that share comes off. If it happens after we have paid you, it comes off the next payment.',
+      how4: 'The numbers here are estimates that update as purchases come in. Apple\'s monthly report is the final word.',
+      how5: 'All amounts are in US dollars.',
+      updated: 'Updated {time}',
+      private: 'This page is private to you. Do not share its link; if it gets out, message us and we will give you a new one.',
+      contact: 'Questions? Email',
+      deadTitle: 'This link does not work',
+      deadSub: 'The link may have been replaced. Message us and we will send you the new one.',
+      noKeyTitle: 'This link is incomplete',
+      noKeySub: 'Open the full link, exactly as you received it.',
+      netTitle: 'We could not load your numbers',
+      netSub: 'Check your connection and try again.',
+      retry: 'Try again'
+    }
+  };
+
+  // ---- Language -------------------------------------------------------------
+
+  function storedLang() {
+    try { return window.localStorage.getItem(LANG_KEY); } catch (e) { return null; }
+  }
+  function storeLang(value) {
+    try { window.localStorage.setItem(LANG_KEY, value); } catch (e) { /* private window */ }
+  }
+  var query = new URLSearchParams(window.location.search);
+  var lang = (query.get('lang') || storedLang() || 'ar').slice(0, 2) === 'en' ? 'en' : 'ar';
+
+  function t(key) { return T[lang][key]; }
+
+  /**
+   * A sentence with its {slots} filled. Each value is its own isolated run,
+   * so a "$23.99" or a date inside an Arabic sentence keeps its own order.
+   */
+  function sentence(key, vars) {
+    var frag = document.createDocumentFragment();
+    var parts = t(key).split(/\{(\w+)\}/);
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) {
+        if (parts[i]) frag.appendChild(document.createTextNode(parts[i]));
+      } else {
+        var value = vars && Object.prototype.hasOwnProperty.call(vars, parts[i]) ? vars[parts[i]] : '';
+        frag.appendChild(el('bdi', null, String(value)));
+      }
+    }
+    return frag;
+  }
+
+  // ---- Formats: Latin digits in both languages, day before month ---------------
+
+  function money(cents) {
+    var c = Math.round(Number(cents) || 0);
+    var abs = Math.abs(c);
+    return (c < 0 ? '-' : '') + '$' + Math.floor(abs / 100).toLocaleString('en-US') + '.' + String(abs % 100).padStart(2, '0');
+  }
+  function usd(amount) {
+    return money(Math.round(Number(amount) * 100));
+  }
+  function locale() { return lang === 'ar' ? 'ar-u-nu-latn' : 'en-GB'; }
+  function day(ms) {
+    return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Bahrain' }).format(new Date(ms));
+  }
+  // Apple ends a code at midnight Pacific time, which is mid-morning in the
+  // Gulf, so the day alone would have a creator promise a day that is half
+  // gone.
+  function clock(ms) {
+    return new Intl.DateTimeFormat(locale(), { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Bahrain' }).format(new Date(ms));
+  }
+  function shortDay(ms) {
+    return new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short', timeZone: 'Asia/Bahrain' }).format(new Date(ms));
+  }
+  function monthName(key) {
+    var p = String(key).split('-');
+    return new Intl.DateTimeFormat(locale(), { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, 15)));
+  }
+  function when(ms) {
+    return new Intl.DateTimeFormat(locale(), {
+      day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Bahrain'
+    }).format(new Date(ms));
+  }
+
+  // ---- DOM ----------------------------------------------------------------------
+
+  function el(tag, attrs) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var name in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, name)) continue;
+        var value = attrs[name];
+        if (value === null || value === undefined || value === false) continue;
+        if (name === 'class') node.className = value;
+        else if (name.slice(0, 2) === 'on') node.addEventListener(name.slice(2), value);
+        else node.setAttribute(name, String(value));
+      }
+    }
+    for (var i = 2; i < arguments.length; i++) add(node, arguments[i]);
+    return node;
+  }
+  function add(node, child) {
+    if (child === null || child === undefined || child === false) return;
+    if (Array.isArray(child)) { child.forEach(function (c) { add(node, c); }); return; }
+    node.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  function moneyNode(cents, cls) {
+    return el('span', { class: 'ltr num' + (cls ? ' ' + cls : '') }, money(cents));
+  }
+
+  var toastTimer = null;
+  function toast(message) {
+    var box = document.getElementById('toast');
+    box.textContent = message;
+    box.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { box.classList.remove('on'); }, 2400);
+  }
+  function copyText(text) {
+    var done = function () { toast(t('copied')); };
+    var fail = function () { toast(t('copyFail')); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, fail);
+    } else {
+      fail();
+    }
+  }
+
+  // ---- The page -------------------------------------------------------------------
+
+  var state = { data: null, demo: false, error: null, showAll: false };
+
+  function productName(id) {
+    if (id === 'growdaily_lifetime' || id === 'growdaily_lifetime_offer') return t('lifetime');
+    if (id && id.indexOf('growdaily_monthly') === 0) return t('monthly');
+    return t('premium');
+  }
+
+  function renderMessage(titleKey, subKey, withRetry) {
+    var box = el('div', { class: 'card screen-msg' },
+      el('h1', null, t(titleKey)),
+      el('p', null, t(subKey)),
+      withRetry ? el('button', { class: 'btn', type: 'button', onclick: load }, t('retry')) : null,
+      el('p', { class: 'foot' }, t('contact') + ' ', el('a', { href: 'mailto:' + SUPPORT, class: 'ltr' }, SUPPORT)));
+    return box;
+  }
+
+  function heroCards(s) {
+    var m = s.money;
+    var lastPaid = s.payouts.length ? s.payouts[0].paidAtMs : null;
+    return [
+      el('section', { class: 'card hero', 'aria-labelledby': 'readyK' },
+        el('div', { class: 'k', id: 'readyK' }, t('ready')),
+        el('div', { class: 'big' }, moneyNode(m.owedCents)),
+        el('p', { class: 's' }, sentence('readySub', { days: s.holdDays }))),
+      el('div', { class: 'pair' },
+        el('section', { class: 'card' },
+          el('div', { class: 'k' }, t('waiting')),
+          el('div', { class: 'mid' }, moneyNode(m.waitingCents)),
+          el('p', { class: 's' }, m.waitingCents > 0 && m.nextReadyAtMs ? sentence('waitingNext', { date: day(m.nextReadyAtMs) }) : t('waitingNone'))),
+        el('section', { class: 'card' },
+          el('div', { class: 'k' }, t('paid')),
+          el('div', { class: 'mid' }, moneyNode(m.paidCents)),
+          el('p', { class: 's' }, lastPaid ? sentence('paidLast', { date: day(lastPaid) }) : t('paidNone'))))
+    ];
+  }
+
+  function statsCard(s) {
+    var c = s.counts;
+    function stat(v, label) {
+      return el('div', { class: 'stat' }, el('div', { class: 'v num' }, String(v)), el('div', { class: 'l' }, label));
+    }
+    return el('section', { class: 'card' },
+      el('div', { class: 'stats' },
+        stat(c.sales, t('statSales')),
+        stat(c.sales30, t('stat30')),
+        stat(c.refunds, t('statRefunds'))),
+      c.needsReview ? el('p', { class: 's', style: 'margin-top:12px' }, sentence('review', { n: c.needsReview })) : null);
+  }
+
+  function dealCard(s) {
+    var c = s.creator;
+    var lines = [];
+    if (c.offerPriceUsd !== null && c.discountPercent !== null) {
+      lines.push(el('p', null, sentence('dealPrice', { price: usd(c.offerPriceUsd), pct: c.discountPercent })));
+    }
+    if (c.sharePercent !== null) lines.push(el('p', null, sentence('dealShare', { share: c.sharePercent })));
+    if (!c.active) lines.push(el('p', { class: 'warn' }, t('dealPaused')));
+    else if (c.codeEnded && c.codeEndsAtMs) lines.push(el('p', { class: 'warn' }, sentence('dealEnded', { date: day(c.codeEndsAtMs) })));
+    else if (!c.hasAppleCode) lines.push(el('p', { class: 'warn' }, t('dealNotLive')));
+    else if (c.codeEndsAtMs) lines.push(el('p', null, sentence('dealEnds', { date: day(c.codeEndsAtMs), time: clock(c.codeEndsAtMs) })));
+    lines.push(el('p', { class: 's' }, t('dealIphone')));
+    var usable = c.active && c.hasAppleCode && !c.codeEnded;
+    return el('section', { class: 'card deal', 'aria-labelledby': 'dealH' },
+      el('h2', { id: 'dealH' }, t('dealTitle')),
+      lines,
+      usable ? [
+        el('div', { class: 'k', style: 'margin-top:14px' }, t('linkLabel')),
+        el('div', { class: 'linkbox' },
+          el('code', null, c.shareLink),
+          el('button', { class: 'copy', type: 'button', onclick: function () { copyText(c.shareLink); } }, t('copy'))),
+        el('p', { class: 'hint' }, t('linkHint'))
+      ] : null);
+  }
+
+  function monthsCard(s) {
+    if (!s.months.length) return null;
+    var body = el('tbody');
+    s.months.forEach(function (m) {
+      add(body, el('tr', null,
+        el('td', null, monthName(m.month)),
+        el('td', { class: 'n num' }, String(m.sales)),
+        el('td', { class: 'n num' }, String(m.refunds)),
+        el('td', { class: 'n' }, moneyNode(m.shareCents, m.shareCents < 0 ? 'neg' : ''))));
+    });
+    return el('section', { class: 'card', 'aria-labelledby': 'monthsH' },
+      el('h2', { id: 'monthsH' }, t('monthsTitle')),
+      el('table', null,
+        el('thead', null, el('tr', null,
+          el('th', { scope: 'col' }, t('colMonth')),
+          el('th', { scope: 'col', class: 'n' }, t('colSales')),
+          el('th', { scope: 'col', class: 'n' }, t('colRefunds')),
+          el('th', { scope: 'col', class: 'n' }, t('colShare')))),
+        body));
+  }
+
+  function statusText(r) {
+    if (r.status === 'waiting' && r.readyAtMs) return sentence('st_waiting', { date: shortDay(r.readyAtMs) });
+    return t('st_' + r.status) || '';
+  }
+
+  function recentCard(s) {
+    var rows = s.recent;
+    var list = el('ul', { class: 'rows' });
+    var shown = state.showAll ? rows : rows.slice(0, 8);
+    shown.forEach(function (r) {
+      var title = r.kind === 'refund' ? t('refundRow') + ' · ' + productName(r.productId) : productName(r.productId);
+      var sub = [day(r.atMs)];
+      add(list, el('li', null,
+        el('div', null,
+          el('div', { class: 't' }, title),
+          el('div', { class: 'd' }, sub.join(' · '),
+            r.priceUsd !== null && r.kind === 'sale' ? [' · ', sentence('paidAt', { price: usd(r.priceUsd) })] : null)),
+        el('div', { class: 'end' },
+          el('div', { class: 'amt' }, r.shareCents === null ? el('span', { class: 'ltr' }, '?')
+            : moneyNode(r.shareCents, r.status === 'refunded' ? 'void' : r.shareCents < 0 ? 'neg' : '')),
+          el('span', { class: 'chip ' + r.status }, statusText(r)))));
+    });
+    return el('section', { class: 'card', 'aria-labelledby': 'recentH' },
+      el('h2', { id: 'recentH' }, t('recentTitle')),
+      rows.length ? list : el('p', { class: 'muted' }, t('noSales')),
+      rows.length > shown.length ? el('button', {
+        class: 'more', type: 'button', onclick: function () { state.showAll = true; render(); }
+      }, t('showMore')) : null);
+  }
+
+  function payoutsCard(s) {
+    var list = el('ul', { class: 'rows' });
+    s.payouts.forEach(function (p) {
+      add(list, el('li', null,
+        el('div', null,
+          el('div', { class: 't' }, p.paidAtMs ? day(p.paidAtMs) : ''),
+          p.note ? el('div', { class: 'd' }, p.note) : null),
+        el('div', { class: 'end' }, el('div', { class: 'amt' }, moneyNode(p.amountCents)))));
+    });
+    return el('section', { class: 'card', 'aria-labelledby': 'payH' },
+      el('h2', { id: 'payH' }, t('payoutsTitle')),
+      s.payouts.length ? list : el('p', { class: 'muted' }, t('noPayouts')));
+  }
+
+  function howCard(s) {
+    var share = s.creator.sharePercent === null ? '?' : s.creator.sharePercent;
+    return el('details', { class: 'card how' },
+      el('summary', null, t('howTitle')),
+      el('ul', null,
+        el('li', null, sentence('how1', { share: share })),
+        el('li', null, sentence('how2', { days: s.holdDays })),
+        el('li', null, t('how3')),
+        el('li', null, t('how4')),
+        el('li', null, t('how5'))));
+  }
+
+  function render() {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    document.title = t('title');
+    document.getElementById('kicker').textContent = t('kicker');
+    var langBtn = document.getElementById('lang');
+    langBtn.textContent = t('other');
+    langBtn.setAttribute('lang', lang === 'ar' ? 'en' : 'ar');
+
+    var main = document.getElementById('main');
+    while (main.firstChild) main.removeChild(main.firstChild);
+
+    if (state.error) {
+      if (state.error === 'dead') add(main, renderMessage('deadTitle', 'deadSub', false));
+      else if (state.error === 'nokey') add(main, renderMessage('noKeyTitle', 'noKeySub', false));
+      else add(main, renderMessage('netTitle', 'netSub', true));
+      return;
+    }
+    var s = state.data;
+    if (!s) {
+      add(main, el('p', { class: 'muted' }, t('loading')));
+      return;
+    }
+    var c = s.creator;
+    add(main, [
+      state.demo ? el('div', { class: 'demo', role: 'note' }, t('demo')) : null,
+      el('h1', null, c.name ? sentence('hello', { name: c.name }) : t('helloNoName')),
+      el('div', { class: 'codeline' }, t('yourCode'), el('span', { class: 'code' }, c.code)),
+      heroCards(s),
+      statsCard(s),
+      dealCard(s),
+      monthsCard(s),
+      recentCard(s),
+      payoutsCard(s),
+      howCard(s),
+      el('p', { class: 'foot' },
+        sentence('updated', { time: when(s.nowMs) }), el('br'),
+        t('private'), el('br'),
+        t('contact') + ' ', el('a', { href: 'mailto:' + SUPPORT, class: 'ltr' }, SUPPORT))
+    ]);
+  }
+
+  // ---- Data -------------------------------------------------------------------------
+
+  function keyFromHash() {
+    var hash = window.location.hash.replace(/^#/, '');
+    if (hash === 'demo') return 'demo';
+    var params = new URLSearchParams(hash);
+    var key = params.get('k') || '';
+    return /^[A-Za-z0-9_-]{43}$/.test(key) ? key : null;
+  }
+
+  function demoStatement() {
+    var now = Date.now();
+    var d = 86400000;
+    function r(kind, age, share, status, price, product) {
+      return {
+        atMs: now - age * d, kind: kind, productId: product || 'growdaily_lifetime_offer', store: 'APP_STORE',
+        priceUsd: price, shareCents: share, status: status, readyAtMs: status === 'waiting' ? now + (60 - age) * d : null
+      };
+    }
+    return {
+      creator: {
+        name: lang === 'ar' ? 'سارة' : 'Sara', code: 'SARA', sharePercent: 25, discountPercent: 20, offerPriceUsd: 23.99,
+        // A real end is midnight Pacific; 08:00 UTC is that in winter.
+        codeEndsAtMs: Math.floor((now + 150 * d) / d) * d + 8 * 60 * 60 * 1000, codeEnded: false, active: true, hasAppleCode: true,
+        shareLink: 'https://apps.apple.com/redeem?ctx=offercodes&id=6788149393&code=SARA'
+      },
+      money: { earnedCents: 6720, paidCents: 2940, owedCents: 1680, waitingCents: 2100, nextReadyAtMs: now + 9 * d },
+      counts: { sales: 17, refunds: 1, sales30: 5, refunds30: 0, needsReview: 0 },
+      months: [
+        { month: new Date(now).toISOString().slice(0, 7), sales: 5, refunds: 0, shareCents: 2100 },
+        { month: new Date(now - 31 * d).toISOString().slice(0, 7), sales: 8, refunds: 1, shareCents: 2940 },
+        { month: new Date(now - 62 * d).toISOString().slice(0, 7), sales: 4, refunds: 0, shareCents: 1680 }
+      ],
+      recent: [
+        r('sale', 2, 420, 'waiting', 23.99),
+        r('sale', 6, 420, 'waiting', 23.99),
+        r('sale', 11, 420, 'waiting', 23.99),
+        r('refund', 20, -420, 'refund', -23.99),
+        r('sale', 51, 420, 'waiting', 23.99),
+        r('sale', 55, 420, 'refunded', 23.99),
+        r('sale', 64, 420, 'cleared', 23.99),
+        r('sale', 70, 420, 'cleared', 23.99)
+      ],
+      payouts: [{ paidAtMs: now - 12 * d, amountCents: 2940, note: lang === 'ar' ? 'تحويل بنكي' : 'Bank transfer' }],
+      holdDays: 60,
+      nowMs: now
+    };
+  }
+
+  function load() {
+    state.error = null;
+    var key = keyFromHash();
+    if (key === 'demo') {
+      state.demo = true;
+      state.data = demoStatement();
+      render();
+      return;
+    }
+    if (!key) {
+      state.error = 'nokey';
+      render();
+      return;
+    }
+    state.data = null;
+    render();
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key }),
+      cache: 'no-store',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer'
+    }).then(function (res) {
+      if (res.status === 404) { state.error = 'dead'; return null; }
+      if (!res.ok) { state.error = 'net'; return null; }
+      return res.json();
+    }).then(function (body) {
+      if (body && body.ok && body.statement) state.data = body.statement;
+      else if (!state.error) state.error = 'net';
+      render();
+    }).catch(function () {
+      state.error = 'net';
+      render();
+    });
+  }
+
+  document.getElementById('lang').addEventListener('click', function () {
+    lang = lang === 'ar' ? 'en' : 'ar';
+    storeLang(lang);
+    if (state.demo) state.data = demoStatement();
+    render();
+  });
+  window.addEventListener('hashchange', function () { state.showAll = false; state.demo = false; load(); });
+
+  load();
+})();
+</script>
+</body>
+</html>

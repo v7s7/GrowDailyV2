@@ -706,6 +706,10 @@ class _MilestoneRow extends StatelessWidget {
 ///    _confirmRemoveSharedHabit) - long-press, not a visible X, so a
 ///    destructive plan-wide change can't happen from a mis-tap on a chip
 ///    this small.
+///    Tapping it, for any member of a running shared-plan room, opens
+///    showRelinkPlanHabitSheet: change which of your habits fills the slot,
+///    from today on (Aziz, 2026-09-25: "edit the connection if one make
+///    mistake").
 ///  - **Skipped by this person** (see kDeclinedSlot): muted, struck through.
 ///    Tapping offers to add it after all, which resolves the slot to a fresh
 ///    habit cloned from the plan's own template - a skip was never meant to
@@ -820,12 +824,26 @@ class _PlanSlotChip extends ConsumerWidget {
         child: chip,
       );
     }
-    if (!canRemove) return chip;
+    // Any member may change which of their habits fills a slot of a running
+    // shared plan, never in the lobby (relinkSheetOpensFor); the leader's
+    // long-press stays the remove.
+    final canRelink = relinkSheetOpensFor(room, mine, index);
+    if (!canRemove && !canRelink) return chip;
     return GestureDetector(
-      onLongPress: () {
-        HapticFeedback.mediumImpact();
-        _confirmRemoveSharedHabit(context, ref, room, index);
-      },
+      onTap: canRelink
+          ? () => showRelinkPlanHabitSheet(
+                context,
+                room: room,
+                mine: mine,
+                slot: index,
+              )
+          : null,
+      onLongPress: canRemove
+          ? () {
+              HapticFeedback.mediumImpact();
+              _confirmRemoveSharedHabit(context, ref, room, index);
+            }
+          : null,
       child: chip,
     );
   }

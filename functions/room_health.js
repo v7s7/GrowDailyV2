@@ -167,14 +167,41 @@ function slotLiveOn(room, i, dayKey) {
 }
 
 /**
+ * The habits a relinked shared slot held before its current one, for slot
+ * [i]: `part.slotHabitHistory["i"]`, each `{habitId, until}` with `until`
+ * the last day (inclusive) it filled the slot, oldest first. The mirror of
+ * RoomParticipant.slotHabitHistory in the app; malformed entries are
+ * dropped the way the app drops them.
+ * @param {object} part The participant doc's data.
+ * @param {number} i The slot.
+ * @return {Array<{habitId: string, until: string}>}
+ */
+function slotHistory(part, i) {
+  const all = part.slotHabitHistory;
+  const list = all && typeof all === "object" ? all[String(i)] : null;
+  if (!Array.isArray(list)) return [];
+  return list
+      .filter((h) => h && typeof h.habitId === "string" && h.habitId !== "" &&
+          typeof h.until === "string" && h.until !== "")
+      .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0));
+}
+
+/**
  * The linked habit ids that actually count for a participant: every slot
  * except one the person declined and, in a shared-plan room, one the leader
  * has taken out of the plan. The same filter diagnose_room.js applies.
  *
  * With [dayKey], the ids whose slot is in the plan THAT day (a habit the
  * leader removed still counts on its removal day and the days before, see
- * slotLiveOn). Without it, every id graded on SOME day: all but a legacy
- * removal.
+ * slotLiveOn), each slot answered by the habit that filled it that day: a
+ * slot the member relinked (RoomsController.relinkPlanHabit) names its
+ * earlier habit on the days before the change, as RoomParticipant.
+ * habitInSlotOn does in the app. Without that, the sweep read the new
+ * habit's squares back over days it was not in the slot and logged them as
+ * undercounts, with a repair command that would have re-scored those days.
+ *
+ * Without [dayKey], every id graded on SOME day: all but a legacy removal,
+ * and the habits a relinked slot held before.
  * @param {object} room The room doc's data.
  * @param {object} part The participant doc's data.
  * @param {string} [dayKey] "YYYY-MM-DD".
@@ -183,13 +210,42 @@ function slotLiveOn(room, i, dayKey) {
 function countingHabitIds(room, part, dayKey) {
   const linked = Array.isArray(part.linkedHabitIds) ? part.linkedHabitIds : [];
   const shared = Array.isArray(room.sharedHabits) ? room.sharedHabits : [];
-  return linked.filter((id, i) => {
-    if (id === DECLINED) return false;
-    if (room.habitMode !== "shared" || i >= shared.length) return true;
-    if (dayKey !== undefined) return slotLiveOn(room, i, dayKey);
+  const isShared = room.habitMode === "shared";
+  const legacyRemoved = (i) => {
     const t = shared[i] || {};
-    return !(t.removedAt && typeof t.stopsOn !== "string");
+    return !!(t.removedAt && typeof t.stopsOn !== "string");
+  };
+  if (dayKey !== undefined) {
+    const out = [];
+    linked.forEach((id, i) => {
+      if (!isShared || i >= shared.length) {
+        if (id !== DECLINED) out.push(id);
+        return;
+      }
+      if (!slotLiveOn(room, i, dayKey)) return;
+      const held = slotHistory(part, i).find((h) => dayKey <= h.until);
+      if (held) {
+        out.push(held.habitId);
+        return;
+      }
+      if (id !== DECLINED) out.push(id);
+    });
+    return out;
+  }
+  const out = linked.filter((id, i) => {
+    if (id === DECLINED) return false;
+    if (!isShared || i >= shared.length) return true;
+    return !legacyRemoved(i);
   });
+  if (isShared) {
+    linked.forEach((_, i) => {
+      if (i >= shared.length || legacyRemoved(i)) return;
+      for (const h of slotHistory(part, i)) {
+        if (!out.includes(h.habitId)) out.push(h.habitId);
+      }
+    });
+  }
+  return out;
 }
 
 /**

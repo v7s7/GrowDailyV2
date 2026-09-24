@@ -57,9 +57,37 @@
         {
           "source": "/open",
           "destination": "/open/index.html"
+        },
+        {
+          "source": "/api/creator-statement",
+          "function": {
+            "functionId": "creatorStatement",
+            "region": "us-central1"
+          }
+        },
+        {
+          "source": "/creator",
+          "destination": "/creator/index.html"
         }
       ],
       "headers": [
+        {
+          "source": "/creator{,/**}",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            },
+            {
+              "key": "X-Frame-Options",
+              "value": "DENY"
+            },
+            {
+              "key": "Referrer-Policy",
+              "value": "no-referrer"
+            }
+          ]
+        },
         {
           "source": "/.well-known/apple-app-site-association",
           "headers": [

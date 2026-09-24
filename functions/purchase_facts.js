@@ -177,6 +177,28 @@ function offerRefOf(event) {
 }
 
 /**
+ * The creator code an offer code may be naming, for the second lookup:
+ * "creator-sara" and "sara" both give "SARA", the creators document id.
+ * Null for anything that could not be a creator's code.
+ *
+ * Why a second lookup. The ledger finds a creator by the offer's reference
+ * name, which is what RevenueCat documents `offer_code` as carrying for an
+ * App Store offer code. That has not yet been seen on a real ONE-TIME
+ * purchase (no creator code has ever been redeemed), and the alternative,
+ * the custom code the buyer typed ("SARA"), would otherwise match nobody
+ * and leave every sale flagged for review. Codes and reference names are
+ * made together by the admin tool, one offer per creator, so the two
+ * lookups can never point at two different creators.
+ * @param {*} offerRef What [offerRefOf] gave.
+ * @return {?string} The code, upper case.
+ */
+function creatorCodeOf(offerRef) {
+  if (typeof offerRef !== "string") return null;
+  const bare = offerRef.trim().replace(/^creator-/i, "").toUpperCase();
+  return /^[A-Z0-9]{3,64}$/.test(bare) ? bare : null;
+}
+
+/**
  * When the purchase happened, falling back to when the event fired, or
  * null when RevenueCat sent neither.
  */
@@ -423,6 +445,7 @@ function factDocId(event) {
 
 module.exports = {
   LIFETIME_PRODUCT_IDS,
+  creatorCodeOf,
   creatorLedgerRow,
   factDocId,
   ledgerRowFor,

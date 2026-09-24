@@ -24,6 +24,7 @@ import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
 import '../models/room_strip_day.dart';
+import 'habit_name_match.dart' show bestHabitMatch;
 import 'room_day_reads.dart';
 import 'room_moderation.dart' show blockedMembersProvider;
 
@@ -656,6 +657,34 @@ final roomBoostedHabitsProvider = Provider<Set<String>>((ref) {
   };
 });
 
+/// [roomBoostedHabitsProvider] for a completion of one day ([dayKey]): the
+/// habit that filled each slot of a LIVE room THAT day
+/// (RoomParticipant.countedHabitIdsOn, through habitInSlotOn), so one slot
+/// pays one habit per day. After a slot's habit is changed between midnight
+/// and 10:00, yesterday's grace tail pays the habit that filled it
+/// yesterday and today pays the new one; asked of the links as they stand,
+/// the new habit was paid 2x for yesterday as well, a day it never filled.
+final roomBoostedHabitsOnProvider =
+    Provider.family<Set<String>, String>((ref, dayKey) {
+  final uid = ref.watch(authStateProvider).asData?.value?.uid;
+  if (uid == null) return const {};
+  final codes = ref.watch(myRoomCodesProvider).valueOrNull ?? const [];
+  // Re-read at every day boundary, like myLinkedRoomHabitsProvider: a room
+  // stops being live at its end without any document changing.
+  ref.watch(dayClockProvider);
+  final out = <String>{};
+  for (final code in codes) {
+    final room = ref.watch(roomProvider(code)).valueOrNull;
+    if (room == null || !room.isLive) continue;
+    final participants = ref.watch(roomParticipantsProvider(code)).valueOrNull;
+    if (participants == null) continue;
+    final mine = participants.where((p) => p.uid == uid);
+    if (mine.isEmpty) continue;
+    out.addAll(mine.first.countedHabitIdsOn(room, dayKey));
+  }
+  return out;
+});
+
 /// Rooms whose leader-curated shared plan has grown past what this account
 /// has resolved, counting only slots still in the plan
 /// (RoomParticipant.pendingPlanSlotsIn),
@@ -698,8 +727,21 @@ final pendingSharedPlanPromptsProvider =
 /// so a boosted completion undone the same day refunds exactly what it
 /// paid (both reads happen under the same live-room state; rooms only
 /// change state at day boundaries).
-int roomBoostedReward(WidgetRef ref, String habitId, int base) =>
-    ref.read(roomBoostedHabitsProvider).contains(habitId) ? base * 2 : base;
+///
+/// [day] is the day the square belongs to. Given, the boost follows the
+/// habit that filled the slot that day (roomBoostedHabitsOnProvider); left
+/// out, it is the links as they stand now, as it always was.
+int roomBoostedReward(
+  WidgetRef ref,
+  String habitId,
+  int base, {
+  DateTime? day,
+}) {
+  final boosted = day == null
+      ? ref.read(roomBoostedHabitsProvider)
+      : ref.read(roomBoostedHabitsOnProvider(day.toDateKey()));
+  return boosted.contains(habitId) ? base * 2 : base;
+}
 
 /// Pushes this tap's *today* result to any Room tracking [habitId] — a
 /// cheap no-op for the overwhelmingly common case where it isn't linked to
@@ -795,59 +837,22 @@ String? parseRoomJoinLink(Uri uri) {
 
 // ─── Name matching (Join Room's "link existing or add new" review step) ───
 
-String _normalizeHabitName(String s) =>
-    s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-
-/// Classic edit-distance, used only to catch minor spelling differences (see
-/// [suggestExistingMatch]) - habit names are short, so the naive O(n*m) DP
-/// table here is never worth optimizing further.
-int _levenshtein(String a, String b) {
-  final la = a.length, lb = b.length;
-  if (la == 0) return lb;
-  if (lb == 0) return la;
-  var prev = List<int>.generate(lb + 1, (j) => j);
-  var curr = List<int>.filled(lb + 1, 0);
-  for (var i = 1; i <= la; i++) {
-    curr[0] = i;
-    for (var j = 1; j <= lb; j++) {
-      final cost = a[i - 1] == b[j - 1] ? 0 : 1;
-      curr[j] = min(min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
-    }
-    final tmp = prev;
-    prev = curr;
-    curr = tmp;
-  }
-  return prev[lb];
-}
-
 /// Best-guess existing habit to pre-select for a plan entry named
 /// [templateName], or null if nothing is close enough to suggest. Always
 /// just a *suggestion* - JoinRoomSheet's review step shows it pre-filled but
 /// lets the joiner change it before confirming, so a wrong guess here never
 /// silently links the wrong habit ("auto-link when confident, otherwise ask"
 /// - see the Rooms redesign this implements).
+///
+/// The rules live in habit_name_match.dart (since 2026-09-24): Arabic
+/// spelling evened out, filler like «صلاة» dropped, a short list of names
+/// that are one habit in both languages, and catalog habits found by id, so
+/// «الضحى» finds «صلاة الضحى» while «سنة الفجر» never finds «صلاة الفجر».
 IslamicHabitTemplate? suggestExistingMatch(
   String templateName,
   List<IslamicHabitTemplate> myHabits,
-) {
-  final target = _normalizeHabitName(templateName);
-  for (final h in myHabits) {
-    if (_normalizeHabitName(h.name) == target) return h;
-  }
-  IslamicHabitTemplate? best;
-  var bestDist = 1 << 30;
-  for (final h in myHabits) {
-    final candidate = _normalizeHabitName(h.name);
-    if (candidate.length < 4 || target.length < 4) continue;
-    final dist = _levenshtein(target, candidate);
-    final threshold = (target.length * 0.25).ceil().clamp(1, 3);
-    if (dist <= threshold && dist < bestDist) {
-      best = h;
-      bestDist = dist;
-    }
-  }
-  return best;
-}
+) =>
+    bestHabitMatch(templateName, myHabits);
 
 /// The next leader when [leavingUid] (the room's current leader) leaves,
 /// picked as the longest-standing remaining participant - or null if
@@ -924,7 +929,7 @@ RoomParticipant? nextLeaderAfter(
 /// top-level function (not part of the `S` l10n class) since a unit
 /// letter/word glued straight onto a digit ("2d", "45m") isn't sentence
 /// text needing grammatical agreement the way a full phrase would - same
-/// reasoning as [_levenshtein]/[suggestExistingMatch] above for keeping
+/// reasoning as [suggestExistingMatch] above for keeping
 /// pure computation out of the controller and out of `S`. Never ticks on
 /// its own (unlike RoomDetailScreen's per-second Timer) - a list of many
 /// rooms re-renders this from scratch on every Firestore snapshot anyway,
@@ -2153,15 +2158,28 @@ class RoomsController {
       // stored days behind it. Only slots beyond what is stored are new.
       final kept = was.linkedHabitIds;
       final keptNames = was.linkedHabitNames;
+      // A new slot may not take a habit one of the kept slots holds or held
+      // (RoomParticipant.habitsHeldBySlotsOtherThan): the sheet saw only the
+      // room, not this record, and the sync grades a habit through one slot.
+      // Held as a skip, like a repeat above.
+      final newIds = [...resolvedIds];
+      final newNames = [...resolvedNames];
+      if (room.habitMode == RoomHabitMode.shared) {
+        final held = was.habitsHeldBySlotsOtherThan(null);
+        for (var i = kept.length; i < newIds.length; i++) {
+          if (!held.contains(newIds[i])) continue;
+          newIds[i] = kDeclinedSlot;
+          if (i < newNames.length) newNames[i] = room.sharedHabits[i].name;
+        }
+      }
       final mergedIds = [
         ...kept,
-        if (resolvedIds.length > kept.length)
-          ...resolvedIds.sublist(kept.length),
+        if (newIds.length > kept.length) ...newIds.sublist(kept.length),
       ];
       final mergedNames = [
         ...keptNames,
-        if (resolvedNames.length > keptNames.length)
-          ...resolvedNames.sublist(keptNames.length),
+        if (newNames.length > keptNames.length)
+          ...newNames.sublist(keptNames.length),
       ];
       await participantRef.set(
         {
@@ -2263,18 +2281,24 @@ class RoomsController {
   /// else is a no-op, so a stale call (e.g. two taps before the UI catches
   /// up, or the room having changed again since this was queued) can never
   /// resolve the same slot twice or skip one out of order.
-  Future<void> resolvePlanHabit(
+  ///
+  /// Returns whether the slot was linked: false for every refusal, so a
+  /// caller resolving several slots in a row can stop and say so instead of
+  /// closing as if it had saved (see ResolveNewHabitsSheet).
+  Future<bool> resolvePlanHabit(
     RoomModel room,
     int templateIndex, {
     String? existingHabitId,
   }) async {
     final uid = _uid;
-    if (uid == null) return;
-    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) return;
+    if (uid == null) return false;
+    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) {
+      return false;
+    }
     final participantRef =
         _rooms.doc(room.code).collection('participants').doc(uid);
     final snap = await participantRef.get();
-    if (!snap.exists) return;
+    if (!snap.exists) return false;
     final participant = RoomParticipant.fromFirestore(snap);
     // Either the very next slot in line (the ordinary catch-up case), or an
     // earlier slot this participant previously SKIPPED and is now changing
@@ -2284,12 +2308,12 @@ class RoomsController {
     final isNextSlot = participant.linkedHabitIds.length == templateIndex;
     final isUndoingSkip = templateIndex < participant.linkedHabitIds.length &&
         participant.linkedHabitIds[templateIndex] == kDeclinedSlot;
-    if (!isNextSlot && !isUndoingSkip) return;
+    if (!isNextSlot && !isUndoingSkip) return false;
     // Nothing is linked to a slot the leader has removed: the resolve sheet
     // skips it (declineSharedHabit holds its place) and the skipped chip
     // offers nothing on it. Refused here too, so a stale screen cannot tie a
     // member's habit to a slot on its way out of the plan.
-    if (room.sharedHabits[templateIndex].isRemoved) return;
+    if (room.sharedHabits[templateIndex].isRemoved) return false;
 
     // Refuse an existing habit that already fills another slot, for the
     // reason joinRoom's own loop refuses it: two slots holding one habit are
@@ -2297,9 +2321,17 @@ class RoomsController {
     // read as a finished plan. Checked BEFORE _resolveTemplate so a repeat
     // cannot even create a habit, and only for an id the member already has
     // (a fresh "add as new" habit has no id yet and cannot collide).
+    //
+    // Not only a current link: a habit another slot HELD (a declined slot's
+    // prior, a relinked slot's earlier habit) is graded through that slot,
+    // so it would earn this one nothing (see
+    // RoomParticipant.habitsHeldBySlotsOtherThan).
     if (existingHabitId != null &&
-        participant.linkedHabitIds.contains(existingHabitId)) {
-      return;
+        (participant.linkedHabitIds.contains(existingHabitId) ||
+            participant
+                .habitsHeldBySlotsOtherThan(templateIndex)
+                .contains(existingHabitId))) {
+      return false;
     }
     final (id, name) =
         _resolveTemplate(room.sharedHabits[templateIndex], existingHabitId);
@@ -2326,6 +2358,29 @@ class RoomsController {
         .effectiveDay
         .subtract(const Duration(days: 1))
         .toDateKey();
+    // Refilling a slot that was emptied by deleting its habit (or declining
+    // it): the habit it held before the decline keeps the days before it,
+    // through the slot's history (RoomParticipant.slotHabitHistory), the
+    // same record a relink writes. Without it the new habit was read back
+    // over those days the moment the slot stopped reading as declined, and
+    // a day the old habit had finished lost it (measured: 2 of 2 fell to
+    // 1 of 2, undo_skip_keeps_prior_days_test.dart). An undated legacy
+    // decline has no day to bound the prior by and is left as it was.
+    final prior =
+        isUndoingSkip ? participant.slotPriorHabitIds[templateIndex] : null;
+    List<({String habitId, String until})>? refilledHistory;
+    if (prior != null && declinedFrom != null) {
+      final lastPriorDay = DateTime.parse(declinedFrom)
+          .subtract(const Duration(days: 1))
+          .toDateKey();
+      final earlier = participant.slotHabitHistory[templateIndex] ??
+          const <({String habitId, String until})>[];
+      if (lastPriorDay.compareTo(
+              _slotStretchStart(room, participant, templateIndex)) >=
+          0) {
+        refilledHistory = [...earlier, (habitId: prior, until: lastPriorDay)];
+      }
+    }
     // NESTED MAPS, never a dotted key. A dotted field path is only resolved
     // by update(); inside set(merge: true) the key is taken literally and
     // Firestore creates a top-level field actually called
@@ -2340,6 +2395,16 @@ class RoomsController {
         'linkedHabitNames': names,
         if (isUndoingSkip)
           'slotDeclinedFrom': {'$templateIndex': FieldValue.delete()},
+        if (refilledHistory != null) ...{
+          'slotHabitHistory': {
+            '$templateIndex': [
+              for (final h in refilledHistory)
+                {'habitId': h.habitId, 'until': h.until},
+            ],
+          },
+          // The prior now lives in the history, with its last day.
+          'slotPriorHabitIds': {'$templateIndex': FieldValue.delete()},
+        },
         if (declinedFrom != null && declinedFrom.compareTo(yesterdayKey) <= 0)
           'slotDeclinedSpans': {
             '$templateIndex': FieldValue.arrayUnion([
@@ -2350,6 +2415,130 @@ class RoomsController {
       SetOptions(merge: true),
     );
     await syncLinkedHabitsProgress(room);
+    return true;
+  }
+
+  /// The first day slot [i]'s CURRENT stretch began for [p]: the day after
+  /// the slot's last recorded change of habit ([RoomParticipant.
+  /// slotHabitHistory]), else the later of the day the slot joined the plan
+  /// and the day this member's room began. A stretch that would end before
+  /// it filled no day and is not recorded.
+  String _slotStretchStart(RoomModel room, RoomParticipant p, int i) {
+    final history = p.slotHabitHistory[i];
+    if (history != null && history.isNotEmpty) {
+      return DateTime.parse(history.last.until)
+          .add(const Duration(days: 1))
+          .toDateKey();
+    }
+    final joined = room.slotJoinedPlanKey(i);
+    final start = p.countedStartIn(room).toDateKey();
+    return joined.compareTo(start) >= 0 ? joined : start;
+  }
+
+  /// Changes which of this member's habits fills shared slot [templateIndex]
+  /// of [room] to [newHabitId], from today on. Aziz, 2026-09-25: "edit the
+  /// connection if one make mistake".
+  ///
+  /// The rule is the one a skip and a removal already follow: the change
+  /// counts from the day it is made, and every day before keeps exactly
+  /// what the habit that filled the slot then earned. So the old habit and
+  /// the last day it filled the slot go into
+  /// [RoomParticipant.slotHabitHistory], which the sync and every past-day
+  /// reader consult through [RoomParticipant.habitInSlotOn]. A change made
+  /// on the day the old habit was linked leaves no record: it never filled
+  /// a finished day.
+  ///
+  /// "Today" is the calendar day, the one a decline is stamped with (see
+  /// [declineSharedHabit]): the day rolls at midnight. So before the 10:00
+  /// cutoff, yesterday, still open for marking, stays the old habit's last
+  /// day, and the new habit counts from today.
+  ///
+  /// Refused (false, nothing written) for anything that is not a live,
+  /// linked slot of a running shared room, for the habit already there, for
+  /// a habit this account does not have, and for a habit another slot holds
+  /// or has held (see [RoomParticipant.habitsHeldBySlotsOtherThan]).
+  Future<bool> relinkPlanHabit(
+    RoomModel room,
+    int templateIndex,
+    String newHabitId,
+  ) async {
+    final uid = _uid;
+    if (uid == null) return false;
+    if (room.habitMode != RoomHabitMode.shared) return false;
+    // Not before the room starts (the lobby, or a first day still ahead):
+    // nothing has counted yet, and in the lobby the start date is only a
+    // placeholder, so a change there was recorded as a history the room
+    // never played. The plan chip does not open the sheet then either.
+    if (!room.hasStartedAt(_clock())) return false;
+    if (room.isEndedAt(_clock())) return false;
+    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) {
+      return false;
+    }
+    if (room.sharedHabits[templateIndex].isRemoved) return false;
+    final participantRef =
+        _rooms.doc(room.code).collection('participants').doc(uid);
+    final snap = await participantRef.get();
+    if (!snap.exists) return false;
+    final participant = RoomParticipant.fromFirestore(snap);
+    if (templateIndex >= participant.linkedHabitIds.length) return false;
+    final oldHabitId = participant.linkedHabitIds[templateIndex];
+    if (oldHabitId == kDeclinedSlot || oldHabitId == newHabitId) return false;
+    if (participant.linkedHabitIds.contains(newHabitId) ||
+        participant
+            .habitsHeldBySlotsOtherThan(templateIndex)
+            .contains(newHabitId)) {
+      return false;
+    }
+    final found =
+        _ref.read(habitListProvider).where((h) => h.id == newHabitId);
+    if (found.isEmpty) return false;
+    final newHabit = found.first;
+
+    final switchDay = _clock().effectiveDay;
+    final lastOldDay =
+        switchDay.subtract(const Duration(days: 1)).toDateKey();
+    final history = [
+      ...participant.slotHabitHistory[templateIndex] ??
+          const <({String habitId, String until})>[],
+    ];
+    final oldFrom = _slotStretchStart(room, participant, templateIndex);
+    if (lastOldDay.compareTo(oldFrom) >= 0) {
+      history.add((habitId: oldHabitId, until: lastOldDay));
+    }
+
+    final ids = [...participant.linkedHabitIds];
+    final names = [...participant.linkedHabitNames];
+    ids[templateIndex] = newHabit.id;
+    if (templateIndex < names.length) {
+      names[templateIndex] = newHabit.name;
+    } else {
+      while (names.length < templateIndex) {
+        names.add('');
+      }
+      names.add(newHabit.name);
+    }
+    // A nested map, never a dotted key (see resolvePlanHabit): under
+    // merge the slot's list is replaced whole and the other slots' records
+    // are left as they are.
+    await participantRef.set(
+      {
+        'linkedHabitIds': ids,
+        'linkedHabitNames': names,
+        if (history.isNotEmpty)
+          'slotHabitHistory': {
+            '$templateIndex': [
+              for (final h in history) {'habitId': h.habitId, 'until': h.until},
+            ],
+          },
+        'lastUpdated': Timestamp.now(),
+      },
+      SetOptions(merge: true),
+    );
+    AnalyticsService.instance.track('room_plan_relinked', props: {
+      'kept_history': history.isNotEmpty,
+    });
+    await syncLinkedHabitsProgress(room);
+    return true;
   }
 
   /// Leader-only: adds one more habit to an already-existing [RoomHabitMode.
@@ -2499,7 +2688,16 @@ class RoomsController {
       // Only auto-links if this really is the very next slot for the
       // leader too - same defensive positional check as resolvePlanHabit,
       // in case their own doc is somehow already out of sync.
-      if (mine.linkedHabitIds.length == room.sharedHabits.length) {
+      //
+      // ...and never with a habit another of their slots holds or held
+      // (RoomParticipant.habitsHeldBySlotsOtherThan, the guard every link
+      // path applies). The sync grades a habit through one slot, and a habit
+      // a relinked slot once held keeps that slot's older rule, so the new
+      // slot was graded on the days before it existed (the leader's own
+      // score fell for them, relink_past_days_test.dart). The slot is still
+      // added for everyone; the leader links it as any member would.
+      if (mine.linkedHabitIds.length == room.sharedHabits.length &&
+          !mine.habitsHeldBySlotsOtherThan(null).contains(habit.id)) {
         await participantRef.set(
           {
             'linkedHabitIds': [...mine.linkedHabitIds, habit.id],
@@ -2788,17 +2986,20 @@ class RoomsController {
   ///
   /// Same "must be exactly the next slot in line" guard as
   /// [resolvePlanHabit], for the same reason - a stale call can never skip
-  /// the wrong slot or jump one out of order.
-  Future<void> declineSharedHabit(RoomModel room, int templateIndex) async {
+  /// the wrong slot or jump one out of order. Returns whether it wrote, like
+  /// resolvePlanHabit.
+  Future<bool> declineSharedHabit(RoomModel room, int templateIndex) async {
     final uid = _uid;
-    if (uid == null) return;
-    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) return;
+    if (uid == null) return false;
+    if (templateIndex < 0 || templateIndex >= room.sharedHabits.length) {
+      return false;
+    }
     final participantRef =
         _rooms.doc(room.code).collection('participants').doc(uid);
     final snap = await participantRef.get();
-    if (!snap.exists) return;
+    if (!snap.exists) return false;
     final participant = RoomParticipant.fromFirestore(snap);
-    if (participant.linkedHabitIds.length != templateIndex) return;
+    if (participant.linkedHabitIds.length != templateIndex) return false;
 
     await participantRef.set(
       {
@@ -2819,6 +3020,7 @@ class RoomsController {
       SetOptions(merge: true),
     );
     await syncLinkedHabitsProgress(room);
+    return true;
   }
 
   /// Leader-only: takes one habit out of a shared room's plan.
@@ -3682,6 +3884,16 @@ class RoomsController {
     // never been in the plan (the leader of the traced room went from 63%
     // to 100% and first place for removing the habit they missed most).
     final gradedIds = mineNow.gradedHabitIdsIn(room);
+    // The habits a relinked slot held before its current one (see
+    // RoomParticipant.slotHabitHistory), graded like a declined slot's prior
+    // habit: on their own days only (slotGradesOn), by their squares even
+    // once deleted from the Grid (pass 1's `habit == null` branch).
+    final heldBeforeIds = <String>{
+      if (room.habitMode == RoomHabitMode.shared)
+        for (final e in mineNow.slotHabitHistory.entries)
+          if (e.key < rawIds.length)
+            for (final held in e.value) held.habitId,
+    };
     final habitIds = [
       ...gradedIds,
       if (room.habitMode == RoomHabitMode.shared)
@@ -3691,6 +3903,11 @@ class RoomsController {
               !gradedIds.contains(e.value))
             e.value,
     ];
+    // Each once: a slot that went back to a habit it held before lists it
+    // in its record and in its link.
+    for (final id in heldBeforeIds) {
+      if (!habitIds.contains(id)) habitIds.add(id);
+    }
     if (habitIds.isEmpty) return;
     // The linked habits the room still counts RIGHT NOW (today, or yesterday
     // while its grace tail is open) - the present-tense set, for the two
@@ -3718,6 +3935,16 @@ class RoomsController {
         slotOfHabit[e.value] = e.key;
       }
     }
+    // A relinked slot's earlier habits belong to that slot. Never over a
+    // live link: a habit is only ever in one slot's record, and that slot
+    // is the one it went back to if it is linked now (the link paths refuse
+    // any other, see RoomParticipant.habitsHeldBySlotsOtherThan).
+    for (final e in mineNow.slotHabitHistory.entries) {
+      if (e.key >= rawIds.length) continue;
+      for (final held in e.value) {
+        slotOfHabit.putIfAbsent(held.habitId, () => e.key);
+      }
+    }
     // Whether [id] was the habit in its slot on [day]: false inside a
     // declined window, for a prior habit false from the decline on, and
     // false on any day the leader's plan edits had the slot out of the plan
@@ -3729,16 +3956,6 @@ class RoomsController {
       final key = day.toDateKey();
       if (!room.slotLiveOn(i, key)) return false;
       return mineNow.habitInSlotOn(i, key) == id;
-    }
-
-    // Whether [id]'s slot was in the plan on [day], as far as the leader's
-    // plan edits go - the removal half of slotGradesOn alone, for the two
-    // readers that must not start answering the decline question (the
-    // stand-down check and pass 2's quota weeks read the same days they
-    // always have in a room nobody edited).
-    bool slotLiveFor(String id, DateTime day) {
-      final i = slotOfHabit[id];
-      return i == null || room.slotLiveOn(i, day.toDateKey());
     }
 
     // Looked up once, up front, so each day's scheduling check below is a
@@ -4033,7 +4250,11 @@ class RoomsController {
     // clock running fast.
     String planFloorFor(String id) {
       if (room.habitMode != RoomHabitMode.shared) return startKey;
-      final i = rawIds.indexOf(id);
+      // The slot the sync grades it through: a relinked slot's earlier habit
+      // is in no current link, and rawIds.indexOf alone answered -1 for it,
+      // seeding a missing rule from the room's start instead of its slot's,
+      // so a slot added mid-room graded it on days before it existed.
+      final i = slotOfHabit[id] ?? rawIds.indexOf(id);
       if (i < 0 || i >= room.sharedHabits.length) return startKey;
       return room.slotJoinedPlanKey(i);
     }
@@ -4336,6 +4557,16 @@ class RoomsController {
           if (rawIds[i] != kDeclinedSlot && room.sharedHabits[i].isRemoved)
             rawIds[i],
     };
+    // The habits a slot held that may be graded without their template:
+    // the habit that used to fill a since-declined slot (that is what
+    // unlinkHabitEverywhere leaves when a habit is deleted from the Grid), a
+    // relinked slot's earlier habits, and a removed slot's. Deleted, its
+    // template is gone but its squares are not: they sit in the daily
+    // documents under its id, and isGreen/isPartial read them by id.
+    bool gradedBySquares(String id) =>
+        mineNow.slotPriorHabitIds.containsValue(id) ||
+        heldBeforeIds.contains(id) ||
+        removedSlotIds.contains(id);
     for (final id in habitIds) {
       final habit = habitById[id];
       final rules = effectiveRules[id]!;
@@ -4346,37 +4577,16 @@ class RoomsController {
       // Now it leaves the numerator AND the denominator, so the member is
       // graded on what they can actually do. See roomHasGradableHabit for
       // the one case that cannot be excused.
-      if (habit == null) {
-        // The habit that used to fill a since-declined slot, and has since
-        // been deleted from the Grid (that is what unlinkHabitEverywhere
-        // is). Its template is gone but its squares are not: they sit in
-        // the daily documents under its id, and isGreen/isPartial read them
-        // by id. Graded as the plain daily habit its room rule says it was,
-        // on the days before the decline only (slotGradesOn), so those days
-        // keep the credit they earned instead of being re-scored without it.
-        if (mineNow.slotPriorHabitIds.containsValue(id) ||
-            removedSlotIds.contains(id)) {
-          for (var i = 0; i < days.length; i++) {
-            if (!joinedPlanBy(id, days[i])) continue;
-            final key = days[i].toDateKey();
-            presentCount[key] = presentCount[key]! + 1;
-            scheduledCount[key] = scheduledCount[key]! + 1;
-            marksByDay[key]![id] = squareMark(i, id);
-            if (isGreen(i, id)) {
-              doneCount[key] = doneCount[key]! + 1;
-            } else if (isPartial(i, id)) {
-              partialCount[key] = partialCount[key]! + 1;
-            } else if (isSkipped(i, id)) {
-              restedCount[key] = restedCount[key]! + 1;
-            }
-            // A plain daily slot is one whole habit of demand, which is what
-            // keeps a mixed day's two kinds of slot in the same unit.
-            scheduledWeight[key] = scheduledWeight[key]! + 1;
-            doneWeight[key] = doneWeight[key]! +
-                (isGreen(i, id) ? 1.0 : (isPartial(i, id) ? 0.5 : 0.0));
-          }
-          continue;
-        }
+      //
+      // Not a habit a slot held and that has since been deleted
+      // (gradedBySquares): that one is graded below like any other, by the
+      // room's own rule for it (its weekdays, its weekly quota), as alive on
+      // every day its slot held it (joinedPlanBy draws those days), so they
+      // keep the credit they earned instead of being re-scored without it.
+      // It was graded as a plain daily habit whatever its rule, so deleting
+      // a Mon/Thu habit after changing the slot's link turned every other
+      // day of its stretch into a miss (relink_past_days_test.dart).
+      if (habit == null && !gradedBySquares(id)) {
         if (anyGradable) continue;
         // Everything is paused or gone. Scheduled, never done, so this
         // scores zero rather than paying full credit for an empty day.
@@ -4395,6 +4605,9 @@ class RoomsController {
         }
         continue;
       }
+      // Alive that day: its own stints, or for a deleted habit graded by its
+      // squares (see above), every day, since its slot is what draws them.
+      bool alive(DateTime day) => habit == null || countedOn(habit, day);
       // Walked a week at a time rather than a day at a time, because a
       // weekly-quota habit's answerable days can only be decided by looking
       // at its whole week at once. Whether this habit IS one is read from the
@@ -4407,7 +4620,7 @@ class RoomsController {
         if (weekRule.frequencyType == HabitFrequencyType.weekly) {
           final present = dayIndices
               .where(
-                (i) => countedOn(habit, days[i]) && joinedPlanBy(id, days[i]),
+                (i) => alive(days[i]) && joinedPlanBy(id, days[i]),
               )
               .toList();
           if (present.isEmpty) continue;
@@ -4502,7 +4715,7 @@ class RoomsController {
           // all - it was never something to do, not something skipped. The
           // weekday list comes from the room's frozen rule, so editing a
           // habit's days can't re-grade finished history.
-          if (!countedOn(habit, days[i])) continue;
+          if (!alive(days[i])) continue;
           // A slot the leader added to a running room asks nothing of the
           // days before it joined the plan - for every member equally, since
           // the floor is the room's record, not the member's.
@@ -4587,17 +4800,34 @@ class RoomsController {
       });
     }
 
-    // Loop-invariant: which links resolve to a habit at all does not vary by
-    // day, only whether each one was ACTIVE, and whether the plan still
-    // asked for it, on a given day.
-    // Over the member's own linked slots, not the prior habits of declined
-    // slots that habitIds also carries for grading: a prior habit that has
-    // been deleted must not read as "a link with no habit behind it" and
-    // switch the stand-down rule off for a member whose plan resolves fine.
-    final resolvable = [
-      for (final id in gradedIds)
-        if (habitById[id] case final IslamicHabitTemplate h) (id, h),
-    ];
+    // The habits the plan asked of this member on [day], one per slot: in a
+    // shared room the habit that filled each slot THAT day
+    // (RoomParticipant.habitInSlotOn), the one pass 1 grades on it. Asked of
+    // the links as they stand now, a change of link (relinkPlanHabit) read
+    // the slot's past through the new habit: the old habit's paused stretch
+    // stopped being stood down and scored zero, and a pause of the new
+    // habit's from before it was linked stood down days the old one had
+    // worked (relink_past_days_test.dart).
+    //
+    // A habit a slot held before its current one (a relinked slot's earlier
+    // habit, a declined slot's prior) that has been deleted is left out: its
+    // squares are still graded, but whether it was running cannot be known,
+    // and it must not read as "a link with no habit behind it" and switch
+    // the stand-down rule off for a member whose plan resolves fine. A
+    // current link that does not resolve still does, below. An own-mode
+    // room has no slots to change: its links, as always.
+    List<String> askedOn(DateTime day) {
+      if (room.habitMode != RoomHabitMode.shared) return gradedIds;
+      final key = day.toDateKey();
+      return [
+        for (var s = 0; s < rawIds.length; s++)
+          if (!(s < room.sharedHabits.length &&
+                  room.sharedHabits[s].isLegacyRemoval) &&
+              room.slotLiveOn(s, key))
+            if (mineNow.habitInSlotOn(s, key) case final String id)
+              if (id == rawIds[s] || habitById.containsKey(id)) id,
+      ];
+    }
 
     // Every counted link has to resolve before any day can be a stand-down.
     //
@@ -4629,12 +4859,12 @@ class RoomsController {
       final d = days[i];
       // What the plan asked of this member that day, and how much of it
       // this device can resolve.
-      final askedThatDay = gradedIds.where((id) => slotLiveFor(id, d)).length;
+      final asked = askedOn(d);
       final live = [
-        for (final e in resolvable)
-          if (slotLiveFor(e.$1, d)) e,
+        for (final id in asked)
+          if (habitById[id] case final IslamicHabitTemplate h) (id, h),
       ];
-      if (live.isEmpty || live.length != askedThatDay) continue;
+      if (live.isEmpty || live.length != asked.length) continue;
       // Anything actually running that day means this is not a stand-down.
       if (live.any((e) => countedOn(e.$2, d))) continue;
       // ── A day somebody actually TRAINED is never a stand-down ──────────
@@ -4682,26 +4912,35 @@ class RoomsController {
       var allHeld = true;
       for (final id in habitIds) {
         final habit = habitById[id];
-        if (habit == null) continue;
+        // A deleted habit its slot held is judged as pass 1 grades it: by
+        // its room rule, alive on every day its slot held it.
+        if (habit == null && !gradedBySquares(id)) continue;
         final rule =
             roomRuleAt(effectiveRules[id]!, days[dayIndices.first].toDateKey());
         if (rule.frequencyType != HabitFrequencyType.weekly) continue;
-        // Only the days its slot was in the plan: a weekly habit the leader
-        // removed mid-week banks nothing from the days after it left.
-        final alive = dayIndices.where((i) => countedOn(habit, days[i]));
+        // Only the days it filled its slot (slotGradesOn): a weekly habit the
+        // leader removed mid-week banks nothing from the days after it left,
+        // and a slot whose habit was changed (relinkPlanHabit) judges each
+        // habit on its own days. Asked of the plan alone, a change judged
+        // the new habit on the weeks before it was linked and the old one on
+        // every week after, and a weekly slot relinked to another weekly
+        // habit lost every week it had banked (relink_past_days_test.dart).
+        final alive = dayIndices
+            .where((i) => habit == null || countedOn(habit, days[i]));
         final window =
-            alive.where((i) => slotLiveFor(id, days[i])).toList();
+            alive.where((i) => slotGradesOn(id, days[i])).toList();
         if (window.isEmpty) continue;
         sawWeeklyHabit = true;
-        // A week a plan edit cut short asks for what it could still fit, the
-        // same clamp pass 1 applies (weeklyQuotaScheduledDays' effective
-        // target). Without it the two passes judge the same week twice over:
-        // a 4x habit removed on Sunday is met on the two days it had, and
-        // pass 1 credits them, while this one reads 2 of 4 and drops the week
-        // from quotaOkWeeks, breaking a streak the percentage says held.
-        // ONLY where the plan itself cut the week, so every week shortened by
-        // anything else (a pause, a late addition, a room's first or last
-        // week) is judged exactly as it is today.
+        // A week a plan edit or a change of the slot's habit cut short asks
+        // for what it could still fit, the same clamp pass 1 applies
+        // (weeklyQuotaScheduledDays' effective target). Without it the two
+        // passes judge the same week twice over: a 4x habit removed on
+        // Sunday is met on the two days it had, and pass 1 credits them,
+        // while this one reads 2 of 4 and drops the week from quotaOkWeeks,
+        // breaking a streak the percentage says held. ONLY where the slot
+        // itself cut the week, so every week shortened by anything else (a
+        // pause, a late addition, a room's first or last week) is judged
+        // exactly as it is today.
         final cutByPlan = window.length < alive.length;
         final target = cutByPlan
             ? rule.frequencyTarget.clamp(1, window.length)

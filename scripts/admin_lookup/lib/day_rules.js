@@ -683,8 +683,30 @@ function roomCountsHabitOn({ room, participant, habitId, dayKey }) {
   const p = participant || {};
   const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
   const shared = Array.isArray((room || {}).sharedHabits) ? room.sharedHabits : [];
-  const i = linked.indexOf(habitId);
-  if (i < 0 || habitId === DECLINED_SLOT) return false;
+  if (habitId === DECLINED_SLOT) return false;
+  // The slot this habit fills or filled: its current link, else a relinked
+  // slot's history (RoomParticipant.slotHabitHistory). On a shared slot it
+  // counts only on the days it was the slot's habit (habitInSlotOn).
+  let i = linked.indexOf(habitId);
+  const history = p.slotHabitHistory || {};
+  if (i < 0) {
+    for (const key of Object.keys(history)) {
+      const list = Array.isArray(history[key]) ? history[key] : [];
+      if (list.some((h) => h && h.habitId === habitId)) {
+        i = Number(key);
+        break;
+      }
+    }
+  }
+  if (!Number.isInteger(i) || i < 0) return false;
+  if (i < shared.length && (room || {}).habitMode === 'shared') {
+    const held = (Array.isArray(history[String(i)]) ? history[String(i)] : [])
+      .filter((h) => h && typeof h.habitId === 'string' && typeof h.until === 'string')
+      .sort((a, b) => (a.until < b.until ? -1 : a.until > b.until ? 1 : 0))
+      .find((h) => dayKey <= h.until);
+    const inSlot = held ? held.habitId : linked[i];
+    if (inSlot !== habitId) return false;
+  }
   if (i < shared.length && !slotLiveOnDay(room, i, dayKey)) return false;
   if (p.leftAt) return false;
   const floor = slotFloorFor(p, habitId);

@@ -188,6 +188,69 @@ test('the rotation picks the same line as the app for the same day', () => {
   assert.strictEqual(Rules.addDays('2026-12-31', 1), '2027-01-01');
 });
 
+// ---- Moving lines -------------------------------------------------------------
+
+const letters = (s) => s.split('');
+
+test('a moved line lands exactly where it was sent, and nothing else changes order', () => {
+  const list = letters('abcdefgh');
+  assert.deepStrictEqual(Rules.moveLines(list, [6], 1), letters('agbcdefh'), 'up');
+  assert.deepStrictEqual(Rules.moveLines(list, [1], 6), letters('acdefgbh'), 'down');
+  assert.deepStrictEqual(Rules.moveLines(list, [3], 3), list, 'onto itself');
+  assert.deepStrictEqual(list, letters('abcdefgh'), 'the list passed in is not touched');
+  assert.deepStrictEqual(Rules.moveLines(list, [2], 99), letters('abdefghc'), 'past the end means the end');
+  assert.deepStrictEqual(Rules.moveLines(list, [2], -4), letters('cabdefgh'), 'before the start means the start');
+});
+
+test('ticked lines move together, in list order whatever order they were ticked in', () => {
+  const list = letters('abcdefgh');
+  assert.deepStrictEqual(Rules.moveLines(list, [6, 1, 4], 2), letters('acbegdfh'));
+  assert.deepStrictEqual(Rules.moveLines(list, [0, 1], 7), letters('cdefghab'), 'a group that would run past the end is pulled back');
+});
+
+test('lines sent to a day show on that day, the days after it too, even past the last line', () => {
+  const list = letters('abcdefgh');
+  const n = list.length;
+  // 2026-09-24 is day 266 of the rotation: 266 % 8 = 2, so today is 'c'.
+  const today = '2026-09-24';
+  assert.strictEqual(list[Rules.rotationIndex(today, n)], 'c');
+  const shownOn = (l, day) => l[Rules.rotationIndex(day, n)];
+
+  // One line from below today, to tomorrow: today's line stays.
+  const one = Rules.moveLines(list, [6], Rules.rotationIndex(Rules.addDays(today, 1), n), true);
+  assert.strictEqual(shownOn(one, Rules.addDays(today, 1)), 'g');
+  assert.strictEqual(shownOn(one, today), 'c');
+
+  // Three lines from the day whose place is the last one: they wrap round.
+  const lastDay = Rules.addDays(today, n - 1 - Rules.rotationIndex(today, n));
+  assert.strictEqual(Rules.rotationIndex(lastDay, n), n - 1);
+  const three = Rules.moveLines(list, [0, 3, 5], Rules.rotationIndex(lastDay, n), true);
+  assert.deepStrictEqual(
+    [0, 1, 2].map((k) => shownOn(three, Rules.addDays(lastDay, k))),
+    ['a', 'd', 'f']);
+  assert.deepStrictEqual(three.slice().sort(), list, 'every line still there once');
+});
+
+test('moved counts the fewest lines that changed place', () => {
+  assert.strictEqual(Rules.longestRising([0, 1, 2, 3, 4]), 5);
+  assert.strictEqual(Rules.longestRising([0, 4, 1, 2, 3]), 4, 'one line dragged up');
+  assert.strictEqual(Rules.longestRising([4, 3, 2, 1, 0]), 1);
+  assert.strictEqual(Rules.longestRising([]), 0);
+});
+
+test('History tells a move from an edit by the text alone', () => {
+  const q = (ar, en) => ({ ar, en });
+  const before = [q('أ', 'A'), q('ب', 'B'), q('ج', 'C'), q('د', 'D')];
+  const words = (after) => Rules.lineChangeWords(Rules.describeLineChanges(before, after));
+
+  assert.strictEqual(words([before[0], before[3], before[1], before[2]]), '1 line moved');
+  assert.strictEqual(words([before[0], q('ب', 'Bee'), before[2], before[3]]), '1 line edited');
+  assert.strictEqual(words([q('أ', 'A '), before[1], before[2], before[3]]), '', 'spacing at the ends is no change');
+  assert.strictEqual(words([before[3], before[0], q('جديد', 'New'), before[1]]), '1 line moved, 1 added, 1 removed');
+  assert.deepStrictEqual(Rules.describeLineChanges(before, before.concat([q('هـ', 'E')])),
+    { moved: 0, edited: 0, added: 1, removed: 0 });
+});
+
 test('search ignores harakat and the usual spelling variants', () => {
   assert.ok(Rules.searchKey('التّقدير').includes(Rules.searchKey('التقدير')));
   assert.strictEqual(Rules.searchKey('إلى'), Rules.searchKey('الى'));
@@ -418,6 +481,17 @@ test('the page and its two scripts parse, with every hook the script binds to', 
   assert.ok(!PAGE_STYLES.includes('`'), 'PAGE_STYLES contains a backtick');
   const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [])[1] || '';
   assert.strictEqual((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length, 'CSS braces are unbalanced');
+});
+
+test('the page script is written for the edition of the styles the page carries', () => {
+  // The styles are built into the page when the server starts; app.js is
+  // read from disk on every load. The script compares the two and tells a
+  // stale server apart, which only works while they agree here.
+  const app = fs.readFileSync(path.join(__dirname, '..', 'wording', 'app.js'), 'utf8');
+  const styles = (PAGE_STYLES.match(/--wording-styles:\s*(\d+);/) || [])[1];
+  const script = (app.match(/const STYLES_EDITION = '(\d+)';/) || [])[1];
+  assert.ok(styles, 'PAGE_STYLES names no --wording-styles edition');
+  assert.strictEqual(script, styles, 'app.js expects a different edition of the styles');
 });
 
 test('no em dash in the page or the scripts it serves', () => {

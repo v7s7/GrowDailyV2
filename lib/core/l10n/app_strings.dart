@@ -3197,6 +3197,28 @@ class S {
   String get premiumLifetimeOwned => isAr
       ? 'شراؤك دائم. ما عليك أي اشتراك تديره.'
       : 'Yours for life. No subscription to manage.';
+  /// Replaces [premiumLifetimeOwned] when a lifetime owner still has a
+  /// Monthly set to renew. Lifetime already covers them, but the store keeps
+  /// charging the Monthly until it is cancelled, so "no subscription to
+  /// manage" would be untrue. It happens when a Monthly stuck on a failed
+  /// payment goes through after Lifetime was bought (updating the card to
+  /// buy Lifetime is what retries it), or when Lifetime came from a
+  /// creator's App Store link. Sits above the Manage subscription button.
+  ///
+  /// DRAFT WORDING, not yet Aziz's.
+  String get premiumLifetimeStillRenewing => isAr
+      ? 'عندك بريميوم مدى الحياة، وعندك بعد اشتراك شهري يتجدد. ألغِ الشهري حتى ما ينخصم منك مرة ثانية.'
+      : 'You own Premium for life, and a monthly subscription is still renewing. Cancel the monthly so you are not charged again.';
+  /// A purchase the store is holding for someone else to finish: a parent's
+  /// Ask to Buy approval on iPhone, or a cash payment Google Play lets people
+  /// complete later. No money has moved, and it arrives on its own when it
+  /// completes, so [premiumPurchaseError]'s "try again" would send them to
+  /// buy twice.
+  ///
+  /// DRAFT WORDING, not yet Aziz's.
+  String get premiumPurchasePending => isAr
+      ? 'الدفع ما اكتمل بعد. أول ما يكتمل، بريميوم يتفعّل لحاله.'
+      : 'Your payment is not complete yet. Premium turns on by itself as soon as it is.';
   String get premiumRestore => isAr ? 'استعادة المشتريات' : 'Restore purchases';
   /// Shown under [premiumComingSoon] when the offering failed to load —
   /// which in App Review's sandbox is the COMMON case, not the rare one.
@@ -3667,6 +3689,36 @@ class S {
       isAr ? 'إضافة كعادة جديدة' : 'Add as new habit';
   String roomPlanLinkExisting(String name) =>
       isAr ? 'ربط: $name' : 'Link: $name';
+
+  /// Under a plan row that two or more of the person's habits fit equally
+  /// (habit_name_match.dart, suggestPlanMatches): nothing is pre-selected,
+  /// and this says why and which ones. [names] is already joined. Draft
+  /// wording; Aziz picks it.
+  String roomPlanTornHint(String names) => isAr
+      ? 'تشبه أكثر من عادة عندك: $names. اختر الصحيحة.'
+      : 'This looks like more than one of your habits: $names. Pick the right one.';
+
+  // Changing which habit fills a room's plan slot (tap the habit's chip on
+  // the room's plan card; RoomsController.relinkPlanHabit). Aziz,
+  // 2026-09-25: "edit the connection if one make mistake". It counts from
+  // today and past days stay as they were played. Draft wording.
+  String get roomRelinkTitle =>
+      isAr ? 'غيّر العادة المربوطة' : 'Change the linked habit';
+  String roomRelinkHint(String slotName, String currentName) => isAr
+      ? 'عادة الغرفة «$slotName» مربوطة الحين بـ «$currentName». اختر العادة الصحيحة من عاداتك.'
+      : 'The room habit “$slotName” is linked to “$currentName”. Pick the right one of your habits.';
+  String roomRelinkConfirm(String newName, String oldName) => isAr
+      ? 'من اليوم تنحسب «$newName» بدل «$oldName». الأيام اللي فاتت تبقى مثل ما هي.'
+      : 'From today, “$newName” counts instead of “$oldName”. Past days stay as they are.';
+  String get roomRelinkAction => isAr ? 'غيّر' : 'Change';
+  String get roomRelinkNone => isAr
+      ? 'ما عندك عادة ثانية تقدر تربطها هنا.'
+      : 'You have no other habit to link here.';
+  String roomRelinkDone(String name) =>
+      isAr ? 'صارت «$name» هي المربوطة.' : '“$name” is linked now.';
+  String get roomRelinkFailed => isAr
+      ? 'ما تغيّر الربط. جرّب مرة ثانية.'
+      : 'The link did not change. Try again.';
   String get roomJoinSubmit => isAr ? 'انضمام للغرفة' : 'Join Room';
 
   /// "N members" - own Arabic plural class from [daysCount]'s (different

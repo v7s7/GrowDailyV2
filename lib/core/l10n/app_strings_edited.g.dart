@@ -818,6 +818,8 @@ const List<String> kEditableWordingKeys = [
   'premiumSaleFinePrint',
   'premiumHaveCode',
   'premiumLifetimeOwned',
+  'premiumLifetimeStillRenewing',
+  'premiumPurchasePending',
   'premiumRestore',
   'premiumRetry',
   'premiumComingSoon',
@@ -958,6 +960,14 @@ const List<String> kEditableWordingKeys = [
   'roomPlanReviewLabel',
   'roomPlanAddAsNew',
   'roomPlanLinkExisting',
+  'roomPlanTornHint',
+  'roomRelinkTitle',
+  'roomRelinkHint',
+  'roomRelinkConfirm',
+  'roomRelinkAction',
+  'roomRelinkNone',
+  'roomRelinkDone',
+  'roomRelinkFailed',
   'roomJoinSubmit',
   'roomShowAllMembers',
   'roomLargeRoomMutedNote',
@@ -5301,6 +5311,12 @@ class _EditedS extends S {
   String get premiumLifetimeOwned => plainWording(_edits['premiumLifetimeOwned']) ?? super.premiumLifetimeOwned;
 
   @override
+  String get premiumLifetimeStillRenewing => plainWording(_edits['premiumLifetimeStillRenewing']) ?? super.premiumLifetimeStillRenewing;
+
+  @override
+  String get premiumPurchasePending => plainWording(_edits['premiumPurchasePending']) ?? super.premiumPurchasePending;
+
+  @override
   String get premiumRestore => plainWording(_edits['premiumRestore']) ?? super.premiumRestore;
 
   @override
@@ -5803,6 +5819,90 @@ class _EditedS extends S {
         ) ??
         super.roomPlanLinkExisting(name);
   }
+
+  @override
+  String roomPlanTornHint(String names) {
+    final wordingEdit = _edits['roomPlanTornHint'];
+    if (wordingEdit == null) return super.roomPlanTornHint(names);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'names': () => '$names',
+                }
+              : <String, String Function()>{
+                  'names': () => '$names',
+                },
+        ) ??
+        super.roomPlanTornHint(names);
+  }
+
+  @override
+  String get roomRelinkTitle => plainWording(_edits['roomRelinkTitle']) ?? super.roomRelinkTitle;
+
+  @override
+  String roomRelinkHint(String slotName, String currentName) {
+    final wordingEdit = _edits['roomRelinkHint'];
+    if (wordingEdit == null) return super.roomRelinkHint(slotName, currentName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'slotName': () => '$slotName',
+                  'currentName': () => '$currentName',
+                }
+              : <String, String Function()>{
+                  'slotName': () => '$slotName',
+                  'currentName': () => '$currentName',
+                },
+        ) ??
+        super.roomRelinkHint(slotName, currentName);
+  }
+
+  @override
+  String roomRelinkConfirm(String newName, String oldName) {
+    final wordingEdit = _edits['roomRelinkConfirm'];
+    if (wordingEdit == null) return super.roomRelinkConfirm(newName, oldName);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'newName': () => '$newName',
+                  'oldName': () => '$oldName',
+                }
+              : <String, String Function()>{
+                  'newName': () => '$newName',
+                  'oldName': () => '$oldName',
+                },
+        ) ??
+        super.roomRelinkConfirm(newName, oldName);
+  }
+
+  @override
+  String get roomRelinkAction => plainWording(_edits['roomRelinkAction']) ?? super.roomRelinkAction;
+
+  @override
+  String get roomRelinkNone => plainWording(_edits['roomRelinkNone']) ?? super.roomRelinkNone;
+
+  @override
+  String roomRelinkDone(String name) {
+    final wordingEdit = _edits['roomRelinkDone'];
+    if (wordingEdit == null) return super.roomRelinkDone(name);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'name': () => '$name',
+                }
+              : <String, String Function()>{
+                  'name': () => '$name',
+                },
+        ) ??
+        super.roomRelinkDone(name);
+  }
+
+  @override
+  String get roomRelinkFailed => plainWording(_edits['roomRelinkFailed']) ?? super.roomRelinkFailed;
 
   @override
   String get roomJoinSubmit => plainWording(_edits['roomJoinSubmit']) ?? super.roomJoinSubmit;

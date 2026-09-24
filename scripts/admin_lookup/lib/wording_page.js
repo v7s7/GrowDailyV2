@@ -25,6 +25,12 @@ const PAGE_STYLES = `
     /* The Mac's own Arabic faces. Inter has no Arabic, and a fallback left
        to the browser picks a different face per machine. */
     --arabic: 'SF Arabic', 'Geeza Pro', 'Noto Naskh Arabic', 'Segoe UI', Tahoma, sans-serif;
+    /* Which edition of these styles this is; wording/app.js checks it
+       (STYLES_EDITION there, the two kept equal by the tests). The styles
+       are built into the page when the server starts, the script is read
+       from disk on every load, so a server left running across an update
+       serves the new script with the old styles. */
+    --wording-styles: 2;
   }
 
 
@@ -62,12 +68,37 @@ const PAGE_STYLES = `
   .today .from { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--border-soft); font-size: 12.5px; color: var(--text-sec); }
   .today .from .grow { flex: 1 1 auto; }
 
-  .qlist { display: flex; flex-direction: column; gap: var(--s2); }
-  .qrow { display: grid; grid-template-columns: 104px 1fr 1fr auto; gap: var(--s3); align-items: start; padding: var(--s3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); }
+  /* A line moves by its grip (drag, or click for the move menu), by its
+     date (click: the same menu), by the arrows, or ticked with others.
+     The list is position: relative so each row's offsetTop is measured
+     from it: the drag reads rows by layout, never where they are drawn. */
+  .qlist { position: relative; display: flex; flex-direction: column; gap: var(--s2); }
+  .qrow { display: grid; grid-template-columns: 22px 96px 1fr 1fr auto; gap: var(--s3); align-items: start; padding: var(--s3) var(--s3) var(--s3) var(--s1); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); outline: 2px solid transparent; outline-offset: 2px; }
   .qrow.is-today { border-color: var(--accent-line); box-shadow: inset 3px 0 0 var(--accent); }
-  .qmeta { font-size: 12px; color: var(--text-tert); padding-top: var(--s2); }
-  .qmeta b { display: block; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
-  .qmeta .when { display: inline-block; margin-top: var(--s1); }
+  .qrow.is-picked { border-color: var(--accent-line); background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); }
+  /* The gap a dragged line would drop into: the row itself, its boxes
+     hidden but kept, so the text and the cursor in them survive. */
+  .qrow.is-placeholder { border: 1px dashed var(--accent); background: var(--accent-soft); box-shadow: none; }
+  .qrow.is-placeholder > * { visibility: hidden; }
+  .qrow.is-hidden { display: none; }
+  .qrow.flash { outline-color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .qrow.flash { animation: q-flash 1.2s ease-out forwards; }
+  }
+  @keyframes q-flash { 0%, 35% { outline-color: var(--accent); } 100% { outline-color: transparent; } }
+
+  .grip { align-self: stretch; display: flex; justify-content: center; align-items: flex-start; padding: 9px 0 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--text-tert); cursor: grab; touch-action: none; }
+  .qrow:hover .grip { color: var(--text-sec); }
+  .grip:hover, .grip[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+  .qmeta { font-size: 12px; color: var(--text-tert); padding-top: var(--s2); min-width: 0; }
+  .qhead { display: flex; align-items: center; gap: 7px; }
+  .qmeta .num { font-size: 13px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .pick { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; opacity: 0.45; }
+  .qrow:hover .pick, .pick:checked, .pick:focus-visible, .qlist.picking .pick { opacity: 1; }
+  /* The date is a button: the list is a schedule, and "when does this
+     show" is the thing to change. */
+  .qmeta .when { display: inline-block; margin: 3px 0 0 -5px; padding: 1px 5px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; font-size: 12px; text-align: start; cursor: pointer; }
+  .qmeta .when:hover, .qmeta .when[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
   .qmeta .when.now { color: var(--accent); font-weight: 650; }
   .qmeta .src { display: block; margin-top: var(--s1); font-size: 11px; line-height: 1.4; }
   .qtools { display: flex; gap: var(--s1); padding-top: 2px; }
@@ -77,13 +108,56 @@ const PAGE_STYLES = `
   .icon-btn:disabled { opacity: 0.35; cursor: default; }
   .add-line { margin-top: var(--s3); }
   .list-note { font-size: 12.5px; color: var(--text-tert); margin: 0 var(--s1) var(--s3); }
+  .list-note p { margin: 0; }
+  .list-note p + p { margin-top: 3px; }
+  .list-note svg { vertical-align: -3px; margin: 0 1px; color: var(--text-sec); }
+  .list-note kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; background: var(--bg); color: var(--text-sec); }
 
-  /* The unsaved-changes bar for the daily lines. Pinned to the bottom so
-     Save is reachable from anywhere in a 36-line list. */
-  .savebar { position: sticky; bottom: 0; z-index: 30; margin-top: var(--s4); padding: var(--s3) var(--s4); border: 1px solid var(--accent-line); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-md); }
-  .savebar .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
-  .savebar .grow { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+  /* While a line is dragged: the card on the pointer, and no text
+     selection or I-beam anywhere. */
+  body.lines-dragging, body.lines-dragging * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+  .drag-ghost { position: fixed; top: 0; left: 0; z-index: 80; display: flex; gap: var(--s3); align-items: flex-start; width: min(520px, 46vw); padding: var(--s3) var(--s4) var(--s3) var(--s3); border: 1px solid var(--accent-line); border-radius: var(--r-md); background: var(--surface-2); box-shadow: var(--shadow-lg); pointer-events: none; }
+  .drag-ghost.is-stack { box-shadow: 5px 5px 0 -1px var(--surface-2), 5px 5px 0 0 var(--accent-line), var(--shadow-lg); }
+  .dg-grip { color: var(--accent); padding-top: 1px; }
+  .dg-body { flex: 1 1 auto; min-width: 0; }
+  .dg-head { display: flex; align-items: baseline; gap: var(--s2); font-size: 12px; color: var(--text-sec); font-variant-numeric: tabular-nums; }
+  .dg-head b { color: var(--text); font-weight: 700; }
+  .dg-head .dg-at { color: var(--accent); }
+  .dg-more { margin-inline-start: auto; font-size: 11px; color: var(--text-tert); white-space: nowrap; }
+  .drag-ghost .dg-ar { font-size: 15px; line-height: 1.6; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drag-ghost .dg-en { font-size: 12.5px; color: var(--text-sec); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* The move menu. */
+  .move-menu { position: absolute; z-index: 70; width: 304px; padding: var(--s2); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow-lg); font-size: 13px; }
+  .mm-head { padding: var(--s2) var(--s3) var(--s3); }
+  .mm-head b { display: block; font-size: 13px; font-weight: 650; }
+  .mm-head span { display: block; margin-top: 2px; font-size: 12px; color: var(--text-tert); }
+  .mm-item { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); width: 100%; padding: 7px var(--s3); border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; font-size: 13px; text-align: start; cursor: pointer; }
+  .mm-item:hover:not(:disabled), .mm-item:focus-visible { background: var(--accent-soft); outline: none; }
+  .mm-item:disabled { color: var(--text-tert); cursor: default; }
+  .mm-hint { color: var(--text-tert); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .mm-sep { height: 1px; margin: var(--s2) var(--s1); background: var(--border-soft); }
+  .mm-field { display: flex; align-items: center; gap: var(--s2); padding: 4px var(--s3); color: var(--text-sec); font-size: 12.5px; }
+  .mm-field label { flex: 0 0 58px; }
+  .mm-field input { flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 var(--s2); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--bg); color: var(--text); font: inherit; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .mm-field input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .mm-field .mm-of { color: var(--text-tert); white-space: nowrap; }
+  .mm-go { padding: 5px var(--s3); }
+  .mm-err { padding: 4px var(--s3) 2px; color: var(--danger); font-size: 12px; }
+  .mm-err[hidden] { display: none; }
+
+  /* The dock: ticked lines, then unsaved changes, one panel pinned to the
+     bottom so Save is reachable from anywhere in a 36-line list. One
+     panel, not two bars: a gap between two would show the rows behind. */
+  .dock { position: sticky; bottom: 0; z-index: 30; margin-top: var(--s4); border: 1px solid var(--accent-line); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--shadow-md); }
+  .dock[hidden] { display: none; }
+  .savebar, .selbar { padding: var(--s3) var(--s4); }
+  .selbar:not([hidden]) + .savebar:not([hidden]) { border-top: 1px solid var(--border-soft); }
+  .savebar .row, .selbar .row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .savebar .grow, .selbar .grow { flex: 1 1 auto; min-width: 0; font-size: 13px; }
+  .selbar .sel-nums { color: var(--text-tert); font-variant-numeric: tabular-nums; }
   .savebar .msgs { margin-top: var(--s2); }
+  .btn.del-btn:hover:not(:disabled) { color: var(--danger); border-color: var(--danger-line); }
 
   /* ---- App text ------------------------------------------------------- */
   .filter-bar { position: sticky; top: 0; z-index: 25; display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--s3); margin-bottom: var(--s3); box-shadow: var(--shadow-sm); }
@@ -163,7 +237,9 @@ const PAGE_STYLES = `
   @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
 
   @media (max-width: 760px) {
-    .qrow { grid-template-columns: 1fr; }
+    .qrow { grid-template-columns: 22px 1fr; }
+    .qrow .grip { grid-row: 1 / span 4; }
+    .qrow > :not(.grip) { grid-column: 2; }
     .srow-cols, .editor { grid-template-columns: 1fr; gap: var(--s3); }
     .hrow { grid-template-columns: 1fr; gap: var(--s2); }
   }

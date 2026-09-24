@@ -400,3 +400,72 @@ test("after its removal day a removed habit's green square is not an " +
       out.map((u) => ({day: u.day, real: u.real, stored: u.stored})),
       [{day: "2026-09-20", real: 2, stored: 1}]);
 });
+
+// ── A slot the member relinked (RoomsController.relinkPlanHabit) ────────
+//
+// «تمرين» filled the «الضحى» slot until 2026-07-10 by mistake; «صلاة الضحى»
+// fills it from the 11th. The member did «صلاة الضحى» on the 6th to the
+// 10th as well, but it was not in the slot then, so those days are not
+// short. Reading the current link back over them used to report them, with
+// a set_room_day.js command that would have re-scored them.
+const relinkedRoom = {
+  habitMode: "shared",
+  sharedHabits: [{name: "الضحى"}, {name: "قراءة القرآن"}],
+};
+const relinkedPart = {
+  linkedHabitIds: ["m-duha", "m-q"],
+  slotHabitHistory: {"0": [{habitId: "m-wrong", until: "2026-07-10"}]},
+  dailyDoneCount: {"2026-07-06": 1, "2026-07-11": 2},
+  dailyScheduledCount: {"2026-07-06": 2, "2026-07-11": 2},
+};
+
+test("a relinked slot names the habit that filled it each day", () => {
+  assert.deepStrictEqual(
+      countingHabitIds(relinkedRoom, relinkedPart, "2026-07-06"),
+      ["m-wrong", "m-q"]);
+  assert.deepStrictEqual(
+      countingHabitIds(relinkedRoom, relinkedPart, "2026-07-10"),
+      ["m-wrong", "m-q"]);
+  assert.deepStrictEqual(
+      countingHabitIds(relinkedRoom, relinkedPart, "2026-07-11"),
+      ["m-duha", "m-q"]);
+  // Every habit graded on some day, the earlier one included, once.
+  assert.deepStrictEqual(countingHabitIds(relinkedRoom, relinkedPart),
+      ["m-duha", "m-q", "m-wrong"]);
+});
+
+test("the new habit's squares before the change are not an undercount; " +
+    "the old habit's still are", () => {
+  const days = ["2026-07-06", "2026-07-11"];
+  const quiet = undercountedDays({
+    days,
+    countingIds: countingHabitIds(relinkedRoom, relinkedPart),
+    squaresByDay: {
+      "2026-07-06": {"m-duha": "complete", "m-q": "complete"},
+      "2026-07-11": {"m-duha": "complete", "m-q": "complete"},
+    },
+    part: relinkedPart,
+    room: relinkedRoom,
+  });
+  assert.deepStrictEqual(quiet, []);
+  // Had «تمرين» really been done on the 6th, the stored 1 WOULD be short.
+  const short = undercountedDays({
+    days,
+    countingIds: countingHabitIds(relinkedRoom, relinkedPart),
+    squaresByDay: {"2026-07-06": {"m-wrong": "complete", "m-q": "complete"}},
+    part: relinkedPart,
+    room: relinkedRoom,
+  });
+  assert.deepStrictEqual(short.map((u) => [u.day, u.real, u.stored]),
+      [["2026-07-06", 2, 1]]);
+});
+
+test("malformed history entries are ignored, as the app ignores them", () => {
+  const part = {
+    linkedHabitIds: ["a", "b"],
+    slotHabitHistory: {"0": [{habitId: ""}, "junk", {until: "2026-07-01"}]},
+  };
+  assert.deepStrictEqual(
+      countingHabitIds(relinkedRoom, part, "2026-06-30"), ["a", "b"]);
+  assert.deepStrictEqual(countingHabitIds(relinkedRoom, part), ["a", "b"]);
+});

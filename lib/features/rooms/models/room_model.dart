@@ -1405,6 +1405,28 @@ class RoomParticipant {
   /// counts untouched.
   final Map<int, String> slotPriorHabitIds;
 
+  /// The habits a shared slot held BEFORE its current one, when this member
+  /// changed which of their habits fills it (RoomsController.
+  /// relinkPlanHabit), keyed by slot index: each entry is one habit and the
+  /// last day it filled the slot (inclusive), oldest first. The current
+  /// habit fills the slot from the day after the last entry's `until`.
+  ///
+  /// Aziz, 2026-09-25: "edit the connection if one make mistake". A change
+  /// counts from the day it is made, and every day before keeps what the
+  /// habit in the slot then earned: the rule a skip and a removal already
+  /// follow. Without this record the new habit would be read back across
+  /// the room's whole history (a freshly linked habit's rule starts at its
+  /// slot's plan floor, see syncLinkedHabitsProgress), and the days the
+  /// resync reaches would be re-scored from a habit that was not in the
+  /// slot then, which the anti-backdating clamp can only ever lower.
+  ///
+  /// [habitInSlotOn] reads it, and through it everything that asks which
+  /// habit filled a slot on a past day: the sync, the day card, the room
+  /// score's plan weights. A habit appears in ONE slot's record at most
+  /// (relinkPlanHabit refuses another slot's habit, past or present),
+  /// because the sync grades each habit through a single slot.
+  final Map<int, List<({String habitId, String until})>> slotHabitHistory;
+
   const RoomParticipant({
     required this.uid,
     required this.displayName,
@@ -1441,6 +1463,7 @@ class RoomParticipant {
     this.slotDeclinedFrom = const {},
     this.slotDeclinedSpans = const {},
     this.slotPriorHabitIds = const {},
+    this.slotHabitHistory = const {},
   });
 
   /// Whether this member has left the room (see [leftAt]).
@@ -1494,10 +1517,61 @@ class RoomParticipant {
   String? habitInSlotOn(int i, String dateKey) {
     if (slotDeclinedOn(i, dateKey)) return null;
     if (i >= linkedHabitIds.length) return null;
+    // A habit the slot held before a change of link, on the days it held it
+    // (see [slotHabitHistory]): oldest first, so the first stretch that
+    // reaches this day is the one that covers it.
+    for (final held in slotHabitHistory[i] ??
+        const <({String habitId, String until})>[]) {
+      if (dateKey.compareTo(held.until) <= 0) return held.habitId;
+    }
     final current = linkedHabitIds[i];
     if (current != kDeclinedSlot) return current;
     // Declined now, but not yet on this day: the habit that filled it then.
     return slotPriorHabitIds[i];
+  }
+
+  /// [habitInSlotOn] for every slot on [dateKey], in slot order, leaving out
+  /// the slots that held nothing that day. What a question about a past
+  /// day's own plan asks (its cadence, whether its miss is final) instead of
+  /// [countedHabitIds], which names the habits linked NOW: after a slot's
+  /// habit was changed (RoomsController.relinkPlanHabit), the days before
+  /// the change belong to the habit it held then. The same list as
+  /// [countedHabitIds] for a slot nobody changed.
+  List<String> habitsInSlotsOn(String dateKey) => [
+        for (var i = 0; i < linkedHabitIds.length; i++)
+          if (habitInSlotOn(i, dateKey) case final String id) id,
+      ];
+
+  /// Every habit a shared slot OTHER than [slot] holds or has held: its
+  /// current link, the habit a declined slot had before its decline
+  /// ([slotPriorHabitIds]) and the habits a relinked slot had before
+  /// ([slotHabitHistory]). Null [slot] means every slot.
+  ///
+  /// The sync grades each habit through ONE slot (syncLinkedHabitsProgress,
+  /// slotOfHabit), so a habit linked into a second slot is graded only on
+  /// the first one's days: a skipped slot's old habit linked into a newer
+  /// slot earned that newer slot nothing. The link paths refuse these
+  /// habits (RoomsController.resolvePlanHabit, relinkPlanHabit, a rejoin's
+  /// new slots in joinRoom, the leader's own link in addSharedHabit) and the
+  /// sheets never offer them. [slot]'s own past habits stay allowed: a slot
+  /// can go back to a habit it held before.
+  Set<String> habitsHeldBySlotsOtherThan(int? slot) {
+    final held = <String>{};
+    for (var i = 0; i < linkedHabitIds.length; i++) {
+      if (i == slot) continue;
+      final id = linkedHabitIds[i];
+      if (id != kDeclinedSlot) held.add(id);
+    }
+    for (final e in slotPriorHabitIds.entries) {
+      if (e.key != slot) held.add(e.value);
+    }
+    for (final e in slotHabitHistory.entries) {
+      if (e.key == slot) continue;
+      for (final h in e.value) {
+        held.add(h.habitId);
+      }
+    }
+    return held;
   }
 
   /// Whether [dateKey] falls inside a stretch this member was out of the
@@ -1588,13 +1662,18 @@ class RoomParticipant {
   }
 
   /// The counting ids whose slot is in [room]'s plan on [dateKey] - the set
-  /// a day's count is taken over (the per-tap fast path, for today).
+  /// a day's count is taken over (the per-tap fast path, for today), each
+  /// slot answered by the habit that filled it THAT day ([habitInSlotOn]).
+  /// For today that is the link as it stands; for a past day it is the habit
+  /// a changed slot held then, so a square marked for yesterday's grace tail
+  /// reaches the room through the habit that day belonged to, and the 2x
+  /// boost for that day pays that habit (roomBoostedHabitsOnProvider).
   List<String> countedHabitIdsOn(RoomModel room, String dateKey) {
     final out = <String>[];
     for (var i = 0; i < linkedHabitIds.length; i++) {
-      if (linkedHabitIds[i] == kDeclinedSlot) continue;
       if (!room.slotLiveOn(i, dateKey)) continue;
-      out.add(linkedHabitIds[i]);
+      final id = habitInSlotOn(i, dateKey);
+      if (id != null) out.add(id);
     }
     return out;
   }
@@ -1857,10 +1936,13 @@ class RoomParticipant {
   /// recorded what cadence that habit was on, and an unproven habit is
   /// treated as not-weekly, so the inference simply doesn't run and the old
   /// fallback stands. Same for a plan with no counted habits at all.
+  ///
+  /// Asked of the habits in the plan THAT day ([habitsInSlotsOn]): after a
+  /// slot's habit was changed, a daily habit's days are not a weekly plan's
+  /// because a weekly habit fills the slot now.
   bool _everyCountedHabitIsWeeklyOn(String dateKey) {
     var sawOne = false;
-    for (final id in linkedHabitIds) {
-      if (id == kDeclinedSlot) continue;
+    for (final id in habitsInSlotsOn(dateKey)) {
       sawOne = true;
       final rule = ruleFor(id, dateKey);
       if (rule == null || rule.frequencyType != HabitFrequencyType.weekly) {
@@ -1928,8 +2010,7 @@ class RoomParticipant {
     final roomEnd = room.endDate;
     final today = room.lastCountedDayAt(clock);
 
-    for (final id in linkedHabitIds) {
-      if (id == kDeclinedSlot) continue;
+    for (final id in habitsInSlotsOn(dateKey)) {
       final rule = ruleFor(id, dateKey);
       if (rule == null ||
           rule.frequencyType != HabitFrequencyType.weekly ||
@@ -2159,7 +2240,13 @@ class RoomParticipant {
       if (rules == null || rules.isEmpty) return const {};
       slots.add((i, id));
     }
-    if (slots.isEmpty || slotPriorHabitIds.isNotEmpty) return const {};
+    // A slot whose habit changed (declined with a prior, or relinked) holds
+    // more than one habit over the week; the rules alone cannot replay it.
+    if (slots.isEmpty ||
+        slotPriorHabitIds.isNotEmpty ||
+        slotHabitHistory.isNotEmpty) {
+      return const {};
+    }
     if (!slots.any(
       (s) => habitRules[s.$2]!
           .any((r) => r.frequencyType == HabitFrequencyType.weekly),
@@ -3271,7 +3358,35 @@ class RoomParticipant {
             i: RoomModel.spansFrom(e.value),
       },
       slotPriorHabitIds: _slotKeyedStrings(d['slotPriorHabitIds']),
+      slotHabitHistory: _slotHabitHistoryFrom(d['slotHabitHistory']),
     );
+  }
+
+  /// `{ "2": [{habitId, until}, ...] }` -> `{2: [...]}`, oldest first,
+  /// dropping any entry that is not a habit id and a day.
+  static Map<int, List<({String habitId, String until})>>
+      _slotHabitHistoryFrom(Object? raw) {
+    if (raw is! Map) return const {};
+    final out = <int, List<({String habitId, String until})>>{};
+    for (final e in raw.entries) {
+      final i = int.tryParse(e.key.toString());
+      final list = e.value;
+      if (i == null || list is! List) continue;
+      final held = [
+        for (final item in list)
+          if (item is Map &&
+              item['habitId'] is String &&
+              (item['habitId'] as String).isNotEmpty &&
+              item['until'] is String &&
+              (item['until'] as String).isNotEmpty)
+            (
+              habitId: item['habitId'] as String,
+              until: item['until'] as String,
+            ),
+      ]..sort((a, b) => a.until.compareTo(b.until));
+      if (held.isNotEmpty) out[i] = held;
+    }
+    return out;
   }
 
   /// `{ "2": "..." }` -> `{2: "..."}`, dropping anything that is not a slot
@@ -3348,6 +3463,13 @@ class RoomParticipant {
           'slotPriorHabitIds': {
             for (final e in slotPriorHabitIds.entries) '${e.key}': e.value,
           },
+        if (slotHabitHistory.isNotEmpty)
+          'slotHabitHistory': {
+            for (final e in slotHabitHistory.entries)
+              '${e.key}': [
+                for (final h in e.value) {'habitId': h.habitId, 'until': h.until},
+              ],
+          },
       };
 
   RoomParticipant copyWith({
@@ -3385,6 +3507,7 @@ class RoomParticipant {
     Map<int, String>? slotDeclinedFrom,
     Map<int, List<({String from, String to})>>? slotDeclinedSpans,
     Map<int, String>? slotPriorHabitIds,
+    Map<int, List<({String habitId, String until})>>? slotHabitHistory,
   }) =>
       RoomParticipant(
         uid: uid,
@@ -3423,6 +3546,7 @@ class RoomParticipant {
         slotDeclinedFrom: slotDeclinedFrom ?? this.slotDeclinedFrom,
         slotDeclinedSpans: slotDeclinedSpans ?? this.slotDeclinedSpans,
         slotPriorHabitIds: slotPriorHabitIds ?? this.slotPriorHabitIds,
+        slotHabitHistory: slotHabitHistory ?? this.slotHabitHistory,
       );
 }
 

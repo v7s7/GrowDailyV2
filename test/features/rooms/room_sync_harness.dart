@@ -192,6 +192,9 @@ class RoomSyncHarness {
     /// Habits the member has PAUSED: resolvable, so the grader can tell a
     /// stood-down day from a deleted link, but not active.
     List<IslamicHabitTemplate> paused = const [],
+    /// The windows each habit was really active for (habitStintsProvider),
+    /// for a habit paused and resumed in the past. None by default.
+    Map<String, List<(DateTime?, DateTime?)>> stints = const {},
   }) : db = db ?? FakeFirebaseFirestore() {
     container = ProviderContainer(
       overrides: [
@@ -201,8 +204,7 @@ class RoomSyncHarness {
         prestigeProvider.overrideWith((ref) => PrestigeNotifier(null)),
         habitListProvider.overrideWithValue(habits),
         pausedHabitsProvider.overrideWithValue(paused),
-        habitStintsProvider
-            .overrideWithValue(const <String, List<(DateTime?, DateTime?)>>{}),
+        habitStintsProvider.overrideWithValue(stints),
         habitsStillLoadingProvider.overrideWithValue(false),
         roomsControllerProvider.overrideWith(
           (ref) => RoomsController(

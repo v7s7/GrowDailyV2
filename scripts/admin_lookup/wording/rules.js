@@ -233,6 +233,131 @@
   }
 
   /**
+   * [list] with the lines at [picked] (indices, any order) taken out and put
+   * back together, in their order, starting at index [to]. Everything else
+   * keeps its order. Returns a new array; [list] is not touched.
+   *
+   * Without [wrap], [to] is a place in the list as the page shows it, and a
+   * group that would run past the last line is pulled back until it fits.
+   * With [wrap], [to] is a day's place in the rotation, and the group runs
+   * on past the last line into the first, because that is what the phones
+   * show next: "three lines from tomorrow" still means tomorrow, the day
+   * after and the day after that when tomorrow is the last line.
+   */
+  function moveLines(list, picked, to, wrap) {
+    const n = list.length;
+    const idx = Array.from(new Set(picked))
+      .filter((i) => Number.isInteger(i) && i >= 0 && i < n)
+      .sort((a, b) => a - b);
+    if (!idx.length) return list.slice();
+    const g = idx.length;
+    const inGroup = new Set(idx);
+    const group = idx.map((i) => list[i]);
+    const rest = list.filter((_, i) => !inGroup.has(i));
+    let start = Math.round(Number(to));
+    if (!Number.isFinite(start)) start = 0;
+    if (!wrap) {
+      start = Math.max(0, Math.min(n - g, start));
+      return rest.slice(0, start).concat(group, rest.slice(start));
+    }
+    start = ((start % n) + n) % n;
+    const out = new Array(n);
+    const taken = new Array(n).fill(false);
+    group.forEach((line, k) => {
+      out[(start + k) % n] = line;
+      taken[(start + k) % n] = true;
+    });
+    let r = 0;
+    for (let i = 0; i < n; i++) {
+      if (!taken[i]) out[i] = rest[r++];
+    }
+    return out;
+  }
+
+  /**
+   * Length of the longest strictly rising run hidden in [seq] (not
+   * necessarily side by side). For a list of where each line used to be,
+   * this is how many lines kept their order, so everything else is the
+   * fewest lines that moved: one line dragged from 30 to 9 is 1 moved, not
+   * the 22 whose line numbers shifted.
+   */
+  function longestRising(seq) {
+    const tails = [];
+    for (const v of seq) {
+      let lo = 0;
+      let hi = tails.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (tails[mid] < v) lo = mid + 1;
+        else hi = mid;
+      }
+      tails[lo] = v;
+    }
+    return tails.length;
+  }
+
+  /**
+   * What changed from one daily list to another, told by the text alone
+   * (History has nothing else): { moved, edited, added, removed }.
+   * A line found again with both languages the same is the same line; one
+   * with only its Arabic or only its English the same is that line, edited.
+   * Moved is counted over every line found again, see longestRising.
+   */
+  function describeLineChanges(before, after) {
+    const b = (before || []).map((q) => ({ ar: normalizeText(q && q.ar), en: normalizeText(q && q.en) }));
+    const a = (after || []).map((q) => ({ ar: normalizeText(q && q.ar), en: normalizeText(q && q.en) }));
+    const both = (q) => q.ar + '\n' + q.en;
+    const from = new Array(a.length).fill(-1);
+    const used = new Array(b.length).fill(false);
+    // Unchanged lines first, through a lookup (History runs this once per
+    // row, on lists of up to MAX_QUOTES lines).
+    const waiting = new Map();
+    b.forEach((q, j) => {
+      const key = both(q);
+      if (!waiting.has(key)) waiting.set(key, []);
+      waiting.get(key).push(j);
+    });
+    a.forEach((q, i) => {
+      const queue = waiting.get(both(q));
+      if (!queue || !queue.length) return;
+      from[i] = queue.shift();
+      used[from[i]] = true;
+    });
+    // Then edits, among the few lines left over.
+    let edited = 0;
+    const pass = (same) => {
+      a.forEach((q, i) => {
+        if (from[i] >= 0) return;
+        const j = b.findIndex((p, k) => !used[k] && same(p, q));
+        if (j < 0) return;
+        from[i] = j;
+        used[j] = true;
+        edited++;
+      });
+    };
+    pass((p, q) => p.ar !== '' && p.ar === q.ar);
+    pass((p, q) => p.en !== '' && p.en === q.en);
+    const found = from.filter((j) => j >= 0);
+    return {
+      moved: found.length - longestRising(found),
+      edited,
+      added: a.length - found.length,
+      removed: b.length - found.length,
+    };
+  }
+
+  /** [changes] from describeLineChanges (or the page's own count) in words. */
+  function lineChangeWords(changes) {
+    const lines = (count) => count + (count === 1 ? ' line' : ' lines');
+    const parts = [];
+    if (changes.moved) parts.push(lines(changes.moved) + ' moved');
+    if (changes.edited) parts.push((parts.length ? changes.edited : lines(changes.edited)) + ' edited');
+    if (changes.added) parts.push((parts.length ? changes.added : lines(changes.added)) + ' added');
+    if (changes.removed) parts.push((parts.length ? changes.removed : lines(changes.removed)) + ' removed');
+    return parts.join(', ');
+  }
+
+  /**
    * [text] reduced for searching: no harakat or tatweel, one alef, ya for
    * alef maqsura, ha for ta marbuta, lower case. So «التقدير» finds
    * «التّقدير», and «إلى» finds «الى».
@@ -282,6 +407,10 @@
     checkQuotes,
     rotationIndex,
     addDays,
+    moveLines,
+    longestRising,
+    describeLineChanges,
+    lineChangeWords,
     searchKey,
     fnv1a,
   };

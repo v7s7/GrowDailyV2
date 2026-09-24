@@ -150,7 +150,9 @@ bool roomStripMissIsFinal(
   if (day.isOpenDayAt(now) || day.isAfter(room.lastCountedDayAt(now))) {
     return false;
   }
-  final onQuota = participant.countedHabitIds.any(
+  // The habits in the plan THAT day: a slot whose habit was changed since
+  // (RoomsController.relinkPlanHabit) keeps the cadence it had then.
+  final onQuota = participant.habitsInSlotsOn(day.toDateKey()).any(
     (id) =>
         participant.ruleFor(id, day.toDateKey())?.frequencyType ==
         HabitFrequencyType.weekly,

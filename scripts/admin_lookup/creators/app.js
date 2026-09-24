@@ -18,7 +18,9 @@
   'use strict';
 
   const C = window.CreatorRules;
-  const state = { data: null, busy: false, touched: false, apple: null, open: null, preview: null, result: null };
+  // statementLink: the one link just made, { code, link }. The server keeps
+  // only its hash, so this is the only time the page can show it.
+  const state = { data: null, busy: false, touched: false, apple: null, open: null, preview: null, result: null, statementLink: null };
 
   // ---- DOM helpers ---------------------------------------------------------------
 
@@ -178,19 +180,43 @@
       ['Uses allowed', c.usesAllowed === null ? '?' : Number(c.usesAllowed).toLocaleString('en-US')],
       ['Apple ids', c.appleOfferCodeId ? 'offer ' + c.appleOfferCodeId + (c.appleCustomCodeId ? ', code ' + c.appleCustomCodeId : ', no code yet') : 'none yet'],
       ['Last paid', c.lastPaidAtMs ? new Date(c.lastPaidAtMs).toISOString().slice(0, 10) : 'never'],
+      ['Their page', c.hasStatementLink
+        ? 'link made ' + (c.statementKeyAtMs ? new Date(c.statementKeyAtMs).toISOString().slice(0, 10) : '') + ' (only its hash is kept)'
+        : 'no link yet'],
     ];
     const list = h('dl', { class: 'mini-facts' });
     for (const [k, v] of facts) append(list, h('dt', null, k), h('dd', null, v));
     const buttons = [
       h('button', { type: 'button', class: 'btn small', onclick: () => openForm(c.id, 'share') }, 'Change share %'),
       !c.appleCustomCodeId && c.active ? h('button', { type: 'button', class: 'btn small', onclick: () => previewExisting(c.id) }, 'Make the Apple code') : null,
+      h('button', { type: 'button', class: 'btn small', onclick: () => makeStatementLink(c) }, c.hasStatementLink ? 'New page link' : 'Make their page link'),
       h('button', { type: 'button', class: 'btn small ghost', onclick: () => toggleActive(c) }, c.active ? 'Deactivate' : 'Reactivate'),
       h('button', { type: 'button', class: 'btn small ghost', onclick: () => { state.open = null; renderRows(); } }, 'Close'),
     ];
+    const fresh = state.statementLink && state.statementLink.code === c.id ? state.statementLink.link : null;
     return h('tr', { class: 'more-row' }, h('td', { colspan: '9' },
       list,
       h('div', { class: 'linkbox' }, h('code', null, link), h('button', { type: 'button', class: 'btn small', onclick: () => copy(link) }, 'Copy link')),
+      fresh ? [
+        h('div', { class: 'linkbox' }, h('code', null, fresh), h('button', { type: 'button', class: 'btn small primary', onclick: () => copy(fresh) }, 'Copy their page link')),
+        h('p', { class: 'fine' }, 'Send this to ' + (c.name || c.id) + '. It opens their own page: sales, money on hold, money ready, and your payments with their notes. ' +
+          'This is the only time it is shown; if it is lost, make a new one, which switches this one off.'),
+      ] : null,
       h('div', { class: 'row-form' }, buttons)));
+  }
+
+  /** Makes (or replaces) a creator's page link and shows it once. */
+  async function makeStatementLink(c) {
+    if (c.hasStatementLink && !window.confirm('Make a new page link for ' + (c.name || c.id) + '? The link they have now stops working at once.')) return;
+    const { ok, body } = await post('/api/creators/statement-link', { code: c.id });
+    if (!ok) {
+      toast(errorText(body));
+      return;
+    }
+    state.statementLink = { code: body.code, link: body.link };
+    state.open = { code: body.code, kind: 'more' };
+    apply(body.state);
+    toast('Their page link is ready to copy.');
   }
 
   function formRow(c) {
@@ -202,7 +228,8 @@
     if (open.kind === 'pay') {
       const amount = h('input', { type: 'number', class: 'inline-input', min: '0.01', step: '0.01', 'aria-label': 'Amount paid, US dollars' });
       amount.value = ((c.money.owedCents > 0 ? c.money.owedCents : c.money.unpaidCents) / 100).toFixed(2);
-      const note = h('input', { type: 'text', class: 'inline-input note-input', maxlength: '200', placeholder: 'Note, like the transfer reference', 'aria-label': 'Note' });
+      // The creator sees this note on their own page, next to the payment.
+      const note = h('input', { type: 'text', class: 'inline-input note-input', maxlength: '200', placeholder: 'Note the creator sees, like the transfer reference', 'aria-label': 'Note, shown to the creator' });
       msg.textContent = 'Owed now ' + C.money(c.money.owedCents) + '; earned and unpaid in all ' + C.money(c.money.unpaidCents) + '. Records the payment as made today.';
       const save = h('button', {
         type: 'button', class: 'btn small primary',
@@ -445,15 +472,23 @@
       if (p.blocked.length) {
         append(panel, h('div', { class: 'blocked' }, h('b', null, 'Can\'t be made yet. '), p.blocked.join(' ')));
       }
+      for (const w of p.warnings || []) {
+        append(panel, h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', null, 'Worth knowing. '), w)));
+      }
       const others = s.sample.filter((x) => x.territory !== 'USA')
-        .map((x) => (TERRITORY_NAMES[x.territory] || x.territory) + ' ' + x.customerPrice + (x.currency ? ' ' + x.currency : '')).join(', ');
+        .map((x) => (TERRITORY_NAMES[x.territory] || x.territory) + ' ' + x.customerPrice + (x.currency ? ' ' + x.currency : '') +
+          (x.regularPrice ? ' (was ' + x.regularPrice + ', ' + x.percentOff + '% off)' : '')).join(', ');
+      const dropped = (s.dropped || []).map((t) => TERRITORY_NAMES[t] || t).join(', ');
       append(panel, dl([
-        ['Product', s.productId + ' (Apple id ' + s.iapId + '), ' + (s.productState || 'state unknown')],
+        ['Product', s.productId + ' (Apple id ' + s.iapId + '), ' + (s.productState || 'state unknown') +
+          (s.usPriceToday ? ', sells for ' + s.usPriceToday + ' in the US today' : '')],
         ['Offer', s.offerStep === 'create' ? s.offerRef + ', a new offer' : s.offerRef + ', already in App Store Connect (' + s.offerId + '), used as it is'],
         ['Who can use it', s.eligibility],
         ['Price', s.offerStep === 'create'
           ? s.usPrice + ' in the US' + (s.usProceeds ? ' (Apple says you get $' + Number(s.usProceeds).toFixed(2) + ')' : '') +
-            ', and Apple\'s equalized price in ' + plural(Math.max(0, s.territories - 1), 'other territory', 'other territories') + (others ? ': ' + others + ', and the rest' : '')
+            ', and at least the same percent off in ' + plural(Math.max(0, s.territories - 1), 'other territory', 'other territories') + (others ? ': ' + others + ', and the rest' : '') +
+            (s.deeper ? '. ' + plural(s.deeper, 'territory gets', 'territories get') + ' a little more off, where its currency has no closer price' : '') +
+            (dropped ? '. Left out, with no price low enough there: ' + dropped : '')
           : s.usPrice + ' in the US, as the existing offer has it'],
         ['Code', s.codeStep === 'create'
           ? s.code + ', ' + Number(s.usesAllowed).toLocaleString('en-US') + ' uses, ends ' + dayText(s.codeEndsOn) + ' at 00:00 Pacific time'

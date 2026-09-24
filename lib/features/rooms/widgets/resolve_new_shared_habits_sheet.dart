@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/app_snackbar.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
+import '../notifiers/habit_name_match.dart';
 import '../notifiers/rooms_notifier.dart';
 
 /// Bottom sheet: resolves every shared-plan slot [mine] hasn't linked yet
@@ -57,43 +59,57 @@ class _ResolveNewHabitsSheetState
   }
 
   late List<String?> _resolutions;
+
+  /// Per pending row, the habits that fit it equally well when there are
+  /// two or more (see suggestPlanMatches): that row opens on nothing and
+  /// names them.
+  late List<List<String>> _torn;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     final myHabits = ref.read(habitListProvider);
-    // Same "don't suggest the same existing habit for two different rows"
-    // guard JoinRoomSheet._resolvePlanSuggestions already uses - already-
-    // linked habits are off the table from the start (they're covering an
-    // earlier slot), and a habit this sheet itself just suggested for an
-    // earlier pending row is taken off the table for the next one too.
-    final alreadyLinked = widget.mine.linkedHabitIds.toSet();
-    final suggestedHere = <String>{};
+    // The whole pending plan is matched at once (suggestPlanMatches): the
+    // surest pair is settled first, a habit is never suggested for two rows,
+    // and a row torn between two habits opens on neither. Habits another
+    // slot holds or held are off the table from the start: resolvePlanHabit
+    // refuses them (see _optionsFor). A slot the leader has removed is never
+    // asked about: it is resolved as a skip, which only holds its place
+    // (every array here is positional, so the live slots after it need it
+    // filled first), and it is not drawn as a row. See
+    // RoomParticipant.pendingPlanSlotsIn.
+    final pending = _pending;
+    final matches = suggestPlanMatches(
+      [for (final t in pending) t.isRemoved ? null : t.name],
+      myHabits,
+      taken: widget.mine.habitsHeldBySlotsOtherThan(null),
+    );
     _resolutions = [
-      for (final template in _pending)
-        // A slot the leader has removed is never asked about: it is resolved
-        // as a skip, which only holds its place (every array here is
-        // positional, so the live slots after it need it filled first), and
-        // it is not drawn as a row. See RoomParticipant.pendingPlanSlotsIn.
-        template.isRemoved
-            ? kDeclinedSlot
-            : _suggest(template, myHabits, alreadyLinked, suggestedHere),
+      for (var i = 0; i < pending.length; i++)
+        pending[i].isRemoved ? kDeclinedSlot : matches[i].habitId,
     ];
+    _torn = [for (final m in matches) m.tornBetween];
   }
 
-  String? _suggest(
-    RoomHabitTemplate template,
+  /// The habits row [row] may be linked to: never one another slot holds or
+  /// held (RoomParticipant.habitsHeldBySlotsOtherThan, the guard
+  /// resolvePlanHabit enforces), and never one another row here has picked,
+  /// which it would refuse as a repeat. A habit the controller would refuse
+  /// is never offered, so picking cannot make the save fail.
+  List<IslamicHabitTemplate> _optionsFor(
+    int row,
     List<IslamicHabitTemplate> myHabits,
-    Set<String> alreadyLinked,
-    Set<String> suggestedHere,
   ) {
-    final available = myHabits
-        .where((h) => !alreadyLinked.contains(h.id) && !suggestedHere.contains(h.id))
-        .toList();
-    final match = suggestExistingMatch(template.name, available)?.id;
-    if (match != null) suggestedHere.add(match);
-    return match;
+    final held = widget.mine.habitsHeldBySlotsOtherThan(null);
+    final pickedElsewhere = {
+      for (var j = 0; j < _resolutions.length; j++)
+        if (j != row && _resolutions[j] != null) _resolutions[j]!,
+    };
+    return [
+      for (final h in myHabits)
+        if (!held.contains(h.id) && !pickedElsewhere.contains(h.id)) h,
+    ];
   }
 
   Future<void> _save() async {
@@ -115,23 +131,40 @@ class _ResolveNewHabitsSheetState
     }
     setState(() => _isSaving = true);
     HapticFeedback.mediumImpact();
+    final s = S.of(context);
     final controller = ref.read(roomsControllerProvider);
     // Sequential and awaited, not parallel - both resolvePlanHabit and
     // declineSharedHabit carry the same defensive "must be exactly the next
     // slot" check, so each call has to see the previous one's write landed.
-    for (var i = 0; i < _pending.length; i++) {
-      if (_resolutions[i] == kDeclinedSlot) {
-        await controller.declineSharedHabit(widget.room, _startIndex + i);
-        continue;
-      }
-      await controller.resolvePlanHabit(
-        widget.room,
-        _startIndex + i,
-        existingHabitId: _resolutions[i],
-      );
+    //
+    // A refusal stops the loop. The rows offer nothing the controller
+    // refuses (_optionsFor), so one means the sheet is out of date: the plan
+    // or this member's links changed since it opened, and the rows after it
+    // were worked out for slots that may no longer be next in line. The
+    // sheet used to carry on and close as if it had saved. It now stops,
+    // closes and says so, and the banner is still there to open a fresh one.
+    var saved = true;
+    for (var i = 0; i < _pending.length && saved; i++) {
+      saved = _resolutions[i] == kDeclinedSlot
+          ? await controller.declineSharedHabit(widget.room, _startIndex + i)
+          : await controller.resolvePlanHabit(
+              widget.room,
+              _startIndex + i,
+              existingHabitId: _resolutions[i],
+            );
     }
     if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
+    if (!saved) {
+      messenger.showOne(
+        SnackBar(
+          content: Text(s.roomRelinkFailed),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        ),
+      );
+    }
   }
 
   @override
@@ -185,7 +218,8 @@ class _ResolveNewHabitsSheetState
                     if (n != 0) const SizedBox(height: 10),
                     _NewHabitRow(
                       templateName: pending[i].name,
-                      myHabits: myHabits,
+                      myHabits: _optionsFor(i, myHabits),
+                      tornIds: i < _torn.length ? _torn[i] : const [],
                       value: i < _resolutions.length ? _resolutions[i] : null,
                       onChanged: (id) => setState(() => _resolutions[i] = id),
                     ),
@@ -229,11 +263,16 @@ class _ResolveNewHabitsSheetState
 class _NewHabitRow extends StatelessWidget {
   final String templateName;
   final List<IslamicHabitTemplate> myHabits;
+
+  /// The habits this row fits equally (see suggestPlanMatches): listed first
+  /// in the dropdown, and named under the row until one is picked.
+  final List<String> tornIds;
   final String? value;
   final ValueChanged<String?> onChanged;
   const _NewHabitRow({
     required this.templateName,
     required this.myHabits,
+    this.tornIds = const [],
     required this.value,
     required this.onChanged,
   });
@@ -249,6 +288,18 @@ class _NewHabitRow extends StatelessWidget {
             (value != null && myHabits.any((h) => h.id == value))
         ? value
         : null;
+    // Torn between two or more habits: they go first, and the row says so
+    // until one is picked (see suggestPlanMatches).
+    final torn = [
+      for (final h in myHabits)
+        if (tornIds.contains(h.id)) h,
+    ];
+    final ordered = [
+      ...torn,
+      for (final h in myHabits)
+        if (!tornIds.contains(h.id)) h,
+    ];
+    final showTorn = resolvedValue == null && torn.length > 1;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -256,54 +307,70 @@ class _NewHabitRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
         border: Border.all(color: GameColors.gold.withOpacity(0.4)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.flag_rounded, size: 15, color: context.gp.goldInk),
-          const SizedBox(width: 8),
-          Expanded(
-            flex: 4,
-            child: Text(templateName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 12.5, fontWeight: FontWeight.w700, color: gp.textPrimary)),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            flex: 5,
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String?>(
-                value: resolvedValue,
-                isExpanded: true,
-                isDense: true,
-                hint: Text(s.roomPlanAddAsNew,
-                    style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
-                items: [
-                  DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text(s.roomPlanAddAsNew,
+          Row(
+            children: [
+              Icon(Icons.flag_rounded, size: 15, color: context.gp.goldInk),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 4,
+                child: Text(templateName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12.5, fontWeight: FontWeight.w700, color: gp.textPrimary)),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                flex: 5,
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    value: resolvedValue,
+                    isExpanded: true,
+                    isDense: true,
+                    hint: Text(s.roomPlanAddAsNew,
                         style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
+                    items: [
+                      DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text(s.roomPlanAddAsNew,
+                            style: TextStyle(fontSize: 12, color: context.gp.goldInk)),
+                      ),
+                      ...ordered.map((h) => DropdownMenuItem<String?>(
+                            value: h.id,
+                            child: Text(s.roomPlanLinkExisting(h.name),
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
+                          )),
+                      // "No thanks" - the slot holds its position in the shared
+                      // plan but counts for nothing either way (see
+                      // kDeclinedSlot / RoomsController.declineSharedHabit).
+                      // Last in the list, and visually muted, so it reads as the
+                      // opt-out rather than a peer of the real choices.
+                      DropdownMenuItem<String?>(
+                        value: kDeclinedSlot,
+                        child: Text(s.roomSkipSharedHabit,
+                            style: TextStyle(fontSize: 12, color: gp.textTert)),
+                      ),
+                    ],
+                    onChanged: onChanged,
                   ),
-                  ...myHabits.map((h) => DropdownMenuItem<String?>(
-                        value: h.id,
-                        child: Text(s.roomPlanLinkExisting(h.name),
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                      )),
-                  // "No thanks" - the slot holds its position in the shared
-                  // plan but counts for nothing either way (see
-                  // kDeclinedSlot / RoomsController.declineSharedHabit).
-                  // Last in the list, and visually muted, so it reads as the
-                  // opt-out rather than a peer of the real choices.
-                  DropdownMenuItem<String?>(
-                    value: kDeclinedSlot,
-                    child: Text(s.roomSkipSharedHabit,
-                        style: TextStyle(fontSize: 12, color: gp.textTert)),
-                  ),
-                ],
-                onChanged: onChanged,
+                ),
+              ),
+            ],
+          ),
+          if (showTorn)
+            Padding(
+              padding: const EdgeInsetsDirectional.only(start: 23, bottom: 6),
+              child: Text(
+                s.roomPlanTornHint(
+                    torn.map((h) => h.name).join(s.isAr ? '، ' : ', ')),
+                style: TextStyle(
+                    fontSize: 11, height: 1.35, color: context.gp.goldInk),
               ),
             ),
-          ),
         ],
       ),
     );

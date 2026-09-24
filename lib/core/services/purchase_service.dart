@@ -20,6 +20,34 @@ const Set<String> kLifetimeProductIds = {
 bool isLifetimeProductId(String productId) =>
     kLifetimeProductIds.contains(productId.split(':').first);
 
+/// Whether [info] holds a subscription that is still set to renew.
+///
+/// A lifetime owner can have one too, and then pays twice: the entitlement
+/// names only the lifetime (its open expiry beats any month end), while the
+/// store keeps charging the Monthly until it is cancelled. That happens when
+/// a Monthly stuck on a failed payment goes through after Lifetime was
+/// bought, since updating the card to buy Lifetime is exactly what retries
+/// it, or when Lifetime came from a creator's App Store link.
+///
+/// RevenueCat keys a Play subscription in [CustomerInfo.activeSubscriptions]
+/// with its base plan ("growdaily_monthly:monthly-autorenew") and in
+/// [CustomerInfo.subscriptionsByProductIdentifier] without it, so both are
+/// tried. An active subscription with no detail at all counts as renewing:
+/// wrongly telling someone to check a subscription costs a tap, wrongly
+/// telling them there is nothing to cancel costs money every month.
+bool subscriptionStillRenews(CustomerInfo info) {
+  final byId = info.subscriptionsByProductIdentifier;
+  for (final sub in byId.values) {
+    if (sub.isActive && sub.willRenew) return true;
+  }
+  for (final id in info.activeSubscriptions) {
+    if (!byId.containsKey(id) && !byId.containsKey(id.split(':').first)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /// Outcome of a purchase or restore attempt - a plain result type rather
 /// than throwing, so callers (PremiumScreen) can show the right UI for
 /// each case (error banner vs. silent no-op on cancel) without a try/catch
@@ -27,12 +55,20 @@ bool isLifetimeProductId(String productId) =>
 class PurchaseOutcome {
   final bool success;
   final bool cancelled;
+
+  /// The store took the order but is waiting on someone else to finish it:
+  /// a parent's Ask to Buy approval on iPhone, or a cash payment Google Play
+  /// lets people complete later. No money has moved yet. When it completes
+  /// it arrives through [PurchaseService.customerInfoUpdates] like any
+  /// other purchase, so there is nothing to retry.
+  final bool pending;
   final CustomerInfo? customerInfo;
   final String? errorMessage;
 
   const PurchaseOutcome._({
     required this.success,
     required this.cancelled,
+    this.pending = false,
     this.customerInfo,
     this.errorMessage,
   });
@@ -42,6 +78,9 @@ class PurchaseOutcome {
 
   factory PurchaseOutcome.cancelled() =>
       const PurchaseOutcome._(success: false, cancelled: true);
+
+  factory PurchaseOutcome.pending() =>
+      const PurchaseOutcome._(success: false, cancelled: false, pending: true);
 
   factory PurchaseOutcome.failure(String message) => PurchaseOutcome._(
         success: false,
@@ -374,6 +413,9 @@ class PurchaseService {
       final code = _safeErrorCode(e);
       if (code == PurchasesErrorCode.purchaseCancelledError) {
         return PurchaseOutcome.cancelled();
+      }
+      if (code == PurchasesErrorCode.paymentPendingError) {
+        return PurchaseOutcome.pending();
       }
       return PurchaseOutcome.failure(e.message ?? code?.name ?? 'unknown_error');
     } catch (e) {
