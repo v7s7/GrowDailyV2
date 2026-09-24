@@ -35,12 +35,31 @@ import SwiftUI
 /// settled on (see the 2026-09-18 digits pass) and what the countdown in
 /// the screenshot this was modelled on shows. `@numbers=latn` keeps the
 /// Arabic locale's own ص/م and its 12-hour convention while forcing 0-9.
-private func prayerClockFormatter(isAr: Bool) -> DateFormatter {
+private func prayerClockFormatter(isAr: Bool, padHour: Bool = false) -> DateFormatter {
     let f = DateFormatter()
     f.locale = Locale(identifier: isAr ? "ar_BH@numbers=latn" : "en_US")
     // Template, not a literal "h:mm a": this is the one piece of the face
     // that should follow the device's own 12/24-hour setting.
     f.setLocalizedDateFormatFromTemplate("jmm")
+    if padHour {
+        // «05:32 م», not «5:32 م»: the Lock Screen face was modelled on a
+        // widget that pads the hour (2026-09-24). Doubling the hour field of
+        // whatever the template produced keeps the order and hour cycle it
+        // chose, where a literal "hh:mm a" would force both. Quoted literal
+        // text is left alone, so a pattern carrying a quoted 'h' cannot
+        // turn into a printed "hh".
+        f.dateFormat = f.dateFormat
+            .components(separatedBy: "'")
+            .enumerated()
+            .map { i, part in
+                i.isMultiple(of: 2)
+                    ? part.replacingOccurrences(
+                        of: "(?<![hHkK])([hHkK])(?![hHkK])", with: "$1$1",
+                        options: .regularExpression)
+                    : part
+            }
+            .joined(separator: "'")
+    }
     return f
 }
 
@@ -119,15 +138,45 @@ private struct PrayerTicker: View {
     let target: Date
     let size: CGFloat
     let color: Color
+    var weight: Font.Weight = .bold
+    var design: Font.Design = .rounded
+    /// Tabular digits stop the line shifting as the seconds change. The
+    /// Lock Screen faces turn them off to match the widget they were
+    /// modelled on, whose counter is set in proportional digits: its glyph
+    /// positions only fit that way, and a fixed-width «1» stands visibly
+    /// apart from its neighbours.
+    var tabularDigits: Bool = true
+    /// Drawn in front of the digits, for a face with no room to say «باقي»
+    /// or «مضى» in words beside them: the Lock Screen circle passes «−»
+    /// until the adhan and «+» after it. nil draws the bare digits.
+    var sign: String? = nil
 
-    var body: some View {
+    private var font: Font {
+        let base = Font.system(size: size, weight: weight, design: design)
+        return tabularDigits ? base.monospacedDigit() : base
+    }
+
+    private var digits: Text {
         // `.timer` and not `Text(timerInterval:)`: this one style covers
         // both phases (remaining before `target`, elapsed after it), so the
         // countdown and the count-up are the same view and cannot disagree
         // about the instant they are measuring from.
-        Text(target, style: .timer)
-            .font(.system(size: size, weight: .bold, design: .rounded))
-            .monospacedDigit()
+        let timer = Text(target, style: .timer)
+        guard let sign else { return timer }
+        // Joined into ONE Text, not set beside it in an HStack: the timer
+        // reserves the width of its longest value, so a separate sign would
+        // sit outside that box, a gap away from a short value like «5:12».
+        // The LRM starts the run left to right, so on an Arabic face the
+        // sign stays on the left of the digits instead of trailing them.
+        // Interpolated rather than `Text + Text`, which the iOS 26 SDK
+        // deprecates; the timer inside keeps ticking either way.
+        let mark = Text(verbatim: "\u{200E}" + sign)
+        return Text("\(mark)\(timer)")
+    }
+
+    var body: some View {
+        digits
+            .font(font)
             .foregroundColor(color)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -186,16 +235,7 @@ struct PrayerCountdownFace: View {
             return AnyView(PrayerEmptyFace(isAr: entry.isAr, compact: compact))
         }
         let isAr = entry.isAr
-        // Sunrise is not called, so it never claims an adhan — see
-        // PrayerSlot.hasAdhan.
-        let label: String
-        if entry.elapsed {
-            label = isAr ? "مضى على الأذان" : "since the adhan"
-        } else if prayer.hasAdhan {
-            label = isAr ? "باقي على الأذان" : "until the adhan"
-        } else {
-            label = isAr ? "باقي على الشروق" : "until sunrise"
-        }
+        let label = prayerPhaseLabel(elapsed: entry.elapsed, prayer: prayer, isAr: isAr)
         // Green once the adhan has gone, so the change of phase reads at a
         // glance and not only from the words. Both are the parchment
         // palette's, not the app's raw accents — see its own note above for
@@ -250,19 +290,39 @@ struct PrayerCountdownFace: View {
 // in ITS own tint on a locked device, flattening every colour and dropping
 // the container background entirely. A backdrop image would not survive the
 // trip, and the gold/green phase cue would come out the same shade of
-// white. So these faces carry the phase in a SYMBOL and in the words, which
-// do survive.
+// white. So these faces carry the phase in the words, which do survive
+// (the inline one, too short for them, in a symbol).
 //
 // The seconds still tick: Text(style: .timer) is live on the Lock Screen
 // too, so this costs no extra refresh either.
 
-/// The symbol that says which phase this is, for the faces that have no
-/// colour to say it with.
+/// The symbol that says which phase this is, for the inline face: one line
+/// beside the clock, with no room for the words.
 private func prayerPhaseSymbol(elapsed: Bool, hasAdhan: Bool) -> String {
     if elapsed { return "bell.fill" }
     return hasAdhan ? "hourglass" : "sunrise"
 }
 
+/// What the counter means: «باقي على الأذان» before the adhan, «مضى على
+/// الأذان» after it, and «باقي على الشروق» for sunrise, which is never
+/// called — see PrayerSlot.hasAdhan.
+private func prayerPhaseLabel(elapsed: Bool, prayer: PrayerSlot, isAr: Bool) -> String {
+    if elapsed { return isAr ? "مضى على الأذان" : "since the adhan" }
+    if prayer.hasAdhan { return isAr ? "باقي على الأذان" : "until the adhan" }
+    return isAr ? "باقي على الشروق" : "until sunrise"
+}
+
+/// Rebuilt 2026-09-24 to match a screenshot Aziz sent of another app's
+/// Lock Screen widget beside this one ("ALL IN LEFT WIDGET IS WHAT I
+/// WANT"): three centred lines and no symbol. The prayer and its time,
+/// what the counter means, then the counter.
+///
+/// Every size, weight and gap below was MEASURED off that screenshot, not
+/// picked by eye. It is a native 3x capture; rendering our old face with
+/// the same fonts reproduced its pixels to within 2 px, which is what made
+/// fitting the other face's glyph positions trustworthy. The fits: the
+/// countdown's digit advances land on 20 pt medium in proportional digits,
+/// the label's on 14 pt regular, the top line's on 15.5 pt semibold.
 struct PrayerRectangularView: View {
     var entry: PrayerEntry
 
@@ -271,50 +331,62 @@ struct PrayerRectangularView: View {
             return AnyView(
                 Text(entry.isAr ? "حدّد موقعك" : "Set your location")
                     .font(.system(size: 13))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .widgetURL(lockScreenOpenURL(tab: "settings"))
             )
         }
         let isAr = entry.isAr
-        let label: String
-        if entry.elapsed {
-            label = isAr ? "مضى على الأذان" : "since the adhan"
-        } else if prayer.hasAdhan {
-            label = isAr ? "باقي على الأذان" : "until the adhan"
-        } else {
-            label = isAr ? "باقي على الشروق" : "until sunrise"
-        }
+        let clock = prayerClockFormatter(isAr: isAr, padHour: true).string(from: prayer.date)
         return AnyView(
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 4) {
-                    Image(systemName: prayerPhaseSymbol(
-                        elapsed: entry.elapsed, hasAdhan: prayer.hasAdhan))
-                        .font(.system(size: 11))
-                    Text(prayer.name(isAr: isAr))
-                        .font(.system(size: 13, weight: .bold))
-                    Text(prayerClockFormatter(isAr: isAr).string(from: prayer.date))
-                        .font(.system(size: 11))
-                        .opacity(0.8)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                // The label and the counter share a line because the
-                // rectangular slot is two lines tall, not three, and losing
-                // the label would leave «3:20:45» meaning nothing.
-                HStack(spacing: 4) {
-                    Text(label)
-                        .font(.system(size: 11))
-                        .opacity(0.8)
-                    PrayerTicker(target: prayer.date, size: 15, color: .primary)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
+            // Uneven gaps, measured: the label sits 1 pt nearer the counter
+            // than the name, so one VStack spacing cannot place all three.
+            VStack(spacing: 0) {
+                // One Text, not an HStack of two, so the bidi algorithm lays
+                // «المغرب 05:32 م» out as a single phrase; its measured gap
+                // between the name and the digits is exactly one space.
+                // `verbatim` so nothing in it is ever looked up as a key.
+                Text(verbatim: "\(prayer.name(isAr: isAr)) \(clock)")
+                    .font(.system(size: 15.5, weight: .semibold))
+                Text(prayerPhaseLabel(elapsed: entry.elapsed, prayer: prayer, isAr: isAr))
+                    .font(.system(size: 14))
+                    // The label measured 0.89 of the white lines' brightness
+                    // (the old 0.8 read visibly darker beside it); the Lock
+                    // Screen maps opacity to brightness close to linearly.
+                    .opacity(0.88)
+                    .padding(.top, 2.5)
+                PrayerTicker(target: prayer.date, size: 20, color: .primary,
+                             weight: .medium, design: .default, tabularDigits: false)
+                    .padding(.top, 0.5)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            // The slot is shorter than it looks: about 57 pt of content on
+            // an iPhone 17 Pro, where these three lines' boxes add up to 63,
+            // so SwiftUI squeezed the counter to 80% of its size to make up
+            // the difference (measured on the simulator 2026-09-24, and
+            // reproduced exactly by squeezing the same view to 57 pt). All
+            // of the difference is empty space the fonts keep above the
+            // first line's ascenders (2.7 pt) and below the digits' baseline
+            // (4.7 pt), the same for all six names. Trimming it leaves the
+            // ink, 55.7 pt, at the measured size and spacing, and a smaller
+            // phone's slot still squeezes gracefully instead of clipping.
+            .padding(.top, -2.5)
+            .padding(.bottom, -4.5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .environment(\.layoutDirection, isAr ? .rightToLeft : .leftToRight)
         )
     }
 }
 
+/// The small round slot, rebuilt 2026-09-24. It used to be a ring that
+/// drained from the moment the face opened to the adhan, with only the
+/// prayer's name inside: Aziz could not tell what the ring meant, and
+/// nothing in it said when the prayer was or how long was left. What people
+/// ask of a prayer widget on the Lock Screen is the next prayer, its time
+/// and a live countdown, so the circle is now the rectangle in miniature:
+/// the name, the counter where the circle is widest, and the adhan time
+/// under it. After the adhan the time has already passed, so that line
+/// says «مضى على الأذان» instead, which is what a counter going UP needs.
 struct PrayerCircularView: View {
     var entry: PrayerEntry
 
@@ -327,31 +399,47 @@ struct PrayerCircularView: View {
                 }
             )
         }
-        // A ring that drains toward the adhan, which is the one thing this
-        // slot is big enough to say clearly. ProgressView(timerInterval:)
-        // is live the same way the counter is — the ring moves without a
-        // reload — and it prints the remaining time inside itself.
-        //
-        // The range is this face's own span, so the ring is full when the
-        // face opens and empty at the adhan. Both ends are guaranteed valid:
-        // a countdown entry is only ever emitted while its moment is still
-        // ahead, and an elapsed one only for a slot that HAS a window.
-        let span: ClosedRange<Date> = entry.elapsed
-            ? prayer.date...prayer.date.addingTimeInterval(prayer.elapsedWindow)
-            : entry.date...prayer.date
+        let isAr = entry.isAr
+        let footer: String
+        if !entry.elapsed {
+            footer = prayerClockFormatter(isAr: isAr, padHour: true).string(from: prayer.date)
+        } else if isAr {
+            footer = prayerPhaseLabel(elapsed: true, prayer: prayer, isAr: true)
+        } else {
+            // "since the adhan" needs more than the bottom line's width even
+            // at the smallest scale and came out as "since the adh…".
+            footer = "since adhan"
+        }
         return AnyView(
             ZStack {
                 AccessoryWidgetBackground()
-                ProgressView(timerInterval: span, countsDown: !entry.elapsed) {
-                    Text(prayer.name(isAr: entry.isAr))
-                } currentValueLabel: {
-                    Text(prayer.name(isAr: entry.isAr))
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                VStack(spacing: 0) {
+                    Text(prayer.name(isAr: isAr))
+                        .font(.system(size: 12, weight: .semibold))
+                    // The sign says which way the counter runs, so «باقي» and
+                    // «مضى» read from the digits alone (Aziz, 2026-09-24):
+                    // «−1:01:27» until the adhan, «+5:12» after it. U+2212,
+                    // the true minus, is the width of the plus beside it.
+                    PrayerTicker(target: prayer.date, size: 15, color: .primary,
+                                 weight: .medium, design: .default, tabularDigits: false,
+                                 sign: entry.elapsed ? "+" : "\u{2212}")
+                    Text(verbatim: footer)
+                        .font(.system(size: 10))
+                        .opacity(0.88)
+                        // The bottom line sits where the circle has already
+                        // narrowed, and «مضى على الأذان» is as wide as it.
+                        .padding(.horizontal, 2)
                 }
-                .progressViewStyle(.circular)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                // The circle measured 58 pt across on an iPhone 17 Pro. A
+                // live timer reserves room for its longest value, not the one
+                // showing, so the counter is fitted to the width it gets: at
+                // 52 pt, «−8:35:03» draws its digits at about 12 pt, as big
+                // as the name above it (measured on the simulator 2026-09-24).
+                .padding(.horizontal, 3)
             }
+            .environment(\.layoutDirection, isAr ? .rightToLeft : .leftToRight)
         )
     }
 }
@@ -415,6 +503,11 @@ struct GrowDailyPrayerLockScreenWidget: Widget {
         .configurationDisplayName(Text("Prayer Countdown"))
         .description(Text("The next prayer and how long is left, on the Lock Screen."))
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline])
+        // Every point of height counts in the rectangle (see the trim in
+        // PrayerRectangularView): the default margins cost about 1 pt there,
+        // and there is no background on these faces for a margin to keep
+        // anything off.
+        .contentMarginsDisabled()
     }
 }
 
