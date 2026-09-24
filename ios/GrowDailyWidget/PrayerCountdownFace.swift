@@ -6,38 +6,43 @@
 //  prayer and its adhan time, what the counter means, and the live
 //  counter, on the sky outside (PrayerSky.swift).
 //
-//  Redrawn 2026-09-24 from a design canvas Aziz approved ("apply it to the
-//  widget"): https://claude.ai/artifact/PLMJAZS3ebkUNPEHg85Goq, one row
-//  per prayer with the face before the adhan, after it, and the small size.
-//  The first face centred its three lines in SF Arabic, a heavy name over
-//  a bold rounded counter, with the mosque peeking out from under them.
-//  This one:
+//  Redrawn 2026-09-24 from a design canvas Aziz approved:
+//  https://claude.ai/artifact/PLMJAZS3ebkUNPEHg85Goq. The same evening he
+//  asked for the lines to be centred again, "same as the pre design", at
+//  clear sizes. So the face keeps the first design's shape, three centred
+//  lines (the name and its adhan time, what the counter means, the
+//  counter) at close to its sizes, and takes the rest from the canvas:
 //
-//   • sets every line in IBM Plex Sans Arabic, the app's own default
-//     typeface (GameTextStyles). An extension cannot read Flutter's copy,
-//     so the three weights used here ship in this target (Fonts/, listed
-//     under UIAppFonts in Info.plist);
-//   • stacks the lines on the leading edge (the right, in Arabic) and low
-//     on the card, where the warm skies are lightest, so each sky's text
-//     can be a shade of the sky rather than near-black, and the sky stays
-//     open above;
-//   • stands the mosque on the medium card's bottom edge on the side the
-//     text runs away from, and puts it in that top corner of the small
-//     card as its mark, tinted with the name's colour either way.
+//   • every line in IBM Plex Sans Arabic, the app's own default typeface
+//     (GameTextStyles). An extension cannot read Flutter's copy, so the
+//     three weights used here ship in this target (Fonts/, listed under
+//     UIAppFonts in Info.plist);
+//   • colours that are shades of each sky rather than one set for all;
+//   • the mosque standing on the medium card's bottom edge on the side the
+//     text runs away from, and as the small card's mark in that top
+//     corner, tinted with the name's colour either way.
 //
-//  ── Why the gaps below are negative ──────────────────────────────────
+//  Centred lines sit higher than the canvas's low ones, on darker orange,
+//  which is why the warm skies' second colour is darker than the canvas
+//  shows. PrayerSky.swift has the measurements.
+//
+//  ── Where the lines go, and why the gaps look odd ────────────────────
 //  Plex's line box is 1.5 em tall: 1.085 above the baseline, 0.415 below,
-//  no line gap. The canvas set each line in a tighter CSS line-height,
-//  but SwiftUI always gives a Text the font's full box, so the gaps that
-//  put each BASELINE where the canvas has it come out negative, and the
-//  bottom inset small. From the top of the card:
+//  no line gap, and SwiftUI gives every Text that whole box. So the lines
+//  are placed by their BASELINES, in points from the top of a 158 pt card
+//  (the stack is centred, so on a taller card each moves down by half the
+//  difference):
 //
 //                name/time   label    counter
-//      medium    73.8        95.4     137.4
-//      small     92.8        111.0    141.4
+//      medium    53.1        79.1     124.1
+//      small     62.0        82.0     115.0
 //
-//  Change a size and re-derive the gaps from those baselines; do not nudge
-//  them by eye.
+//  On the medium card that centres the ink, from the top of the name's
+//  alef (0.74 em above its baseline) to the counter's baseline. On the
+//  small one it centres the ink a little low, clear of the mark. The gaps
+//  below were derived from those baselines and then checked on a 3x
+//  render, where SwiftUI rounds each line's box up to a whole pixel.
+//  Change a size and derive them again rather than nudging by eye.
 //
 
 import SwiftUI
@@ -57,7 +62,7 @@ private enum PrayerFaceFont {
     }
 }
 
-/// Every size and inset on the face, in points, off the design canvas.
+/// Every size and inset on the face, in points.
 private struct PrayerFaceMetrics {
     let name: CGFloat
     let time: CGFloat
@@ -66,29 +71,33 @@ private struct PrayerFaceMetrics {
     let counterTracking: CGFloat
     /// Between the prayer's name and its adhan time.
     let nameTimeGap: CGFloat
-    /// Above the label and above the counter: see "Why the gaps below are
-    /// negative" at the top of this file.
+    /// Above the label and above the counter: see "Where the lines go" at
+    /// the top of this file.
     let labelGap: CGFloat
     let counterGap: CGFloat
-    /// From the card's edge, the system's content margins being off for
-    /// this widget (GrowDailyPrayerWidget).
-    let leadingInset: CGFloat
-    let bottomInset: CGFloat
+    /// Added above the stack before it is centred on the card. The stack's
+    /// boxes overhang its ink unevenly (0.345 em of the name's box above
+    /// the alef, 0.415 em of the counter's below the digits), so centring
+    /// the boxes alone would lift the ink 5 pt. This puts it back: centred
+    /// on the medium card, 2 pt low on the small one, clear of the mark.
+    /// Centring rather than a fixed top inset because the card is not one
+    /// size: 158 pt tall on most iPhones, 163 on this one, 170 on the
+    /// largest.
+    let centreBias: CGFloat
+    /// Kept clear on both sides, so a long English line shrinks before it
+    /// reaches the edge.
+    let sideInset: CGFloat
 
-    /// labelGap works out at -1.5 on paper. It is -2.2 because SwiftUI
-    /// rounds each line's box up to a whole pixel, which lifted the name
-    /// row 0.8 pt above the canvas at -1.5; measured on a 3x render, -2.2
-    /// lands it within a third of a point.
     static let medium = PrayerFaceMetrics(
-        name: 23, time: 14, label: 12.5, counter: 40, counterTracking: -0.5,
-        nameTimeGap: 8, labelGap: -2.2, counterGap: -6.625,
-        leadingInset: 20, bottomInset: 4
+        name: 26, time: 16, label: 14, counter: 46, counterTracking: -0.5,
+        nameTimeGap: 8, labelGap: 0, counterGap: -10.7,
+        centreBias: 10.1, sideInset: 16
     )
 
     static let small = PrayerFaceMetrics(
-        name: 20, time: 12, label: 11, counter: 28, counterTracking: -0.4,
-        nameTimeGap: 6, labelGap: -2.05, counterGap: -4.55,
-        leadingInset: 14, bottomInset: 5
+        name: 20, time: 13, label: 12, counter: 30, counterTracking: -0.4,
+        nameTimeGap: 6, labelGap: -1.3, counterGap: -5.1,
+        centreBias: 9.8, sideInset: 10
     )
 }
 
@@ -115,7 +124,7 @@ struct PrayerCountdownFace: View {
         let direction: LayoutDirection = isAr ? .rightToLeft : .leftToRight
 
         return AnyView(
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: m.nameTimeGap) {
                     Text(prayer.name(isAr: isAr))
                         .font(PrayerFaceFont.semiBold(m.name))
@@ -140,14 +149,13 @@ struct PrayerCountdownFace: View {
                     target: prayer.date,
                     size: m.counter,
                     tracking: m.counterTracking,
-                    color: entry.elapsed ? palette.elapsed : palette.ink,
-                    isAr: isAr
+                    color: entry.elapsed ? palette.elapsed : palette.ink
                 )
                 .padding(.top, m.counterGap)
             }
-            .padding(.leading, m.leadingInset)
-            .padding(.bottom, m.bottomInset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .padding(.top, m.centreBias)
+            .padding(.horizontal, m.sideInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .environment(\.layoutDirection, direction)
             // The mosque belongs to the scene, not the text, so it lives in
             // the background and leaves with it wherever the system strips
@@ -166,14 +174,12 @@ struct PrayerCountdownFace: View {
 }
 
 /// The live digits on the sky faces. PrayerTicker draws them on the Lock
-/// Screen; this one sets them in the app's typeface, a touch tighter, and
-/// on the edge the other lines start from instead of centred.
+/// Screen; this one sets them in the app's typeface and a touch tighter.
 private struct PrayerFaceTicker: View {
     let target: Date
     let size: CGFloat
     let tracking: CGFloat
     let color: Color
-    let isAr: Bool
 
     var body: some View {
         // Plex's digits are tabular already (every figure 0.6 em), so the
@@ -185,12 +191,10 @@ private struct PrayerFaceTicker: View {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             // Timer text reserves the width of its LONGEST value and draws
-            // the current one inside that box (see PrayerTicker), so the
-            // digits are pinned to the box's edge and the box to the card's.
-            // The counter lays out left to right in both languages (below),
-            // so the right, where Arabic lines start, is .trailing here.
-            .multilineTextAlignment(isAr ? .trailing : .leading)
-            .frame(maxWidth: .infinity, alignment: isAr ? .trailing : .leading)
+            // the current one inside that box (see PrayerTicker). Centred
+            // in it, so a short value like «18:19» sits under the lines
+            // above instead of off to one side.
+            .multilineTextAlignment(.center)
             .environment(\.locale, timerDigitsLocale)
             .environment(\.layoutDirection, .leftToRight)
     }
@@ -198,20 +202,23 @@ private struct PrayerFaceTicker: View {
 
 /// The mosque, on the side the text runs away from: the left of the card
 /// in Arabic. On the medium card it stands on the bottom edge, its base
-/// just under it; on the small one, where the counter spans the bottom,
-/// it sits in the top corner as the card's mark.
+/// just under it, 14 pt clear of the centred counter at its widest
+/// («0:00:00»). On the small one, where the counter spans the middle, it
+/// sits in the top corner as the card's mark.
 private struct PrayerFaceMosque: View {
     let sky: PrayerSky
     let compact: Bool
 
     var body: some View {
         if compact {
-            MosqueMark(height: 30, opacity: sky.markOpacity, tint: sky.name)
+            // 26, not the canvas's 30: with the lines centred, a 30 pt
+            // mark came within 3 pt of the first line's left end.
+            MosqueMark(height: 26, opacity: sky.markOpacity, tint: sky.name)
                 .padding(.trailing, 15)
                 .padding(.top, 14)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         } else {
-            MosqueMark(height: 88, opacity: sky.mosqueOpacity, tint: sky.name)
+            MosqueMark(height: 70, opacity: sky.mosqueOpacity, tint: sky.name)
                 .padding(.trailing, 16)
                 .offset(y: 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)

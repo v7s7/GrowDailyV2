@@ -22,44 +22,48 @@
 //  night skies are dark already), so every colour here is FIXED, one set
 //  per sky, where the parchment tokens flip with the phone.
 //
-//  The first set was solved for a face centred on the card, which put the
-//  prayer's name near the top, where the two warm skies are at their
-//  darkest and most saturated. Nothing but near-black cleared 4.5:1 there,
-//  so the name came out all but black on orange. The face has since been
-//  redrawn from a design canvas Aziz approved (PrayerCountdownFace.swift),
-//  with its lines low on the card, where those skies are lightest. Each
-//  colour is now a shade of its own sky: brick and burnt sienna on the
-//  warm two, bronze on the cream, the brand gold on the night, and a warm
-//  sand for the second line where there used to be grey.
+//  The first set held every line to 4.5:1 near the top of the card, where
+//  the two warm skies are at their darkest and most saturated, and nothing
+//  but near-black cleared that: the name came out all but black on
+//  orange. The face was then redrawn from a design canvas Aziz approved,
+//  and each colour is now a shade of its own sky: brick and burnt sienna
+//  on the warm two, bronze on the cream, the brand gold on the night, and
+//  a warm sand for the second line where there used to be grey. The
+//  canvas set the lines low on the card; Aziz then asked for them centred
+//  again, like the first face, which puts the adhan time back on darker
+//  orange. So on the warm skies the second colour is darker than the
+//  canvas's, and the sunrise name a shade darker too.
 //
-//  Every one is still measured against the worst pixel under the row it
-//  sits on, small face or medium, whichever is worse, and everything but
-//  the name holds 4.5:1. The name is 23 pt SemiBold (20 on the small
-//  face). WCAG lowers the bar to 3:1 for large text, 14 pt and up when
-//  bold, without saying which weights count as bold; this face counts
-//  SemiBold, so the name's bar is 3:1. On the two warm skies it is the one
-//  line that needs it: 3.7 to 3.9 at the lightest pixel of its row (a line
-//  of the pattern), above 5 against the sky's mean. The counter is large
-//  too, but it is what the widget is for, so it is held to 4.5:1 anyway.
-//  Luminance under the rows:
+//  Every colour is measured against the worst pixel under the row it sits
+//  on, small face or medium, whichever is worse, and everything but the
+//  name holds 4.5:1. The name is 26 pt SemiBold (20 on the small face).
+//  WCAG lowers the bar to 3:1 for large text, 14 pt and up when bold,
+//  without saying which weights count as bold; this face counts SemiBold,
+//  so the name's bar is 3:1. On the two warm skies it is the one line that
+//  needs it: 3.3 to 3.4 at the lightest pixel of its row (a line of the
+//  pattern), 4.7 to 5.1 against the sky's mean. The counter is large too,
+//  but it is what the widget is for, so it is held to 4.5:1 anyway.
+//  Luminance under the rows of the centred face:
 //
-//                 name row       label row      counter row
-//      night      0.013-0.021    0.012-0.025    0.010-0.041
-//      midday     0.874-0.951    0.874-0.958    0.863-0.967
-//      afternoon  0.338-0.525    0.444-0.594    0.478-0.704
-//      sunrise    0.268-0.472    0.386-0.571    0.439-0.818
+//                 name row       time row       label row      counter row
+//      night      0.016-0.026    0.017-0.024    0.014-0.019    0.012-0.029
+//      midday     0.867-0.929    0.876-0.921    0.895-0.943    0.866-0.967
+//      afternoon  0.281-0.414    0.309-0.394    0.405-0.468    0.454-0.615
+//      sunrise    0.212-0.357    0.232-0.311    0.318-0.424    0.376-0.632
 //
-//  and the worst contrast each colour reaches there (the adhan time sits
-//  on the name row, in the secondary colour):
+//  and the worst contrast each colour reaches there (the adhan time is in
+//  the secondary colour, the green is the counter after the adhan):
 //
 //                 name   time   label   counter   green
-//      night      7.74   6.50   6.14    9.81      6.43
-//      midday     5.16   5.63   5.63    13.81     5.29
-//      afternoon  3.93   4.86   6.19    8.60      4.98
-//      sunrise    3.74   4.71   6.46    8.14      5.36
+//      night      7.19   6.27   6.68    11.29     7.39
+//      midday     5.12   5.64   5.75    13.86     5.31
+//      afternoon  3.36   4.66   5.91    8.21      5.24
+//      sunrise    3.27   4.67   6.10    7.08      4.99
 //
 //  Every colour also clears its bar on its sky's `ground`, the flat fill
 //  under the image, which is what a face shows if the image fails to load.
+//  That is what deepened the two warm greens: at the canvas's shades they
+//  read 4.4 on it.
 //
 //  The mosque takes the name's colour: faint on the medium card, where it
 //  stands on the bottom edge with only sky behind it, and strong on the
@@ -111,7 +115,7 @@ struct PrayerSky {
     /// Soft cream, from الظهر to العصر.
     static let midday = PrayerSky(
         imageName: "PrayerSkyMidday",
-        ground: skyRGB(0xFC, 0xF4, 0xEA),
+        ground: skyRGB(0xFC, 0xF3, 0xE7),
         ink: skyRGB(0x2B, 0x20, 0x17),
         secondary: skyRGB(0x6E, 0x5C, 0x47),
         name: skyRGB(0x8C, 0x5A, 0x10),
@@ -123,11 +127,11 @@ struct PrayerSky {
     /// Sand and orange, from العصر to المغرب.
     static let afternoon = PrayerSky(
         imageName: "PrayerSkyAfternoon",
-        ground: skyRGB(0xE1, 0xAB, 0x6F),
+        ground: skyRGB(0xDD, 0xA0, 0x65),
         ink: skyRGB(0x2E, 0x15, 0x0A),
-        secondary: skyRGB(0x4E, 0x25, 0x12),
+        secondary: skyRGB(0x4A, 0x23, 0x11),
         name: skyRGB(0x6E, 0x28, 0x10),
-        elapsed: skyRGB(0x0F, 0x4D, 0x2E),
+        elapsed: skyRGB(0x0D, 0x46, 0x29),
         mosqueOpacity: 0.22,
         markOpacity: 0.75
     )
@@ -135,11 +139,11 @@ struct PrayerSky {
     /// Amber rising from the bottom, from الشروق to الظهر.
     static let sunrise = PrayerSky(
         imageName: "PrayerSkySunrise",
-        ground: skyRGB(0xDF, 0xA4, 0x5B),
+        ground: skyRGB(0xD2, 0x94, 0x51),
         ink: skyRGB(0x2A, 0x14, 0x07),
-        secondary: skyRGB(0x3A, 0x1C, 0x0A),
-        name: skyRGB(0x5A, 0x25, 0x09),
-        elapsed: skyRGB(0x0D, 0x42, 0x26),
+        secondary: skyRGB(0x2B, 0x14, 0x07),
+        name: skyRGB(0x53, 0x22, 0x08),
+        elapsed: skyRGB(0x0B, 0x3D, 0x22),
         mosqueOpacity: 0.22,
         markOpacity: 0.75
     )
@@ -147,7 +151,7 @@ struct PrayerSky {
     /// Deep teal, from المغرب through العشاء and الفجر to الشروق.
     static let night = PrayerSky(
         imageName: "PrayerSkyNight",
-        ground: skyRGB(0x15, 0x23, 0x26),
+        ground: skyRGB(0x10, 0x26, 0x2C),
         ink: skyRGB(0xF4, 0xEC, 0xDF),
         secondary: skyRGB(0xB8, 0xAA, 0x96),
         name: skyRGB(0xE4, 0xB4, 0x5F),
