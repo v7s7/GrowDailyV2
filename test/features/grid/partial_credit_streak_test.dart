@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hive/hive.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/core/services/local_store_service.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
@@ -83,6 +84,16 @@ void main() {
 
   tearDown(() async {
     container.dispose();
+    // setSquare and setSquareStateOnly fire their day writes without
+    // awaiting them (the square turns on the same frame either way), and the
+    // writes queue one behind another on today's stored day, so a test here
+    // can end with several still pending. Deleting the store under them
+    // failed four runs in nine on 2026-09-22: Hive.deleteFromDisk closed the
+    // box, the next queued write reopened box_daily_logs.hive, and the temp
+    // directory was gone before it could read the file
+    // (PathNotFoundException). Drain them first, as grid_progression_test
+    // does.
+    await LocalStoreService.settleDailyWrites();
     await Hive.deleteFromDisk();
     await tmp.delete(recursive: true);
   });
