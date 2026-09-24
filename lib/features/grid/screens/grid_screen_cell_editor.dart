@@ -120,7 +120,10 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     final doneToday =
         ref.watch(dashboardProvider).completions[widget.habit.id] ?? 0;
     final isLocked = paletteLockedFor(
-      isOpenDay: widget.day.isOpenDay,
+      // Asked of dayClockSourceProvider, DateTime.now in the app, as the
+      // square's own tap asks it, so a test can stand inside yesterday's open
+      // tail at any hour (see palette_mid_count_finish_test.dart).
+      isOpenDay: widget.day.isOpenDayAt(ref.read(dayClockSourceProvider)()),
       isToday: widget.day.isToday,
       current: current,
       doneToday: doneToday,
@@ -576,12 +579,30 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     );
   }
 
+  /// Whether [habit] still owes slots on [day]: a habit counted more than
+  /// once a day whose count that day, today's or yesterday's while it is
+  /// still open (DashboardState.countOn), is under its target.
+  /// When this state holds no count for the day, the stored square answers:
+  /// جزئي is a day part done. A habit done once a day never falls short
+  /// here, since its locked square is the whole day.
+  bool _dayFallsShort(IslamicHabitTemplate habit, DateTime day) {
+    final target = habit.effectiveDailyTarget;
+    if (target <= 1) return false;
+    final done = ref.read(dashboardProvider).countOn(habit.id, day);
+    if (done != null) return done < target;
+    return ref.read(weeklyGridProvider).squareFor(habit.id, day) ==
+        SquareState.partial;
+  }
+
   /// Handles tapping a palette swatch for [picked].
   ///
   /// - If the square is currently a synced, reward-locked completion
   ///   (`isLocked`) and [picked] isn't `complete`, this is a correction:
   ///   reverse the canonical reward first (`uncompleteHabit`), then
   ///   update the visual state only.
+  /// - A locked square picked `complete` or `bonus` changes colour only once
+  ///   its day is paid in full. A counted habit part way through its day is
+  ///   finished first (see [_dayFallsShort]).
   /// - If the square isn't done yet and [picked] is `complete` for
   ///   today's habit, this is the same canonical completion tapping the
   ///   square or Today's button would do — reward first, then mirror the
@@ -596,6 +617,23 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
 
     if (isLocked &&
         (picked == SquareState.complete || picked == SquareState.bonus)) {
+      // A habit counted several times a day, part way through its day (2 of
+      // 4), is locked too, but only its slots so far are paid. Recolouring it
+      // put مكتمل on the square, which rooms, the heatmap and the reports
+      // read, while the count stayed at 2 and the last two slots were never
+      // recorded or paid. So it finishes the day, through the same loop the
+      // pick runs on an unlocked square, and wears the picked colour after.
+      if (_dayFallsShort(habit, day)) {
+        await _completeOpenDay(
+          ref,
+          context,
+          habit: habit,
+          day: day,
+          paint: picked,
+          source: kSquareSourcePalette,
+        );
+        return;
+      }
       // Already paid. A green or blue square on an open day IS the canonical
       // completion (see paletteLockedFor), so re-picking مكتمل, or moving it
       // to إنجاز إضافي, changes the colour and nothing else: the blue is a
@@ -662,8 +700,9 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
 
     // isOpenDay, matching the square tap: a grace day's palette pick has to
     // pay the same way its square tap does, or the two ways of marking one
-    // day would disagree about whether it earned anything.
-    final isSyncable = day.isOpenDay;
+    // day would disagree about whether it earned anything. Asked of the same
+    // clock the tap asks (dayClockSourceProvider, DateTime.now in the app).
+    final isSyncable = day.isOpenDayAt(ref.read(dayClockSourceProvider)());
     // Today's map only — see _completeSquareToday's identical guard.
     final alreadyDoneToday = day.isToday &&
         ref

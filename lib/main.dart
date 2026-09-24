@@ -92,8 +92,7 @@ import 'features/grid/notifiers/weekly_grid_notifier.dart'
     show
         WeeklyGridState,
         isQuitAutoCleanEligible,
-        weeklyGridProvider,
-        willCompleteAllSquaresOn;
+        weeklyGridProvider;
 import 'features/grid/screens/grid_journal_screen.dart';
 import 'features/milestones/reports/period_report_section.dart'
     show RecordTab;
@@ -2622,6 +2621,19 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // the one canonical reward for this habit-day, then — only if that
       // was a single-tap habit finishing just now — the Grid square is
       // mirrored to green too, same as tapping it from Today's Habits would.
+      final perDay = habit.effectiveDailyTarget;
+      // How far [actionDay] already was, read BEFORE this tap adds one, for a
+      // habit counted several times a day on yesterday: whether this tap
+      // finishes the count decides how yesterday's streak question is asked
+      // below. Today's question counts from `completions` itself
+      // (willCompleteAllHabitsToday), and a habit done once a day always
+      // finishes, so neither needs it.
+      final doneBefore = !actionDay.isToday && perDay > 1
+          ? await ref
+              .read(dashboardProvider.notifier)
+              .readCountOn(habit.id, actionDay)
+          : 0;
+      if (!mounted) return;
       final dashState = ref.read(dashboardProvider);
       // boardHabitsOn, not isScheduledFor: a flexible quota's rest day is not
       // part of the day's roster (see habitOwesDay). alsoOwing keeps the habit
@@ -2657,7 +2669,11 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 // Today's answer comes from `completions`; a grace day's
                 // has to come from that day's own squares, because
                 // `completions` only ever holds today's counts. Same split
-                // the Grid makes, see willCompleteAllSquaresOn.
+                // the Grid makes, see willCompleteAllSquaresOn. That day's
+                // square is judged as this tap leaves it: green only if the
+                // tap finishes the count (slotCrossesStreakOn). Asked as if
+                // green whatever the count, a tap taking yesterday from 1 to
+                // 2 of 4 could earn yesterday's streak point early.
                 allHabitsDoneAfter: actionDay.isToday
                     ? willCompleteAllHabitsToday(
                         state: dashState,
@@ -2675,14 +2691,19 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                         skippedHabitIds:
                             ref.read(weeklyGridProvider).skippedTodayIds(),
                       )
-                    : willCompleteAllSquaresOn(ref, habit, actionDay),
+                    : ref
+                        .read(weeklyGridProvider.notifier)
+                        .slotCrossesStreakOn(
+                          habit,
+                          actionDay,
+                          doneBefore: doneBefore,
+                        ),
                 // Scales the daily earn ceiling with the roster, see
                 // dailyXpCapFor. Same list the predicate above uses.
                 scheduledHabitCount: todayHabits.length,
                 category: habit.category.name,
                 habitName: habit.localName(isAr),
               );
-      final perDay = habit.effectiveDailyTarget;
       if (mirroredBySingleTap) {
         final today = actionDay;
         ref
@@ -2699,16 +2720,19 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // while the day filled up — and the Grid's own "إنجاز اليوم" figure
         // reads the stored square, so the day's percentage was wrong too,
         // not just the picture.
-        final today = actionDay;
-        final done = ref.read(dashboardProvider).completions[habit.id] ?? 0;
-        if (done > 0) {
-          ref.read(weeklyGridProvider.notifier).markResultFromHabit(
-                habit.id,
-                today,
-                done >= perDay ? SquareState.complete : SquareState.partial,
-                source: kSquareSourceNotification,
-              );
-          syncRoomToday(ref, habit.id, today);
+        //
+        // Painted from [actionDay]'s own count, which is yesterday's for a
+        // tap queued last night and drained after midnight. Reading today's
+        // count here left yesterday's square empty while its count moved,
+        // or painted it green at 2 of 4 because today was finished. See
+        // markCountFromHabit.
+        if (ref.read(weeklyGridProvider.notifier).markCountFromHabit(
+              habit.id,
+              actionDay,
+              perDay: perDay,
+              source: kSquareSourceNotification,
+            )) {
+          syncRoomToday(ref, habit.id, actionDay);
         }
       }
     }

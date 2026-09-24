@@ -2576,19 +2576,24 @@ class S {
   String get gridSave => isAr ? 'حفظ' : 'Save';
   String get gridFutureDay => isAr ? 'يوم قادم' : 'Future day';
   // "From the Today page" went with that page; the square is simply done.
+  // No «اليوم» in these three either: the palette opens on yesterday's square
+  // too while yesterday is still open (until kDayCutoffHour), and there
+  // "today" was false (Aziz, 2026-09-24).
   String get gridSquareDoneFromToday => isAr
-      ? 'أُنجزت هذه العادة اليوم. اختر لونًا آخر لتصحيحها.'
-      : 'Completed today. Pick a different color to correct it.';
+      ? 'أُنجزت هذه العادة. اختر لونًا آخر لتصحيحها.'
+      : 'Completed. Pick a different color to correct it.';
   /// The quit habit's version: a kept day, not a task done.
   String get gridSquareKeptToday => isAr
-      ? 'سُجّل التزام اليوم. اختر خيارًا آخر لتصحيحه.'
-      : 'Kept today. Pick a different option to correct it.';
+      ? 'سُجّل الالتزام. اختر خيارًا آخر لتصحيحه.'
+      : 'Kept. Pick a different option to correct it.';
   // The counted-habit sibling: the square is locked because real per-tap
-  // progress was paid today, but the day is not finished, so calling it
-  // "completed" would be false. Says what a correction actually does.
+  // progress was paid, but the day is not finished, so calling it
+  // "completed" would be false. Says what each pick does: مكتمل or إنجاز
+  // إضافي finishes the day (records and pays what is left), anything else
+  // clears the count. Wording picked by Aziz, 2026-09-24.
   String get gridSquarePartlyDoneFromToday => isAr
-      ? 'فيها تقدّم مسجّل من اليوم. اختيار لون ثاني يمسح العدّ ويصحّح اليوم.'
-      : "Partly done from Today. Picking another color clears today's count and corrects the day.";
+      ? 'فيها تقدّم مسجّل. مكتمل أو إنجاز إضافي يكمّل الباقي، وأي خيار ثاني يمسح العدّ.'
+      : 'Partly done. Completed or Bonus finishes the rest, and any other choice clears the count.';
 
   // Habit Notes journal — long-press's note field and Skipped/Failed/Bonus
   // states (see gridEditSquare/gridNoteLabel above) are captured live from

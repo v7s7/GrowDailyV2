@@ -850,6 +850,17 @@ class DashboardState {
   bool isCompleted(String habitId, int target) =>
       (completions[habitId] ?? 0) >= target;
 
+  /// [habitId]'s count on [day] as this state holds it: today's from
+  /// [completions], or yesterday's from [graceCompletions] while
+  /// [graceDayKey] names it. Null for any other day, and for yesterday
+  /// before its counts are read, so "not held" is never taken for "nothing
+  /// done". See DashboardNotifier.readCountOn for the read.
+  int? countOn(String habitId, DateTime day) {
+    if (day.isToday) return completions[habitId] ?? 0;
+    if (graceDayKey != day.toDateKey()) return null;
+    return graceCompletions[habitId] ?? 0;
+  }
+
   /// The live current streak for a single habit — unlike reading
   /// [habitStreakCounts] directly, this returns 0 once a day the habit RUNS
   /// ON has ended without it since [habitLastCompletedDate], so a habit
@@ -1325,6 +1336,22 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
       graceCompletions: stored.completions,
       graceDayKey: key,
     );
+  }
+
+  /// [habitId]'s count on [day] (DashboardState.countOn), reading
+  /// yesterday's stored day first when this state does not hold it yet (see
+  /// [readGraceDay]). Zero for a day with nothing to count: one that has
+  /// closed, or any day but today and yesterday.
+  ///
+  /// For a caller about to add one to [day] that must know, before the tap,
+  /// whether the tap finishes the count: main.dart's notification Mark Done
+  /// asks yesterday's streak question with it.
+  Future<int> readCountOn(String habitId, DateTime day) async {
+    final held = state.countOn(habitId, day);
+    if (held != null) return held;
+    await readGraceDay(day);
+    if (!mounted) return 0;
+    return state.countOn(habitId, day) ?? 0;
   }
 
   /// Whether the streak's recorded last-active day is already LATER than

@@ -814,6 +814,97 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     setSquareStateOnly(habitId, day, value, source: source);
   }
 
+  /// Mirrors a completion of a habit counted [perDay] times a day onto
+  /// [day]'s square, from that day's own count: جزئي while slots are still
+  /// owed, complete once the count is full. Answers whether it painted, so
+  /// the caller can tell the room (syncRoomToday).
+  ///
+  /// For completions made off the Grid, where nothing else paints the
+  /// square: completeHabit answers isGridSyncable (`frequencyTarget == 1`),
+  /// false for every tap of a counted habit, so main.dart's notification
+  /// Mark Done, and the Home Screen widget's tick that runs through it, paint
+  /// here by hand.
+  ///
+  /// The count is DashboardState.countOn's: today's `completions` for today
+  /// and, for yesterday while it is still open, graceCompletions, which
+  /// completeHabit writes whenever a call on yesterday lands. main.dart read
+  /// `completions` for both, and a tap queued with the app closed is paid on
+  /// the day it was made, yesterday when the app opens after midnight: the
+  /// square stayed empty while yesterday's count moved, or went green at 2
+  /// of 4 because today was finished. Rooms, the heatmap and the reports
+  /// read that square. A day this state holds no count for paints nothing:
+  /// not held is not zero, and it is never today's. See
+  /// notification_counted_square_test.dart.
+  bool markCountFromHabit(
+    String habitId,
+    DateTime day, {
+    required int perDay,
+    String source = kSquareSourceUnknown,
+  }) {
+    final done = _ref.read(dashboardProvider).countOn(habitId, day);
+    if (done == null || done <= 0) return false;
+    markResultFromHabit(
+      habitId,
+      day,
+      done >= perDay ? SquareState.complete : SquareState.partial,
+      source: source,
+    );
+    return true;
+  }
+
+  /// "Once ONE more completion of [habit] lands on [day], is [day]'s list
+  /// at the streak threshold?", for a day whose counts `completions` does
+  /// not hold (yesterday while it is still open), answered from its squares
+  /// with [habit]'s own judged as that completion leaves it: green once it
+  /// fills the count ([doneBefore], the day's count before it, plus one
+  /// reaches the habit's daily target), جزئي before that. At a target of 1
+  /// every completion fills the count, so a habit done once a day is judged
+  /// exactly as willCompleteAllSquaresOn judges it.
+  ///
+  /// main.dart's notification Mark Done asked willCompleteAllSquaresOn for
+  /// every tap on yesterday, which judges the square green whether or not
+  /// the tap finished the count: yesterday with two habits, one done and one
+  /// counted four times going from 1 to 2, was judged 2 of 2 and earned its
+  /// streak point at 1.5 of 2. The Grid's own counter tap already asked it
+  /// this way (_GridTableState._addOneToday). See
+  /// notification_slot_streak_test.dart.
+  bool slotCrossesStreakOn(
+    IslamicHabitTemplate habit,
+    DateTime day, {
+    required int doneBefore,
+  }) =>
+      _crossesOnMark(
+        habit,
+        day,
+        doneBefore + 1 >= habit.effectiveDailyTarget
+            ? SquareState.complete
+            : SquareState.partial,
+      );
+
+  /// [squaresCrossStreakThreshold] over [day]'s own board and this state's
+  /// squares: the day's answerable roster, not everything allowed on it (a
+  /// flexible quota's rest day leaves the denominator, see boardHabitsOn),
+  /// with [habit], the one being marked right now, kept in it whatever its
+  /// week says and judged as [mark]. The one place the Grid's streak
+  /// questions for a day other than today are put together.
+  bool _crossesOnMark(
+    IslamicHabitTemplate habit,
+    DateTime day,
+    SquareState mark,
+  ) =>
+      squaresCrossStreakThreshold(
+        dayHabits: boardHabitsOn(
+          habits: _ref.read(habitListProvider),
+          day: day,
+          isGreen: state.greenForWeekOf(day),
+          markOn: state.markForWeekOf(day),
+          alsoOwing: {habit.id},
+        ).map((h) => h.id),
+        squareOf: (id) => state.squareFor(id, day),
+        habitId: habit.id,
+        mark: mark,
+      );
+
   /// Attach (or clear) a daily reflection note for a habit's square.
   ///
   /// Returns the persist future so the editor can raise a failure bar. The
@@ -1247,30 +1338,16 @@ bool willCrossStreakThresholdOnSkip(
 ) =>
     _squaresCrossOnMark(ref, habit, day, SquareState.skipped);
 
-/// [squaresCrossStreakThreshold] over the day's own board and the Grid's
-/// loaded squares: the day's answerable roster, not everything allowed on it
-/// (a flexible quota's rest day leaves the denominator, see boardHabitsOn),
-/// with the habit being marked right now kept in it whatever its week says.
+/// WeeklyGridNotifier._crossesOnMark, reached from a screen's ref: the
+/// day's own board and the Grid's loaded squares, with the habit being
+/// marked right now judged as [mark].
 bool _squaresCrossOnMark(
   WidgetRef ref,
   IslamicHabitTemplate habit,
   DateTime day,
   SquareState mark,
-) {
-  final grid = ref.read(weeklyGridProvider);
-  return squaresCrossStreakThreshold(
-    dayHabits: boardHabitsOn(
-      habits: ref.read(habitListProvider),
-      day: day,
-      isGreen: grid.greenForWeekOf(day),
-      markOn: grid.markForWeekOf(day),
-      alsoOwing: {habit.id},
-    ).map((h) => h.id),
-    squareOf: (id) => grid.squareFor(id, day),
-    habitId: habit.id,
-    mark: mark,
-  );
-}
+) =>
+    ref.read(weeklyGridProvider.notifier)._crossesOnMark(habit, day, mark);
 
 /// What one square is worth toward its day's streak point: a green square
 /// 1, a جزئي half, anything else nothing, and a تخطّي NULL, meaning it
