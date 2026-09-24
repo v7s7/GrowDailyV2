@@ -154,6 +154,8 @@ typedef _TodayHabitStats = ({
         int count,
         int perDay,
         bool notDue,
+        String category,
+        String? color,
       })> habits,
 });
 
@@ -919,6 +921,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         roomName: next?.roomName ?? '',
         isLive: next?.isLive ?? false,
         daysRemaining: next?.daysRemaining ?? 0,
+        isTeam: next?.isTeam ?? false,
+        stripEndDay: next?.stripEndDay ?? '',
         rows: [
           for (final r in next?.rows ?? const [])
             (
@@ -929,7 +933,15 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
               uid: r.uid,
               daysDone: r.daysDone,
               daysTotal: r.daysTotal,
-              heatmap: r.heatmap,
+              score: r.score,
+              scoreText: r.scoreText,
+              partialPlan: r.partialPlan,
+              streak: r.streak,
+              isLeader: r.isLeader,
+              pausedNow: r.pausedNow,
+              doneToday: r.doneToday,
+              countsToday: r.countsToday,
+              days: r.days,
             ),
         ],
       );
@@ -2434,6 +2446,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       int count,
       int perDay,
       bool notDue,
+      String category,
+      String? color,
     })>[];
     for (final h in scheduled) {
       habits.add((
@@ -2445,6 +2459,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         count: dash.completions[h.id] ?? 0,
         perDay: h.effectiveDailyTarget,
         notDue: !owedIds.contains(h.id),
+        // The Grid row's icon tile, drawn by the widget's habit rows.
+        category: h.category.name,
+        color: h.iconColorHex,
       ));
     }
     // doneIds is a subset of owedIds, so this is the done count of the board
@@ -2474,12 +2491,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     final stats = _todayHabitStats();
     HomeWidgetService.instance.updateWidgetData(
       streak: state.streak,
-      level: state.level,
-      gold: state.gold,
       completedToday: stats.completed,
       totalToday: stats.total,
       todayHabits: stats.habits,
-      dailyGreenCounts: state.dailyGreenCounts,
     );
     _syncBadge(stats);
   }

@@ -85,6 +85,33 @@ struct PrayerEntry: TimelineEntry {
     /// false → counting down to the adhan, true → counting up since it.
     let elapsed: Bool
     let isAr: Bool
+    /// The stretch of the day this entry falls in: the key of the moment
+    /// that last passed. It picks the face's sky (PrayerSky.swift), and it
+    /// is deliberately NOT `prayer.k`: the countdown to المغرب at half past
+    /// three runs under the afternoon sky, because that is the sky outside
+    /// (Aziz's call, 2026-09-24). buildPrayerEntries fills it in; the
+    /// default only reaches the gallery placeholder and the empty face.
+    var periodKey: String = "dhuhr"
+}
+
+/// The six moments in the order a day passes through them, which is also
+/// the order the sky moves through.
+let prayerDayOrder = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"]
+
+/// Which stretch of the day `date` falls in, named by the moment that
+/// began it: the latest slot at or before `date`.
+///
+/// Often that moment is no longer in the list. The Flutter side drops a
+/// moment once its window has closed (PrayerWidgetFeed.flatten), so at two
+/// in the afternoon the written list starts at العصر and الظهر is gone.
+/// The stretch is then the one BEFORE the first slot in the day's order,
+/// which is exactly the moment that was dropped (العشاء before الفجر).
+/// `slots` must be ascending, as the provider's readSlots returns them.
+func prayerPeriodKey(at date: Date, slots: [PrayerSlot]) -> String {
+    if let passed = slots.last(where: { $0.date <= date }) { return passed.k }
+    guard let first = slots.first,
+          let i = prayerDayOrder.firstIndex(of: first.k) else { return "dhuhr" }
+    return prayerDayOrder[(i + prayerDayOrder.count - 1) % prayerDayOrder.count]
 }
 
 /// Pure, so the entry shape can be reasoned about (and checked) without a
@@ -135,6 +162,27 @@ func buildPrayerEntries(slots: [PrayerSlot], now: Date, isAr: Bool, limit: Int =
     if let first = entries.first, first.date > now {
         entries[0] = PrayerEntry(date: now, prayer: first.prayer, elapsed: first.elapsed, isAr: first.isAr)
     }
-    return entries
+    // The sky changes at every one of the six moments, and the words
+    // nearly always change there too, so nearly every entry already starts
+    // on one. The exception is an elapsed window that runs past the next
+    // moment, which only two moments less than half an hour apart produce
+    // (الفجر and الشروق at a very high latitude): that entry would carry the
+    // old sky past the moment. So a moment falling inside an entry splits
+    // it, with the same words and the new sky from then on.
+    var timed: [PrayerEntry] = []
+    for (i, entry) in entries.enumerated() {
+        timed.append(entry)
+        guard i + 1 < entries.count else { continue }
+        let next = entries[i + 1].date
+        for slot in slots where slot.date > entry.date && slot.date < next {
+            timed.append(PrayerEntry(date: slot.date, prayer: entry.prayer,
+                                     elapsed: entry.elapsed, isAr: entry.isAr))
+        }
+    }
+    return timed.map { entry in
+        var e = entry
+        e.periodKey = prayerPeriodKey(at: e.date, slots: slots)
+        return e
+    }
 }
 

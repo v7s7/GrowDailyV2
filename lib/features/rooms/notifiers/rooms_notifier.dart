@@ -23,7 +23,9 @@ import '../../habits/models/habit_model.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
+import '../models/room_strip_day.dart';
 import 'room_day_reads.dart';
+import 'room_moderation.dart' show blockedMembersProvider;
 
 /// This account's room codes, streamed live from `users/{uid}.roomCodes` so
 /// RoomsHubScreen updates the instant a create/join/leave lands - no
@@ -210,9 +212,49 @@ class RoomRaceRow {
   /// than a count of whole days once any slot is a phantom (see
   /// RoomParticipant.roomCreditFor), so [percent] stays the source of truth
   /// for the progress ring itself and the fraction can be a point or so off
-  /// it.
+  /// it. [score] is the same numerator unrounded, for the Home Screen faces.
   final int daysDone;
   final int daysTotal;
+
+  /// [RoomParticipant.roomDaysCompleted] as it is, fraction included: what
+  /// the room row prints as «24.2 من 42» (S.roomDayCount), and what Aziz
+  /// asked the widget to show as "the points of total, same as rooms". The
+  /// rounded [daysDone] would print «24 من 42» beside a room screen saying
+  /// 24.2, so the Home Screen faces read this one.
+  final double score;
+
+  /// [score] as the room row prints it, «24.2» or «24» ([roomScoreText]).
+  /// Formatted here rather than on the widget: Dart's toStringAsFixed rounds
+  /// a half up on the exact value (24.25 is «24.3») and printf-style
+  /// formatting in Swift rounds it to even («24.2»), so a widget formatting
+  /// its own copy of the number would disagree with the room screen on
+  /// exactly the quarter-credit days a four-habit plan produces.
+  final String scoreText;
+
+  /// Whether this member carries only part of the room's plan
+  /// ([RoomParticipant.planCoverageIn] linked < total). The room row stops
+  /// printing the day count then, because «12.1 من 39» beside a strip of 27
+  /// green squares has no honest reading, and the widget follows it: the
+  /// percentage alone on those rows.
+  final bool partialPlan;
+
+  /// The room streak the row shows beside its flame
+  /// ([RoomParticipant.currentStreak]).
+  final int streak;
+
+  /// The room's leader, tagged «القائد» on the board.
+  final bool isLeader;
+
+  /// Stood down on the room's current day (every counted habit paused),
+  /// tagged «موقوف» on the board: the percentage beside it is holding still,
+  /// not moving.
+  final bool pausedNow;
+
+  /// Asked for something today, and finished all of it: the room's own
+  /// «اليوم» card, which counts [countsToday] members and ticks the ones
+  /// [RoomParticipant.isFullyDone] says finished.
+  final bool doneToday;
+  final bool countsToday;
 
   /// This participant's real, stable Firebase uid - not shown anywhere,
   /// only carried so the widget can identify "the same person" across two
@@ -223,17 +265,18 @@ class RoomRaceRow {
   /// worth ignoring.
   final String uid;
 
-  /// This participant's last [roomRaceHeatmapDays] days, oldest first, as
-  /// [heatmapLevelFor] levels (0-4) - the same tiers the in-app
-  /// _MiniHeatmapStrip (room_detail_screen.dart) renders, just windowed
-  /// much tighter for a widget's own limited space. Every row carries this,
-  /// even ones a given widget size has no room to draw a strip for -
-  /// keeps this class one flat, uniform shape rather than an optional
-  /// field only some rows populate, and the Swift side already follows the
-  /// "Dart pushes everything, Swift decides what fits per size" pattern
-  /// every other widget in this app uses (see GrowDailyLargeView's
-  /// `.prefix(5)`, GrowDailyMatrixWidget's row limits).
-  final List<int> heatmap;
+  /// This participant's last [roomRaceStripDays] days, oldest first, one
+  /// character each (see [roomRaceDayCode]): the room strip's own states, so
+  /// the Home Screen draws a miss, a rest, a تخطّي, a paused day and an open
+  /// today exactly as the room screen does. Every row covers the SAME days,
+  /// ending on [RoomRaceSnapshot.stripEndDay]; a day before this member's
+  /// own start is '.', so a late joiner's row lines up with everyone else's
+  /// instead of shifting its days under someone else's.
+  ///
+  /// This replaced a 14-day list of credit levels (2026-09-24). Levels alone
+  /// could not tell a miss from a rest or an open day from a paused one, and
+  /// Aziz asked for the widget to be "same as the one in rooms".
+  final String days;
 
   const RoomRaceRow({
     required this.name,
@@ -243,24 +286,94 @@ class RoomRaceRow {
     required this.uid,
     this.daysDone = 0,
     this.daysTotal = 0,
-    this.heatmap = const [],
+    this.score = 0,
+    this.scoreText = '0',
+    this.partialPlan = false,
+    this.streak = 0,
+    this.isLeader = false,
+    this.pausedNow = false,
+    this.doneToday = false,
+    this.countsToday = false,
+    this.days = '',
   });
 }
 
-/// How many of a participant's most recent days [myRoomRaceSnapshotProvider]
-/// windows [RoomRaceRow.heatmap] to. Much tighter than _MiniHeatmapStrip's
-/// in-app 30-day window - a widget has real estate for roughly two weeks of
-/// small cells per row, not a full month, especially once name/rank/percent
-/// already share that same row's width. 14 also mirrors this app's other
-/// "recent window" default (ProgressHubScreen's 14-day chart), so a glance
-/// at either one covers the same span.
-const int roomRaceHeatmapDays = 14;
+/// The number half of S.roomDayCount, «24.2 من 42»: a whole score without
+/// its decimal point, anything else to one place. The room row and the Room
+/// Race widget both print through this, and
+/// test/features/rooms/room_race_strip_test.dart holds it to S.roomDayCount.
+String roomScoreText(double score) => score == score.roundToDouble()
+    ? score.toInt().toString()
+    : score.toStringAsFixed(1);
+
+/// How many days [RoomRaceRow.days] covers: a month. The Home Screen's
+/// medium and large faces draw all of it as one line per member ("the big
+/// ones ... show a month", Aziz, 2026-09-24), and the small face draws the
+/// last seven, the room row's own compact window (roomLastSevenDays).
+const int roomRaceStripDays = 30;
+
+/// One day of a Room Race strip as the single character the widget reads.
+///
+/// The five drawn states first, in the order [RoomStripDay.look] resolves
+/// them, then the credit ramp as a digit:
+///   p  stood down or room paused (the dash)
+///   o  today, still open, nothing on it yet
+///   s  every habit marked تخطّي
+///   r  a rest the schedule granted
+///   x  a miss that can no longer be rescued (the red cross)
+///   0-4  [heatmapLevelFor] of the day's credit
+/// '.' is written by [roomRaceStripFor] for a day before the member's own
+/// start, and is never returned here.
+///
+/// GrowDailyWidget.swift's RoomDayStrip decodes exactly these, and
+/// test/features/rooms/room_race_strip_test.dart pins them.
+String roomRaceDayCode(RoomStripDay day) => switch (day.look) {
+      RoomStripDayLook.standDown => 'p',
+      RoomStripDayLook.pending => 'o',
+      RoomStripDayLook.declaredRest => 's',
+      RoomStripDayLook.rest => 'r',
+      RoomStripDayLook.missed => 'x',
+      RoomStripDayLook.credit => '${heatmapLevelFor(day.credit)}',
+    };
+
+/// The last day a Room Race strip draws: the room strip's own end
+/// (RoomStrip._buildCompact). The last counted day, except in the stretch
+/// where the phone's calendar is already ahead of it, when the real today is
+/// drawn as a display-only cell so the new day has its square.
+DateTime roomRaceStripEnd(RoomModel room, DateTime now) {
+  final last = room.lastCountedDayAt(now);
+  final realToday = now.startOfDay;
+  return (!room.isEndedAt(now) && realToday.isAfter(last)) ? realToday : last;
+}
+
+/// [participant]'s [length] days ending on [end], oldest first, as
+/// [roomRaceDayCode] characters, with '.' for the days before their own
+/// window (RoomParticipant.countedStartIn) or before the room began.
+String roomRaceStripFor(
+  RoomModel room,
+  RoomParticipant participant, {
+  required DateTime end,
+  required DateTime now,
+  int length = roomRaceStripDays,
+}) {
+  final start = participant.countedStartIn(room);
+  final out = StringBuffer();
+  for (var i = length - 1; i >= 0; i--) {
+    final day = end.subtract(Duration(days: i));
+    if (day.isBefore(start)) {
+      out.write('.');
+      continue;
+    }
+    out.write(roomRaceDayCode(roomStripDayOf(room, participant, day, now: now)));
+  }
+  return out.toString();
+}
 
 /// 0 (empty) or 1-4 for a day's [credit] (0.0-1.0, see
 /// RoomParticipant.creditFor) - the same tiers [heatColor]
 /// (monthly_heatmap_screen.dart) renders, and what both _MiniHeatmapStrip
 /// (room_detail_screen.dart, the in-app per-participant strip) and
-/// [RoomRaceRow.heatmap] above (the widget's own copy) key their shading
+/// [roomRaceDayCode] (the widget's own copy) key their shading
 /// off of. Rounds any nonzero credit *up* to at least the lightest tier
 /// rather than down toward empty, so a single habit done out of several
 /// always shows as visibly different from a day with nothing done at all.
@@ -280,12 +393,27 @@ class RoomRaceSnapshot {
   final String roomName;
   final bool isLive;
   final int daysRemaining; // matches RoomModel.daysRemaining - 0 if open-ended
-  final List<RoomRaceRow> rows; // sorted by rank already
+
+  /// A team room ranks nobody on its own screen (the list folds behind
+  /// _CollapsedRanking and the finale has no podium), so the widget draws
+  /// its rows without places either.
+  final bool isTeam;
+
+  /// The date key of the last day every [RoomRaceRow.days] string ends on
+  /// ([roomRaceStripEnd]). The widget draws the gold "today" border on that
+  /// cell only while its own clock is still on this day: a strip written
+  /// yesterday and never refreshed must not call yesterday today.
+  final String stripEndDay;
+
+  final List<RoomRaceRow> rows; // sorted by rank already, blocked left out
+
   const RoomRaceSnapshot({
     required this.roomName,
     required this.isLive,
     required this.daysRemaining,
     required this.rows,
+    this.isTeam = false,
+    this.stripEndDay = '',
   });
 }
 
@@ -356,54 +484,70 @@ final myRoomRaceSnapshotProvider = Provider<RoomRaceSnapshot?>((ref) {
   // stops the widget crowning one of two equal racers.
   final ranked = bestRoom.standings(participants);
 
-  // Same trailing window every row's heatmap is built from - computed once
-  // here rather than per-row, since it only depends on the room, not the
-  // participant. Mirrors _MiniHeatmapStrip's own day-generation exactly
-  // (oldest first, ending on lastCountedDay), just capped at
-  // roomRaceHeatmapDays instead of that screen's 30.
-  final heatmapDayCount = bestRoom.daysElapsed.clamp(1, roomRaceHeatmapDays);
-  final lastDay = bestRoom.lastCountedDay;
-  final heatmapDays = [
-    for (var i = 0; i < heatmapDayCount; i++)
-      lastDay.subtract(Duration(days: heatmapDayCount - 1 - i)),
-  ];
+  // Blocking hides a row, as it does on the room screen (_LeaderboardList),
+  // and never renumbers anyone: the places above were given over the whole
+  // roster first. The «اليوم» count below leaves them out too, as the room's
+  // own today card does.
+  final blocked = ref.watch(blockedMembersProvider);
+
+  // The strips turn with the day even when no room document changes: the
+  // open square has to become yesterday's settled one at midnight, and a
+  // missed yesterday is only crossed out once the flex window closes.
+  ref.watch(dayClockProvider);
+  final now = DateTime.now();
+  final stripEnd = roomRaceStripEnd(bestRoom, now);
+  final today = bestRoom.lastCountedDayAt(now);
+  final todayKey = today.toDateKey();
+
+  final rows = <RoomRaceRow>[];
+  for (final standing in ranked) {
+    final p = standing.participant;
+    if (blocked.contains(p.uid)) continue;
+    final coverage = p.planCoverageIn(bestRoom, now: now);
+    final done = p.roomDaysCompleted(bestRoom, now: now);
+    rows.add(
+      RoomRaceRow(
+        name: p.displayName,
+        rank: standing.rank,
+        percent: (p.roomProgressRatio(bestRoom, now: now) * 100).round(),
+        isMe: p.uid == uid,
+        uid: p.uid,
+        // The room score's own numerator AND its own denominator, so the
+        // count beside a rank is the count that produced it.
+        //
+        // daysTotal used to be RoomModel.daysElapsed, the room's calendar
+        // span, which is the same number for every member however late
+        // they joined, however many days they stood down and whatever
+        // their plan asked of them. The widget's scoreLabel prints this
+        // pair as the row's ONLY score, so on A8GEL7 the Lock Screen read
+        // "12/44", which is 27%, for a member the app was calling 31% and
+        // showing «12.1 من 39». Worse, the fractions were not comparable
+        // down the list: every row divided by the same 44, so a member on
+        // fewer counted days printed a smaller fraction than someone below
+        // them on the board.
+        daysDone: done.round(),
+        daysTotal: p.roomDaysElapsedIn(bestRoom, now: now),
+        score: done,
+        scoreText: roomScoreText(done),
+        partialPlan: coverage != null && coverage.linked < coverage.total,
+        streak: p.currentStreak(bestRoom, now: now),
+        isLeader: p.uid == bestRoom.createdBy,
+        pausedNow: p.isStoodDownOn(todayKey),
+        doneToday: p.isFullyDone(todayKey),
+        countsToday: bestRoom.memberCountsOn(p, todayKey, today),
+        days: roomRaceStripFor(bestRoom, p, end: stripEnd, now: now),
+      ),
+    );
+  }
+  if (rows.isEmpty) return null;
 
   return RoomRaceSnapshot(
     roomName: bestRoom.name,
     isLive: bestRoom.isLive,
     daysRemaining: bestRoom.daysRemaining,
-    rows: [
-      for (var i = 0; i < ranked.length; i++)
-        RoomRaceRow(
-          name: ranked[i].participant.displayName,
-          rank: ranked[i].rank,
-          percent:
-              (ranked[i].participant.roomProgressRatio(bestRoom) * 100).round(),
-          isMe: ranked[i].participant.uid == uid,
-          uid: ranked[i].participant.uid,
-          // The room score's own numerator AND its own denominator, so the
-          // count beside a rank is the count that produced it.
-          //
-          // daysTotal used to be RoomModel.daysElapsed, the room's calendar
-          // span, which is the same number for every member however late
-          // they joined, however many days they stood down and whatever
-          // their plan asked of them. The widget's scoreLabel prints this
-          // pair as the row's ONLY score, so on A8GEL7 the Lock Screen read
-          // "12/44", which is 27%, for a member the app was calling 31% and
-          // showing «12.1 من 39». Worse, the fractions were not comparable
-          // down the list: every row divided by the same 44, so a member on
-          // fewer counted days printed a smaller fraction than someone below
-          // them on the board.
-          daysDone: ranked[i].participant.roomDaysCompleted(bestRoom).round(),
-          daysTotal: ranked[i].participant.roomDaysElapsedIn(bestRoom),
-          heatmap: [
-            for (final day in heatmapDays)
-              heatmapLevelFor(
-                ranked[i].participant.creditFor(day.toDateKey()),
-              ),
-          ],
-        ),
-    ],
+    isTeam: bestRoom.competeMode == RoomCompeteMode.team,
+    stripEndDay: stripEnd.toDateKey(),
+    rows: rows,
   );
 });
 

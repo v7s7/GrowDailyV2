@@ -92,6 +92,45 @@ extension Color {
     static let parchmentBorder = parchmentDual(light: (0x94, 0x74, 0x3B), dark: (0x9C, 0x92, 0x87))
     /// A FILLED shape rather than ink: a heatmap square, a progress arc.
     static let parchmentGreenFill = parchmentDual(light: (0x1B, 0x89, 0x5D), dark: (0x2E, 0xCF, 0x8F))
+
+    // Added 2026-09-24 for the Room Race list and the habit rows, solved the
+    // same way against the same two worst grounds:
+    //
+    //     light   miss 4.50  silver 4.91  bronze 4.94  purple 4.88  sleep 5.12
+    //     dark    miss 3.54  silver 5.39  bronze 4.85  purple 4.91  sleep 4.80
+    //
+    // The miss is a drawn cross, a graphic, so it is held to 3:1; the rest
+    // are ink and held to 4.5:1. The red is the miss's colour; it is also
+    // the Tasks faces' Do First dot and late mark, both graphics too.
+
+    /// The app's error red, darkened for the cream sheet: a Do First task's
+    /// dot, a late task's mark.
+    static let parchmentRed = parchmentDual(light: (0xB0, 0x2A, 0x22), dark: (0xFF, 0x5A, 0x52))
+    /// The red cross on a day that can no longer be saved.
+    static let parchmentMiss = parchmentRed
+    /// Second and third place, the room board's silver and bronze
+    /// (roomPlaceMedalColor) as ink.
+    static let parchmentSilver = parchmentDual(light: (0x52, 0x58, 0x62), dark: (0xB0, 0xB7, 0xC3))
+    static let parchmentBronze = parchmentDual(light: (0x80, 0x4A, 0x1A), dark: (0xE0, 0xA0, 0x60))
+    /// The Mind category's purple (GameColors.rarityEpic) and the Sleep
+    /// category's indigo (GameColors.iconSleep) as ink, for a habit's icon.
+    static let parchmentPurple = parchmentDual(light: (0x6A, 0x3F, 0xB0), dark: (0xC6, 0x9A, 0xFF))
+    static let parchmentSleep = parchmentDual(light: (0x3F, 0x4C, 0xA8), dark: (0x9C, 0xA8, 0xF0))
+
+    /// A habit's own picked colour as ink: unchanged where it already reads
+    /// on the sheet, moved just far enough toward black (cream) or white
+    /// (night) where it does not. See parchmentSafeChannels. nil for a
+    /// value that is not six hex digits, so the caller falls back to the
+    /// category's colour, as the Grid does.
+    static func parchmentInk(hex: String?) -> Color? {
+        guard let rgb = rgbChannels(fromHex: hex) else { return nil }
+        let light = parchmentSafeChannels(rgb, dark: false)
+        let dark = parchmentSafeChannels(rgb, dark: true)
+        return Color(uiColor: UIColor { traits in
+            let c = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat(c.0), green: CGFloat(c.1), blue: CGFloat(c.2), alpha: 1)
+        })
+    }
 }
 
 /// The sheet, as every Home Screen face's ground. Which of the two is
@@ -116,10 +155,15 @@ struct WidgetParchmentBackground: View {
 
 /// Aziz's mosque, tinted rather than painted: the asset is a black
 /// silhouette marked as a template, so this one file serves every face and
-/// would serve any other ground the same way.
+/// would serve any other ground the same way. The prayer widget passes its
+/// sky's name colour as `tint`, since its skies do not follow the phone's
+/// mode. The asset is cropped to the silhouette itself (2026-09-24; it
+/// used to carry a fifth of its size in empty margin), so `height` is the
+/// height of the mosque from its base to the crescent on the minaret.
 struct MosqueMark: View {
     var height: CGFloat
     var opacity: Double = 0.10
+    var tint: Color = .parchmentInk
 
     var body: some View {
         Image("MosqueMark")
@@ -127,7 +171,7 @@ struct MosqueMark: View {
             .resizable()
             .scaledToFit()
             .frame(height: height)
-            .foregroundColor(.parchmentInk)
+            .foregroundColor(tint)
             .opacity(opacity)
     }
 }

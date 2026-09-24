@@ -35,7 +35,7 @@ import SwiftUI
 /// settled on (see the 2026-09-18 digits pass) and what the countdown in
 /// the screenshot this was modelled on shows. `@numbers=latn` keeps the
 /// Arabic locale's own ص/م and its 12-hour convention while forcing 0-9.
-private func prayerClockFormatter(isAr: Bool, padHour: Bool = false) -> DateFormatter {
+func prayerClockFormatter(isAr: Bool, padHour: Bool = false) -> DateFormatter {
     let f = DateFormatter()
     f.locale = Locale(identifier: isAr ? "ar_BH@numbers=latn" : "en_US")
     // Template, not a literal "h:mm a": this is the one piece of the face
@@ -67,7 +67,7 @@ private func prayerClockFormatter(isAr: Bool, padHour: Bool = false) -> DateForm
 /// takes its digits from the environment, and an Arabic environment would
 /// print ٤:٠٥:١٠ — the same Arabic-Indic trap the Dart side has its own
 /// note about. Fixed to en_US_POSIX so the countdown is always 4:05:10.
-private let timerDigitsLocale = Locale(identifier: "en_US_POSIX")
+let timerDigitsLocale = Locale(identifier: "en_US_POSIX")
 
 // MARK: - Timeline
 
@@ -201,7 +201,7 @@ private struct PrayerTicker: View {
 /// Shown when there is no schedule at all — no saved location yet, or a
 /// written week that has run out. Says which, and opens the page that
 /// fixes it.
-private struct PrayerEmptyFace: View {
+struct PrayerEmptyFace: View {
     let isAr: Bool
     let compact: Bool
 
@@ -224,69 +224,13 @@ private struct PrayerEmptyFace: View {
     }
 }
 
-struct PrayerCountdownFace: View {
-    @Environment(\.widgetFamily) var family
-    var entry: PrayerEntry
-
-    private var compact: Bool { family == .systemSmall }
-
-    var body: some View {
-        guard let prayer = entry.prayer else {
-            return AnyView(PrayerEmptyFace(isAr: entry.isAr, compact: compact))
-        }
-        let isAr = entry.isAr
-        let label = prayerPhaseLabel(elapsed: entry.elapsed, prayer: prayer, isAr: isAr)
-        // Green once the adhan has gone, so the change of phase reads at a
-        // glance and not only from the words. Both are the parchment
-        // palette's, not the app's raw accents — see its own note above for
-        // why the bright ones cannot be used here.
-        let tickerColor: Color = entry.elapsed ? .parchmentGreen : .parchmentInk
-
-        return AnyView(
-            VStack(spacing: compact ? 2 : 6) {
-                HStack(spacing: 8) {
-                    Text(prayer.name(isAr: isAr))
-                        .font(.system(size: compact ? 19 : 26, weight: .heavy))
-                        .foregroundColor(.parchmentGold)
-                    Text(prayerClockFormatter(isAr: isAr).string(from: prayer.date))
-                        .font(.system(size: compact ? 13 : 17, weight: .semibold))
-                        .foregroundColor(.parchmentSecondary)
-                }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-                Text(label)
-                    .font(.system(size: compact ? 11 : 14, weight: .medium))
-                    .foregroundColor(.parchmentSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                PrayerTicker(
-                    target: prayer.date,
-                    size: compact ? 30 : 46,
-                    color: tickerColor
-                )
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(compact ? 8 : 14)
-            // The mosque sits in the corner the text runs AWAY from, so it
-            // never lands under the countdown: trailing in Arabic is the
-            // left of the card. Behind the content, not over it.
-            .background(alignment: compact ? .bottomTrailing : .bottomTrailing) {
-                MosqueMark(height: compact ? 54 : 74)
-                    .padding(.trailing, compact ? -6 : -4)
-                    .padding(.bottom, compact ? -8 : -6)
-            }
-            .environment(\.layoutDirection, isAr ? .rightToLeft : .leftToRight)
-            .containerBackground(for: .widget) { WidgetParchmentBackground() }
-        )
-    }
-}
+// The Home Screen face itself, on its sky, is PrayerCountdownFace.swift.
 
 // MARK: - Lock Screen
 //
-// Everything above this line is painted on parchment. None of it applies
-// here and that is not a shortcut: the system renders an accessory widget
+// Everything above this line is painted on a sky (PrayerSky.swift), or on
+// parchment when there is no schedule. None of it applies here and that
+// is not a shortcut: the system renders an accessory widget
 // in ITS own tint on a locked device, flattening every colour and dropping
 // the container background entirely. A backdrop image would not survive the
 // trip, and the gold/green phase cue would come out the same shade of
@@ -306,7 +250,7 @@ private func prayerPhaseSymbol(elapsed: Bool, hasAdhan: Bool) -> String {
 /// What the counter means: «باقي على الأذان» before the adhan, «مضى على
 /// الأذان» after it, and «باقي على الشروق» for sunrise, which is never
 /// called — see PrayerSlot.hasAdhan.
-private func prayerPhaseLabel(elapsed: Bool, prayer: PrayerSlot, isAr: Bool) -> String {
+func prayerPhaseLabel(elapsed: Bool, prayer: PrayerSlot, isAr: Bool) -> String {
     if elapsed { return isAr ? "مضى على الأذان" : "since the adhan" }
     if prayer.hasAdhan { return isAr ? "باقي على الأذان" : "until the adhan" }
     return isAr ? "باقي على الشروق" : "until sunrise"
@@ -524,5 +468,9 @@ struct GrowDailyPrayerWidget: Widget {
         .configurationDisplayName(Text("Prayer Countdown"))
         .description(Text("The next prayer and how long is left until the adhan."))
         .supportedFamilies([.systemSmall, .systemMedium])
+        // The face places every line to the point from the card's own edge
+        // (PrayerCountdownFace.swift); the default margins would add about
+        // 16 more on every side.
+        .contentMarginsDisabled()
     }
 }

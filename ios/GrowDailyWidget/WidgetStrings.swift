@@ -54,10 +54,7 @@ struct WidgetCopy {
 
     // MARK: Habits
 
-    var dayStreak: String { pick("يوم متتابع", "day streak") }
-    func streakDays(_ n: Int) -> String { pick("\(n) يوم", "\(n)d") }
     func streakLine(_ n: Int) -> String { pick("\(n) يوم متتابع", "\(n) day streak") }
-    func level(_ n: Int) -> String { pick("مستوى \(n)", "Lvl \(n)") }
     func doneToday(_ done: Int, _ total: Int) -> String {
         pick("\(done) من \(total) اليوم", "\(done)/\(total) done today")
     }
@@ -78,23 +75,16 @@ struct WidgetCopy {
     /// plus, because a left-to-right line has nothing to reorder.
     func moreInApp(_ n: Int) -> String { pick("باقي \(n) بالتطبيق", "+\(n) more in app") }
 
-    /// The status line whose tone shifts across the day. Same shape as the
-    /// English it replaces, and the em dashes the English used are gone:
-    /// Aziz asked for that dash never to appear in UI copy.
-    func statusLine(completed: Int, total: Int, hour: Int) -> String {
-        if total <= 0 { return pick("ما في شي اليوم", "Nothing scheduled today") }
-        if completed >= total { return pick("خلّصت اليوم كله", "All done today") }
-        let left = total - completed
-        if hour >= 20 {
-            return left == 1
-                ? pick("باقي وحدة، لا تكسر السلسلة", "Last one, don't break the streak")
-                : pick("باقي \(left)، خلّصها اليوم", "\(left) left, finish today")
-        }
-        if hour >= 18 {
-            return pick("باقي \(left)، الوقت يمشي", "\(left) left today")
-        }
-        return pick("باقي \(left) اليوم", "\(left) to go today")
+    /// Today as a count, «4 من 9»: how many of the habits the day asked for
+    /// are done, and nothing else. This replaced a line whose words changed
+    /// through the day («باقي 5، الوقت يمشي» after six, «خلّصها اليوم» after
+    /// eight); Aziz, 2026-09-24: "no need for the time is running sentence,
+    /// make it 4 of 5 ... make it clean".
+    func todayCount(_ done: Int, _ total: Int) -> String {
+        pick("\(done) من \(total)", "\(done)/\(total)")
     }
+    /// The medium face's words once nothing is left.
+    var allDoneToday: String { pick("خلّصت اليوم كله", "All done today") }
 
     // MARK: Rooms
 
@@ -102,33 +92,12 @@ struct WidgetCopy {
     var joinOrCreate: String { pick("ادخل غرفة أو سوِّ وحدة", "Join or create one in the app") }
     var startingSoon: String { pick("بتبدأ قريب", "Starting soon") }
     func daysLeftShort(_ n: Int) -> String { pick("باقي \(n) يوم", "\(n)d left") }
-    func daysLeftLong(_ n: Int) -> String { pick("باقي \(n) يوم", "\(n) days left") }
     func moreRacing(_ n: Int) -> String { pick("معك \(n) غيرهم", "+\(n) more racing") }
-    func youSuffix(_ name: String) -> String { pick("\(name) (أنت)", "\(name) (You)") }
-
-    /// The rank as a word, because «#1» is a Western convention sitting on
-    /// an Arabic card and the digit alone reads as a score.
-    func rankWord(_ rank: Int) -> String {
-        if !isAr {
-            switch rank {
-            case 1: return "1st"
-            case 2: return "2nd"
-            case 3: return "3rd"
-            default: return "\(rank)th"
-            }
-        }
-        switch rank {
-        case 1: return "الأول"
-        case 2: return "الثاني"
-        case 3: return "الثالث"
-        case 4: return "الرابع"
-        case 5: return "الخامس"
-        default: return "المركز \(rank)"
-        }
-    }
 
     /// Arabic counts days in three shapes, and a widget that says «٢ يوم»
-    /// reads as machine translation. English needs only the plural s.
+    /// reads as machine translation. English needs only the plural s. The
+    /// Habits faces' streak reads through this: «4 أيام», where the medium
+    /// face used to print «4 يوم».
     func daysWord(_ n: Int) -> String {
         if !isAr { return n == 1 ? "1 day" : "\(n) days" }
         switch n {
@@ -139,31 +108,38 @@ struct WidgetCopy {
         }
     }
 
-    /// The one line the Race widget exists for (Aziz, 2026-09-23): not the
-    /// whole leaderboard, just where I stand against the person next to me.
-    /// Leading is measured against the chaser, because when you are first
-    /// there is nobody ahead and the useful number is your cushion.
-    func gapLine(days: Int, other: String, iAmAhead: Bool) -> String {
-        if days == 0 {
-            return pick("متعادل مع \(other)", "Level with \(other)")
-        }
-        let d = daysWord(days)
-        if iAmAhead {
-            return pick("متقدم بـ\(d) على \(other)", "\(d) ahead of \(other)")
-        }
-        return pick("متأخر بـ\(d) عن \(other)", "\(d) behind \(other)")
+    // The Race faces since 2026-09-24 draw the room's own list («make it
+    // same as the one in rooms»), so their words are the room screen's own,
+    // copied from app_strings.dart rather than written fresh: a label on the
+    // Home Screen and the same label in the room must not read differently.
+
+    /// The room row's day count, S.roomDayCount: «24.2 من 42». [scoreText]
+    /// is the number exactly as the app wrote it (RoomRaceRow.scoreText),
+    /// fraction and all. No unit word, as on the row.
+    func roomDayCount(_ scoreText: String, _ total: Int) -> String {
+        pick("\(scoreText) من \(total)", "\(scoreText)/\(total)")
     }
-
-    var racingSolo: String { pick("تسابق لحالك", "Racing solo") }
-
-    func rankLine(rank: Int, racerCount: Int) -> String {
-        if rank == 1 {
-            return racerCount > 1
-                ? pick("أنت بالمقدمة", "You're leading")
-                : pick("تسابق لحالك", "Racing solo")
-        }
-        if rank == 2 { return pick("قربت، الحق الأول", "So close, catch #1") }
-        return pick("واصل", "Keep pushing")
+    /// The row's percentage, with the ASCII sign the row uses.
+    func percent(_ n: Int) -> String { "\(n)%" }
+    /// S.roomYouLabel, S.roomLeaderLabel, S.roomPausedTag.
+    var youTag: String { pick("أنت", "You") }
+    var leaderTag: String { pick("القائد", "Leader") }
+    var pausedTag: String { pick("موقوف", "Paused") }
+    /// A month's short name over its weeks in the room calendar, as the
+    /// room screen prints it (DateFormat('MMM') for 'ar' and 'en'). [month]
+    /// is 1 to 12.
+    func monthShort(_ month: Int) -> String {
+        let ar = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+                  "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+        let en = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        let i = min(max(month, 1), 12) - 1
+        return isAr ? ar[i] : en[i]
+    }
+    /// The room's «اليوم» card: S.navToday and S.roomTodayFinished.
+    var todayTitle: String { pick("اليوم", "Today") }
+    func todayFinished(_ done: Int, _ total: Int) -> String {
+        pick("\(done) من \(total) خلّصوا", "\(done) of \(total) finished")
     }
 
     // MARK: Tasks

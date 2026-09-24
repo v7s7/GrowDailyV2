@@ -8,6 +8,29 @@ import 'armed_task_record.dart';
 import 'local_store_service.dart';
 import 'notification_action_queue.dart';
 
+/// One member of the Room Race widget's list, as plain values: this file
+/// stays free of the rooms feature's model classes (see
+/// [HomeWidgetService.updateRoomRaceData]). Each field is RoomRaceRow's in
+/// rooms_notifier.dart, which documents what it means.
+typedef RoomRacePayloadRow = ({
+  String name,
+  int rank,
+  int percent,
+  bool isMe,
+  String uid,
+  int daysDone,
+  int daysTotal,
+  double score,
+  String scoreText,
+  bool partialPlan,
+  int streak,
+  bool isLeader,
+  bool pausedNow,
+  bool doneToday,
+  bool countsToday,
+  String days,
+});
+
 /// Dart-side bridge to the iOS home screen + Lock Screen widgets. This is
 /// only half the feature — home_widget explicitly does not let Flutter draw
 /// the widget itself, so the actual on-screen widget is native Swift, added
@@ -85,13 +108,15 @@ class HomeWidgetService {
   /// `_todayHabitStats`): a flexible weekly quota's rest day is still a day
   /// you may train, so its row stays on the widget and stays tappable, and
   /// carries `notDue` so the widget can draw it as not counted instead of as
-  /// outstanding. [dailyGreenCounts] is DashboardState.dailyGreenCounts
-  /// as-is — the same rollup the Monthly Heatmap screen reads — windowed here
-  /// to the last 28 days for the widget's mini heatmap.
+  /// outstanding.
+  ///
+  /// Level, gold and the 28-day heatmap used to be written here too. None of
+  /// them is drawn any more: Aziz took gold and level off the faces on
+  /// 2026-09-24 ("what is 4005, xp? no one cares") and the month grid off
+  /// the large one the same day ("if user wants to see his month work, he
+  /// can check in app"), so the writes went with them.
   Future<void> updateWidgetData({
     required int streak,
-    required int level,
-    required int gold,
     required int completedToday,
     required int totalToday,
     required List<
@@ -102,9 +127,10 @@ class HomeWidgetService {
               int count,
               int perDay,
               bool notDue,
+              String category,
+              String? color,
             })>
         todayHabits,
-    required Map<String, int> dailyGreenCounts,
   }) async {
     if (!_supported) return;
     // The day [todayHabits] was built for, read before the first await so it
@@ -112,8 +138,6 @@ class HomeWidgetService {
     final listDay = DateTime.now().effectiveDay.toDateKey();
     try {
       await HomeWidget.saveWidgetData<int>('streak', streak);
-      await HomeWidget.saveWidgetData<int>('level', level);
-      await HomeWidget.saveWidgetData<int>('gold', gold);
       await HomeWidget.saveWidgetData<int>('completedToday', completedToday);
       await HomeWidget.saveWidgetData<int>('totalToday', totalToday);
       await HomeWidget.saveWidgetData<String>(
@@ -123,21 +147,30 @@ class HomeWidgetService {
                   'id': h.id,
                   'name': h.name,
                   'done': h.done,
-                  // How far along a counted habit is, for the background
-                  // action handler (NotificationActionRules.markOneDone): one
-                  // tap on a three-a-day habit must not draw it done. The
-                  // widget's own Mark Done button (MarkHabitDoneIntent) reads
-                  // them only to decide whether its tap finishes the habit,
-                  // then drops them when it re-encodes the list, which the
-                  // rules tolerate by treating a missing pair as one-a-day.
+                  // How far along a counted habit is: one tap on a
+                  // three-a-day habit must not draw it done. The background
+                  // action handler (NotificationActionRules.markOneDone) and
+                  // the widget's own Mark Done button (MarkHabitDoneIntent)
+                  // apply the same rule, count + 1, done at perDay. The
+                  // button used to drop this pair when it re-encoded the
+                  // list, so every counted habit read as one-a-day after
+                  // its first tap; since 2026-09-24 TodayHabit keeps them.
                   'count': h.count,
                   'perDay': h.perDay,
-                  // Whether the day asked for this habit at all. Unlike the
-                  // count pair above, the widget's own Mark Done button
-                  // PRESERVES this on its re-encode (TodayHabit carries it in
-                  // GrowDailyWidget.swift), so a rest-day row does not turn
-                  // back into an outstanding one the moment it is tapped.
+                  // Whether the day asked for this habit at all. The
+                  // widget's own Mark Done button PRESERVES this on its
+                  // re-encode (TodayHabit carries it, WidgetFaceRules.swift),
+                  // so a rest-day row does not turn back into an outstanding
+                  // one the moment it is tapped.
                   'notDue': h.notDue,
+                  // How the Grid draws the habit: its category glyph, in its
+                  // own colour when one was picked (IslamicHabitTemplate.
+                  // iconColorHex, six hex digits) and the category's
+                  // otherwise. The widget rows are habits, not a task list
+                  // (Aziz, 2026-09-24: "show it as habit, not as tasks"), and
+                  // the icon tile is what makes a Grid row a habit.
+                  'category': h.category,
+                  if (h.color != null) 'color': h.color,
                 })
             .toList()),
       );
@@ -146,10 +179,6 @@ class HomeWidgetService {
       // new list under the old day, which it distrusts, and never an old
       // list under the new day, which it would believe.
       await HomeWidget.saveWidgetData<String>(_todayHabitsDayKey, listDay);
-      await HomeWidget.saveWidgetData<String>(
-        'heatmapJson',
-        jsonEncode(recentHeatmap(dailyGreenCounts)),
-      );
       await HomeWidget.updateWidget(iOSName: _iOSWidgetName);
       await HomeWidget.updateWidget(iOSName: _iOSLockScreenWidgetName);
     } catch (e) {
@@ -159,28 +188,6 @@ class HomeWidgetService {
       // app over a home screen widget failing to redraw.
       debugPrint('[HomeWidgetService] update skipped: $e');
     }
-  }
-
-  /// Last 28 days of [dailyGreenCounts], oldest first, as plain
-  /// JSON-friendly maps — same underlying data the Monthly Heatmap screen
-  /// reads, just windowed to what a widget has room to draw. [now] defaults
-  /// to the real current time; overridable (and this promoted to a public,
-  /// `@visibleForTesting` static method rather than staying a private
-  /// instance method) purely so a test can pin down a fixed instant instead
-  /// of the windowing math depending on whatever day the suite happens to
-  /// run — the [effectiveDay] cutoff it goes through means a test running
-  /// between midnight and [kDayCutoffHour] would otherwise silently land on
-  /// a different calendar day than one running any other time.
-  @visibleForTesting
-  static List<Map<String, Object?>> recentHeatmap(
-    Map<String, int> dailyGreenCounts, {
-    DateTime? now,
-  }) {
-    final today = (now ?? DateTime.now()).effectiveDay;
-    return List.generate(28, (i) {
-      final day = today.subtract(Duration(days: 27 - i));
-      return {'date': day.toDateKey(), 'count': dailyGreenCounts[day.toDateKey()] ?? 0};
-    });
   }
 
   /// Name of the Room Race widget's SwiftUI provider struct — must exactly
@@ -223,41 +230,23 @@ class HomeWidgetService {
     String roomName = '',
     bool isLive = false,
     int daysRemaining = 0,
-    List<
-            ({
-              String name,
-              int rank,
-              int percent,
-              bool isMe,
-              String uid,
-              int daysDone,
-              int daysTotal,
-              List<int> heatmap
-            })>
-        rows = const [],
+    bool isTeam = false,
+    String stripEndDay = '',
+    List<RoomRacePayloadRow> rows = const [],
   }) async {
     if (!_supported) return;
     try {
       await HomeWidget.saveWidgetData<String>(
         'roomRaceJson',
-        jsonEncode({
-          'hasRoom': hasRoom,
-          'roomName': roomName,
-          'isLive': isLive,
-          'daysRemaining': daysRemaining,
-          'rows': rows
-              .map((r) => {
-                    'name': r.name,
-                    'rank': r.rank,
-                    'percent': r.percent,
-                    'isMe': r.isMe,
-                    'uid': r.uid,
-                    'daysDone': r.daysDone,
-                    'daysTotal': r.daysTotal,
-                    'heatmap': r.heatmap,
-                  })
-              .toList(),
-        }),
+        jsonEncode(roomRacePayload(
+          hasRoom: hasRoom,
+          roomName: roomName,
+          isLive: isLive,
+          daysRemaining: daysRemaining,
+          isTeam: isTeam,
+          stripEndDay: stripEndDay,
+          rows: rows,
+        )),
       );
       await HomeWidget.updateWidget(iOSName: _iOSRoomRaceWidgetName);
       await HomeWidget.updateWidget(iOSName: _iOSRoomRaceLockScreenWidgetName);
@@ -268,6 +257,56 @@ class HomeWidgetService {
       debugPrint('[HomeWidgetService] room-race update skipped: $e');
     }
   }
+
+  /// The exact `roomRaceJson` object [updateRoomRaceData] writes, split out
+  /// so a test can pin every key GrowDailyWidget.swift's RoomRaceRow and
+  /// RawRaceData decode: a key renamed on one side only decodes as nil on
+  /// the other and quietly blanks that part of the face.
+  ///
+  /// `score` is a double («24.2 من 42»), and is its own key rather than a
+  /// change to `daysDone`: Swift decodes `daysDone` as an Int, and a
+  /// fractional value there would fail the whole row, then the whole face.
+  /// `scoreText` is the same number already written as the room row writes
+  /// it, which is what the widget prints (see RoomRaceRow.scoreText).
+  @visibleForTesting
+  static Map<String, Object?> roomRacePayload({
+    required bool hasRoom,
+    required String roomName,
+    required bool isLive,
+    required int daysRemaining,
+    required bool isTeam,
+    required String stripEndDay,
+    required List<RoomRacePayloadRow> rows,
+  }) =>
+      {
+        'hasRoom': hasRoom,
+        'roomName': roomName,
+        'isLive': isLive,
+        'daysRemaining': daysRemaining,
+        'isTeam': isTeam,
+        'stripEndDay': stripEndDay,
+        'rows': [
+          for (final r in rows)
+            {
+              'name': r.name,
+              'rank': r.rank,
+              'percent': r.percent,
+              'isMe': r.isMe,
+              'uid': r.uid,
+              'daysDone': r.daysDone,
+              'daysTotal': r.daysTotal,
+              'score': r.score,
+              'scoreText': r.scoreText,
+              'partialPlan': r.partialPlan,
+              'streak': r.streak,
+              'isLeader': r.isLeader,
+              'pausedNow': r.pausedNow,
+              'doneToday': r.doneToday,
+              'countsToday': r.countsToday,
+              'days': r.days,
+            },
+        ],
+      };
 
   /// Habit ids the widget's Mark Done button queued while the app wasn't
   /// open to actually process them — see the AppIntent in WIDGET_SETUP.md.

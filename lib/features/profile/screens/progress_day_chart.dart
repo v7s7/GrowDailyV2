@@ -10,9 +10,8 @@ import '../../milestones/reports/day_score.dart';
 /// How much of the recent past the chart covers.
 ///
 /// Three, not two, because أسبوعين is the window the card shipped with and
-/// the one the rest of the app calls "recent" (roomRaceHeatmapDays mirrors
-/// the same 14). Week is for reading the last few days closely; month is for
-/// seeing a shape.
+/// the one the rest of the app calls "recent". Week is for reading the last
+/// few days closely; month is for seeing a shape.
 ///
 /// Nothing longer. Not because a longer window would be hard to draw, but
 /// because `historyFloorFor` returns null by construction for any window

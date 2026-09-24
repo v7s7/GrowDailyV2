@@ -113,11 +113,12 @@ abstract final class NotificationActionRules {
   ///
   /// `done` is what the widget draws. `count` and `perDay` are the finer
   /// truth when present: a habit counted three times a day is not done
-  /// after one tap, and the widget should keep showing it open. Both fields
-  /// are optional because the widget's own Mark Done button re-encodes the
-  /// list through a Swift Codable that only knows id/name/done, so they can
-  /// legitimately be missing; without them one tap means done, exactly as
-  /// that button has always treated it.
+  /// after one tap, and the widget should keep showing it open. The widget's
+  /// own Mark Done button applies this same rule since 2026-09-24
+  /// (TodayHabit.recordOneCompletion in WidgetFaceRules.swift) and keeps the
+  /// pair on its re-encode. Both fields stay optional because a list that
+  /// button re-encoded before then has neither; without them one tap means
+  /// done, exactly as that button used to treat every habit.
   static String? markOneDone(String? todayHabitsJson, String habitId) {
     final list = _decodeTodayList(todayHabitsJson);
     if (list == null) return null;

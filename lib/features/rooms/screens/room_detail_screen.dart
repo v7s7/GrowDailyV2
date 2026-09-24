@@ -49,6 +49,7 @@ import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, canAddHabits, pausedHabitsProvider;
 import '../models/room_day_breakdown.dart';
 import '../models/room_model.dart';
+import '../models/room_strip_day.dart';
 import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/pick_own_habit_sheet.dart';

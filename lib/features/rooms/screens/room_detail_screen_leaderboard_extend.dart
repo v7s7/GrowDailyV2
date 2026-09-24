@@ -8,9 +8,10 @@ part of 'room_detail_screen.dart';
 /// a visibly lighter partial shade instead of looking identical to a day
 /// with none done, so multi-habit progress reads at a glance instead of only
 /// ever showing as all-or-nothing. Shares [heatmapLevelFor] (rooms_
-/// notifier.dart) with the widget's own much-shorter per-participant
-/// heatmap push (see RoomRaceRow.heatmap) - same credit-to-shade mapping
-/// everywhere this idea shows up, in-app or on a Home Screen widget.
+/// notifier.dart), and since 2026-09-24 every day state too (roomStripDayOf,
+/// room_strip_day.dart), with the Room Race Home Screen widget's strips (see
+/// RoomRaceRow.days) - one drawing of a day everywhere it shows up, in-app or
+/// on a Home Screen widget.
 ///
 /// Laid out as WEEK COLUMNS — the GitHub-contribution-graph form — instead
 /// of the free-flowing [Wrap] this used to be. The old wrap broke lines
@@ -1033,66 +1034,12 @@ class RoomStrip extends StatelessWidget {
     return open ? neutral : _weekShort;
   }
 
-  /// Whether a day with no credit is genuinely lost, and can be crossed out.
-  ///
-  /// Today is never marked — it is still doable, and a square un-ticked in
-  /// the Grid five seconds ago shouldn't turn red while the person is still
-  /// working on it.
-  ///
-  /// Past days split on the habit's own rule, because "you can still save
-  /// this" only means something for a weekly quota. A DAILY habit's
-  /// yesterday is simply gone: uncheck it in the Grid and it is a miss the
-  /// moment the day ends, so it is crossed out immediately — which is what
-  /// makes the room agree with the Grid square the user just changed.
-  /// A QUOTA habit's yesterday is different: while its week is open, every
-  /// un-done day is only provisionally owed, and finishing the week converts
-  /// them all back into rest days. Crossing those out live would condemn
-  /// days the person is about to rescue, so the quota case waits.
-  ///
-  /// Waits for the week to be DECIDED, though, which is not the same as
-  /// waiting for it to end. A 4x-a-week habit buys three blank days; on the
-  /// fourth, three sessions is the most the week can still reach and it will
-  /// grade as a miss whatever happens next. Until this second condition
-  /// existed the strip sat on that answer for the rest of the week: on
-  /// A8GEL7 the week of 09/05 was settled on Wednesday and still showed
-  /// seven neutral squares on Thursday, which reads as "nothing has happened
-  /// yet" rather than as the record it is. See
-  /// [RoomParticipant.quotaWeekIsLost], which is written to fail toward
-  /// silence in every case where it cannot be sure.
-  bool _missIsFinal(DateTime day) {
-    final now = DateTime.now();
-    // Not while the day can still be marked. Under the overlapping-day
-    // window a day stays open until kDayCutoffHour the next morning, so at
-    // 03:00 yesterday is still winnable: the Grid will pay a session marked
-    // then, and roomDayIsClosedAt is the same test the room's own sync uses
-    // before it clamps a day. isRealToday closed it at midnight instead,
-    // ten hours early, and crossed out a day somebody was still allowed to
-    // finish. Aziz, 2026-09-10: "I may train now, so the system should add
-    // fail only if it passes the flex time."
-    if (!roomDayIsClosedAt(day, now) || day.isAfter(room.lastCountedDay)) {
-      return false;
-    }
-    final onQuota = participant.countedHabitIds.any(
-      (id) =>
-          participant.ruleFor(id, day.toDateKey())?.frequencyType ==
-          HabitFrequencyType.weekly,
-    );
-    if (!onQuota) return true;
-    return _weekIsClosed(day) ||
-        participant.quotaWeekIsLost(day.toDateKey(), room, now: now);
-  }
-
-  /// Whether the Saturday week containing [day] has finished counting.
-  ///
-  /// The quota grader only settles a week once it is over: while a week is
-  /// still running and its target isn't met yet, *every* elapsed day in it is
-  /// treated as answerable, so an un-done day reads as a miss even though
-  /// finishing the week would turn it back into a rest day. Nothing is
-  /// actually lost until the week closes, so nothing is crossed out until
-  /// then either. Mirrors isQuotaWeekClosed in rooms_notifier.dart.
-  bool _weekIsClosed(DateTime day) => day.startOfDisplayWeek
-      .add(const Duration(days: 6))
-      .isBefore(room.lastCountedDay);
+  /// Whether the Saturday week containing [day] has finished counting. The
+  /// rule is [roomStripWeekIsClosed] (room_strip_day.dart), which the miss
+  /// gate reads too, so the week bar and the crosses under it can never
+  /// disagree about when a week is over.
+  bool _weekIsClosed(DateTime day) =>
+      roomStripWeekIsClosed(room, day, now: DateTime.now());
 
   /// The opaque colour sitting immediately behind a cell.
   ///
@@ -1133,7 +1080,6 @@ class RoomStrip extends StatelessWidget {
       return const SizedBox(width: _cell, height: _cell);
     }
     final day = days[index];
-    final key = day.toDateKey();
     // Dead time between an ending and an extension (RoomModel.pausedSpans):
     // the room was not running those days, so they are neither a miss nor a
     // rest day, and they are excluded from the score too. They stay in
@@ -1147,7 +1093,12 @@ class RoomStrip extends StatelessWidget {
     // empty slots in the middle of two week columns, indistinguishable from
     // a rendering gap. A day the room did not count is still a day, and the
     // dash says exactly that (the participant calendar names it «موقوف»).
-    final isRoomPaused = room.isPausedOn(key);
+    //
+    // Every flag below comes from roomStripDayOf (room_strip_day.dart), the
+    // one rule this strip and the Room Race Home Screen widget both read, so
+    // a day can never be a miss here and a plain empty square there. The
+    // notes that follow say why each state exists; the arithmetic is there.
+    final state = roomStripDayOf(room, participant, day, now: DateTime.now());
     // Four states, not two, and the reason is that "empty" used to mean
     // both "nothing was owed" and "you missed it".
     //
@@ -1171,18 +1122,14 @@ class RoomStrip extends StatelessWidget {
     // and miss. Taken first: every flag below is computed from counts this
     // day deliberately does not have (see RoomParticipant.standDownDays), so
     // reading them here would describe an absence as an outcome.
-    final isStoodDown = isRoomPaused || participant.isStoodDownOn(key);
-    final isRest = participant.isRestDay(key);
-    final credit = isRoomPaused ? 0.0 : participant.creditFor(key);
+    final isStoodDown = state.isStoodDown;
+    final isRest = state.isRest;
+    final credit = state.credit;
     // A declared rest is settled the instant it is marked, so it bypasses the
-    // _missIsFinal week gate entirely: there is nothing left to rescue on a
-    // day somebody has already said they are resting.
-    final isDeclaredRest = participant.isDeclaredRest(key);
-    final isMissed = !isStoodDown &&
-        !isRest &&
-        !isDeclaredRest &&
-        credit <= 0 &&
-        _missIsFinal(day);
+    // miss gate (roomStripMissIsFinal) entirely: there is nothing left to
+    // rescue on a day somebody has already said they are resting.
+    final isDeclaredRest = state.isDeclaredRest;
+    final isMissed = state.isMissed;
     // Day 1 keeps its ring even when the room was paused on it (a span can
     // only start after the room's own start, so this is theoretical), and a
     // paused today keeps the gold border: the marker says where, the dash
@@ -1190,8 +1137,7 @@ class RoomStrip extends StatelessWidget {
     // Drawn, but not in this member's own numbers yet. Same question the
     // denominator asks, asked once here so the squares and the printed
     // fraction can never disagree.
-    final isPending =
-        !isStoodDown && !participant.dayIsCountableAt(key, DateTime.now());
+    final isPending = state.isPending;
     final isStart = markStart && index == 0;
     // isRealToday, not isToday: purely the "today" marker — see
     // DateTimeGameExt.isRealToday's doc comment.
