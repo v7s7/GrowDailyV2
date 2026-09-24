@@ -10,6 +10,22 @@
 <meta property="og:title" content="انضم إلى تحدّي في Grow Daily">
 <meta property="og:description" content="لوّن حياتك، مربّعًا كل يوم.">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="Grow Daily">
+<!-- The icon on that card. Until this was added the card had a title and no
+     picture. Absolute, because preview fetchers do not resolve a relative
+     URL, and small (512 px, about 130 KB), because WhatsApp drops a preview
+     image that is too heavy. A 512 px copy of the 1024 px icon in
+     ios/Runner/Assets.xcassets/AppIcon.appiconset; redo it from there if the
+     icon changes.
+     The card's TEXT stays Arabic whatever the language below picks: WhatsApp
+     builds the card from this static HTML and never runs the script. -->
+<meta property="og:image" content="https://grow-daily-339ef.web.app/app-icon.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="512">
+<meta property="og:image:height" content="512">
+<meta property="og:image:alt" content="Grow Daily">
+<link rel="icon" href="/app-icon.png">
+<link rel="apple-touch-icon" href="/app-icon.png">
 <meta name="apple-itunes-app" content="app-id=6788149393">
 
 <style>
@@ -56,15 +72,21 @@
   }
   .btn.secondary{background:transparent;color:var(--gold);border:1px solid var(--edge);font-weight:600}
   .foot{font-size:12.5px;color:var(--ink2);margin:16px 0 0}
+  /* ink2, not gold: gold on the cream panel is too faint for text this small. */
+  .lang{
+    margin:12px 0 0; padding:6px 10px; background:none; border:0; font:inherit;
+    font-size:13px; color:var(--ink2); text-decoration:underline;
+    text-underline-offset:3px; cursor:pointer;
+  }
 </style>
 </head>
 <body>
   <div class="card">
     <div class="mark"><span>🟩</span></div>
-    <h1>انضم إلى التحدّي</h1>
-    <p>صديقك يدعوك لغرفة في Grow Daily — لوّن حياتك، مربّعًا كل يوم.</p>
+    <h1 data-t="heading">انضم إلى التحدّي</h1>
+    <p data-t="lead">صديقك يدعوك لغرفة في Grow Daily. لوّن حياتك، مربّعًا كل يوم.</p>
 
-    <p class="code-label">رمز الغرفة</p>
+    <p class="code-label" data-t="codeLabel">رمز الغرفة</p>
     <div class="code" id="code">—</div>
 
     <!-- Two stores, one shown. The page picks by user agent below; if the
@@ -72,17 +94,18 @@
          since a wrong single button is a dead end and two buttons is only a
          question. This used to be the App Store alone, so every Android
          recipient of an invite landed here and had nowhere to go. -->
-    <a class="btn" id="store-ios" href="https://apps.apple.com/app/id6788149393">
+    <a class="btn" id="store-ios" data-t="download" href="https://apps.apple.com/app/id6788149393">
       حمّل التطبيق
     </a>
-    <a class="btn" id="store-android" href="https://play.google.com/store/apps/details?id=com.growdaily.v2">
+    <a class="btn" id="store-android" data-t="download" href="https://play.google.com/store/apps/details?id=com.growdaily.v2">
       حمّل التطبيق
     </a>
-    <a class="btn secondary" id="open" href="#">فتح في التطبيق</a>
+    <a class="btn secondary" id="open" data-t="open" href="#">فتح في التطبيق</a>
 
-    <p class="foot">
+    <p class="foot" data-t="foot">
       عندك التطبيق؟ افتحه وأدخل الرمز فوق.
     </p>
+    <button type="button" class="lang" id="lang" hidden></button>
   </div>
 
 <script>
@@ -124,6 +147,67 @@
   } else if (/iPhone|iPad|iPod/i.test(ua)) {
     document.getElementById('store-android').style.display = 'none';
   }
+
+  // Language. The invite message is in the SENDER's app language, but this
+  // page is read by the person who got it, so it follows their phone: Arabic
+  // on an Arabic phone, English on anything else (an Urdu or Tagalog phone is
+  // far likelier to read English than Arabic). ?lang=ar|en overrides that,
+  // and the switch at the bottom writes it back so a reload keeps the choice.
+  // Arabic stays the markup's default, so a browser that never runs this
+  // gets exactly the page it always got.
+  var EN = {
+    title: 'Join a room on Grow Daily',
+    heading: 'Join the challenge',
+    // A no-break space keeps the name on one line on a narrow phone.
+    lead: 'A friend invited you to a room on Grow Daily. Color your life, one square at a time.',
+    codeLabel: 'Room code',
+    download: 'Download the app',
+    open: 'Open in the app',
+    foot: 'Have the app? Open it and enter the code above.'
+  };
+  // The Arabic is read back out of the markup rather than typed a second
+  // time here, so the markup stays the one place it is written.
+  var AR = { title: document.title };
+  var texts = document.querySelectorAll('[data-t]');
+  for (var i = 0; i < texts.length; i++) {
+    AR[texts[i].getAttribute('data-t')] = texts[i].textContent.trim();
+  }
+  var langSwitch = document.getElementById('lang');
+
+  function applyLang(lang) {
+    var t = lang === 'en' ? EN : AR;
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'en' ? 'ltr' : 'rtl';
+    document.title = t.title;
+    for (var i = 0; i < texts.length; i++) {
+      texts[i].textContent = t[texts[i].getAttribute('data-t')];
+    }
+    // The switch names the OTHER language, in that language.
+    var other = lang === 'en' ? 'ar' : 'en';
+    langSwitch.textContent = other === 'en' ? 'English' : 'العربية';
+    langSwitch.lang = other;
+    langSwitch.dir = other === 'en' ? 'ltr' : 'rtl';
+    langSwitch.hidden = false;
+  }
+
+  var asked = '';
+  try {
+    asked = (new URLSearchParams(location.search).get('lang') || '').toLowerCase().slice(0, 2);
+  } catch (e) {}
+  var phone = ((navigator.languages && navigator.languages[0]) || navigator.language || '')
+    .toLowerCase().slice(0, 2);
+  var lang = asked === 'ar' || asked === 'en' ? asked : (phone && phone !== 'ar' ? 'en' : 'ar');
+  applyLang(lang);
+
+  langSwitch.addEventListener('click', function () {
+    lang = lang === 'en' ? 'ar' : 'en';
+    applyLang(lang);
+    try {
+      var url = new URL(location.href);
+      url.searchParams.set('lang', lang);
+      history.replaceState(null, '', url.href);
+    } catch (e) {}
+  });
 </script>
 </body>
 </html>
