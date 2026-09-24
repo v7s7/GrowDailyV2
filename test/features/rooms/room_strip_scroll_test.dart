@@ -22,7 +22,7 @@ import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
 import 'package:grow_daily_v2/features/rooms/screens/room_detail_screen.dart'
-    show RoomStrip, RoomStripMonthLabel;
+    show RoomStrip, RoomStripMonthLabel, roomStripColumns;
 
 void main() {
   setUpAll(() async {
@@ -101,6 +101,12 @@ void main() {
       );
 
   /// Pumps the strip and returns every layout error the framework reported.
+  ///
+  /// The collecting handler comes off again before this returns, so before
+  /// the caller's first expect. A failure thrown while it is still installed
+  /// never reaches the test binding: the binding trips an assert of its own
+  /// instead, the test never completes, and the whole `flutter test` run
+  /// used to sit on this file until the runner timed it out.
   Future<List<String>> pumpStrip(
     WidgetTester tester, {
     required int days,
@@ -110,11 +116,15 @@ void main() {
     final errors = <String>[];
     final previous = FlutterError.onError;
     FlutterError.onError = (d) => errors.add(d.exceptionAsString());
-    addTearDown(() => FlutterError.onError = previous);
-    await tester.binding.setSurfaceSize(const Size(402, 874));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(app(room: roomOf(days), isAr: isAr, width: width));
-    await tester.pump();
+    try {
+      await tester.binding.setSurfaceSize(const Size(402, 874));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester
+          .pumpWidget(app(room: roomOf(days), isAr: isAr, width: width));
+      await tester.pump();
+    } finally {
+      FlutterError.onError = previous;
+    }
     return errors;
   }
 
@@ -248,37 +258,41 @@ void main() {
     // theirs, and with a 71pt reserve on BOTH sides the content ran 14pt
     // over, the viewport rested on the newest end, and the first letter of
     // «البداية» was cut off. Both labels must be whole at that width.
-    final start = DateTime(2026, 8, 14);
-    final room = RoomModel(
-      code: 'PBYAS5',
-      name: 'اذكار الصباح',
-      createdBy: 'me',
-      createdByName: 'Aziz',
-      createdAt: start,
-      habitMode: RoomHabitMode.own,
-      duration: RoomDuration.open,
-      startDate: start,
-    );
-    final errors = <String>[];
-    final previous = FlutterError.onError;
-    FlutterError.onError = (d) => errors.add(d.exceptionAsString());
-    addTearDown(() => FlutterError.onError = previous);
-    await tester.binding.setSurfaceSize(const Size(402, 874));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(app(room: room, isAr: true, width: 245));
-    await tester.pump();
+    //
+    // The six columns are counted back from today, not taken from PBYAS5's
+    // dates. The room is open, so its strip always runs to today: started
+    // on a fixed 14 August it grew a column a week, was eight columns wide
+    // by 2026-09-22, and the premise below no longer held. The shortest span
+    // that draws six columns is used, so the first column holds the start
+    // day alone, as PBYAS5's did. Six columns fit 245pt with up to two month
+    // breaks, and none of them would with the old 64pt today reserve.
+    int columnCount(int days) {
+      final span = [
+        for (var i = days - 1; i >= 0; i--) today.subtract(Duration(days: i)),
+      ];
+      return roomStripColumns((span.first.weekday + 1) % 7, span).length;
+    }
+
+    var days = 1;
+    while (columnCount(days) < 6) {
+      days++;
+    }
+    expect(columnCount(days), 6);
+    final errors = await pumpStrip(tester, days: days, isAr: true, width: 245);
     expect(errors, isEmpty);
     final viewport = stripRect(tester);
     final startRect = tester.getRect(startLabel(true));
+    final todayRect = tester.getRect(todayLabel(true));
     // The test font is wider than the device's, so only the label's near
     // edge is checked against the viewport: it sits 7pt off the first
     // column, and the column sits at the leading edge, inside its reserve.
     expect(startRect.left, closeTo(viewport.right - startReserve + 7, 1.0));
-    expect(inView(tester.getRect(todayLabel(true)), viewport), isTrue);
+    expect(inView(todayRect, viewport), isTrue);
     // Nothing hidden either way, so a slide moves nothing.
     await tester.drag(find.byType(RoomStrip), const Offset(-300, 0));
     await tester.pumpAndSettle();
     expect(tester.getRect(startLabel(true)), startRect);
+    expect(tester.getRect(todayLabel(true)), todayRect);
   });
 
   testWidgets('a day the room was paused on is drawn, not left as a hole',
