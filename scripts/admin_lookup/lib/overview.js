@@ -153,7 +153,9 @@ function buildOverview(scan, now = Date.now(), offset = APP_FALLBACK_OFFSET_MINU
     if (i === undefined || at > now) continue;
     if (e.uid && !NOT_ACTIVITY.has(e.type)) activeSets[i].add(e.uid);
     byCategory[categoryIndex.get(categoryOf(e.type))].counts[i]++;
-    hours[hourOf(at)]++;
+    // A dayOnly event (lib/activity.js) counts for its day but has no hour:
+    // its anchor would pile every undo onto 12:00 and every preset onto 00:00.
+    if (!e.dayOnly) hours[hourOf(at)]++;
   }
   const activeByDay = activeSets.map((s) => s.size);
   // The tile and the chart's last bar are one number, read from the same

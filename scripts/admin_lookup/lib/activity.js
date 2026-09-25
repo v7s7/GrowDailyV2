@@ -57,6 +57,7 @@ const {
 } = require('./render');
 // The app's own day rules, so a feed row cannot disagree with the phone.
 const DayRules = require('./day_rules');
+const { accountHabitDocs, CATALOG_PROFILE_FIELDS } = require('./habit_catalog');
 
 function db() {
   return admin.firestore();
@@ -147,7 +148,12 @@ function milestoneHeadline(type, data) {
     case 'streakMilestone':
       return d.days != null ? `${d.days}-day streak` : 'Streak milestone';
     case 'perfectDay':
-      return 'Perfect day, every habit done';
+      // Not "every habit done": the app logs this when the day crosses
+      // kStreakDayCompletionThreshold (0.8), the moment it earns its streak
+      // point (completeHabit's allHabitsDoneAfter, and
+      // earnStreakFromPartialCredit). adlshwaikh's fired at 8 of 9 on both
+      // 2026-09-23 and 2026-09-24, with Isha and then the Quran still open.
+      return 'Perfect day: 80% done, streak earned';
     case 'perfectWeek':
       return 'A full perfect week';
     case 'achievementUnlocked':
@@ -458,7 +464,7 @@ function habitMadeAt(doc) {
 async function scanOneAccount(uid, profile, authRow) {
   const userRef = db().collection('users').doc(uid);
 
-  const [habitDocs, dailyDocs, newTaskDocs, doneTaskDocs, milestoneDocs, focusDocs] =
+  const [customHabitDocs, dailyDocs, newTaskDocs, doneTaskDocs, milestoneDocs, focusDocs] =
     await Promise.all([
       // Whole collection, not a limit: this is a handful of docs per person
       // and the accounts table's "today" column needs every habit's
@@ -472,14 +478,22 @@ async function scanOneAccount(uid, profile, authRow) {
       safeQuery(userRef.collection('focus_plans').orderBy('updatedAt', 'desc').limit(SCAN_LIMITS.focusPlans)),
     ]);
 
+  // Their own habits and every preset they switched on, as the one list the
+  // app shows them. custom_habits alone left a preset-only account with
+  // nothing to count: see lib/habit_catalog.js.
+  const habitDocs = accountHabitDocs(profile, customHabitDocs);
+
   const displayName = (profile && profile.displayName) || '';
   const email = (authRow && authRow.email) || '';
   const who = displayName || email || uid;
   const tzOffsetMinutes = profile && profile.tzOffsetMinutes;
   const events = [];
+  // Returns the event, so a caller whose moment is only a DAY can say so
+  // (`dayOnly`): the feed then prints no clock for it rather than the 00:00
+  // or 12:00 it was anchored at to sort under the right date.
   const push = (at, type, title, sub, dayKey, details, stats) => {
     const d = toJsDate(at);
-    if (!d) return;
+    if (!d) return null;
     const event = {
       at: d.getTime(),
       uid,
@@ -499,6 +513,7 @@ async function scanOneAccount(uid, profile, authRow) {
     // and for every older reader of this payload.
     if (stats) event.stats = stats;
     events.push(event);
+    return event;
   };
 
   const receiptsByKey = readUndoneReceipts(profile);
@@ -579,15 +594,16 @@ async function scanOneAccount(uid, profile, authRow) {
   // Un-marking has no timestamp of its own anywhere - the UndoneCompletion
   // receipt stores undoneOn as a plain date key, deliberately (see that
   // class), so day is all the precision that exists. Anchored at noon of
-  // that day so it sorts inside the right date heading without pretending
-  // to a time it does not have.
+  // that day so it sorts inside the right date heading, and marked dayOnly
+  // so the feed does not print that noon as the time it happened: it drew
+  // "12:00 · 18m ago" beside an undo made at some unknown hour.
   for (const r of Object.values(receiptsByKey)) {
     if (!r.undoneOn) continue;
     const at = new Date(`${r.undoneOn}T12:00:00`);
     if (Number.isNaN(at.getTime())) continue;
     const habit = habitDocs.find((h) => h.id === r.habitId);
     const ctx = habit ? { [habit.id]: { name: habit.data().name, category: habit.data().category } } : {};
-    push(at, 'habit_undone', 'Un-marked a completion',
+    const undoneEvent = push(at, 'habit_undone', 'Un-marked a completion',
       `${habitLabel(r.habitId, ctx, r.category)} · for ${r.dateKey} · took back ${r.xp} XP and ${r.gold} gold`,
       r.dateKey, [
         // Only what the line above does NOT already say. The habit, the day
@@ -597,6 +613,7 @@ async function scanOneAccount(uid, profile, authRow) {
         // marking that habit-day again REDEEMS it rather than paying twice.
         chip('Receipt outstanding, so re-marking redeems it rather than paying twice', 'note'),
       ].filter(Boolean));
+    if (undoneEvent) undoneEvent.dayOnly = true;
   }
 
   for (const doc of newTaskDocs) {
@@ -611,19 +628,60 @@ async function scanOneAccount(uid, profile, authRow) {
       taskDetails(t, true));
   }
   for (const doc of habitDocs) {
+    if (doc.isPreset) continue; // switched on, not made: see presetDays below
     const h = doc.data();
     const cat = CATEGORY_META[h.category];
-    push(habitMadeAt(doc), 'habit_new', 'Created a habit',
+    const made = push(habitMadeAt(doc), 'habit_new', 'Created a habit',
       `${cat ? cat.emoji + ' ' : ''}${h.name || '(unnamed habit)'}`, '', habitDetails(h));
+    // Only the fallback is a day: see habitMadeAt.
+    if (made && !doc.createTime) made.dayOnly = true;
     if (h.archivedAt) {
       // What it was worth by the time they put it away, which is the whole
-      // question when someone asks why a streak stopped.
-      push(h.archivedAt, 'habit_archived', 'Archived a habit',
+      // question when someone asks why a streak stopped. archivedAt is a day
+      // stamp, and no archive moment is stored anywhere.
+      const archived = push(h.archivedAt, 'habit_archived', 'Archived a habit',
         h.name || '(unnamed habit)', '', [
           chip(`${Number(h.totalCompletions) || 0} completions in its life`, 'plain'),
           chip(`Longest streak ${Number(h.longestStreak) || 0}`, 'plain'),
           chip(`Streak was ${Number(h.currentStreak) || 0} when it was archived`, 'plain'),
         ].filter(Boolean));
+      if (archived) archived.dayOnly = true;
+    }
+  }
+
+  // Presets switched on and off, one row per day rather than one per habit:
+  // the first Add Habit page and every Plan switch several on at once, and
+  // five rows carrying the same missing time say less than one row naming
+  // all five. The app keeps only the DAY (activeCatalogActivatedAt and
+  // activeCatalogArchivedAt are dates), so each row is anchored at that
+  // day's start and says it has no time.
+  const presetDays = { on: new Map(), off: new Map() };
+  for (const doc of habitDocs) {
+    if (!doc.isPreset) continue;
+    const h = doc.data();
+    const windows = Array.isArray(h.stints) ? h.stints : [{ start: h.createdAt, end: h.archivedAt }];
+    for (const w of windows) {
+      for (const [side, raw] of [['on', w.start], ['off', w.end]]) {
+        const key = DayRules.habitDateKey(raw);
+        if (!key) continue;
+        if (!presetDays[side].has(key)) presetDays[side].set(key, []);
+        presetDays[side].get(key).push(h);
+      }
+    }
+  }
+  for (const [side, byDay] of Object.entries(presetDays)) {
+    for (const [key, list] of byDay) {
+      const verb = side === 'on' ? 'Added' : 'Archived';
+      const title = list.length === 1
+        ? `${verb} a preset habit`
+        : `${verb} ${list.length} preset habits`;
+      // Bare names: an emoji between each pair of Arabic names broke the
+      // right-to-left run into pieces, so the list no longer read in order.
+      const names = list.map((h) => h.name).join(' · ');
+      const ev = push(new Date(`${key}T00:00:00`), side === 'on' ? 'habit_new' : 'habit_archived',
+        title, names, key,
+        side === 'on' && list.length === 1 ? habitDetails(list[0]) : [chip('From the catalog', 'plain')]);
+      if (ev) ev.dayOnly = true;
     }
   }
   for (const doc of milestoneDocs) {
@@ -671,8 +729,10 @@ async function scanOneAccount(uid, profile, authRow) {
   // Their last REAL action, which deliberately excludes signin: a session
   // restored in the background counts as "signed in" without the person
   // having done anything, and treating that as activity is what makes an
-  // "active today" number lie upward.
-  const doing = events.filter((e) => e.type !== 'signin' && e.type !== 'signup');
+  // "active today" number lie upward. A dayOnly event is left out too: its
+  // noon or midnight anchor is not a moment, and as lastActiveAt it would
+  // mark the person "on the app now" for fifteen minutes after it.
+  const doing = events.filter((e) => e.type !== 'signin' && e.type !== 'signup' && !e.dayOnly);
   doing.sort((a, b) => b.at - a.at);
   const lastAction = doing[0] || null;
 
@@ -706,6 +766,9 @@ async function scanOneAccount(uid, profile, authRow) {
 
 let _cache = null; // { at, payload }
 let _inFlight = null;
+// The profiles the last scan read, kept for scanDay: a preset exists only on
+// the profile, and scanDay reads no profile of its own.
+let _scanProfiles = new Map();
 
 /**
  * The whole dashboard's data in one object.
@@ -747,9 +810,10 @@ async function scanActivity(forceRefresh) {
     const profileSnap = await db().collection('users')
       .select('displayName', 'createdAt', 'level', 'currentStreak', 'longestStreak',
         'gold', 'cumulativeXp', 'totalHabitCompletions', 'tzOffsetMinutes', 'locale',
-        'undoneCompletions')
+        'undoneCompletions', ...CATALOG_PROFILE_FIELDS)
       .get();
     profileSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
+    _scanProfiles = profiles;
 
     // A Firestore profile with no Auth account (one deleted straight from
     // the console rather than through the app's own delete flow) still gets
@@ -848,13 +912,15 @@ async function scanDay(dateKey) {
   const uids = scan.accounts.map((a) => a.uid);
 
   const rows = await mapLimit(uids, CONCURRENCY, async (uid) => {
-    const [dailySnap, habitDocs] = await Promise.all([
+    const [dailySnap, customHabitDocs] = await Promise.all([
       db().collection('users').doc(uid).collection('daily').doc(dateKey).get()
         .catch(() => null),
       safeQuery(db().collection('users').doc(uid).collection('custom_habits')),
     ]);
     const data = dailySnap && dailySnap.exists ? dailySnap.data() : null;
     const parts = dayKeyParts(dateKey);
+    // Presets too, off the profile the scan above already read.
+    const habitDocs = accountHabitDocs(_scanProfiles.get(uid), customHabitDocs);
     const scheduledIds = habitDocs
       .filter((doc) => habitScheduledOnParts(doc.data(), parts))
       .map((doc) => doc.id);

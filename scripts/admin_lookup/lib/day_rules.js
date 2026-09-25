@@ -375,6 +375,7 @@ function isCoveredDay({ habitData, dayKey, todayKey, square, demand }) {
   if (born && dayKey < born) return false;
   const died = habitDateKey(h.archivedAt);
   if (died && dayKey > died) return false;
+  if (!withinStints(h, dayKey)) return false;
   const weekdays = Array.isArray(h.scheduledWeekdays) ? h.scheduledWeekdays : [];
   if (weekdays.length > 0) return !weekdays.includes(weekdayOf(dayKey));
   if (!demand) return false;
@@ -408,6 +409,25 @@ function weekdayOf(key) {
 }
 
 /**
+ * Whether [dayKey] falls inside one of a preset's stints, for a preset that
+ * was switched off and on again (lib/habit_catalog.js builds `stints` only
+ * then). createdAt and archivedAt already bound the whole span; this is the
+ * gap in the middle, when the habit was off and owed nothing, which the app
+ * gets by emitting one template per stint (allHabitsEverProvider). Each
+ * window counts its own last day, like archivedAt. Any habit without
+ * `stints`, which is every custom habit, is inside by definition.
+ */
+function withinStints(habitData, dayKey) {
+  const stints = habitData && Array.isArray(habitData.stints) ? habitData.stints : null;
+  if (!stints || stints.length === 0) return true;
+  return stints.some((w) => {
+    const from = habitDateKey(w && w.start);
+    const until = habitDateKey(w && w.end);
+    return (!from || dayKey >= from) && (!until || dayKey <= until);
+  });
+}
+
+/**
  * IslamicHabitTemplate.isScheduledFor: existence bounds plus named weekdays.
  * The archive day itself still counts.
  */
@@ -417,6 +437,7 @@ function habitScheduledOn(habitData, dayKey) {
   if (born && dayKey < born) return false;
   const died = habitDateKey(h.archivedAt);
   if (died && dayKey > died) return false;
+  if (!withinStints(h, dayKey)) return false;
   const weekdays = Array.isArray(h.scheduledWeekdays) ? h.scheduledWeekdays : [];
   return weekdays.length === 0 || weekdays.includes(weekdayOf(dayKey));
 }
@@ -891,6 +912,7 @@ module.exports = {
   habitDateKey,
   weekdayOf,
   habitScheduledOn,
+  withinStints,
   scoreDay,
   heatLevel,
   dayPayout,

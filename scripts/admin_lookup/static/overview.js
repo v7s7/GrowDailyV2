@@ -648,8 +648,10 @@
   }
 
   function feedPanel(data) {
+    // Not a dayOnly event either: it has a day and no moment, so it cannot be
+    // placed among the newest, and its anchor would print as "just now".
     var events = (data.events || [])
-      .filter(function (e) { return e.type !== 'signin'; })
+      .filter(function (e) { return e.type !== 'signin' && !e.dayOnly; })
       .slice()
       .sort(function (a, b) { return b.at - a.at; })
       .slice(0, 10);

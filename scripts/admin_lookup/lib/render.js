@@ -18,6 +18,7 @@
  */
 
 const DayRules = require('./day_rules');
+const { catalogTemplate } = require('./habit_catalog');
 
 // Friendlier section titles for the subcollections known to exist today
 // (see firestore.rules' top-of-file doc comment for the canonical map).
@@ -465,6 +466,8 @@ function habitScheduledOnParts(habitData, parts) {
     const diedUtc = Date.UTC(died.getFullYear(), died.getMonth(), died.getDate());
     if (dayUtc > diedUtc) return false;
   }
+  // A preset switched off and on again owes nothing in the gap between.
+  if (!DayRules.withinStints(habitData, partsKey(parts))) return false;
   // The weekdays the habit had ON that day (DayRules.habitAsOf), not today's:
   // a habit made daily this week still rested on last week's off-days.
   const asOf = DayRules.habitAsOf(habitData, partsKey(parts));
@@ -488,13 +491,16 @@ function whyNotScheduled(habitData, parts) {
   const born = toJsDate(habitData.createdAt);
   if (born) {
     const bornUtc = Date.UTC(born.getFullYear(), born.getMonth(), born.getDate());
-    if (dayUtc < bornUtc) return `created ${fmtDate(born)}, after this day`;
+    if (dayUtc < bornUtc) {
+      return `${habitData.isPreset ? 'switched on' : 'created'} ${fmtDate(born)}, after this day`;
+    }
   }
   const died = toJsDate(habitData.archivedAt);
   if (died) {
     const diedUtc = Date.UTC(died.getFullYear(), died.getMonth(), died.getDate());
-    if (dayUtc > diedUtc) return `archived ${fmtDate(died)}`;
+    if (dayUtc > diedUtc) return `${habitData.isPreset ? 'switched off' : 'archived'} ${fmtDate(died)}`;
   }
+  if (!DayRules.withinStints(habitData, partsKey(parts))) return 'switched off that day';
   const asOf = DayRules.habitAsOf(habitData, partsKey(parts));
   const weekdays = Array.isArray(asOf.scheduledWeekdays) ? asOf.scheduledWeekdays : [];
   if (weekdays.length && !weekdays.includes(parts.weekday)) {
@@ -1228,8 +1234,19 @@ function renderHabitDetail(data, ctx) {
       ? detailRow('Step-linked', `${data.stepGoal.toLocaleString()} steps/day`)
       : '',
     renderRewardRow(data, ctx && ctx.boostedRooms),
-    detailRow('Created', fmtDate(data.createdAt) || '<span class="muted">not recorded</span>'),
-    data.archivedAt ? detailRow('Archived', fmtDate(data.archivedAt)) : '',
+    // A preset has no document of its own (see lib/habit_catalog.js), so the
+    // rows below were assembled from the profile, and its dates are the days
+    // it was switched on and off rather than a creation.
+    data.isPreset
+      ? detailRow('Source', 'A preset from the app\'s own list. activeCatalogIds switches it on, and anything they changed about it is in catalog_habit_overrides_v1.')
+      : '',
+    detailRow(data.isPreset ? 'Switched on' : 'Created',
+      fmtDate(data.createdAt) || '<span class="muted">not recorded</span>'),
+    data.archivedAt ? detailRow(data.isPreset ? 'Switched off' : 'Archived', fmtDate(data.archivedAt)) : '',
+    Array.isArray(data.stints)
+      ? detailRow('On between', data.stints.map((w) =>
+        `${escapeHtml(fmtDate(w.start) || 'the start')} to ${escapeHtml(fmtDate(w.end) || 'now')}`).join('<br>'))
+      : '',
   ].join('');
 
   return `
@@ -1499,23 +1516,30 @@ function renderDailyDetail(id, data, ctx) {
 /**
  * A habit id turned into something a person can read.
  *
- * buildHabitContext only knows this account's CURRENT custom_habits, so an
- * id it cannot resolve is a habit that has since been deleted (or a catalog
- * habit, which lives in the app's own asset list and not in Firestore at
- * all). Those still appear in old daily docs and in undo receipts forever,
- * and printing the bare uuid there - which is what this did - reads as a
- * rendering fault rather than as the fact it is. Still shows the id, since
- * an admin sometimes needs it, just no longer ONLY the id.
+ * buildHabitContext knows this account's own habits and every preset it has
+ * switched on (lib/habit_catalog.js), so an id it cannot resolve is a habit
+ * that has since been deleted. Those still appear in old daily docs and in
+ * undo receipts forever, and printing the bare uuid there - which is what
+ * this did - reads as a rendering fault rather than as the fact it is. Still
+ * shows the id, since an admin sometimes needs it, just no longer ONLY the id.
+ *
+ * A preset id is the one exception with a name to give: the app's own list
+ * still carries it even once the account keeps no record of the preset.
  */
 function habitLabel(habitId, habitCtx, category) {
-  const known = habitCtx && habitCtx[habitId];
-  if (known && known.name) {
-    const cat = CATEGORY_META[known.category];
-    return `${cat ? cat.emoji + ' ' : ''}${known.name}`;
-  }
-  const cat = category ? CATEGORY_META[category] : null;
-  const short = String(habitId).slice(0, 8);
-  return `${cat ? cat.emoji + ' ' : ''}(habit no longer in this account · ${short})`;
+  const parts = habitLabelParts(habitId, habitCtx, category);
+  return `${parts.emoji ? parts.emoji + ' ' : ''}${parts.name}`;
+}
+
+function unknownHabitLabel(habitId, category) {
+  const preset = catalogTemplate(String(habitId));
+  const cat = CATEGORY_META[preset ? preset.category : category] || null;
+  return {
+    emoji: cat ? cat.emoji : '',
+    name: preset
+      ? `${preset.nameAr || preset.name} (preset, no longer on this account)`
+      : `(habit no longer in this account · ${String(habitId).slice(0, 8)})`,
+  };
 }
 
 /**
@@ -1534,11 +1558,7 @@ function habitLabelParts(habitId, habitCtx, category) {
     const cat = CATEGORY_META[known.category];
     return { emoji: cat ? cat.emoji : '', name: known.name };
   }
-  const cat = category ? CATEGORY_META[category] : null;
-  return {
-    emoji: cat ? cat.emoji : '',
-    name: `(habit no longer in this account · ${String(habitId).slice(0, 8)})`,
-  };
+  return unknownHabitLabel(habitId, category);
 }
 
 /**
@@ -1653,7 +1673,7 @@ function summarizeDoc(collectionId, id, data) {
     case 'custom_habits': {
       const cat = CATEGORY_META[data.category];
       const freq = data.frequencyType === 'weekly' ? `${data.frequencyTarget || 1}×/week` : 'daily';
-      return `${cat ? cat.emoji + ' ' : ''}${data.name || '(unnamed habit)'} · ${freq}${data.archivedAt ? ' · archived' : ''}`;
+      return `${cat ? cat.emoji + ' ' : ''}${data.name || '(unnamed habit)'} · ${freq}${data.isPreset ? ' · preset' : ''}${data.archivedAt ? ' · archived' : ''}`;
     }
     case 'matrix_tasks': {
       const q = QUADRANT_META[data.quadrant];
@@ -1721,7 +1741,7 @@ function renderDocList(id, label, docs, ctx) {
         </summary>
         <div class="detail-card">
           ${renderDocDetail(id, doc.id, data, ctx)}
-          ${curated ? `<details class="nested raw"><summary>All raw fields</summary>${renderFieldTable(data)}</details>` : ''}
+          ${curated && !data.isPreset ? `<details class="nested raw"><summary>All raw fields</summary>${renderFieldTable(data)}</details>` : ''}
           <button type="button" class="doc-id" data-copy="${escapeHtml(doc.id)}" title="Copy this id">${escapeHtml(doc.id)} <span>⧉</span></button>
         </div>
       </details>
@@ -1867,9 +1887,11 @@ function renderDayCard({
 
   const ledger = renderRecordLedger(habitRows, { habitCtx, mirrorFor, notesFor, roomsFor });
 
-  // Named with the reason, rather than dropped in silence.
+  // Named with the reason, rather than dropped in silence. Headed "not due"
+  // rather than "not in the table": a habit marked on a day it was not due
+  // is in the table AND here, which is the one case this list exists for.
   const off = (offSchedule && offSchedule.length)
-    ? `<div class="offsched"><b>Not in the table above</b><ul>${offSchedule.map((o) =>
+    ? `<div class="offsched"><b>Not due that day</b><ul>${offSchedule.map((o) =>
         `<li>${escapeHtml(o.name)}: ${escapeHtml(o.why)}${o.marked ? ', but it was marked that day' : ''}</li>`).join('')}</ul></div>`
     : '';
 

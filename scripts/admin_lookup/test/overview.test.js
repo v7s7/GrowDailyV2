@@ -130,3 +130,15 @@ test('an empty scan is all zeros, never a throw', () => {
   assert.strictEqual(o.series.activeByDay.length, 14);
   assert.doesNotThrow(() => buildOverview(null, NOW));
 });
+
+test('a day-only event counts for its day but never lands in an hour', () => {
+  // An undo, an archive, a preset switched on: the app keeps the day and no
+  // moment, and lib/activity.js anchors them at noon or midnight only to
+  // sort them under the right date. In the hour chart that anchor would pile
+  // every undo onto 12:00.
+  const s = scan();
+  s.events = [{ uid: 'a', type: 'habit_undone', at: NOW - 30 * MIN, dayOnly: true }];
+  const o = buildOverview(s, NOW);
+  assert.strictEqual(o.series.hours.reduce((x, y) => x + y, 0), 0);
+  assert.strictEqual(o.series.activeByDay[o.days.length - 1], 1, 'a still acted today');
+});

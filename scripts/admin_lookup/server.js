@@ -464,6 +464,10 @@ ${SHELL_STYLES}
   // language they were written in, isolated with .bidi so they sit correctly
   // inside these rows.
   var UI_LOCALE = 'en-GB';
+  // What an event with no stored moment prints where its time would go (an
+  // undo, an archive, a preset switched on: the app keeps the day only).
+  var DAY_ONLY_TEXT = 'day only';
+  var DAY_ONLY_TITLE = 'The app stores only the day of this, not the time.';
 
   function ago(ms) {
     var s = Math.floor((Date.now() - ms) / 1000);
@@ -581,7 +585,7 @@ ${SHELL_STYLES}
       + (mine.length === 0
         ? '<p class="muted">Nothing recorded for this account.</p>'
         : '<div class="dw-tl">' + mine.map(function (e) {
-            var fresh = (Date.now() - e.at) <= onlineMs;
+            var fresh = !e.dayOnly && (Date.now() - e.at) <= onlineMs;
             var isDay = e.type === 'habits' && e.stats;
             var chips = isDay ? '' : (e.details || []).slice(0, 5).map(function (c) {
               return '<span class="chip-d ' + esc(c.tone || 'plain') + '">' + esc(c.text) + '</span>';
@@ -590,7 +594,7 @@ ${SHELL_STYLES}
               + esc(e.dayKey || dayKeyOf(e.at)) + '">'
               + '<div class="dw-ev-top"><span class="dw-ev-what">'
               + (EV_ICON[e.type] || '•') + ' ' + (isDay ? whatHtml(e) : esc(e.title)) + '</span>'
-              + '<span class="dw-ev-when">' + clockOf(e.at) + ' · ' + ago(e.at) + '</span></div>'
+              + '<span class="dw-ev-when">' + (e.dayOnly ? DAY_ONLY_TEXT : clockOf(e.at) + ' · ' + ago(e.at)) + '</span></div>'
               + (!isDay && e.sub ? '<div class="dw-ev-sub">' + esc(e.sub) + '</div>' : '')
               + (isDay ? dayStripHtml(e, 5, null) : (chips ? '<div class="ev-chips">' + chips + '</div>' : ''))
               + '</div>';
@@ -1024,15 +1028,21 @@ ${SHELL_STYLES}
     // loop that draws them.
     var runs = [];
     var runAt = {};
+    // A dayOnly event has no moment (see its note in lib/activity.js), so it
+    // joins the run but never stretches its span: a run of real events from
+    // 09:12 to 11:40 used to read "09:12 to 12:00" off one undo's noon anchor.
     shown.forEach(function (e, i) {
       var d = dayKeyOf(e.at);
       var last = runs.length ? runs[runs.length - 1] : null;
       if (last && last.uid === e.uid && last.day === d && last.len < RUN_MAX) {
         last.len += 1;
-        last.lastAt = e.at;
       } else {
-        last = { uid: e.uid, day: d, who: e.who, email: e.email, start: i, len: 1, firstAt: e.at, lastAt: e.at };
+        last = { uid: e.uid, day: d, who: e.who, email: e.email, start: i, len: 1, firstAt: null, lastAt: null };
         runs.push(last);
+      }
+      if (!e.dayOnly) {
+        if (last.firstAt === null) last.firstAt = e.at;
+        last.lastAt = e.at;
       }
       runAt[i] = last;
     });
@@ -1053,7 +1063,8 @@ ${SHELL_STYLES}
       var run = runAt[i];
       var inRun = run.len > 1;
       if (inRun && run.start === i) {
-        var span = clockOf(run.lastAt) === clockOf(run.firstAt)
+        var span = run.firstAt === null ? DAY_ONLY_TEXT
+          : clockOf(run.lastAt) === clockOf(run.firstAt)
           ? clockOf(run.firstAt)
           : clockOf(run.lastAt) + ' to ' + clockOf(run.firstAt);
         out.push('<div class="ev-run" data-uid="' + esc(run.uid) + '" data-day="' + esc(run.day) + '">'
@@ -1063,13 +1074,13 @@ ${SHELL_STYLES}
               ? '<span class="ml bidi">' + esc(run.email) + '</span>' : '')
           + '<span class="cnt">' + run.len + ' events · ' + esc(span) + '</span></div>');
       }
-      var live = (Date.now() - e.at) <= onlineMs;
+      var live = !e.dayOnly && (Date.now() - e.at) <= onlineMs;
       var key = e.uid + '|' + e.at + '|' + e.type;
       out.push('<div class="ev' + (inRun ? ' in-run' : '') + (live ? ' live' : '')
         + '" data-uid="' + esc(e.uid) + '" data-day="' + esc(e.dayKey || d) + '"'
-        + ' title="' + esc(new Date(e.at).toLocaleString(UI_LOCALE)) + '">'
-        + '<div class="ev-time"><b>' + clockOf(e.at) + '</b>'
-        + '<span class="rel">' + ago(e.at) + '</span></div>'
+        + ' title="' + esc(e.dayOnly ? DAY_ONLY_TITLE : new Date(e.at).toLocaleString(UI_LOCALE)) + '">'
+        + '<div class="ev-time"><b>' + (e.dayOnly ? '--:--' : clockOf(e.at)) + '</b>'
+        + '<span class="rel">' + (e.dayOnly ? DAY_ONLY_TEXT : ago(e.at)) + '</span></div>'
         + '<div class="ev-ico">' + (EV_ICON[e.type] || '•') + '</div>'
         + '<div class="ev-main"><div class="ev-who">' + avatarFor(e.uid, e.who)
         + '<span class="bidi">' + esc(e.who) + '</span>'

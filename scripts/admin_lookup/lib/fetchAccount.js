@@ -38,6 +38,7 @@ const {
 // The app's own day rules. See lib/day_rules.js for why this tool has one
 // copy of them rather than a fresh guess per surface.
 const DayRules = require('./day_rules');
+const { accountHabitDocs } = require('./habit_catalog');
 
 function db() {
   return admin.firestore();
@@ -91,7 +92,7 @@ async function loadAccountRaw(uid, authRecord) {
   const profileData = userDoc.exists ? userDoc.data() : null;
 
   // Fetched up front (not inline in the render loop) so buildHabitContext
-  // always has this account's full custom_habits list ready before the
+  // always has this account's full habit list ready before the
   // 'daily' section renders, regardless of which order listCollections()
   // happens to return them in.
   const subcollections = await userRef.listCollections();
@@ -100,7 +101,12 @@ async function loadAccountRaw(uid, authRecord) {
     const snap = await col.get();
     docsByCollection[col.id] = snap.docs.slice().sort((a, b) => b.id.localeCompare(a.id));
   }
-  const habitCtx = buildHabitContext(docsByCollection['custom_habits']);
+  // Every habit the account has, not only custom_habits: a preset switched
+  // on from the app's own list has no document there (lib/habit_catalog.js),
+  // and reading custom_habits alone left a preset-only account with no
+  // habits at all, every mark on it unnamed and every day scored 0 of 0.
+  const habitDocs = accountHabitDocs(profileData, docsByCollection['custom_habits']);
+  const habitCtx = buildHabitContext(habitDocs);
 
   // Rooms this account participates in - a collectionGroup query across
   // every rooms/{code}/participants subcollection, filtered on the `uid`
@@ -140,8 +146,16 @@ async function loadAccountRaw(uid, authRecord) {
 
   return {
     uid, authRecord, profileData, subcollections, docsByCollection,
-    habitCtx, roomRows, roomsSectionHtml,
+    habitDocs, habitCtx, roomRows, roomsSectionHtml,
   };
+}
+
+// The account's whole habit list off a raw read. loadAccountRaw builds it
+// once; a raw assembled any other way (a test, a script) gets the same list
+// from its own profile and custom_habits rather than an empty one.
+function habitsOf(raw) {
+  return raw.habitDocs
+    || accountHabitDocs(raw.profileData, (raw.docsByCollection || {})['custom_habits']);
 }
 
 // Short-lived so day-stepping is free while an admin is reading one
@@ -187,7 +201,8 @@ function buildDaySection(raw, dateKey) {
   const parts = isToday ? todayParts : dayKeyParts(dateKey);
   const dayKey = parts.key;
 
-  const habitDocs = docsByCollection['custom_habits'] || [];
+  // Their own habits AND every preset they switched on: see loadAccountRaw.
+  const habitDocs = habitsOf(raw);
   const dailyDocs = docsByCollection['daily'] || [];
   const dayDoc = dailyDocs.find((d) => d.id === dayKey);
   const dayData = dayDoc ? dayDoc.data() : {};
@@ -205,19 +220,19 @@ function buildDaySection(raw, dateKey) {
   // scheduled ones, so exactly those habits vanished from the card without a
   // word: the "my habit disappeared" ticket had no answer on the page.
   const scheduledIds = [];
-  const habitById = {};
   for (const doc of habitDocs) {
-    habitById[doc.id] = doc.data();
     if (habitScheduledOnParts(doc.data(), parts)) scheduledIds.push(doc.id);
   }
   const summary = summarizeHabitDay(dayData, scheduledIds, receiptsByKey, dayKey);
   const scheduledSet = new Set(scheduledIds);
   const habitRows = summary.rows;
 
-  // Named, with the reason, instead of dropped. Two kinds land here: a habit
-  // that exists but was not due (or not yet born, or already archived), and
-  // one this account no longer has at all, which still shows up in old daily
-  // docs and in undo receipts forever.
+  // Named, with the reason, instead of dropped: a habit that exists but was
+  // not due (or not yet born, or already archived). A habit this account no
+  // longer has at all is not listed here: its ledger row already names it
+  // as such, and listing it again read "no longer in this account, prayer_f:
+  // but it left a record on this day, but it was marked that day", about
+  // habits that were in the table all along.
   const offSchedule = [];
   for (const doc of habitDocs) {
     if (scheduledSet.has(doc.id)) continue;
@@ -229,14 +244,6 @@ function buildDaySection(raw, dateKey) {
       name: h.name || '(unnamed habit)',
       why: why || 'not scheduled that day',
       marked: touched,
-    });
-  }
-  for (const r of habitRows) {
-    if (scheduledSet.has(r.habitId) || habitById[r.habitId]) continue;
-    offSchedule.push({
-      name: `no longer in this account, ${String(r.habitId).slice(0, 8)}`,
-      why: 'but it left a record on this day',
-      marked: true,
     });
   }
 
@@ -457,7 +464,7 @@ async function loadAccountReport(uid, authRecord, dateKey) {
       label: KNOWN_LABELS.daily,
       count: docsByCollection.daily.length,
       html: renderCalendarSection(
-        docsByCollection.daily, docsByCollection['custom_habits'] || [], habitCtx, day.todayKey,
+        docsByCollection.daily, habitsOf(raw), habitCtx, day.todayKey,
         readUndoneReceipts(profileData), tz),
     });
   }
@@ -465,9 +472,15 @@ async function loadAccountReport(uid, authRecord, dateKey) {
   const docList = (id) => renderDocList(
     id, KNOWN_LABELS[id] || id, docsByCollection[id], { habitCtx, todayKey: day.todayKey });
 
-  for (const id of ['custom_habits', 'matrix_tasks']) {
-    if (bySub[id]) sections.push(docList(id));
+  // Habits lists the presets beside their own, since to the person they are
+  // one list. Keyed on the habits themselves rather than on the
+  // subcollection existing: an account made only of presets has no
+  // custom_habits collection at all, and used to get no Habits tab.
+  if (habitsOf(raw).length) {
+    sections.push(renderDocList('custom_habits', KNOWN_LABELS.custom_habits, habitsOf(raw),
+      { habitCtx, todayKey: day.todayKey }));
   }
+  if (bySub.matrix_tasks) sections.push(docList('matrix_tasks'));
 
   sections.push({ id: 'rooms', label: 'Rooms', html: roomsSectionHtml });
 
