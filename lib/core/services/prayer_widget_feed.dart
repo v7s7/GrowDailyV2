@@ -36,9 +36,10 @@ class PrayerWidgetFeed {
   /// [PrayerDayTimes]' own field names.
   ///
   /// Sunrise is in the list but it is not one of the five: nobody calls an
-  /// adhan for it, so the widget says «باقي على الشروق» and gives it no
-  /// elapsed window at all (see [elapsedWindowFor] and PrayerSlot.hasAdhan
-  /// on the Swift side). It earns its place because without it the stretch
+  /// adhan for it, so the widget says «باقي على الشروق» and «مضى على
+  /// الشروق» where a prayer says «الأذان» (PrayerSlot.hasAdhan on the Swift
+  /// side), and it keeps its own minutes after it passes like the rest (see
+  /// [elapsedMinutes]). It earns its place because without it the stretch
   /// from Fajr to Dhuhr is five hours with nothing to count to — Aziz asked
   /// for it on 2026-09-23, on the condition that the time be right, and the
   /// bundled Bahrain table was re-measured against the official feed for
@@ -52,18 +53,30 @@ class PrayerWidgetFeed {
     'isha',
   ];
 
-  /// How long a prayer stays on the widget's face after its adhan, showing
-  /// «مضى على الأذان» counting up. Must match `prayerElapsedWindow` in
-  /// ios/GrowDailyWidget/PrayerCountdownWidget.swift — the widget applies
-  /// the same rule against its own clock, and a shorter window here would
-  /// delete the very prayer the face is currently showing.
-  static const elapsedWindow = Duration(minutes: 30);
+  /// How many minutes each moment stays on the widget's face after it
+  /// passes, counting up: «مضى على الأذان» after the five, «مضى على
+  /// الشروق» after sunrise. Aziz's numbers (2026-09-25), which replaced a
+  /// flat half hour for the five and none at all for sunrise.
+  ///
+  /// Must match `prayerElapsedMinutes` in ios/GrowDailyWidget/
+  /// PrayerSchedule.swift. The widget applies the same rule against its own
+  /// clock, and a shorter window here would delete the very moment the face
+  /// is showing; the test reads the Swift table and holds the two equal.
+  @visibleForTesting
+  static const elapsedMinutes = {
+    'fajr': 25,
+    'sunrise': 15,
+    'dhuhr': 25,
+    'asr': 25,
+    'maghrib': 15,
+    'isha': 25,
+  };
 
-  /// [elapsedWindow] for the five, nothing for sunrise. Mirrors
-  /// PrayerSlot.elapsedWindow in PrayerCountdownWidget.swift.
+  /// [elapsedMinutes] for [key], or nothing for a key it does not name.
+  /// Mirrors PrayerSlot.elapsedWindow in PrayerSchedule.swift.
   @visibleForTesting
   static Duration elapsedWindowFor(String key) =>
-      key == 'sunrise' ? Duration.zero : elapsedWindow;
+      Duration(minutes: elapsedMinutes[key] ?? 0);
 
   /// Guards against two pushes overlapping — resume, a settings change and
   /// the day turning can all land within the same moment, and the second
@@ -138,8 +151,8 @@ class PrayerWidgetFeed {
   /// "Fully behind" means older than that moment's own elapsed window, not
   /// merely past: the prayer whose adhan went twenty minutes ago is exactly
   /// the one the face is showing right now, and dropping it would cut «مضى
-  /// على الأذان» short every time the app was opened during that half hour.
-  /// Sunrise has no window, so it leaves the list the moment it passes.
+  /// على الأذان» short every time the app was opened during those minutes.
+  /// Sunrise is kept the same way, for its own quarter hour.
   @visibleForTesting
   static List<({String key, DateTime at})> flatten(
     List<PrayerDayTimes> schedule, {

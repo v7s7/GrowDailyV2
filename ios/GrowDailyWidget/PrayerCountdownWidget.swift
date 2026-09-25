@@ -3,8 +3,10 @@
 //  GrowDailyWidget
 //
 //  The next prayer and a live countdown to its adhan, then «مضى على الأذان»
-//  counting up for half an hour before the face moves on to the prayer
-//  after it. Asked for 2026-09-23.
+//  counting up for a while (25 minutes, 15 after المغرب: see
+//  prayerElapsedMinutes) before the face moves on to the prayer after it.
+//  Sunrise takes a turn between الفجر and الظهر, in its own words. Asked
+//  for 2026-09-23.
 //
 //  Two things make this work without burning WidgetKit's refresh budget:
 //
@@ -17,7 +19,7 @@
 //   2. The WORDS are all a timeline entry is for. Each prayer needs exactly
 //      two: one at the moment the previous prayer's elapsed window closes
 //      («باقي على الأذان» + this prayer's name) and one at the adhan itself
-//      («مضى على الأذان»). That is ~10 entries a day, all pre-rendered in a
+//      («مضى على الأذان»). That is 12 entries a day, all pre-rendered in a
 //      single getTimeline call, which is one refresh — not one per minute.
 //
 //  The data is whatever PrayerWidgetFeed (lib/core/services/
@@ -243,16 +245,22 @@ struct PrayerEmptyFace: View {
 /// The symbol that says which phase this is, for the inline face: one line
 /// beside the clock, with no room for the words.
 private func prayerPhaseSymbol(elapsed: Bool, hasAdhan: Bool) -> String {
-    if elapsed { return "bell.fill" }
-    return hasAdhan ? "hourglass" : "sunrise"
+    // No bell after sunrise: the bell is the adhan, and none was called.
+    if !hasAdhan { return elapsed ? "sun.max" : "sunrise" }
+    return elapsed ? "bell.fill" : "hourglass"
 }
 
-/// What the counter means: «باقي على الأذان» before the adhan, «مضى على
-/// الأذان» after it, and «باقي على الشروق» for sunrise, which is never
-/// called — see PrayerSlot.hasAdhan.
+/// What the counter means: «باقي على الأذان» before the adhan and «مضى على
+/// الأذان» after it. Sunrise is never called (see PrayerSlot.hasAdhan), so
+/// its pair names the sun instead: «باقي على الشروق», then «مضى على
+/// الشروق», the words of the widget Aziz compared this one with
+/// (2026-09-25).
 func prayerPhaseLabel(elapsed: Bool, prayer: PrayerSlot, isAr: Bool) -> String {
-    if elapsed { return isAr ? "مضى على الأذان" : "since the adhan" }
-    if prayer.hasAdhan { return isAr ? "باقي على الأذان" : "until the adhan" }
+    if prayer.hasAdhan {
+        if elapsed { return isAr ? "مضى على الأذان" : "since the adhan" }
+        return isAr ? "باقي على الأذان" : "until the adhan"
+    }
+    if elapsed { return isAr ? "مضى على الشروق" : "since sunrise" }
     return isAr ? "باقي على الشروق" : "until sunrise"
 }
 
@@ -330,7 +338,8 @@ struct PrayerRectangularView: View {
 /// and a live countdown, so the circle is now the rectangle in miniature:
 /// the name, the counter where the circle is widest, and the adhan time
 /// under it. After the adhan the time has already passed, so that line
-/// says «مضى على الأذان» instead, which is what a counter going UP needs.
+/// says «مضى على الأذان» instead («مضى على الشروق» after sunrise), which is
+/// what a counter going UP needs.
 struct PrayerCircularView: View {
     var entry: PrayerEntry
 
@@ -352,7 +361,7 @@ struct PrayerCircularView: View {
         } else {
             // "since the adhan" needs more than the bottom line's width even
             // at the smallest scale and came out as "since the adh…".
-            footer = "since adhan"
+            footer = prayer.hasAdhan ? "since adhan" : "since sunrise"
         }
         return AnyView(
             ZStack {

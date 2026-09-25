@@ -143,13 +143,16 @@ struct PrayerCountdownFace: View {
                     .minimumScaleFactor(0.7)
                     .padding(.top, m.labelGap)
 
-                // Green once the adhan has gone, so the change of phase
-                // reads at a glance and not only from the words.
+                // In the name's colour once the adhan has gone (or the sun
+                // is up), so the change of phase reads at a glance and not
+                // only from the words. It was green until Aziz found the
+                // green clashing with the warm skies (2026-09-25) and chose
+                // this from three rendered options.
                 PrayerFaceTicker(
                     target: prayer.date,
                     size: m.counter,
                     tracking: m.counterTracking,
-                    color: entry.elapsed ? palette.elapsed : palette.ink
+                    color: entry.elapsed ? palette.name : palette.ink
                 )
                 .padding(.top, m.counterGap)
             }

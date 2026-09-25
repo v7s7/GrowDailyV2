@@ -17,15 +17,29 @@
 import Foundation
 import WidgetKit
 
-/// How long «مضى على الأذان» stays up after the adhan before the face moves
-/// on to the next prayer. Aziz's number (2026-09-23).
+/// How many minutes each moment stays on the face after it passes,
+/// counting up («مضى على الأذان», or «مضى على الشروق» for sunrise), before
+/// the face moves on to the next one. Aziz's numbers (2026-09-25), which
+/// replaced a flat half hour for the five and none at all for sunrise: with
+/// none, the face left sunrise the second the sun was up, where the widget
+/// he compared it with still said «مضى على الشروق».
 ///
-/// Also the cap on how late a prayer can still be "the one showing": a
-/// prayer whose window has closed is simply skipped, which is what makes
-/// the face self-correct after the phone has been off for a few hours.
+/// Also the cap on how late a moment can still be "the one showing": one
+/// whose window has closed is simply skipped, which is what makes the face
+/// self-correct after the phone has been off for a few hours.
 ///
-/// Sunrise gets none of it — see PrayerSlot.hasAdhan.
-let prayerElapsedWindow: TimeInterval = 30 * 60
+/// Must match PrayerWidgetFeed.elapsedMinutes (lib/core/services/
+/// prayer_widget_feed.dart), which drops a moment from the list once its
+/// window has closed. test/core/prayer_widget_feed_test.dart reads this
+/// table and holds the two equal, so keep it a plain literal.
+let prayerElapsedMinutes: [String: Int] = [
+    "fajr": 25,
+    "sunrise": 15,
+    "dhuhr": 25,
+    "asr": 25,
+    "maghrib": 15,
+    "isha": 25,
+]
 
 // MARK: - Shared data
 
@@ -63,14 +77,15 @@ struct PrayerSlot: Codable {
     /// Whether an adhan is called for this moment. Sunrise is in the list
     /// because the gap between Fajr and Dhuhr is otherwise five hours with
     /// nothing to count to (Aziz asked for it on 2026-09-23), but it is not
-    /// a prayer: nobody calls it, so the face says «باقي على الشروق» rather
-    /// than «باقي على الأذان», and it gets NO elapsed window — the moment
-    /// the sun is up the face moves on to Dhuhr, because «مضى على الأذان»
-    /// would be saying something that never happened.
+    /// a prayer: nobody calls it, so the face names the sun where it would
+    /// name the adhan, «باقي على الشروق» before it and «مضى على الشروق»
+    /// after, because «مضى على الأذان» would be saying something that never
+    /// happened.
     var hasAdhan: Bool { k != "sunrise" }
 
-    /// How long this moment stays on the face after it passes.
-    var elapsedWindow: TimeInterval { hasAdhan ? prayerElapsedWindow : 0 }
+    /// How long this moment stays on the face after it passes: its minutes
+    /// in prayerElapsedMinutes, or none for a key the table does not name.
+    var elapsedWindow: TimeInterval { TimeInterval((prayerElapsedMinutes[k] ?? 0) * 60) }
 }
 
 
@@ -117,14 +132,15 @@ func prayerPeriodKey(at date: Date, slots: [PrayerSlot]) -> String {
 /// Pure, so the entry shape can be reasoned about (and checked) without a
 /// widget host, a clock or an App Group.
 ///
-/// For each prayer still worth showing, at most two entries:
-///   • the countdown, starting when the PREVIOUS prayer's elapsed window
+/// For each moment still worth showing, at most two entries:
+///   • the countdown, starting when the PREVIOUS moment's elapsed window
 ///     closes (or now, for the one on screen right now), and
-///   • the count-up, starting at the adhan itself.
+///   • the count-up, starting at the moment itself: the adhan, or the sun
+///     coming up.
 ///
-/// A prayer already more than [prayerElapsedWindow] old is skipped
-/// entirely, which is how a phone switched on at noon lands straight on
-/// Dhuhr instead of walking through the morning.
+/// A moment already older than its own window (prayerElapsedMinutes) is
+/// skipped entirely, which is how a phone switched on at noon lands
+/// straight on Dhuhr instead of walking through the morning.
 func buildPrayerEntries(slots: [PrayerSlot], now: Date, isAr: Bool, limit: Int = 15) -> [PrayerEntry] {
     let live = slots
         .filter { $0.date.addingTimeInterval($0.elapsedWindow) > now }
@@ -143,10 +159,11 @@ func buildPrayerEntries(slots: [PrayerSlot], now: Date, isAr: Bool, limit: Int =
         if openedAt < adhan {
             entries.append(PrayerEntry(date: openedAt, prayer: slot, elapsed: false, isAr: isAr))
         }
-        // The count-up face, for the moments that have an adhan to have
-        // passed. Sunrise has none, so it simply hands over to Dhuhr the
-        // instant the sun is up.
-        if slot.hasAdhan {
+        // The count-up face, for every moment with a window after it, which
+        // since 2026-09-25 is all six: sunrise too, as «مضى على الشروق». A
+        // key the table does not name hands over to the next moment the
+        // instant it passes.
+        if slot.elapsedWindow > 0 {
             // `max(openedAt, adhan)` because entry dates have to keep
             // climbing.
             let elapsedStart = max(openedAt, adhan)
@@ -165,10 +182,10 @@ func buildPrayerEntries(slots: [PrayerSlot], now: Date, isAr: Bool, limit: Int =
     // The sky changes at every one of the six moments, and the words
     // nearly always change there too, so nearly every entry already starts
     // on one. The exception is an elapsed window that runs past the next
-    // moment, which only two moments less than half an hour apart produce
-    // (الفجر and الشروق at a very high latitude): that entry would carry the
-    // old sky past the moment. So a moment falling inside an entry splits
-    // it, with the same words and the new sky from then on.
+    // moment, which only two moments closer together than the first one's
+    // window produce (الفجر and الشروق at a very high latitude): that entry
+    // would carry the old sky past the moment. So a moment falling inside
+    // an entry splits it, with the same words and the new sky from then on.
     var timed: [PrayerEntry] = []
     for (i, entry) in entries.enumerated() {
         timed.append(entry)

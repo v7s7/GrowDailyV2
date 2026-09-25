@@ -5,6 +5,8 @@
 // counts to it. So the two things this list has to get right are the ONLY
 // two things that can make the face wrong — which prayers are in it, and
 // where it starts.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/services/prayer_times_service.dart';
 import 'package:grow_daily_v2/core/services/prayer_widget_feed.dart';
@@ -72,47 +74,67 @@ void main() {
     expect(out.map((e) => e.key), ['dhuhr', 'asr', 'maghrib', 'isha']);
   });
 
-  test('sunrise leaves the list the moment it passes', () {
+  test('sunrise stays a quarter hour after it passes, then leaves', () {
     final schedule = [_day(zone, DateTime(2026, 9, 23))];
+    String firstAt(int hour, int minute) => PrayerWidgetFeed.flatten(
+          schedule,
+          from: DateTime(2026, 9, 23, hour, minute),
+        ).first.key;
 
-    // One minute before the fixture's 05:30 sunrise.
-    final before = PrayerWidgetFeed.flatten(
-      schedule,
-      from: DateTime(2026, 9, 23, 5, 29),
-    );
-    expect(before.first.key, 'sunrise', reason: 'a minute before, it is next');
-
-    // 05:31 — one minute after. No adhan was called, so there is nothing to
-    // say «مضى على الأذان» about and the face moves straight to Dhuhr, where
-    // a prayer at the same moment would have stayed for half an hour.
-    final after = PrayerWidgetFeed.flatten(
-      schedule,
-      from: DateTime(2026, 9, 23, 5, 31),
-    );
-    expect(after.first.key, 'dhuhr');
-    expect(PrayerWidgetFeed.elapsedWindowFor('sunrise'), Duration.zero);
-    expect(PrayerWidgetFeed.elapsedWindowFor('fajr'),
-        PrayerWidgetFeed.elapsedWindow);
+    // One minute before the fixture's 05:30 sunrise, it is next.
+    expect(firstAt(5, 29), 'sunrise');
+    // 05:44, fourteen minutes after: the face is counting «مضى على الشروق»
+    // up. Until 2026-09-25 sunrise left the list the moment it passed, and
+    // the face was already counting down to Dhuhr here.
+    expect(firstAt(5, 44), 'sunrise');
+    // 05:45, its fifteen minutes are over.
+    expect(firstAt(5, 45), 'dhuhr');
   });
 
-  test('drops a prayer once its elapsed window has closed', () {
+  test('a prayer stays 25 minutes after its adhan, Maghrib 15', () {
     final schedule = [_day(zone, DateTime(2026, 9, 23))];
+    String firstAt(int hour, int minute) => PrayerWidgetFeed.flatten(
+          schedule,
+          from: DateTime(2026, 9, 23, hour, minute),
+        ).first.key;
 
-    // 12:01 — thirty-one minutes past Dhuhr. The half hour is over and the
-    // face has already moved on to Asr.
-    final out = PrayerWidgetFeed.flatten(
-      schedule,
-      from: DateTime(2026, 9, 23, 12, 1),
-    );
-
-    expect(out.first.key, 'asr');
+    // Fajr 04:10: still showing at 04:34, gone at 04:35, where the face
+    // turns to «باقي على الشروق».
+    expect(firstAt(4, 34), 'fajr');
+    expect(firstAt(4, 35), 'sunrise');
+    // Dhuhr 11:30, the same 25 minutes.
+    expect(firstAt(11, 54), 'dhuhr');
+    expect(firstAt(11, 55), 'asr');
+    // Maghrib 17:30 keeps only 15.
+    expect(firstAt(17, 44), 'maghrib');
+    expect(firstAt(17, 45), 'isha');
   });
 
-  test('the elapsed window matches the widget\'s own', () {
-    // ios/GrowDailyWidget/PrayerCountdownWidget.swift's
-    // prayerElapsedWindow. A shorter window here would delete the very
-    // prayer the widget is showing; a longer one would leave a dead prayer
-    // in the list for the widget to skip.
-    expect(PrayerWidgetFeed.elapsedWindow, const Duration(minutes: 30));
+  test('the minutes match the widget\'s own table', () {
+    // The widget applies the same windows against its own clock
+    // (prayerElapsedMinutes in ios/GrowDailyWidget/PrayerSchedule.swift). A
+    // shorter window here would delete the very moment the face is showing;
+    // a longer one would leave a dead moment in the list for the widget to
+    // skip. So the Swift table is read, not restated.
+    final swift =
+        File('ios/GrowDailyWidget/PrayerSchedule.swift').readAsStringSync();
+    final table = RegExp(r'let prayerElapsedMinutes[^=]*=\s*\[([^\]]*)\]')
+        .firstMatch(swift);
+    expect(table, isNotNull, reason: 'prayerElapsedMinutes moved or renamed');
+    final swiftMinutes = {
+      for (final m in RegExp(r'"(\w+)":\s*(\d+)').allMatches(table!.group(1)!))
+        m.group(1)!: int.parse(m.group(2)!),
+    };
+
+    expect(PrayerWidgetFeed.elapsedMinutes, swiftMinutes);
+    // Aziz's numbers, 2026-09-25.
+    expect(PrayerWidgetFeed.elapsedMinutes, {
+      'fajr': 25,
+      'sunrise': 15,
+      'dhuhr': 25,
+      'asr': 25,
+      'maghrib': 15,
+      'isha': 25,
+    });
   });
 }

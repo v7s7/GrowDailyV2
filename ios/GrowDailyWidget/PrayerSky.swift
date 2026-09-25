@@ -52,28 +52,37 @@
 //      sunrise    0.212-0.357    0.232-0.311    0.318-0.424    0.376-0.632
 //
 //  and the worst contrast each colour reaches there (the adhan time is in
-//  the secondary colour, the green is the counter after the adhan):
+//  the secondary colour; "after" is the counter once the adhan has gone,
+//  which takes the name's colour, measured on the counter's row):
 //
-//                 name   time   label   counter   green
-//      night      7.19   6.27   6.68    11.29     7.39
-//      midday     5.12   5.64   5.75    13.86     5.31
-//      afternoon  3.36   4.66   5.91    8.21      5.24
-//      sunrise    3.27   4.67   6.10    7.08      4.99
+//                 name   time   label   counter   after
+//      night      7.19   6.27   6.68    11.29     6.96
+//      midday     5.12   5.64   5.75    13.86     5.11
+//      afternoon  3.36   4.66   5.91    8.21      5.11
+//      sunrise    3.27   4.67   6.10    7.08      5.32
+//
+//  The counter after the adhan was a green of its own until 2026-09-25,
+//  when Aziz found it clashing with the warm skies and picked the name's
+//  colour from three rendered options (the name's colour, the countdown's
+//  ink, or the green). The "after" column is worked out against the
+//  counter-row ranges above. Measuring the images directly that day gave
+//  the same or a little higher (7.13, 5.18, 5.11, 5.38), and brought the
+//  old green back within 3% of the figures it was solved to, so the two
+//  methods agree.
 //
 //  Every colour also clears its bar on its sky's `ground`, the flat fill
 //  under the image, which is what a face shows if the image fails to load.
-//  That is what deepened the two warm greens: at the canvas's shades they
-//  read 4.4 on it.
+//  The name holds 4.5:1 there too now that it is also the counter's colour
+//  (4.71 on the afternoon ground, the closest).
 //
 //  The mosque takes the name's colour: faint on the medium card, where it
 //  stands on the bottom edge with only sky behind it, and strong on the
 //  small one, where it is the card's only mark.
 //
-//  The sunrise sky shows «مضى على الأذان» only where الفجر's half hour
-//  runs past sunrise, which takes a very high latitude (buildPrayerEntries
-//  splits that entry at sunrise). Everywhere else its stretch runs from
-//  sunrise, which has no adhan, to الظهر, whose count-up belongs to the
-//  midday sky. Its green is solved for that one case.
+//  The sunrise sky carries a count-up every morning since 2026-09-25:
+//  «مضى على الشروق» for the quarter hour after the sun comes up
+//  (prayerElapsedMinutes), in the name's colour. Its stretch then runs
+//  on to الظهر, whose own count-up belongs to the midday sky.
 //
 //  IF AN IMAGE IS REGENERATED, OR THE FACE'S LINES MOVE, these numbers stop
 //  being true. Re-measure the rows and re-solve before trusting any of them.
@@ -92,11 +101,10 @@ struct PrayerSky {
     let ink: Color
     /// The adhan time beside the name, and the line under it.
     let secondary: Color
-    /// The prayer's name, and the mosque.
+    /// The prayer's name, the mosque, and the counter once the adhan has
+    /// gone (or the sun is up), so the change of phase reads at a glance
+    /// and not only from the words.
     let name: Color
-    /// The counter after the adhan: green, so the change of phase reads at
-    /// a glance and not only from the words.
-    let elapsed: Color
     /// The medium card's mosque, standing on its bottom edge.
     let mosqueOpacity: Double
     /// The small card's mosque, the mark in its top corner.
@@ -119,7 +127,6 @@ struct PrayerSky {
         ink: skyRGB(0x2B, 0x20, 0x17),
         secondary: skyRGB(0x6E, 0x5C, 0x47),
         name: skyRGB(0x8C, 0x5A, 0x10),
-        elapsed: skyRGB(0x17, 0x70, 0x4A),
         mosqueOpacity: 0.13,
         markOpacity: 0.7
     )
@@ -131,7 +138,6 @@ struct PrayerSky {
         ink: skyRGB(0x2E, 0x15, 0x0A),
         secondary: skyRGB(0x4A, 0x23, 0x11),
         name: skyRGB(0x6E, 0x28, 0x10),
-        elapsed: skyRGB(0x0D, 0x46, 0x29),
         mosqueOpacity: 0.22,
         markOpacity: 0.75
     )
@@ -143,7 +149,6 @@ struct PrayerSky {
         ink: skyRGB(0x2A, 0x14, 0x07),
         secondary: skyRGB(0x2B, 0x14, 0x07),
         name: skyRGB(0x53, 0x22, 0x08),
-        elapsed: skyRGB(0x0B, 0x3D, 0x22),
         mosqueOpacity: 0.22,
         markOpacity: 0.75
     )
@@ -155,7 +160,6 @@ struct PrayerSky {
         ink: skyRGB(0xF4, 0xEC, 0xDF),
         secondary: skyRGB(0xB8, 0xAA, 0x96),
         name: skyRGB(0xE4, 0xB4, 0x5F),
-        elapsed: skyRGB(0x66, 0xD6, 0xA6),
         mosqueOpacity: 0.16,
         markOpacity: 0.8
     )
