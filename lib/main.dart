@@ -2609,8 +2609,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             habitId: habit.id,
             day: actionDay,
             // Mirrors the completion's boost — see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: actionDay),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: actionDay),
             // Same per-day count the completion was priced against, so
             // the refund matches the debit — see uncompleteHabit.
             frequencyTarget: habit.effectiveDailyTarget,
@@ -2676,9 +2676,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
                 runsOn: streakRunsOnDays,
                 // 2x while a linked room is live — see roomBoostedReward.
-                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: actionDay),
                 goldReward:
-                    roomBoostedReward(ref, habit.id, habit.goldReward),
+                    roomBoostedReward(ref, habit.id, habit.goldReward, day: actionDay),
                 frequencyTarget: habit.effectiveDailyTarget,
                 // Today's answer comes from `completions`; a grace day's
                 // has to come from that day's own squares, because

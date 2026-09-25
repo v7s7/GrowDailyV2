@@ -207,8 +207,8 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
               habitId: habit.id,
               scheduledWeekdays: habit.scheduledWeekdays.toSet(),
               runsOn: habit.runsOn,
-              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-              goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: DateTime.now().effectiveDay),
+              goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: DateTime.now().effectiveDay),
               frequencyTarget: perDay,
               allHabitsDoneAfter: willCompleteAllHabitsToday(
                 state: dashState,

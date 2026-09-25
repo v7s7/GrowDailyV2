@@ -674,8 +674,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             day: day,
             habitId: habit.id,
             // Mirrors the completion's boost, see roomBoostedReward.
-            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+            xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: day),
+            goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: day),
             // Same per-day count the completion was priced against, so
             // the refund matches the debit — see uncompleteHabit.
             frequencyTarget: habit.effectiveDailyTarget,
@@ -799,8 +799,8 @@ Future<bool> _completeOpenDay(
       );
     return false;
   }
-  final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
-  final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
+  final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward, day: day);
+  final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward, day: day);
   final todayHabits = _streakRosterFor(ref, habit, day);
   final streakRunsOn = await _streakRunsOnFor(ref, habit, day);
   // The palette sets one explicit outcome for the WHOLE day, so picking

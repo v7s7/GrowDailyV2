@@ -992,8 +992,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
       // Mirrors the completion's boost — see roomBoostedReward. Read once and
       // passed to both the dialog and the undo, so the number a person is
       // shown is the exact number that moves.
-      final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
-      final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
+      final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward, day: day);
+      final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward, day: day);
       final confirmed = await _confirmClearMark(
         context,
         habitName: habit.localName(S.of(context).isAr),
@@ -1186,9 +1186,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 scheduledWeekdays: habit.scheduledWeekdays.toSet(),
                 runsOn: streakRunsOn,
                 // 2x while a linked room is live — see roomBoostedReward.
-                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
+                xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: day),
                 goldReward:
-                    roomBoostedReward(ref, habit.id, habit.goldReward),
+                    roomBoostedReward(ref, habit.id, habit.goldReward, day: day),
                 frequencyTarget: habit.effectiveDailyTarget,
                 // Today's answer comes from `completions`; a grace day's has
                 // to come from that day's own squares, because `completions`
@@ -1259,8 +1259,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
       return;
     }
     final target = habit.effectiveDailyTarget;
-    final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward);
-    final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward);
+    final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward, day: day);
+    final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward, day: day);
     final todayHabits = _streakRosterFor(ref, habit, day);
     final streakRunsOn = await _streakRunsOnFor(ref, habit, day);
     HapticFeedback.mediumImpact();
@@ -1371,8 +1371,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
           habitId: habit.id,
           scheduledWeekdays: habit.scheduledWeekdays.toSet(),
           runsOn: streakRunsOn,
-          xpReward: roomBoostedReward(ref, habit.id, habit.xpReward),
-          goldReward: roomBoostedReward(ref, habit.id, habit.goldReward),
+          xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: day),
+          goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: day),
           frequencyTarget: target,
           // See willCompleteAllSquaresOn. On yesterday the square this tap
           // leaves is green only if it finishes the count, and جزئي before
