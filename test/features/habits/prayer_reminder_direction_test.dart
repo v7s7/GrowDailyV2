@@ -339,7 +339,6 @@ void main() {
       latitude: _manama.lat,
       longitude: _manama.lng,
       date: DateTime.now(),
-      madhab: settings.madhab,
       countryCode: settings.resolvedCountryCode,
     ).forKey('fajr')!;
     final t = fajr.add(Duration(minutes: offset));

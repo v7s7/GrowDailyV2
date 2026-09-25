@@ -89,7 +89,6 @@ void main() {
         longitude: _manamaLng,
         from: from,
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
 
@@ -116,7 +115,6 @@ void main() {
         longitude: _manamaLng,
         from: DateTime(2026, 9, 8),
         days: 1,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
       final october = await PrayerTimesService.calculateDays(
@@ -124,7 +122,6 @@ void main() {
         longitude: _manamaLng,
         from: DateTime(2026, 10, 8),
         days: 1,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
       int minutes(tz.TZDateTime t) => t.hour * 60 + t.minute;
@@ -146,7 +143,6 @@ void main() {
         longitude: _manamaLng,
         from: DateTime(2026, 9, 8),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
       expect(requests, 0);
@@ -161,7 +157,6 @@ void main() {
         longitude: _manamaLng,
         from: DateTime(2027, 6, 4),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
       expect(days, hasLength(5));
@@ -183,7 +178,6 @@ void main() {
         longitude: _cairoLng,
         from: DateTime(2026, 9, 8),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       expect(days, hasLength(5));
@@ -203,7 +197,6 @@ void main() {
         longitude: _cairoLng,
         from: DateTime(2026, 9, 8),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       // The stub moves Fajr a minute every other day, so five days spans
@@ -228,7 +221,6 @@ void main() {
         longitude: _cairoLng,
         from: DateTime(2026, 9, 29),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       expect(days, hasLength(5));
@@ -250,7 +242,6 @@ void main() {
           longitude: _cairoLng,
           from: DateTime(2026, 9, 8),
           days: 5,
-          madhab: PrayerMadhab.shafi,
           countryCode: 'EG',
         );
       }
@@ -270,7 +261,6 @@ void main() {
             longitude: _cairoLng,
             from: DateTime(2026, 9, 8),
             days: 5,
-            madhab: PrayerMadhab.shafi,
             countryCode: 'EG',
           ),
       ]);
@@ -284,7 +274,6 @@ void main() {
         longitude: _cairoLng,
         from: DateTime(2026, 9, 8),
         days: 5,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       expect(days, hasLength(5));
@@ -293,7 +282,6 @@ void main() {
           latitude: _cairoLat,
           longitude: _cairoLng,
           date: DateTime(2026, 9, 8 + i),
-          madhab: PrayerMadhab.shafi,
           countryCode: 'EG',
         );
         expect(days[i].fajr, expected.fajr,
@@ -314,7 +302,6 @@ void main() {
           longitude: _cairoLng,
           from: DateTime(2026, 9, 8),
           days: 5,
-          madhab: PrayerMadhab.shafi,
           countryCode: 'EG',
         );
       }
@@ -352,7 +339,6 @@ void main() {
         longitude: _cairoLng,
         from: DateTime(2026, 9, 8),
         days: 2,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       expect(days, hasLength(2));
@@ -362,7 +348,6 @@ void main() {
         latitude: _cairoLat,
         longitude: _cairoLng,
         date: DateTime(2026, 9, 8),
-        madhab: PrayerMadhab.shafi,
         countryCode: 'EG',
       );
       expect(days[0].fajr, fallback.fajr);
@@ -420,7 +405,7 @@ void main() {
   });
 
   group('aladhanCalendarUri', () {
-    test('carries the same place, method, madhab and zone the day '
+    test('carries the same place, method, Asr school and zone the day '
         'endpoint does', () {
       final uri = PrayerTimesService.aladhanCalendarUri(
         latitude: _cairoLat,
@@ -428,12 +413,12 @@ void main() {
         year: 2026,
         month: 9,
         method: PrayerCalcMethod.egyptian,
-        madhab: PrayerMadhab.hanafi,
         fajrCorrectionMinutes: 9,
       );
       expect(uri.host, 'api.aladhan.com');
       expect(uri.path, '/v1/calendar/2026/9');
-      expect(uri.queryParameters['school'], '1');
+      // The standard Asr, as on the day endpoint: Hanafi (1) is gone.
+      expect(uri.queryParameters['school'], '0');
       expect(uri.queryParameters['tune'], '0,9,0,0,0,0,0,0,0');
       expect(uri.queryParameters['latitude'], '$_cairoLat');
       expect(uri.queryParameters['timezonestring'], 'Asia/Bahrain');

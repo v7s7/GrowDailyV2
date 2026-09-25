@@ -83,7 +83,7 @@ class PrayerWidgetFeed {
   /// one would otherwise recompute the identical week.
   static Future<void> _chain = Future.value();
 
-  /// The (location, madhab, country, day) a push last covered. A repeat of
+  /// The (location, country, day) a push last covered. A repeat of
   /// the same inputs on the same day is skipped: the widget filters the
   /// list against its own clock, so nothing about it goes stale during a
   /// day, and every resume would otherwise redo the work.
@@ -109,7 +109,7 @@ class PrayerWidgetFeed {
       final loc = settings.location;
       final key = loc == null
           ? 'none'
-          : '${loc.lat},${loc.lng},${settings.madhab.name},'
+          : '${loc.lat},${loc.lng},'
               '${settings.resolvedCountryCode},'
               '${now.year}-${now.month}-${now.day}';
       if (key == _lastPushKey) return;
@@ -125,7 +125,6 @@ class PrayerWidgetFeed {
         longitude: loc.lng,
         from: now,
         days: days,
-        madhab: settings.madhab,
         countryCode: settings.resolvedCountryCode,
       );
       final out = flatten(schedule, from: now);

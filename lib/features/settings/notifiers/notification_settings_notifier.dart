@@ -83,13 +83,39 @@ class NotificationSettingsNotifier extends StateNotifier<NotificationSettings> {
   ) =>
       _persist(mutator(state));
 
+  /// Completes once this device's own saved settings are in [state]. Until
+  /// then [state] is the all-defaults placeholder, whose null location
+  /// means "not read yet", not "this person has none": anything that acts
+  /// on a missing location (the prayer widget's feed) waits for this.
+  Future<void> get loaded => _loadFuture;
+
+  /// The latest [pullFromAccount], so [settled] can wait for it.
+  Future<void>? _pullFuture;
+
+  /// Completes once this device's saved settings are loaded and any
+  /// account pull already started has landed.
+  ///
+  /// autoLocatePrayerPlace waits on this before it writes a place. A save
+  /// that lands while a pull is still reading would go up to the account
+  /// as this device's defaults plus the place, over the account's own
+  /// settings, and the pull would then put the old ones back on this
+  /// device only.
+  Future<void> get settled async {
+    await loaded;
+    final pull = _pullFuture;
+    if (pull != null) await pull;
+  }
+
   /// Called once a signed-in uid is known (mirrors ReminderTimeNotifier.
   /// pullFromAccount exactly) — only pulls the account's saved settings
   /// when this device doesn't already have its own, and never on its own
   /// triggers a permission prompt or reschedule; the reactive listener that
   /// watches this provider picks up the new state and reschedules through
   /// the normal path.
-  Future<void> pullFromAccount(String uid) async {
+  Future<void> pullFromAccount(String uid) =>
+      _pullFuture = _pullFromAccount(uid);
+
+  Future<void> _pullFromAccount(String uid) async {
     _uid = uid;
     await _loadFuture;
     if (_hasLocalValue) {
@@ -181,45 +207,84 @@ Future<DeviceLocationOutcome> detectAndSaveLocation(
   final outcome = await DeviceLocationService.detect();
   if (!outcome.isSuccess || !isMounted()) return outcome;
 
-  final fix = outcome.fix!;
-  await ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
-        location: NotificationLocation(
-          lat: fix.latitude,
-          lng: fix.longitude,
-          label: resolvingLabel,
-        ),
-      ));
+  await savePhoneLocation(
+    ref.read,
+    outcome.fix!,
+    isAr: isAr,
+    resolvingLabel: resolvingLabel,
+    genericLabel: genericLabel,
+    isMounted: isMounted,
+  );
+  return outcome;
+}
 
-  // Fire-and-forget: the location itself is already set and usable (every
-  // caller needs is the lat/lng, available the instant the block above
-  // returns) — the nicer place-name label and country code are a
-  // background upgrade, not something worth making anyone wait on a second
-  // network round trip for.
+/// A provider read, from a widget's ref or the app's own container alike,
+/// so the same save can run from a sheet and from app start.
+typedef ProviderRead = T Function<T>(ProviderListenable<T> provider);
+
+/// Saves [fix] as the phone's own location (`auto: true`, so the app keeps
+/// it current), then upgrades its label to the real place name and fills
+/// in the country code in the background.
+///
+/// The place is usable the instant the first write lands: every caller
+/// needs only the lat/lng, and the nicer «المنامة، البحرين» label and the
+/// country code are a background upgrade, not something worth making
+/// anyone wait on a second network round trip for.
+///
+/// A place that MOVES (one was saved before) drops the old country code in
+/// that same first write. Outside the Gulf the method comes from the code,
+/// so Riyadh's code on a Cairo fix would compute Cairo with Saudi rules
+/// for as long as the lookup takes, and for good if it fails offline;
+/// with no code the coordinates' own region applies until the new one
+/// lands.
+///
+/// [isMounted], when given, is checked after every await: a sheet the user
+/// closes mid-lookup has taken its ref with it.
+Future<void> savePhoneLocation(
+  ProviderRead read,
+  DeviceLocationFix fix, {
+  required bool isAr,
+  required String resolvingLabel,
+  required String genericLabel,
+  bool Function()? isMounted,
+}) async {
+  bool alive() => isMounted?.call() ?? true;
+  final notifier = read(notificationSettingsProvider.notifier);
+  await notifier.update((c) {
+    final base = c.location == null ? c : c.copyWith(clearLocation: true);
+    return base.copyWith(
+      location: NotificationLocation(
+        lat: fix.latitude,
+        lng: fix.longitude,
+        label: resolvingLabel,
+        auto: true,
+      ),
+    );
+  });
+
   unawaited(() async {
     final place = await CountryLookupService.lookupPlace(
       fix.latitude,
       fix.longitude,
       languageCode: isAr ? 'ar' : 'en',
     );
-    if (!isMounted()) return;
-    final current = ref.read(notificationSettingsProvider).location;
-    // Guards the exact same race NotificationSettingsScreen's own
-    // background resolution does: don't let a slow lookup from this fix
-    // clobber a newer location someone's since set another way.
+    if (!alive() || !notifier.mounted) return;
+    final current = read(notificationSettingsProvider).location;
+    // Don't let a slow lookup from this fix clobber a newer location
+    // someone's since set another way.
     if (current == null ||
         current.lat != fix.latitude ||
         current.lng != fix.longitude) {
       return;
     }
-    await ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
+    await notifier.update((c) => c.copyWith(
           resolvedCountryCode: place.code ?? c.resolvedCountryCode,
           location: NotificationLocation(
             lat: fix.latitude,
             lng: fix.longitude,
             label: place.label ?? genericLabel,
+            auto: true,
           ),
         ));
   }());
-
-  return outcome;
 }

@@ -22,13 +22,30 @@ class NotificationLocation {
   final double lng;
   final String label; // e.g. "Cairo, Al Qahirah, Egypt" — shown verbatim in Settings
 
+  /// Where this place came from, which decides whether the app may move it:
+  ///  - true: the phone's own location. Kept current on its own, so a
+  ///    person who travels gets the new city's prayers the next time the
+  ///    app is opened (see autoLocatePrayerPlace).
+  ///  - false: a city the person picked by hand. Never moved for them; a
+  ///    tap on the location row is how they go back to automatic.
+  ///  - null: saved before 2026-09-25, when nobody recorded which. Treated
+  ///    as the phone's own when location access is granted, since granting
+  ///    it was the only way a location got saved without a search.
+  final bool? auto;
+
   const NotificationLocation({
     required this.lat,
     required this.lng,
     required this.label,
+    this.auto,
   });
 
-  Map<String, dynamic> toMap() => {'lat': lat, 'lng': lng, 'label': label};
+  Map<String, dynamic> toMap() => {
+        'lat': lat,
+        'lng': lng,
+        'label': label,
+        if (auto != null) 'auto': auto,
+      };
 
   static NotificationLocation? fromMap(Object? raw) {
     if (raw is! Map) return null;
@@ -38,7 +55,13 @@ class NotificationLocation {
     if (lat == null || lng == null || label == null || label.isEmpty) {
       return null;
     }
-    return NotificationLocation(lat: lat, lng: lng, label: label);
+    final auto = raw['auto'];
+    return NotificationLocation(
+      lat: lat,
+      lng: lng,
+      label: label,
+      auto: auto is bool ? auto : null,
+    );
   }
 
   @override
@@ -47,10 +70,11 @@ class NotificationLocation {
       other is NotificationLocation &&
           lat == other.lat &&
           lng == other.lng &&
-          label == other.label;
+          label == other.label &&
+          auto == other.auto;
 
   @override
-  int get hashCode => Object.hash(lat, lng, label);
+  int get hashCode => Object.hash(lat, lng, label, auto);
 }
 
 String _timeToMap(TimeOfDay t) => '${t.hour}:${t.minute}';
@@ -193,7 +217,9 @@ class NotificationSettings {
   /// successfully (e.g. on the next GPS re-detect).
   final String? resolvedCountryCode;
 
-  final PrayerMadhab madhab;
+  // There is no Asr madhab here any more: Asr is always the standard time
+  // (see PrayerTimesService._asrMadhab). A 'madhab' key saved by an older
+  // build is left in storage and simply not read.
 
   const NotificationSettings({
     this.masterEnabled = true,
@@ -211,7 +237,6 @@ class NotificationSettings {
     this.streakRiskTime = const TimeOfDay(hour: 20, minute: 30),
     this.location,
     this.resolvedCountryCode,
-    this.madhab = PrayerMadhab.shafi,
   });
 
   bool get hasLocation => location != null;
@@ -242,7 +267,6 @@ class NotificationSettings {
     // explicitly (as _LocationRow does, in the same call that sets a new
     // location) to update it instead.
     String? resolvedCountryCode,
-    PrayerMadhab? madhab,
   }) =>
       NotificationSettings(
         masterEnabled: masterEnabled ?? this.masterEnabled,
@@ -264,7 +288,6 @@ class NotificationSettings {
         resolvedCountryCode: clearLocation
             ? null
             : (resolvedCountryCode ?? this.resolvedCountryCode),
-        madhab: madhab ?? this.madhab,
       );
 
   Map<String, dynamic> toMap() => {
@@ -286,7 +309,6 @@ class NotificationSettings {
         if (location != null) 'location': location!.toMap(),
         if (resolvedCountryCode != null)
           'resolvedCountryCode': resolvedCountryCode,
-        'madhab': madhab.toJson(),
       };
 
   factory NotificationSettings.fromMap(Map<String, dynamic> map) {
@@ -321,7 +343,6 @@ class NotificationSettings {
       streakRiskTime: _timeFromMap(map['streakRiskTime'], defaults.streakRiskTime),
       location: NotificationLocation.fromMap(map['location']),
       resolvedCountryCode: map['resolvedCountryCode'] as String?,
-      madhab: PrayerMadhab.fromJson(map['madhab'] as String?),
     );
   }
 }

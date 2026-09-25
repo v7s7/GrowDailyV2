@@ -44,94 +44,12 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// 17 more, and a plain global default everywhere else — see that
 /// function's doc comment), so there's nothing left for a picker to
 /// meaningfully change.
-/// [_InfoRow] below shows the resolved method read-only. The madhab,
-/// unlike the method, IS a personal choice the location can't infer (a
-/// Hanafi user in Bahrain still prays Asr at the Hanafi time), so it gets
-/// its own editable row — a two-option sheet, since the only fork adhan
-/// exposes is Hanafi vs everyone else, and it only moves Asr.
+/// [_InfoRow] below shows the resolved method read-only. There was an Asr
+/// madhab row under it (Shafi or Hanafi) until 2026-09-25; Aziz removed it,
+/// and Asr is now always the standard time every Gulf timetable publishes
+/// (see PrayerTimesService._asrMadhab).
 class NotificationSettingsScreen extends ConsumerWidget {
   const NotificationSettingsScreen({super.key});
-
-  /// The two-option madhab sheet. A sheet rather than an inline toggle so
-  /// there is room to say the one thing that stops this reading as a
-  /// sect-picker: it only moves the Asr time.
-  void _pickMadhab(
-      BuildContext context, WidgetRef ref, PrayerMadhab current) {
-    HapticFeedback.selectionClick();
-    final s = S.of(context);
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      useSafeArea: true,
-      builder: (sheetContext) {
-        final gp = sheetContext.gp;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-              16, 0, 16, 16 + MediaQuery.of(sheetContext).padding.bottom),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-            decoration: BoxDecoration(
-              color: gp.surfaceHigh,
-              borderRadius: BorderRadius.circular(22),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  s.notifMadhab,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  s.notifMadhabHint,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 11.5, color: gp.textSec, height: 1.35),
-                ),
-                const SizedBox(height: 8),
-                for (final option in PrayerMadhab.values)
-                  InkWell(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      ref
-                          .read(notificationSettingsProvider.notifier)
-                          .update((c) => c.copyWith(madhab: option));
-                      Navigator.pop(sheetContext);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              option.label(s.isAr),
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: gp.textPrimary,
-                              ),
-                            ),
-                          ),
-                          if (option == current)
-                            Icon(Icons.check_rounded,
-                                size: 18, color: context.gp.goldInk),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -270,18 +188,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
                                   countryCode: settings.resolvedCountryCode)
                               .method
                               .label(isAr),
-                    ),
-                    const _RowDivider(),
-                    // Editable, unlike the method above: see the screen's
-                    // doc comment. Everything downstream (serialization,
-                    // copyWith, the scheduler's calculate call) already
-                    // carried this field; only this control was missing,
-                    // so a Hanafi user lived with a visibly wrong Asr.
-                    _NavRow(
-                      icon: Icons.school_rounded,
-                      label: s.notifMadhab,
-                      value: settings.madhab.label(isAr),
-                      onTap: () => _pickMadhab(context, ref, settings.madhab),
                     ),
                     // The global "minutes after prayer" stepper used to sit
                     // here. Removed: it was silently added on top of each
@@ -513,9 +419,12 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
   Future<void> _openManualSearch() async {
     final picked = await showCitySearchSheet(context);
     if (!mounted || picked == null) return;
-    ref
-        .read(notificationSettingsProvider.notifier)
-        .update((c) => c.copyWith(location: picked));
+    // The old place's country code goes with it: until the new one
+    // resolves, the city's own coordinates pick the method (see
+    // savePhoneLocation for why a stale code is worse than none).
+    ref.read(notificationSettingsProvider.notifier).update(
+          (c) => c.copyWith(clearLocation: true).copyWith(location: picked),
+        );
     _resolveCountryInBackground(picked.lat, picked.lng);
   }
 
@@ -527,22 +436,27 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
     setState(() => _detecting = false);
 
     if (outcome.isSuccess) {
-      final fix = outcome.fix!;
       // Coordinates are NEVER shown to the user — the label starts as a
       // localized "finding your location…" placeholder, becomes the real
       // «المنامة، البحرين» name the moment the reverse lookup resolves,
       // and degrades to a plain "Location set" if that lookup fails. The
       // raw lat/lng still power every calculation underneath; they just
       // never appear as text.
-      ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
-            location: NotificationLocation(
-              lat: fix.latitude,
-              lng: fix.longitude,
-              label: S.of(context).notifLocationResolving,
-            ),
-          ));
-      _resolveCountryInBackground(fix.latitude, fix.longitude,
-          updateLabel: true);
+      //
+      // The same save the app makes on its own (savePhoneLocation): the
+      // phone's own location, kept current from here on (see
+      // autoLocatePrayerPlace), so a tap is also how someone who picked a
+      // city by hand goes back to automatic. It drops the old place's
+      // country code with the old place.
+      final s = S.of(context);
+      await savePhoneLocation(
+        ref.read,
+        outcome.fix!,
+        isAr: s.isAr,
+        resolvingLabel: s.notifLocationResolving,
+        genericLabel: s.notifLocationSetGeneric,
+        isMounted: () => mounted,
+      );
       return;
     }
 
@@ -570,28 +484,21 @@ class _LocationRowState extends ConsumerState<_LocationRow> {
   /// immediately followed by a manual re-search, before the first lookup
   /// has returned). Silently a no-op on a failed lookup too — see
   /// CountryLookupService.lookup's doc comment.
-  /// [updateLabel] is true only for the GPS-detect path, whose initial
-  /// label is a raw-coordinates placeholder worth replacing with the
-  /// resolved "City, Country" name; a manually-searched city keeps the
-  /// exact label the user picked.
-  Future<void> _resolveCountryInBackground(double lat, double lng,
-      {bool updateLabel = false}) async {
+  /// Only the manual path uses this now: a searched city keeps the exact
+  /// label the user picked, and a GPS fix gets its label and code from
+  /// savePhoneLocation instead.
+  Future<void> _resolveCountryInBackground(double lat, double lng) async {
     final s = S.of(context);
     final place = await CountryLookupService.lookupPlace(lat, lng,
         languageCode: s.isAr ? 'ar' : 'en');
     if (!mounted) return;
     final current = ref.read(notificationSettingsProvider).location;
     if (current == null || current.lat != lat || current.lng != lng) return;
-    // Whatever happens, the "finding your location…" placeholder must not
-    // survive: real place name when the lookup succeeded, a plain
-    // "Location set" when it didn't — never raw coordinates.
-    final newLabel = place.label ?? s.notifLocationSetGeneric;
-    ref.read(notificationSettingsProvider.notifier).update((c) => c.copyWith(
-          resolvedCountryCode: place.code ?? c.resolvedCountryCode,
-          location: updateLabel
-              ? NotificationLocation(lat: lat, lng: lng, label: newLabel)
-              : c.location,
-        ));
+    ref.read(notificationSettingsProvider.notifier).update(
+          (c) => c.copyWith(
+            resolvedCountryCode: place.code ?? c.resolvedCountryCode,
+          ),
+        );
   }
 
   @override
@@ -1044,66 +951,12 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
-class _NavRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-
-  const _NavRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: gp.textSec),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(label,
-                  style: TextStyle(
-                      fontSize: 15,
-                      color: gp.textPrimary,
-                      fontWeight: FontWeight.w500)),
-            ),
-            Flexible(
-              child: Text(
-                value,
-                textAlign: TextAlign.end,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: 13,
-                    color: gp.textSec,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A [_NavRow] twin for a value that's shown but not tappable — the
+/// A settings row for a value that's shown but not tappable — the
 /// calculation-method line, now that it's auto-resolved from location
 /// rather than a picker (see NotificationSettingsScreen's doc comment and
-/// [PrayerTimesService.resolveRegion]). Same layout minus the InkWell/
-/// chevron, so it still reads as "part of this list" and not visually
-/// demoted, just clearly not an action.
+/// [PrayerTimesService.resolveRegion]). The layout of a tappable row minus
+/// the InkWell/chevron, so it still reads as "part of this list" and not
+/// visually demoted, just clearly not an action.
 class _InfoRow extends StatelessWidget {
   final IconData icon;
   final String label;

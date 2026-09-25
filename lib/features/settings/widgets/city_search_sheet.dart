@@ -94,6 +94,8 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
         lat: r.latitude,
         lng: r.longitude,
         label: r.displayLabel,
+        // Picked by hand, so it stays put when the phone moves.
+        auto: false,
       ),
     );
   }
@@ -112,6 +114,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
         // typed coordinates by hand without naming them still sees a
         // human phrase, not numbers.
         label: label.isEmpty ? s.notifLocationSetGeneric : label,
+        auto: false,
       ),
     );
   }

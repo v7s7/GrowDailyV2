@@ -44,6 +44,15 @@ class CountryLookupService {
         },
       );
 
+  /// Stands in for [lookupPlace]'s request in tests, which must not reach
+  /// the network (the same seam PrayerTimesService.debugMonthResponder
+  /// gives the month calendar). Null in the app.
+  @visibleForTesting
+  static Future<({String? code, String? label})> Function(
+    double latitude,
+    double longitude,
+  )? debugPlaceResponder;
+
   /// Like [lookup], but also builds a human-readable "City, Country" label
   /// from the same single response — what the Location row shows instead
   /// of raw coordinates (nobody thinks in "26.23, 50.59"; they think in
@@ -55,6 +64,8 @@ class CountryLookupService {
     double longitude, {
     String languageCode = 'en',
   }) async {
+    final responder = debugPlaceResponder;
+    if (responder != null) return responder(latitude, longitude);
     try {
       final response = await http
           .get(requestUri(latitude, longitude, languageCode: languageCode))

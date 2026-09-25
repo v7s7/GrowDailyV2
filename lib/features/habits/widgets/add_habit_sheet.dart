@@ -3336,7 +3336,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         latitude: loc.lat,
         longitude: loc.lng,
         date: DateTime.now(),
-        madhab: settings.madhab,
         countryCode: settings.resolvedCountryCode,
       );
       return today.forKey(prayer);

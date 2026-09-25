@@ -5,6 +5,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
+import '../../app_icon/app_icon_prompts.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../premium/screens/premium_screen.dart';
 
@@ -184,6 +185,14 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
                             minimumSize: const Size(double.infinity, 52),
                           ),
                           onPressed: () {
+                            // For the Home Screen icon's offer, which runs
+                            // after this screen has gone (app_icon_prompts).
+                            final container = ProviderScope.containerOf(
+                              context,
+                              listen: false,
+                            );
+                            final messenger =
+                                ScaffoldMessenger.maybeOf(context);
                             // Restore first, then act: _apply below re-applies
                             // properly through the notifier, and the premium
                             // route must not be painted in a theme the user
@@ -204,7 +213,11 @@ class _ThemePreviewScreenState extends ConsumerState<ThemePreviewScreen> {
                             }
                             ref
                                 .read(themePresetProvider.notifier)
-                                .set(widget.preset.id);
+                                .set(widget.preset.id)
+                                .then(
+                                  (_) =>
+                                      offerIconForTheme(container, messenger),
+                                );
                           },
                           icon: Icon(
                             _locked

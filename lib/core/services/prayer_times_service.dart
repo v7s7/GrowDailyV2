@@ -42,9 +42,9 @@ enum PrayerCalcMethod {
   // adhan_dart's own preset descriptions, not a guess. Deliberately NOT
   // adding adhan_dart's `gulfRegion` (redundant — every GCC country already
   // has its own individually-verified entry) or `jafari` (Shia
-  // Ithna-Ashari is a denominational choice, like [PrayerMadhab], not
-  // something a location-based table should assign to an entire country's
-  // population regardless of the person's own affiliation).
+  // Ithna-Ashari is a denominational choice, not something a
+  // location-based table should assign to an entire country's population
+  // regardless of the person's own affiliation).
   algerian,
   france,
   indonesian,
@@ -166,35 +166,6 @@ enum PrayerCalcMethod {
         portugal => 22,
         jordan => 23,
       };
-}
-
-/// Which school of thought's Asr convention to use — the one other
-/// user-facing knob adhan_dart's calculation exposes (a later Asr time
-/// under Hanafi than Shafi/Maliki/Hanbali, which all agree on the earlier
-/// time). Defaults to [shafi] since that's the majority convention
-/// worldwide; Hanafi users (common in South/Central Asia, Turkey) flip
-/// this once in Notification Settings.
-enum PrayerMadhab {
-  shafi,
-  hanafi;
-
-  String toJson() => name;
-
-  static PrayerMadhab fromJson(String? v) =>
-      values.firstWhere((e) => e.name == v, orElse: () => shafi);
-
-  String label(bool isAr) => isAr
-      ? switch (this) {
-          shafi => 'شافعي (الأصل)',
-          hanafi => 'حنفي',
-        }
-      : switch (this) {
-          shafi => 'Shafi / Maliki / Hanbali',
-          hanafi => 'Hanafi',
-        };
-
-  adhan.Madhab get _value =>
-      this == hanafi ? adhan.Madhab.hanafi : adhan.Madhab.shafi;
 }
 
 /// One day's five prayer times plus sunrise, already converted to
@@ -355,6 +326,22 @@ class PrayerTimesService {
   /// is passed anyway so the choice is stated in our own request rather
   /// than inherited from a remote default that could be changed for us.
   static const _aladhanLatitudeAdjustmentMethod = '3';
+
+  /// Asr is always the standard time: the moment a thing's shadow equals
+  /// its own length, plus the shadow it had at noon. That is the Maliki,
+  /// Shafi and Hanbali rule, Ja'fari timetables use it too, and it is what
+  /// every official Gulf timetable publishes, Bahrain's included. The
+  /// Hanafi rule (twice the length, 42 to 80 minutes later in Bahrain) was
+  /// a Settings choice until 2026-09-25, when Aziz removed it: the app's
+  /// audience prays with Gulf mosques, and a later Asr only ever put the
+  /// app out of step with the adhan next door. A saved 'hanafi' from
+  /// before that is simply no longer read.
+  static const _asrMadhab = adhan.Madhab.shafi;
+
+  /// [_asrMadhab]'s Aladhan spelling (`school`: 0 standard, 1 Hanafi),
+  /// sent on both the day and the month endpoint so the live and offline
+  /// paths agree.
+  static const _aladhanStandardAsrSchool = '0';
 
   /// Checked in order, first match wins — deliberately smallest/most
   /// specific countries first and Saudi Arabia (by far the largest
@@ -581,13 +568,13 @@ class PrayerTimesService {
   ///
   /// [latitude]/[longitude] (plus [countryCode], if one was resolved when
   /// the location was set — see CountryLookupService) pick the method
-  /// automatically via [resolveRegion] — there's no method/madhab-method
-  /// parameter here anymore, only [madhab] (a genuine personal preference,
-  /// unlike the calculation method itself — see NotificationSettingsScreen's
-  /// doc comment for why the method picker was removed). [countryCode] is
-  /// optional and can safely be left null — [resolveRegion] just falls
-  /// back to its plain global default in that case, the same as it always
-  /// did before country-level resolution existed.
+  /// automatically via [resolveRegion] — there's no method parameter here
+  /// anymore (see NotificationSettingsScreen's doc comment for why the
+  /// method picker was removed), and no madhab either: Asr is always the
+  /// standard time, see [calculateOffline]. [countryCode] is optional and
+  /// can safely be left null — [resolveRegion] just falls back to its plain
+  /// global default in that case, the same as it always did before
+  /// country-level resolution existed.
   ///
   /// Tries the live Aladhan fetch first (~8s timeout), falls back to
   /// [calculateOffline] on any failure — see the class doc comment. Always
@@ -596,7 +583,6 @@ class PrayerTimesService {
     required double latitude,
     required double longitude,
     required DateTime date,
-    required PrayerMadhab madhab,
     String? countryCode,
   }) async {
     // Bahrain's own published timetable beats both the live API and the
@@ -604,13 +590,7 @@ class PrayerTimesService {
     // here. Awaited rather than assumed loaded so this path works even if
     // main.dart's preload hasn't run (tests, a cold isolate).
     await BahrainPrayerTable.ensureLoaded();
-    final official = _bahrainOfficial(
-      latitude,
-      longitude,
-      date,
-      madhab,
-      countryCode: countryCode,
-    );
+    final official = _bahrainOfficial(latitude, longitude, date);
     if (official != null) return official;
 
     final region = resolveRegion(latitude, longitude, countryCode: countryCode);
@@ -619,7 +599,6 @@ class PrayerTimesService {
       longitude: longitude,
       date: date,
       method: region.method,
-      madhab: madhab,
       fajrCorrectionMinutes: region.fajrCorrectionMinutes,
     );
     if (online != null) return online;
@@ -628,7 +607,6 @@ class PrayerTimesService {
       latitude: latitude,
       longitude: longitude,
       date: date,
-      madhab: madhab,
       countryCode: countryCode,
     );
   }
@@ -651,8 +629,8 @@ class PrayerTimesService {
   /// day resolved here and the same day resolved there agree:
   ///   1. Bahrain's bundled official table ([BahrainPrayerTable]) — offline,
   ///      exact, and the only tier that costs nothing at all.
-  ///   2. The live month calendar, memoized per (place, method, madhab,
-  ///      zone, month) in [_monthCache] so the several recomputes a single
+  ///   2. The live month calendar, memoized per (place, method, zone,
+  ///      month) in [_monthCache] so the several recomputes a single
   ///      resume triggers share ONE fetch rather than racing several.
   ///   3. [calculateOfflineCorrected] for any day the first two could not
   ///      answer — no connection, a malformed response, or a day the
@@ -673,7 +651,6 @@ class PrayerTimesService {
     required double longitude,
     required DateTime from,
     required int days,
-    required PrayerMadhab madhab,
     String? countryCode,
   }) async {
     if (days <= 0) return const [];
@@ -696,13 +673,7 @@ class PrayerTimesService {
     // fetched and the whole multi-day window stays free and offline.
     final out = <DateTime, PrayerDayTimes>{};
     for (final date in dates) {
-      final official = _bahrainOfficial(
-        latitude,
-        longitude,
-        date,
-        madhab,
-        countryCode: countryCode,
-      );
+      final official = _bahrainOfficial(latitude, longitude, date);
       if (official != null) out[date] = official;
     }
     final missing = [for (final d in dates) if (!out.containsKey(d)) d];
@@ -721,7 +692,6 @@ class PrayerTimesService {
           year: m.year,
           month: m.month,
           method: region.method,
-          madhab: madhab,
           fajrCorrectionMinutes: region.fajrCorrectionMinutes,
         );
         if (table == null) continue;
@@ -740,7 +710,6 @@ class PrayerTimesService {
               latitude: latitude,
               longitude: longitude,
               date: date,
-              madhab: madhab,
               countryCode: countryCode,
             ),
     ];
@@ -782,7 +751,6 @@ class PrayerTimesService {
     required int year,
     required int month,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
     required int fajrCorrectionMinutes,
   }) {
     // The zone is part of the key because the parsed times are wall-clock
@@ -791,7 +759,7 @@ class PrayerTimesService {
     // handed the previous zone's copy of the same month.
     final key = '${latitude.toStringAsFixed(3)},'
         '${longitude.toStringAsFixed(3)},'
-        '${method.name},${madhab.name},${tz.local.name},$year-$month';
+        '${method.name},${tz.local.name},$year-$month';
     final failedAt = _monthFailedAt[key];
     if (failedAt != null) {
       if (DateTime.now().difference(failedAt) < _failureCooldown) {
@@ -808,7 +776,6 @@ class PrayerTimesService {
       year: year,
       month: month,
       method: method,
-      madhab: madhab,
       fajrCorrectionMinutes: fajrCorrectionMinutes,
     ).then((table) {
       if (table == null) {
@@ -847,7 +814,6 @@ class PrayerTimesService {
     required int year,
     required int month,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
     required int fajrCorrectionMinutes,
   }) async {
     final uri = aladhanCalendarUri(
@@ -856,7 +822,6 @@ class PrayerTimesService {
       year: year,
       month: month,
       method: method,
-      madhab: madhab,
       fajrCorrectionMinutes: fajrCorrectionMinutes,
     );
     try {
@@ -884,8 +849,8 @@ class PrayerTimesService {
   }
 
   /// Aladhan's `/v1/calendar/{year}/{month}` — the same place, method,
-  /// madhab and zone [aladhanRequestUri] asks for a single day with, so a
-  /// day answered from the calendar and the same day answered from the
+  /// Asr school and zone [aladhanRequestUri] asks for a single day with, so
+  /// a day answered from the calendar and the same day answered from the
   /// per-day endpoint are the same figures.
   @visibleForTesting
   static Uri aladhanCalendarUri({
@@ -894,7 +859,6 @@ class PrayerTimesService {
     required int year,
     required int month,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
     int fajrCorrectionMinutes = 0,
   }) =>
       Uri.https('api.aladhan.com', '/v1/calendar/$year/$month', {
@@ -902,7 +866,7 @@ class PrayerTimesService {
         'longitude': '$longitude',
         'method': '${method._aladhanMethodId}',
         'tune': '0,$fajrCorrectionMinutes,0,0,0,0,0,0,0',
-        'school': madhab == PrayerMadhab.hanafi ? '1' : '0',
+        'school': _aladhanStandardAsrSchool,
         'timezonestring': tz.local.name,
         'latitudeAdjustmentMethod': _aladhanLatitudeAdjustmentMethod,
       });
@@ -999,16 +963,9 @@ class PrayerTimesService {
     required double latitude,
     required double longitude,
     required DateTime date,
-    required PrayerMadhab madhab,
     String? countryCode,
   }) {
-    final official = _bahrainOfficial(
-      latitude,
-      longitude,
-      date,
-      madhab,
-      countryCode: countryCode,
-    );
+    final official = _bahrainOfficial(latitude, longitude, date);
     if (official != null) return official;
 
     final region = resolveRegion(latitude, longitude, countryCode: countryCode);
@@ -1017,7 +974,6 @@ class PrayerTimesService {
       longitude: longitude,
       date: date,
       method: region.method,
-      madhab: madhab,
     );
     if (region.fajrCorrectionMinutes == 0) return offline;
     return PrayerDayTimes(
@@ -1043,48 +999,25 @@ class PrayerTimesService {
   /// Bahrain's official times for [date], or null when they don't apply —
   /// outside Bahrain, outside the bundled table's date range, or before
   /// the asset has loaded. See [BahrainPrayerTable].
+  ///
+  /// All six figures are the Kingdom's own, Asr included: the table
+  /// publishes the standard Asr, which is the only one this app computes
+  /// (see [_asrMadhab]).
   static PrayerDayTimes? _bahrainOfficial(
     double latitude,
     double longitude,
     DateTime date,
-    PrayerMadhab madhab, {
-    String? countryCode,
-  }) {
+  ) {
     if (!isInBahrain(latitude, longitude)) return null;
-    final official = BahrainPrayerTable.lookup(date);
-    if (official == null) return null;
-    if (madhab == PrayerMadhab.shafi) return official;
-    // Bahrain publishes one Asr, computed the standard (Shafi) way. Asr is
-    // the single prayer the two schools genuinely disagree about, and by
-    // roughly an hour rather than a rounding error — measured at 42 to 80
-    // minutes against this very table — so handing a Hanafi user the
-    // published Asr would be a real error, not a small one. They still get
-    // the official figure for the other five; only Asr is computed, and
-    // only for them.
-    final region = resolveRegion(latitude, longitude, countryCode: countryCode);
-    final computed = calculateOffline(
-      latitude: latitude,
-      longitude: longitude,
-      date: date,
-      method: region.method,
-      madhab: madhab,
-    );
-    return PrayerDayTimes(
-      fajr: official.fajr,
-      sunrise: official.sunrise,
-      dhuhr: official.dhuhr,
-      asr: computed.asr,
-      maghrib: official.maghrib,
-      isha: official.isha,
-    );
+    return BahrainPrayerTable.lookup(date);
   }
 
   /// Pure, synchronous, fully offline — no network call, no API key, no
   /// server, no region lookup and no correction applied (that's
   /// [calculate]'s job, layered on top of this) — just [method]'s raw
-  /// angle-based calculation for whatever coordinates/date/madhab are
-  /// passed in. What tests call directly for deterministic, hermetic
-  /// assertions about the underlying math (see
+  /// angle-based calculation for whatever coordinates/date are passed in,
+  /// with the standard Asr ([_asrMadhab]). What tests call directly for
+  /// deterministic, hermetic assertions about the underlying math (see
   /// test/prayer_times_service_test.dart), and the primitive [calculate]
   /// falls back to (with its own correction added afterward) on any
   /// network failure.
@@ -1093,11 +1026,10 @@ class PrayerTimesService {
     required double longitude,
     required DateTime date,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
   }) {
     final coordinates = adhan.Coordinates(latitude, longitude);
     final params = method._parameters()
-      ..madhab = madhab._value
+      ..madhab = _asrMadhab
       ..highLatitudeRule = _highLatitudeRule;
     final prayerTimes = adhan.PrayerTimes(
       coordinates: coordinates,
@@ -1126,7 +1058,6 @@ class PrayerTimesService {
     required double longitude,
     required DateTime date,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
     required int fajrCorrectionMinutes,
   }) async {
     try {
@@ -1136,7 +1067,6 @@ class PrayerTimesService {
             longitude: longitude,
             date: date,
             method: method,
-            madhab: madhab,
             fajrCorrectionMinutes: fajrCorrectionMinutes,
           ))
           .timeout(const Duration(seconds: 8));
@@ -1177,7 +1107,7 @@ class PrayerTimesService {
   }
 
   /// Builds the exact Aladhan `/v1/timings/{DD-MM-YYYY}` request for
-  /// [date]/[latitude]/[longitude]/[method]/[madhab], with
+  /// [date]/[latitude]/[longitude]/[method], with
   /// [fajrCorrectionMinutes] applied via Aladhan's `tune` parameter (fajr's
   /// slot only — every other prayer's slot is always 0, since that's all
   /// any of [_regions] has ever needed) — pulled out as its own
@@ -1195,7 +1125,6 @@ class PrayerTimesService {
     required double longitude,
     required DateTime date,
     required PrayerCalcMethod method,
-    required PrayerMadhab madhab,
     int fajrCorrectionMinutes = 0,
   }) {
     final dateStr = '${date.day.toString().padLeft(2, '0')}-'
@@ -1206,7 +1135,7 @@ class PrayerTimesService {
       'longitude': '$longitude',
       'method': '${method._aladhanMethodId}',
       'tune': '0,$fajrCorrectionMinutes,0,0,0,0,0,0,0',
-      'school': madhab == PrayerMadhab.hanafi ? '1' : '0',
+      'school': _aladhanStandardAsrSchool,
       'timezonestring': tz.local.name,
       'latitudeAdjustmentMethod': _aladhanLatitudeAdjustmentMethod,
     });

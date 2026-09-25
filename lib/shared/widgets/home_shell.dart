@@ -12,6 +12,8 @@ import '../../core/providers/nav_bar_hint_provider.dart';
 import '../../core/providers/nav_layout_provider.dart';
 import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart' show GameMotion;
+import '../../features/app_icon/app_icon_prompts.dart';
+import '../../features/app_icon/app_icon_providers.dart';
 import '../../features/dashboard/notifiers/dashboard_notifier.dart'
     show dashboardProvider;
 import '../../features/habits/catalog/islamic_habit_catalog.dart'
@@ -129,6 +131,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
       if (initial < 0) _push(target);
       unawaited(_maybePromptNewSharedHabits());
       unawaited(runStepAutoComplete(ref));
+      unawaited(maybeShowIconCard(context, ref));
     });
   }
 
@@ -140,6 +143,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       unawaited(runStepAutoComplete(ref));
+      unawaited(maybeShowIconCard(context, ref));
     }
   }
 
@@ -236,6 +240,23 @@ class _HomeShellState extends ConsumerState<HomeShell>
       ref.read(requestedHomeTabInstantProvider.notifier).state = false;
       ref.read(requestedHomeTabProvider.notifier).state = null;
       _openTab(next, instant: instant);
+    });
+    // The Home Screen icon's plant grows with full days (app_icon_prompts.dart):
+    // the count goes up when a day reaches its 80%, which is the moment
+    // «نبتتك كبرت» belongs to, after that day's own «يوم كامل!». The same
+    // call offers the Ramadan icon once each Ramadan.
+    ref.listen<AsyncValue<int?>>(plantFullDaysProvider, (prev, next) {
+      final was = prev?.valueOrNull;
+      final now = next.valueOrNull;
+      if (now != null && now != was) {
+        unawaited(
+          maybeShowIconCard(
+            context,
+            ref,
+            dayJustFull: was != null && now > was,
+          ),
+        );
+      }
     });
     // A habit that has just BECOME linked to the step count, from the Add
     // Habit sheet or from Edit on an existing walking habit. Without this

@@ -589,6 +589,53 @@ const List<String> kEditableWordingKeys = [
   'navBadgesTitle',
   'navBadgesDesc',
   'navBadgeReviewPending',
+  'appIconTitle',
+  'appIconNow',
+  'appIconPreviewing',
+  'appIconShapeSection',
+  'appIconColourSection',
+  'appIconMoreColours',
+  'appIconFollowTitle',
+  'appIconFollowBody',
+  'appIconUse',
+  'appIconInUse',
+  'appIconFailed',
+  'appIconShapeSeedling',
+  'appIconShapeSprout',
+  'appIconShapeGrown',
+  'appIconShapeBloom',
+  'appIconShapeGrownInSentence',
+  'appIconShapeBloomInSentence',
+  'appIconColourOriginal',
+  'appIconColourRed',
+  'appIconColourYellow',
+  'appIconColourGreen',
+  'appIconColourBrown',
+  'appIconColourGrey',
+  'appIconFullDaysLeft',
+  'appIconNextShape',
+  'appIconAllShapes',
+  'appIconFullDayRule',
+  'appIconSeasonSection',
+  'appIconRamadan',
+  'appIconRamadanLocked',
+  'appIconRamadanOpen',
+  'appIconRamadanSoon',
+  'appIconRamadanNote',
+  'appIconOfferTitle',
+  'appIconOfferBody',
+  'appIconOfferBodyOriginal',
+  'appIconOfferBodyCustom',
+  'appIconOfferAlways',
+  'appIconOfferYes',
+  'appIconOfferNo',
+  'plantGrewTitle',
+  'plantBloomedTitle',
+  'plantGrewBody',
+  'plantGrewUse',
+  'plantGrewLater',
+  'ramadanCardTitle',
+  'ramadanCardBody',
   'getStartedTitle',
   'guideStepCount',
   'getStartedAddHabit',
@@ -1326,8 +1373,6 @@ const List<String> kEditableWordingKeys = [
   'reorderHabitsMenuHint',
   'gridSelectMultiple',
   'gridSelectMultipleHint',
-  'notifMadhab',
-  'notifMadhabHint',
   'notifLocationSearchAction',
   'gridNoteSaved',
   'gridNoteCleared',
@@ -1359,6 +1404,8 @@ const List<String> kBuiltInOnlyWordingKeys = [
   'rewardsCardReady',
   'rewardsCardCount',
   'rewardsEffort',
+  'fullDaysInSentence',
+  'appIconFullDaysSoFar',
   'gridGreenSquaresCount',
   'squareStateEffect',
   'heatmapDaysOfMonth',
@@ -4062,6 +4109,219 @@ class _EditedS extends S {
 
   @override
   String get navBadgeReviewPending => plainWording(_edits['navBadgeReviewPending']) ?? super.navBadgeReviewPending;
+
+  @override
+  String get appIconTitle => plainWording(_edits['appIconTitle']) ?? super.appIconTitle;
+
+  @override
+  String get appIconNow => plainWording(_edits['appIconNow']) ?? super.appIconNow;
+
+  @override
+  String get appIconPreviewing => plainWording(_edits['appIconPreviewing']) ?? super.appIconPreviewing;
+
+  @override
+  String get appIconShapeSection => plainWording(_edits['appIconShapeSection']) ?? super.appIconShapeSection;
+
+  @override
+  String get appIconColourSection => plainWording(_edits['appIconColourSection']) ?? super.appIconColourSection;
+
+  @override
+  String get appIconMoreColours => plainWording(_edits['appIconMoreColours']) ?? super.appIconMoreColours;
+
+  @override
+  String get appIconFollowTitle => plainWording(_edits['appIconFollowTitle']) ?? super.appIconFollowTitle;
+
+  @override
+  String get appIconFollowBody => plainWording(_edits['appIconFollowBody']) ?? super.appIconFollowBody;
+
+  @override
+  String get appIconUse => plainWording(_edits['appIconUse']) ?? super.appIconUse;
+
+  @override
+  String get appIconInUse => plainWording(_edits['appIconInUse']) ?? super.appIconInUse;
+
+  @override
+  String get appIconFailed => plainWording(_edits['appIconFailed']) ?? super.appIconFailed;
+
+  @override
+  String get appIconShapeSeedling => plainWording(_edits['appIconShapeSeedling']) ?? super.appIconShapeSeedling;
+
+  @override
+  String get appIconShapeSprout => plainWording(_edits['appIconShapeSprout']) ?? super.appIconShapeSprout;
+
+  @override
+  String get appIconShapeGrown => plainWording(_edits['appIconShapeGrown']) ?? super.appIconShapeGrown;
+
+  @override
+  String get appIconShapeBloom => plainWording(_edits['appIconShapeBloom']) ?? super.appIconShapeBloom;
+
+  @override
+  String get appIconShapeGrownInSentence => plainWording(_edits['appIconShapeGrownInSentence']) ?? super.appIconShapeGrownInSentence;
+
+  @override
+  String get appIconShapeBloomInSentence => plainWording(_edits['appIconShapeBloomInSentence']) ?? super.appIconShapeBloomInSentence;
+
+  @override
+  String get appIconColourOriginal => plainWording(_edits['appIconColourOriginal']) ?? super.appIconColourOriginal;
+
+  @override
+  String get appIconColourRed => plainWording(_edits['appIconColourRed']) ?? super.appIconColourRed;
+
+  @override
+  String get appIconColourYellow => plainWording(_edits['appIconColourYellow']) ?? super.appIconColourYellow;
+
+  @override
+  String get appIconColourGreen => plainWording(_edits['appIconColourGreen']) ?? super.appIconColourGreen;
+
+  @override
+  String get appIconColourBrown => plainWording(_edits['appIconColourBrown']) ?? super.appIconColourBrown;
+
+  @override
+  String get appIconColourGrey => plainWording(_edits['appIconColourGrey']) ?? super.appIconColourGrey;
+
+  @override
+  String appIconFullDaysLeft(int n) {
+    final wordingEdit = _edits['appIconFullDaysLeft'];
+    if (wordingEdit == null) return super.appIconFullDaysLeft(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'fullDaysInSentence(n)': () => '${fullDaysInSentence(n)}',
+                }
+              : <String, String Function()>{
+                  'fullDaysInSentence(n)': () => '${fullDaysInSentence(n)}',
+                },
+        ) ??
+        super.appIconFullDaysLeft(n);
+  }
+
+  @override
+  String appIconNextShape(String shape, int n) {
+    final wordingEdit = _edits['appIconNextShape'];
+    if (wordingEdit == null) return super.appIconNextShape(shape, n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'shape': () => '$shape',
+                  'fullDaysInSentence(n)': () => '${fullDaysInSentence(n)}',
+                }
+              : <String, String Function()>{
+                  'shape': () => '$shape',
+                  'n == 1 ? \'1 more full day\' : \'\$n more full days\'': () => '${n == 1 ? '1 more full day' : '$n more full days'}',
+                },
+        ) ??
+        super.appIconNextShape(shape, n);
+  }
+
+  @override
+  String get appIconAllShapes => plainWording(_edits['appIconAllShapes']) ?? super.appIconAllShapes;
+
+  @override
+  String get appIconFullDayRule => plainWording(_edits['appIconFullDayRule']) ?? super.appIconFullDayRule;
+
+  @override
+  String get appIconSeasonSection => plainWording(_edits['appIconSeasonSection']) ?? super.appIconSeasonSection;
+
+  @override
+  String get appIconRamadan => plainWording(_edits['appIconRamadan']) ?? super.appIconRamadan;
+
+  @override
+  String get appIconRamadanLocked => plainWording(_edits['appIconRamadanLocked']) ?? super.appIconRamadanLocked;
+
+  @override
+  String get appIconRamadanOpen => plainWording(_edits['appIconRamadanOpen']) ?? super.appIconRamadanOpen;
+
+  @override
+  String appIconRamadanSoon(int n) {
+    final wordingEdit = _edits['appIconRamadanSoon'];
+    if (wordingEdit == null) return super.appIconRamadanSoon(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'daysInSentence(n)': () => '${daysInSentence(n)}',
+                }
+              : <String, String Function()>{
+                  'daysInSentence(n)': () => '${daysInSentence(n)}',
+                },
+        ) ??
+        super.appIconRamadanSoon(n);
+  }
+
+  @override
+  String get appIconRamadanNote => plainWording(_edits['appIconRamadanNote']) ?? super.appIconRamadanNote;
+
+  @override
+  String get appIconOfferTitle => plainWording(_edits['appIconOfferTitle']) ?? super.appIconOfferTitle;
+
+  @override
+  String appIconOfferBody(String colour) {
+    final wordingEdit = _edits['appIconOfferBody'];
+    if (wordingEdit == null) return super.appIconOfferBody(colour);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'colour': () => '$colour',
+                }
+              : <String, String Function()>{
+                  'colour': () => '$colour',
+                },
+        ) ??
+        super.appIconOfferBody(colour);
+  }
+
+  @override
+  String get appIconOfferBodyOriginal => plainWording(_edits['appIconOfferBodyOriginal']) ?? super.appIconOfferBodyOriginal;
+
+  @override
+  String get appIconOfferBodyCustom => plainWording(_edits['appIconOfferBodyCustom']) ?? super.appIconOfferBodyCustom;
+
+  @override
+  String get appIconOfferAlways => plainWording(_edits['appIconOfferAlways']) ?? super.appIconOfferAlways;
+
+  @override
+  String get appIconOfferYes => plainWording(_edits['appIconOfferYes']) ?? super.appIconOfferYes;
+
+  @override
+  String get appIconOfferNo => plainWording(_edits['appIconOfferNo']) ?? super.appIconOfferNo;
+
+  @override
+  String get plantGrewTitle => plainWording(_edits['plantGrewTitle']) ?? super.plantGrewTitle;
+
+  @override
+  String get plantBloomedTitle => plainWording(_edits['plantBloomedTitle']) ?? super.plantBloomedTitle;
+
+  @override
+  String plantGrewBody(int n) {
+    final wordingEdit = _edits['plantGrewBody'];
+    if (wordingEdit == null) return super.plantGrewBody(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'fullDaysInSentence(n)': () => '${fullDaysInSentence(n)}',
+                }
+              : <String, String Function()>{
+                  'fullDaysInSentence(n)': () => '${fullDaysInSentence(n)}',
+                },
+        ) ??
+        super.plantGrewBody(n);
+  }
+
+  @override
+  String get plantGrewUse => plainWording(_edits['plantGrewUse']) ?? super.plantGrewUse;
+
+  @override
+  String get plantGrewLater => plainWording(_edits['plantGrewLater']) ?? super.plantGrewLater;
+
+  @override
+  String get ramadanCardTitle => plainWording(_edits['ramadanCardTitle']) ?? super.ramadanCardTitle;
+
+  @override
+  String get ramadanCardBody => plainWording(_edits['ramadanCardBody']) ?? super.ramadanCardBody;
 
   @override
   String get getStartedTitle => plainWording(_edits['getStartedTitle']) ?? super.getStartedTitle;
@@ -8169,12 +8429,6 @@ class _EditedS extends S {
 
   @override
   String get gridSelectMultipleHint => plainWording(_edits['gridSelectMultipleHint']) ?? super.gridSelectMultipleHint;
-
-  @override
-  String get notifMadhab => plainWording(_edits['notifMadhab']) ?? super.notifMadhab;
-
-  @override
-  String get notifMadhabHint => plainWording(_edits['notifMadhabHint']) ?? super.notifMadhabHint;
 
   @override
   String get notifLocationSearchAction => plainWording(_edits['notifLocationSearchAction']) ?? super.notifLocationSearchAction;

@@ -144,6 +144,10 @@ import flutter_local_notifications
     // HealthStepsBridge.swift and HealthStepsService.stepsForDays.
     HealthStepsBridge.register(with: engineBridge.applicationRegistrar.messenger())
 
+    // The Home Screen icon (plant shape x colour), see AppIconBridge.swift
+    // and lib/features/app_icon/app_icon_service.dart.
+    AppIconBridge.register(with: engineBridge.applicationRegistrar.messenger())
+
     // App icon badge — see lib/core/services/app_badge_service.dart. A tiny
     // direct MethodChannel rather than a third-party plugin, since
     // flutter_local_notifications explicitly doesn't offer a "just set the

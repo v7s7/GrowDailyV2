@@ -121,8 +121,16 @@ class _ThemePresetSheet extends ConsumerWidget {
             return;
           }
           HapticFeedback.selectionClick();
-          ref.read(themePresetProvider.notifier).set(preset.id);
+          // Caught before the pop: this sheet's context and ref are gone by
+          // the time the Home Screen icon's offer runs (app_icon_prompts).
+          final container = ProviderScope.containerOf(context, listen: false);
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          final applied = ref.read(themePresetProvider.notifier).set(preset.id);
           Navigator.pop(context);
+          // Only for a CHANGE: tapping the theme already in use asks nothing.
+          if (preset.id != selectedId) {
+            applied.then((_) => offerIconForTheme(container, messenger));
+          }
         },
         // Preview works even for locked presets — trying a look on the real
         // screens is not the same as unlocking it, so it doesn't need the
@@ -530,13 +538,26 @@ void _openPremiumForAppearance(BuildContext context) {
 // ─── Custom theme: the user's own two colours ────────────────────────────────
 
 void showCustomThemeSheet(BuildContext context) {
+  // The sheet writes the pair on every tap, so the Home Screen icon's offer
+  // waits for it to CLOSE, and only if the look actually changed while it
+  // was open: opening it to look and closing it again offers nothing.
+  final container = ProviderScope.containerOf(context, listen: false);
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  (String, int, int) look() => (
+        container.read(themePresetProvider),
+        ThemePresets.customAccent.toARGB32(),
+        ThemePresets.customGrid.toARGB32(),
+      );
+  final before = look();
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
     useSafeArea: true,
     builder: (_) => const _CustomThemeSheet(),
-  );
+  ).then((_) {
+    if (look() != before) offerIconForTheme(container, messenger);
+  });
 }
 
 class _CustomThemeSheet extends ConsumerStatefulWidget {

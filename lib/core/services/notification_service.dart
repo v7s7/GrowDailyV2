@@ -2527,7 +2527,7 @@ class NotificationService {
     final alarmHorizon = now.add(const Duration(days: kAlarmWindowDays));
     // Prayer times for the whole window, resolved at most ONCE per call
     // (not once per habit, and not once per day): every prayer-linked habit
-    // shares the same location, method and madhab, so one run of days
+    // shares the same location and method, so one run of days
     // answers all of them. Was a per-day map filled lazily, which became
     // the wrong shape the moment a slot wanted several days at once — that
     // would have been one Aladhan round trip per day per recompute, and a
@@ -2744,7 +2744,6 @@ class NotificationService {
           longitude: loc.lng,
           from: now,
           days: prayerWindowDays,
-          madhab: settings.madhab,
           countryCode: settings.resolvedCountryCode,
         );
         for (var slot = 0; slot < shifts.length; slot++) {

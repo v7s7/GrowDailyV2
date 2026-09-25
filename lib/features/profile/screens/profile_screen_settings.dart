@@ -182,6 +182,19 @@ class _SettingsSection extends ConsumerWidget {
                   _showThemePresetSheet(context);
                 },
               ),
+              // The Home Screen icon (lib/features/app_icon), right under the
+              // theme it can follow. iPhone only: the provider answers false
+              // everywhere else, so the row never draws on Android or the web.
+              if (ref.watch(appIconsAvailableProvider).valueOrNull == true)
+                _SettingsRow(
+                  icon: Icons.apps_rounded,
+                  label: s.appIconTitle,
+                  trailing: const _AppIconValue(),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.pushNamed(context, '/app-icon');
+                  },
+                ),
               _SettingsRow(
                 icon: Icons.text_fields_rounded,
                 label: s.appFont,
@@ -501,6 +514,31 @@ class _SettingsValue extends StatelessWidget {
         color: context.gp.textSec,
         fontWeight: FontWeight.w600,
       ),
+    );
+  }
+}
+
+/// The App icon row's current choice: the icon itself, small, and its colour's
+/// name (or «مع المظهر» while it follows the theme). Nothing until iOS has
+/// answered, rather than a guess that might be wrong.
+class _AppIconValue extends ConsumerWidget {
+  const _AppIconValue();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(appIconProvider);
+    if (current == null) return const SizedBox.shrink();
+    final s = S.of(context);
+    final follows = ref.watch(appIconPrefsProvider).followTheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppIconArt(choice: current, size: 22),
+        const SizedBox(width: 8),
+        _SettingsValue(
+          follows ? s.appIconFollowTitle : current.colourName(s),
+        ),
+      ],
     );
   }
 }

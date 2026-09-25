@@ -28,7 +28,6 @@ void main() {
         longitude: 39.8579,
         date: DateTime(2026, 3, 15),
         method: PrayerCalcMethod.ummAlQura,
-        madhab: PrayerMadhab.shafi,
       );
 
       expect(result.fajr.isBefore(result.sunrise), isTrue);
@@ -47,30 +46,32 @@ void main() {
       expect(result.maghrib.hour, inInclusiveRange(17, 19));
     });
 
-    test('Hanafi Asr is never earlier than Shafi Asr, same day/location', () {
+    test('Asr is always the standard time, never the later Hanafi one', () {
+      // The Hanafi choice was removed on 2026-09-25 (see
+      // PrayerTimesService._asrMadhab). Riyadh in June, where the two rules
+      // sit about an hour apart, so the later rule creeping back in cannot
+      // hide inside a rounding margin.
       const latitude = 24.7136;
       const longitude = 46.6753;
       final date = DateTime(2026, 6, 1);
-      final shafi = PrayerTimesService.calculateOffline(
+      final got = PrayerTimesService.calculateOffline(
         latitude: latitude,
         longitude: longitude,
         date: date,
         method: PrayerCalcMethod.ummAlQura,
-        madhab: PrayerMadhab.shafi,
       );
-      final hanafi = PrayerTimesService.calculateOffline(
-        latitude: latitude,
-        longitude: longitude,
-        date: date,
-        method: PrayerCalcMethod.ummAlQura,
-        madhab: PrayerMadhab.hanafi,
-      );
-      expect(
-        hanafi.asr.isAfter(shafi.asr) || hanafi.asr.isAtSameMomentAs(shafi.asr),
-        isTrue,
-        reason: "Hanafi's later-shadow-length convention should never "
-            'resolve to an earlier Asr than Shafi for the same day.',
-      );
+      DateTime rawAsr(adhan.Madhab madhab) => adhan.PrayerTimes(
+            coordinates: const adhan.Coordinates(latitude, longitude),
+            date: date,
+            calculationParameters:
+                adhan.CalculationMethodParameters.ummAlQura()
+                  ..madhab = madhab,
+            precision: true,
+          ).asr;
+      final standard = rawAsr(adhan.Madhab.shafi);
+      final hanafi = rawAsr(adhan.Madhab.hanafi);
+      expect(got.asr.isAtSameMomentAs(standard), isTrue);
+      expect(hanafi.difference(got.asr).inMinutes, greaterThan(30));
     });
 
     test(
@@ -104,7 +105,6 @@ void main() {
         longitude: 50.5860,
         date: DateTime(2026, 7, 17),
         method: PrayerCalcMethod.karachi,
-        madhab: PrayerMadhab.shafi,
       );
 
       String hhmm(tz.TZDateTime d) =>
@@ -126,7 +126,6 @@ void main() {
         longitude: 31.2357,
         date: DateTime(2026, 1, 10),
         method: PrayerCalcMethod.egyptian,
-        madhab: PrayerMadhab.shafi,
       );
       expect(result.forKey('fajr'), result.fajr);
       expect(result.forKey('dhuhr'), result.dhuhr);
@@ -146,7 +145,6 @@ void main() {
         longitude: 67.0011,
         date: DateTime(2026, 7, 16),
         method: PrayerCalcMethod.karachi,
-        madhab: PrayerMadhab.shafi,
       );
 
       String hhmm(tz.TZDateTime d) =>
@@ -175,7 +173,6 @@ void main() {
         longitude: 3.0588,
         date: DateTime(2026, 7, 16),
         method: PrayerCalcMethod.algerian,
-        madhab: PrayerMadhab.shafi,
       );
       expect(result.fajr.isBefore(result.sunrise), isTrue);
       expect(result.sunrise.isBefore(result.dhuhr), isTrue);
@@ -188,7 +185,6 @@ void main() {
         longitude: 37.6173,
         date: DateTime(2026, 7, 16),
         method: PrayerCalcMethod.russia,
-        madhab: PrayerMadhab.shafi,
       );
       expect(result.fajr.isBefore(result.sunrise), isTrue);
       expect(result.sunrise.isBefore(result.dhuhr), isTrue);
@@ -461,7 +457,6 @@ void main() {
         latitude: 26.2285,
         longitude: 50.5860,
         date: DateTime(2026, 7, 17),
-        madhab: PrayerMadhab.shafi,
       );
       String hhmm(tz.TZDateTime d) =>
           '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
@@ -491,14 +486,12 @@ void main() {
         latitude: latitude,
         longitude: longitude,
         date: date,
-        madhab: PrayerMadhab.shafi,
       );
       final rawDirect = PrayerTimesService.calculateOffline(
         latitude: latitude,
         longitude: longitude,
         date: date,
         method: PrayerCalcMethod.qatar,
-        madhab: PrayerMadhab.shafi,
       );
       expect(corrected.fajr, rawDirect.fajr);
       expect(corrected.dhuhr, rawDirect.dhuhr);
@@ -515,7 +508,6 @@ void main() {
         latitude: latitude,
         longitude: longitude,
         date: date,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'JO',
       );
       final rawDirect = PrayerTimesService.calculateOffline(
@@ -523,7 +515,6 @@ void main() {
         longitude: longitude,
         date: date,
         method: PrayerCalcMethod.jordan,
-        madhab: PrayerMadhab.shafi,
       );
       expect(corrected.fajr, rawDirect.fajr);
       expect(corrected.maghrib, rawDirect.maghrib);
@@ -554,7 +545,6 @@ void main() {
         longitude: 50.5860,
         date: DateTime(2026, 7, 16),
         method: PrayerCalcMethod.karachi,
-        madhab: PrayerMadhab.shafi,
         fajrCorrectionMinutes: 9,
       );
 
@@ -576,20 +566,19 @@ void main() {
         longitude: 46.6753,
         date: DateTime(2026, 6, 1),
         method: PrayerCalcMethod.ummAlQura,
-        madhab: PrayerMadhab.shafi,
       );
       expect(uri.queryParameters['tune'], '0,0,0,0,0,0,0,0,0');
     });
 
-    test('Hanafi maps to school=1', () {
+    test('Asr is always asked for as the standard school, 0', () {
       final uri = PrayerTimesService.aladhanRequestUri(
         latitude: 24.7136,
         longitude: 46.6753,
         date: DateTime(2026, 6, 1),
         method: PrayerCalcMethod.ummAlQura,
-        madhab: PrayerMadhab.hanafi,
       );
-      expect(uri.queryParameters['school'], '1');
+      // 1 would be Hanafi, which the app no longer offers.
+      expect(uri.queryParameters['school'], '0');
     });
 
     test(
@@ -602,7 +591,6 @@ void main() {
           longitude: 0,
           date: DateTime(2026, 1, 1),
           method: method,
-          madhab: PrayerMadhab.shafi,
         );
         final id = int.parse(uri.queryParameters['method']!);
         expect(id, inInclusiveRange(0, 99));
@@ -620,7 +608,6 @@ void main() {
         longitude: 1,
         date: DateTime(2026, 1, 5),
         method: PrayerCalcMethod.karachi,
-        madhab: PrayerMadhab.shafi,
       );
       expect(uri.path, '/v1/timings/05-01-2026');
     });
@@ -715,7 +702,6 @@ void main() {
           longitude: place.longitude,
           date: DateTime(day.year, day.month, day.dayOfMonth),
           method: PrayerCalcMethod.muslimWorldLeague,
-          madhab: PrayerMadhab.shafi,
         );
 
         expect(_hhmm(result.fajr), place.fajr);
@@ -811,7 +797,6 @@ void main() {
         longitude: -0.13,
         date: DateTime(2026, 6, 21),
         method: PrayerCalcMethod.muslimWorldLeague,
-        madhab: PrayerMadhab.shafi,
       );
       final month = PrayerTimesService.aladhanCalendarUri(
         latitude: 51.51,
@@ -819,7 +804,6 @@ void main() {
         year: 2026,
         month: 6,
         method: PrayerCalcMethod.muslimWorldLeague,
-        madhab: PrayerMadhab.shafi,
       );
 
       // 3 is Aladhan's ANGLE_BASED, the spelling of

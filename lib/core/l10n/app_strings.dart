@@ -2200,6 +2200,121 @@ class S {
   String get navBadgeReviewPending =>
       isAr ? 'مراجعة الليل ما انحفظت بعد' : 'Night review not saved yet';
 
+  // App icon: Settings › التخصيص › أيقونة التطبيق (lib/features/app_icon),
+  // iPhone only. First wording, 2026-09-25; Aziz picks the final words.
+  String get appIconTitle => isAr ? 'أيقونة التطبيق' : 'App icon';
+  String get appIconNow => isAr ? 'أيقونتك الحين' : 'Your icon now';
+  String get appIconPreviewing => isAr ? 'معاينة' : 'Preview';
+  String get appIconShapeSection => isAr ? 'الشكل' : 'Shape';
+  String get appIconColourSection => isAr ? 'اللون' : 'Colour';
+  String get appIconMoreColours => isAr ? 'ألوان أكثر' : 'More colours';
+  String get appIconFollowTitle => isAr ? 'مع المظهر' : 'Match my theme';
+  String get appIconFollowBody => isAr
+      ? 'تتغيّر ألوانها لما تغيّر المظهر'
+      : 'Changes colour when you change the theme';
+  String get appIconUse => isAr ? 'استخدم هذه الأيقونة' : 'Use this icon';
+  String get appIconInUse =>
+      isAr ? 'هذه أيقونتك الحين' : 'This is your icon now';
+  String get appIconFailed => isAr
+      ? 'ما تغيّرت الأيقونة، جرّب مرة ثانية.'
+      : 'The icon did not change. Try again.';
+  String get appIconShapeSeedling => isAr ? 'شتلة' : 'Seedling';
+  String get appIconShapeSprout => isAr ? 'نبتة' : 'Sprout';
+  String get appIconShapeGrown => isAr ? 'نبتة كبيرة' : 'Grown';
+  String get appIconShapeBloom => isAr ? 'مزهرة' : 'In bloom';
+  // The two shapes that can still be ahead, as they read inside a sentence.
+  String get appIconShapeGrownInSentence =>
+      isAr ? 'النبتة الكبيرة' : 'The grown plant';
+  String get appIconShapeBloomInSentence => isAr ? 'المزهرة' : 'The bloom';
+  String get appIconColourOriginal => isAr ? 'الأصلية' : 'Original';
+  String get appIconColourRed => isAr ? 'أحمر' : 'Red';
+  String get appIconColourYellow => isAr ? 'أصفر' : 'Yellow';
+  String get appIconColourGreen => isAr ? 'أخضر' : 'Green';
+  String get appIconColourBrown => isAr ? 'بني' : 'Brown';
+  String get appIconColourGrey => isAr ? 'رمادي' : 'Grey';
+  // The plant grows with FULL days: days that reached 80% of their habits,
+  // the streak's own bar, counted over all time and never needing to be in
+  // a row (Aziz, 2026-09-25). «يوم كامل» is the app's word for that day
+  // already (perfectDayMsg), so the count reads «18 يومًا كاملًا».
+  String fullDaysInSentence(int n) {
+    if (!isAr) return n == 1 ? '1 full day' : '$n full days';
+    if (n == 1) return 'يوم كامل';
+    if (n == 2) return 'يومين كاملين';
+    final mod100 = n % 100;
+    if (mod100 >= 3 && mod100 <= 10) return '$n أيام كاملة';
+    if (mod100 >= 11 && mod100 <= 99) return '$n يومًا كاملًا';
+    return '$n يوم كامل';
+  }
+
+  // Under a shape that is still ahead.
+  String appIconFullDaysLeft(int n) => isAr
+      ? 'باقي ${fullDaysInSentence(n)}'
+      : '${fullDaysInSentence(n)} to go';
+  // The line under the shapes: how far the plant has come.
+  String appIconFullDaysSoFar(int n) {
+    if (n == 0) {
+      return isAr
+          ? 'النبتة تكبر مع أيامك الكاملة.'
+          : 'Your plant grows with your full days.';
+    }
+    return isAr
+        ? 'عندك ${fullDaysInSentence(n)}.'
+        : '${fullDaysInSentence(n)} so far.';
+  }
+
+  String appIconNextShape(String shape, int n) => isAr
+      ? '$shape بعد ${fullDaysInSentence(n)}.'
+      : '$shape after ${n == 1 ? '1 more full day' : '$n more full days'}.';
+  String get appIconAllShapes =>
+      isAr ? 'كل الأشكال صارت لك.' : 'Every shape is yours.';
+  // What a full day is, under the line above.
+  String get appIconFullDayRule => isAr
+      ? 'اليوم الكامل: تنجز فيه 80% من عاداته أو أكثر. مو لازم تكون الأيام ورا بعض.'
+      : 'A full day is one where you finish 80% or more of its habits. They don\'t have to be in a row.';
+  // The Ramadan icon: shown all year, open to everyone only in Ramadan.
+  String get appIconSeasonSection => isAr ? 'موسمية' : 'Seasonal';
+  String get appIconRamadan => isAr ? 'رمضان' : 'Ramadan';
+  String get appIconRamadanLocked =>
+      isAr ? 'تفتح في رمضان' : 'Opens in Ramadan';
+  String get appIconRamadanOpen => isAr ? 'طول رمضان' : 'All Ramadan';
+  String appIconRamadanSoon(int n) => isAr
+      ? 'أيقونة رمضان تفتح للكل في رمضان، بعد ${daysInSentence(n)}.'
+      : 'The Ramadan icon opens for everyone in Ramadan, in ${daysInSentence(n)}.';
+  String get appIconRamadanNote => isAr
+      ? 'مفتوحة للكل طول رمضان، وإذا اخترتها تبقى معك بعده.'
+      : 'Open to everyone all through Ramadan. Pick it and it stays after.';
+  // The offer after a theme is picked, while «مع المظهر» is off.
+  String get appIconOfferTitle =>
+      isAr ? 'تبي الأيقونة بنفس الألوان؟' : 'Match the app icon too?';
+  String appIconOfferBody(String colour) => isAr
+      ? 'أيقونة $colour على شاشة تلفونك'
+      : 'The $colour icon on your Home Screen';
+  String get appIconOfferBodyOriginal => isAr
+      ? 'الأيقونة الأصلية على شاشة تلفونك'
+      : 'The original icon on your Home Screen';
+  String get appIconOfferBodyCustom => isAr
+      ? 'أيقونة بألوان مظهرك على شاشة تلفونك'
+      : 'An icon in your theme\'s colours on your Home Screen';
+  String get appIconOfferAlways =>
+      isAr ? 'خلّها تتبع المظهر دائمًا' : 'Always match my theme';
+  String get appIconOfferYes => isAr ? 'غيّرها' : 'Change it';
+  String get appIconOfferNo => isAr ? 'مو الحين' : 'Not now';
+  // The card when a new plant shape opens.
+  String get plantGrewTitle => isAr ? 'نبتتك كبرت' : 'Your plant grew';
+  String get plantBloomedTitle =>
+      isAr ? 'نبتتك زهّرت' : 'Your plant is in bloom';
+  String plantGrewBody(int n) => isAr
+      ? 'صار عندك ${fullDaysInSentence(n)}، وصار لك شكل جديد للأيقونة.'
+      : 'You have ${fullDaysInSentence(n)} now, and a new icon shape is yours.';
+  String get plantGrewUse => isAr ? 'استخدمها' : 'Use it';
+  String get plantGrewLater => isAr ? 'بعدين' : 'Later';
+  // The card once each Ramadan, from its first day until Eid; the same two
+  // buttons as the plant's.
+  String get ramadanCardTitle => isAr ? 'رمضان مبارك' : 'Ramadan Mubarak';
+  String get ramadanCardBody => isAr
+      ? 'أيقونة رمضان مفتوحة للكل طول الشهر.'
+      : 'The Ramadan icon is open to everyone all month.';
+
   // GetStartedChecklistCard (Grid + Matrix, disappears once both are done —
   // see that widget's own doc comment for why this replaces leaning on the
   // spotlight/slide-tour alone to teach this). "Habit"/"Task" match navGrid/
@@ -5543,14 +5658,7 @@ class S {
       ? 'حدد أكثر من عادة وامسحها مرة وحدة'
       : 'Pick several habits and remove them together';
 
-  // ── Notification settings: madhab row + visible city search ────────────
-
-  String get notifMadhab => isAr ? 'مذهب العصر' : 'Asr madhab';
-
-  /// The one line that keeps the sheet from reading as a sect-picker.
-  String get notifMadhabHint => isAr
-      ? 'يأثر على وقت العصر بس، باقي الأوقات ما تتغير.'
-      : 'Only affects the Asr time. Nothing else changes.';
+  // ── Notification settings: visible city search ─────────────────────────
 
   /// Spoken label for the location row's search icon.
   String get notifLocationSearchAction =>

@@ -52,6 +52,7 @@ import 'core/theme/game_theme.dart';
 import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
 import 'features/achievements/models/achievement_overrides.dart';
+import 'features/app_icon/app_icon_screen.dart';
 import 'features/character/models/cosmetic_overrides.dart';
 import 'features/broadcast/broadcast_announcer.dart';
 import 'features/broadcast/broadcast_message.dart';
@@ -136,6 +137,8 @@ import 'features/settings/models/notification_settings.dart';
 import 'shared/widgets/home_shell.dart';
 import 'features/settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
+import 'features/settings/notifiers/prayer_location_auto.dart'
+    show autoLocatePrayerPlace;
 import 'features/settings/screens/notification_settings_screen.dart';
 import 'firebase_options.dart';
 import 'shared/widgets/app_snackbar.dart';
@@ -716,6 +719,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // being a room-finish push target for the account that just left it.
         PushNotificationService.instance.clearForSignOut();
       }
+      // Once auth has answered, signed in or a guest: the prayer place, found
+      // by the phone if a prayer widget or a prayer habit needs one and none
+      // is saved, or moved if the phone has travelled. See
+      // autoLocatePrayerPlace. It waits for the account pull started above,
+      // so it never writes over settings still on their way down.
+      if (next.hasValue) unawaited(autoLocatePrayerPlace(ref.read));
     }, fireImmediately: true);
 
     // Wire the notification taps that reach the LIVE app to the exact same
@@ -867,13 +876,28 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       notificationSettingsProvider,
       (previous, next) {
         _recomputeNotifications();
-        // The prayer-countdown widget reads the same saved location, madhab
-        // and country this screen edits, so a location picked (or cleared)
+        // The prayer-countdown widget reads the same saved location and
+        // country this screen edits, so a location picked (or cleared)
         // in Settings has to reach it too — see PrayerWidgetFeed for why it
         // is a week of instants and not just the next one. fireImmediately
         // covers cold start; the push itself skips a repeat of the same
         // inputs on the same day.
-        PrayerWidgetFeed.push(next);
+        //
+        // Only once this device's saved settings are in (loaded). The
+        // cold-start call gets the provider's all-defaults placeholder,
+        // and pushing its null location handed the widget an empty week on
+        // every launch: «حدّد موقعك» until the real push landed. In Bahrain
+        // that is a moment; anywhere else the real week waits on the
+        // network, and a phone put away before it arrived kept the empty
+        // face (seen on the simulator 2026-09-25 with Riyadh saved).
+        final settings = ref.read(notificationSettingsProvider.notifier);
+        unawaited(
+          settings.loaded.then((_) {
+            if (mounted) {
+              PrayerWidgetFeed.push(ref.read(notificationSettingsProvider));
+            }
+          }),
+        );
       },
       fireImmediately: true,
     );
@@ -1698,6 +1722,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       PrayerWidgetFeed.push(ref.read(notificationSettingsProvider));
       final wasAway = _awaySinceResume;
       _awaySinceResume = false;
+      // Back from the background is when the phone may be somewhere new, or
+      // a prayer widget was just placed and is waiting on a place. Only a
+      // real return: the system's own location prompt makes the app
+      // inactive, and its answer must not start another run. Paced by
+      // itself (autoLocatePrayerPlace), so frequent returns cost nothing.
+      if (wasAway) unawaited(autoLocatePrayerPlace(ref.read));
       // Before the board reload below, and for its sake. When the day turned
       // while the app was away, _dayTurnSub reloads the dashboard and the
       // Grid for it the moment the clock is re-read, so this resume must not
@@ -2931,6 +2961,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/help-support': (_) => const HelpSupportScreen(),
         '/settings': (_) => const SettingsScreen(),
         '/nav-bar': (_) => const NavBarSettingsScreen(),
+        '/app-icon': (_) => const AppIconScreen(),
         '/app-guide': (_) => const AppGuideScreen(),
       },
       onGenerateRoute: (settings) {

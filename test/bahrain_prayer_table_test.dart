@@ -73,7 +73,6 @@ void main() {
         latitude: _lat,
         longitude: _lng,
         date: date,
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       );
       expect(
@@ -104,7 +103,6 @@ void main() {
         longitude: _lng,
         date: date,
         method: PrayerCalcMethod.karachi,
-        madhab: PrayerMadhab.shafi,
       );
       final got = [
         _hm(raw.fajr),
@@ -119,29 +117,17 @@ void main() {
     expect(mismatches, greaterThan(0));
   });
 
-  test('a Hanafi user keeps the official five and computes only Asr', () {
-    final date = DateTime.parse('2026-08-18');
-    final shafi = PrayerTimesService.calculateOfflineCorrected(
+  test('Asr is the official figure too, the same as the other five', () {
+    // A Hanafi choice once swapped in a computed Asr about an hour later
+    // than the Kingdom's; that choice is gone (2026-09-25), so no path may
+    // put anything but the published Asr on a Bahrain day.
+    final got = PrayerTimesService.calculateOfflineCorrected(
       latitude: _lat,
       longitude: _lng,
-      date: date,
-      madhab: PrayerMadhab.shafi,
+      date: DateTime.parse('2026-08-18'),
       countryCode: 'BH',
     );
-    final hanafi = PrayerTimesService.calculateOfflineCorrected(
-      latitude: _lat,
-      longitude: _lng,
-      date: date,
-      madhab: PrayerMadhab.hanafi,
-      countryCode: 'BH',
-    );
-    // Bahrain publishes one Asr, computed the standard way. Handing it to
-    // a Hanafi user would be an hour wrong, not a rounding error.
-    expect(_hm(hanafi.fajr), _hm(shafi.fajr));
-    expect(_hm(hanafi.dhuhr), _hm(shafi.dhuhr));
-    expect(_hm(hanafi.maghrib), _hm(shafi.maghrib));
-    expect(_hm(hanafi.isha), _hm(shafi.isha));
-    expect(hanafi.asr.difference(shafi.asr).inMinutes, greaterThan(30));
+    expect(_hm(got.asr), _official['2026-08-18']![3]);
   });
 
   test('outside Bahrain the table is never consulted', () {
@@ -151,7 +137,6 @@ void main() {
       latitude: 24.7136,
       longitude: 46.6753,
       date: DateTime.parse('2026-08-18'),
-      madhab: PrayerMadhab.shafi,
       countryCode: 'SA',
     );
     expect(_hm(riyadh.isha), isNot(_official['2026-08-18']![5]));
@@ -164,7 +149,6 @@ void main() {
       latitude: _lat,
       longitude: _lng,
       date: DateTime.parse('2027-06-06'),
-      madhab: PrayerMadhab.shafi,
       countryCode: 'BH',
     );
     expect(BahrainPrayerTable.lookup(DateTime.parse('2027-06-06')), isNull);

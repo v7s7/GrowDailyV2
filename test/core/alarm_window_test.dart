@@ -151,7 +151,6 @@ void main() {
         latitude: _manama.lat,
         longitude: _manama.lng,
         date: DateTime(now.year, now.month, now.day + i),
-        madhab: PrayerMadhab.shafi,
         countryCode: 'BH',
       ).fajr.add(Duration(minutes: offset));
       if (moment.isAfter(now) && moment.isBefore(horizon)) {

@@ -684,6 +684,27 @@ class HomeWidgetService {
   static const _iOSPrayerLockScreenWidgetName =
       'GrowDailyPrayerLockScreenWidget';
 
+  /// Whether either prayer widget is placed on this phone, Home Screen or
+  /// Lock Screen. Asked by autoLocatePrayerPlace: a prayer widget with no
+  /// place to count from is a reason to ask for the location, and one it
+  /// can find without anyone opening Settings. WidgetKit's own list of
+  /// placed widgets (iOS 14 and later); false wherever there is no such
+  /// list or it cannot be read.
+  Future<bool> hasPrayerWidget() async {
+    if (!_supported) return false;
+    try {
+      final placed = await HomeWidget.getInstalledWidgets();
+      return placed.any(
+        (w) =>
+            w.iOSKind == _iOSPrayerWidgetName ||
+            w.iOSKind == _iOSPrayerLockScreenWidgetName,
+      );
+    } catch (e) {
+      debugPrint('[HomeWidgetService] placed widgets unreadable: $e');
+      return false;
+    }
+  }
+
   /// Pushes the run of upcoming prayer instants the countdown widget reads,
   /// and asks iOS to redraw it. See PrayerWidgetFeed (which computes them)
   /// and PrayerCountdownWidget.swift (which picks the next one out of this
