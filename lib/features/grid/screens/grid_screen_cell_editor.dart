@@ -196,6 +196,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       showVoiceNoteGate(context, ref);
       return;
     }
+    // The month's allowance (voice_note_allowance.dart), on the start only.
+    if (!_recording && !voiceNoteMonthAllows(context, ref)) return;
     final svc = VoiceNoteService.instance;
     if (_recording) {
       _recTimer?.cancel();
@@ -203,6 +205,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       if (!mounted) return;
       setState(() => _recording = false);
       if (result == null) return; // Under a second: nothing kept.
+      // Kept, so it counts toward the month, before any await.
+      ref.read(voiceNoteAllowanceProvider.notifier).recorded();
       // A signed-in account gets the audio as base64 too, so it follows
       // them to a second phone, within the square's budget; a guest has no
       // second phone (the task notes' rule, VoiceNote.audioBase64). Only
@@ -372,6 +376,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         elapsed: _recElapsed,
         color: color,
         locked: !premium,
+        hint: voiceNoteAllowanceHint(ref, s),
         onTap: _toggleRecording,
       ),
     ];

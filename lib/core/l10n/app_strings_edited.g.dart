@@ -905,6 +905,8 @@ const List<String> kEditableWordingKeys = [
   'voiceNoteGateBody',
   'voiceNoteRecording',
   'voiceNoteTapToRecord',
+  'voiceNotesMonthUsed',
+  'voiceNotesBackOnHint',
   'voiceNoteTapToStop',
   'voiceNoteMicPermissionDenied',
   'voiceNoteAttached',
@@ -1431,6 +1433,7 @@ const List<String> kBuiltInOnlyWordingKeys = [
   'premiumLifetimeBreakEven',
   'premiumOfferPercent',
   'premiumTrialLine',
+  'voiceNotesLeftThisMonth',
   'roomNameSuggestions',
   'roomPlanSelectedCount',
   'roomCreateRoomSummary',
@@ -5721,6 +5724,42 @@ class _EditedS extends S {
 
   @override
   String get voiceNoteTapToRecord => plainWording(_edits['voiceNoteTapToRecord']) ?? super.voiceNoteTapToRecord;
+
+  @override
+  String voiceNotesMonthUsed(int limit, String date) {
+    final wordingEdit = _edits['voiceNotesMonthUsed'];
+    if (wordingEdit == null) return super.voiceNotesMonthUsed(limit, date);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'limit': () => '$limit',
+                  'date': () => '$date',
+                }
+              : <String, String Function()>{
+                  'limit': () => '$limit',
+                  'date': () => '$date',
+                },
+        ) ??
+        super.voiceNotesMonthUsed(limit, date);
+  }
+
+  @override
+  String voiceNotesBackOnHint(String date) {
+    final wordingEdit = _edits['voiceNotesBackOnHint'];
+    if (wordingEdit == null) return super.voiceNotesBackOnHint(date);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'date': () => '$date',
+                }
+              : <String, String Function()>{
+                  'date': () => '$date',
+                },
+        ) ??
+        super.voiceNotesBackOnHint(date);
+  }
 
   @override
   String get voiceNoteTapToStop => plainWording(_edits['voiceNoteTapToStop']) ?? super.voiceNoteTapToStop;

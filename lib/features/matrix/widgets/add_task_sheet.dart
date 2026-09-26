@@ -24,6 +24,7 @@ import 'reminder_picker.dart'
 import 'voice_note_player.dart'
     show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../premium/notifiers/voice_note_allowance.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Stays open after each add so a quick brain-dump ("buy milk" ⏎ "wash car"
@@ -254,12 +255,18 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       showVoiceNoteGate(context, ref);
       return;
     }
+    // The month's allowance (voice_note_allowance.dart), asked on the start
+    // only, like Premium: a take already running always stops.
+    if (!_recording && !voiceNoteMonthAllows(context, ref)) return;
     if (_recording) {
       _timer?.cancel();
       final result = await VoiceNoteService.instance.stopRecording();
       if (!mounted) return;
       setState(() => _recording = false);
       if (result != null) {
+        // Kept, so it counts toward the month (before any await, while this
+        // sheet and its ref are certainly still here).
+        ref.read(voiceNoteAllowanceProvider.notifier).recorded();
         // Signed-in users get this note's audio embedded as base64 too, so
         // it can sync to a second device (see VoiceNote.audioBase64) —
         // guests have no second device to sync to, so skip the extra
@@ -711,6 +718,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                               color: _color,
                               onTap: _toggleRecording,
                               locked: !ref.watch(premiumAccessProvider),
+                              hint: voiceNoteAllowanceHint(ref, S.of(context)),
                             ),
                             for (var i = 0; i < _pendingNotes.length; i++)
                               Padding(

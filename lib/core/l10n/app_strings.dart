@@ -3525,6 +3525,27 @@ class S {
       : 'Record a quick voice note on any task or any day of a habit, available with Premium.';
   String get voiceNoteRecording => isAr ? 'جارٍ التسجيل…' : 'Recording…';
   String get voiceNoteTapToRecord => isAr ? 'اضغط للتسجيل' : 'Tap to record';
+
+  // The monthly voice-note allowance (voice_note_allowance.dart,
+  // kVoiceNotesPerMonth, Aziz 2026-09-26). DRAFT wording, Aziz's call.
+  /// The notice on a mic tapped once the month's notes are used.
+  String voiceNotesMonthUsed(int limit, String date) => isAr
+      ? 'خلصت ملاحظاتك الصوتية لهذا الشهر ($limit). ترجع يوم $date.'
+      : "You've used this month's $limit voice notes. They're back on $date.";
+
+  /// The mic row's second line while none are left.
+  String voiceNotesBackOnHint(String date) =>
+      isAr ? 'ترجع يوم $date' : 'Back on $date';
+
+  /// The mic row's second line once only a few are left.
+  String voiceNotesLeftThisMonth(int n) {
+    if (!isAr) {
+      return n == 1 ? '1 note left this month' : '$n notes left this month';
+    }
+    if (n == 1) return 'باقي لك ملاحظة وحدة هذا الشهر';
+    if (n == 2) return 'باقي لك ملاحظتين هذا الشهر';
+    return 'باقي لك $n ملاحظات هذا الشهر';
+  }
   String get voiceNoteTapToStop => isAr ? 'اضغط للإيقاف' : 'Tap to stop';
   String get voiceNoteMicPermissionDenied => isAr
       ? 'يحتاج التطبيق إذن الميكروفون لتسجيل الملاحظات الصوتية.'

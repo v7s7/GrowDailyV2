@@ -673,6 +673,11 @@ class VoiceNoteRecordRow extends StatelessWidget {
   /// reads as a trap. The row stays tappable: the tap IS the pitch.
   final bool locked;
 
+  /// Replaces «tap to record» under the title while not recording: the
+  /// monthly allowance's line (voiceNoteAllowanceHint), when few or no
+  /// notes are left this month. Null keeps the usual line.
+  final String? hint;
+
   const VoiceNoteRecordRow({
     super.key,
     required this.recording,
@@ -680,6 +685,7 @@ class VoiceNoteRecordRow extends StatelessWidget {
     required this.color,
     required this.onTap,
     this.locked = false,
+    this.hint,
   });
 
   @override
@@ -773,7 +779,7 @@ class VoiceNoteRecordRow extends StatelessWidget {
                     Text(
                       recording
                           ? s.voiceNoteTapToStop
-                          : s.voiceNoteTapToRecord,
+                          : hint ?? s.voiceNoteTapToRecord,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 11, color: gp.textTert),

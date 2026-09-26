@@ -67,6 +67,7 @@ import '../../habits/widgets/add_habit_sheet.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../premium/notifiers/voice_note_allowance.dart';
 import '../../../shared/widgets/history_demo_gate.dart';
 import '../models/covered_day.dart';
 import '../models/rest_day_tap.dart';

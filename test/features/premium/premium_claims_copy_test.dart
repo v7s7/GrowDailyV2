@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
+import 'package:grow_daily_v2/features/premium/notifiers/voice_note_allowance.dart';
 import 'package:grow_daily_v2/features/profile/screens/help_support_screen.dart';
 
 /// What the upsell copy promises, pinned against the gates behind it. Each
@@ -81,6 +82,16 @@ void main() {
         .firstWhere((e) => e.questionEn.contains('a guest, a free account'));
     expect(faq.answerEn, contains('voice notes on tasks and habit days'));
     expect(faq.answerAr, contains('ملاحظات صوتية للمهام وأيام العادات'));
+  });
+
+  // The monthly allowance (voice_note_allowance.dart) is stated where Premium
+  // is explained, so a paying account never meets it as a surprise. Written
+  // out as a digit, like the guest cap above, and pinned to the constant.
+  test('the FAQ states the monthly voice note allowance', () {
+    final faq = kFaqEntries
+        .firstWhere((e) => e.questionEn.contains('a guest, a free account'));
+    expect(faq.answerEn, contains('up to $kVoiceNotesPerMonth a month'));
+    expect(faq.answerAr, contains('لحد $kVoiceNotesPerMonth في الشهر'));
   });
 
   test('the last trial day makes no calendar claim', () {
