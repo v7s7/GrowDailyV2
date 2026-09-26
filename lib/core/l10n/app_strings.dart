@@ -1424,8 +1424,8 @@ class S {
   // location is saved yet — there's no prayer time to compute against, so
   // this points at where to fix that rather than showing nothing at all.
   String get remindPreviewNeedsLocation => isAr
-      ? 'حدد موقعك في إعدادات الإشعارات لرؤية الوقت الدقيق'
-      : 'Set your location in Notification Settings to see the exact time';
+      ? 'حدد موقع الصلاة من الإعدادات لرؤية الوقت الدقيق'
+      : 'Set your prayer location in Settings to see the exact time';
   // ── The timing switch (Add Habit → When step) ──────────────────────
   //
   // Timing has always been optional in the data: an untouched picker saves
@@ -4918,22 +4918,7 @@ class S {
       ? 'يصلك إشعار عندما ينهي أحد زملائك في الغرفة عاداته اليوم.'
       : 'Get notified when a teammate in one of your rooms finishes their habits for the day.';
 
-  String get notifPrayerSection =>
-      isAr ? 'تذكيرات مرتبطة بأوقات الصلاة' : 'PRAYER-TIME REMINDERS';
   String get notifLocationNotSet => isAr ? 'غير محدد' : 'Not set';
-  String get notifLocationHint => isAr
-      ? 'اضغط أعلاه لتحديد موقعك تلقائيًا وتفعيل التذكيرات المرتبطة بأوقات الصلاة.'
-      : 'Tap above to auto-detect your location and turn on prayer-linked reminders.';
-  // Always shown under the location row (set or not) — the long-press
-  // escape hatch to manual city search only exists for travel/denied-GPS
-  // cases, so it needs to stay discoverable even after a location is
-  // already set. See NotificationSettingsScreen's doc comment.
-  // Rewritten when the search icon landed on the location row: the old
-  // text pointed at long-press as the only road to manual search, which
-  // was the discoverability problem the icon exists to fix.
-  String get notifLocationManualHint => isAr
-      ? 'أيقونة البحث تختار مدينة يدويًا، مفيد وقت السفر.'
-      : 'The search icon picks a city manually, handy when traveling.';
   String get notifDetectingLocation =>
       isAr ? 'جارٍ تحديد الموقع…' : 'Detecting…';
   String get notifLocationDetectFailed => isAr
@@ -4966,6 +4951,31 @@ class S {
   String get notifTestSent => isAr
       ? 'تم الإرسال. تحقق من قائمة الإشعارات.'
       : 'Sent. Check your notification shade.';
+
+  // ── Settings › موقع الصلاة (PrayerLocationScreen) ─────────────────────
+  // Its own page since 2026-09-25, out of Notification Settings (Aziz:
+  // "better and easier flow"). First wording; Aziz picks the final words.
+  String get prayerPlaceTitle => isAr ? 'موقع الصلاة' : 'Prayer location';
+  String get prayerPlaceNotSet =>
+      isAr ? 'ما حددت موقعك بعد' : 'No location yet';
+  String get prayerPlaceNeeded =>
+      isAr ? 'أوقات الصلاة تحتاج موقعك' : 'Prayer times need your location';
+  String get prayerPlaceFromPhone =>
+      isAr ? 'من موقع تلفونك' : "From your phone's location";
+  String get prayerPlacePicked => isAr ? 'مدينة اخترتها' : 'A city you picked';
+  String get prayerPlaceUses => isAr
+      ? 'منه تُحسب أوقات الصلاة، والتذكيرات المرتبطة فيها، وودجت الصلاة.'
+      : 'Prayer times, the reminders tied to them and the prayer widget all come from here.';
+  String get prayerPlaceAuto => isAr ? 'موقعي الحالي' : 'My current location';
+  String get prayerPlaceAutoBody =>
+      isAr ? 'يتغيّر وحده إذا سافرت' : 'Changes by itself when you travel';
+  String get prayerPlaceCity => isAr ? 'اختر مدينة' : 'Choose a city';
+  String get prayerPlaceCityBody =>
+      isAr ? 'تبقى نفسها حتى تغيّرها' : 'Stays the same until you change it';
+  // The method row inside Bahrain, where the times come from the Ministry's
+  // published timetable rather than a calculation.
+  String get prayerPlaceBahrainTable =>
+      isAr ? 'الجدول الرسمي لمملكة البحرين' : "Bahrain's official timetable";
 
   // ── City search (prayer-time location) ───────────────────────────────
 

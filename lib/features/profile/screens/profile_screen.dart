@@ -48,6 +48,8 @@ import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../features/premium/screens/premium_screen.dart';
 import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
+import '../../../features/settings/notifiers/notification_settings_notifier.dart'
+    show notificationSettingsProvider;
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../milestones/reports/record_lifetime.dart';
 import '../../milestones/reports/record_screen.dart';

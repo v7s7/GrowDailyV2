@@ -1233,10 +1233,7 @@ const List<String> kEditableWordingKeys = [
   'notifWeeklyDigestDesc',
   'notifRoomActivity',
   'notifRoomActivityDesc',
-  'notifPrayerSection',
   'notifLocationNotSet',
-  'notifLocationHint',
-  'notifLocationManualHint',
   'notifDetectingLocation',
   'notifLocationDetectFailed',
   'notifCalcMethod',
@@ -1250,6 +1247,17 @@ const List<String> kEditableWordingKeys = [
   'notifTimingSection',
   'notifSendTest',
   'notifTestSent',
+  'prayerPlaceTitle',
+  'prayerPlaceNotSet',
+  'prayerPlaceNeeded',
+  'prayerPlaceFromPhone',
+  'prayerPlacePicked',
+  'prayerPlaceUses',
+  'prayerPlaceAuto',
+  'prayerPlaceAutoBody',
+  'prayerPlaceCity',
+  'prayerPlaceCityBody',
+  'prayerPlaceBahrainTable',
   'prayerLocationTitle',
   'prayerLocationPrivacyNote',
   'citySearchHint',
@@ -7607,16 +7615,7 @@ class _EditedS extends S {
   String get notifRoomActivityDesc => plainWording(_edits['notifRoomActivityDesc']) ?? super.notifRoomActivityDesc;
 
   @override
-  String get notifPrayerSection => plainWording(_edits['notifPrayerSection']) ?? super.notifPrayerSection;
-
-  @override
   String get notifLocationNotSet => plainWording(_edits['notifLocationNotSet']) ?? super.notifLocationNotSet;
-
-  @override
-  String get notifLocationHint => plainWording(_edits['notifLocationHint']) ?? super.notifLocationHint;
-
-  @override
-  String get notifLocationManualHint => plainWording(_edits['notifLocationManualHint']) ?? super.notifLocationManualHint;
 
   @override
   String get notifDetectingLocation => plainWording(_edits['notifDetectingLocation']) ?? super.notifDetectingLocation;
@@ -7656,6 +7655,39 @@ class _EditedS extends S {
 
   @override
   String get notifTestSent => plainWording(_edits['notifTestSent']) ?? super.notifTestSent;
+
+  @override
+  String get prayerPlaceTitle => plainWording(_edits['prayerPlaceTitle']) ?? super.prayerPlaceTitle;
+
+  @override
+  String get prayerPlaceNotSet => plainWording(_edits['prayerPlaceNotSet']) ?? super.prayerPlaceNotSet;
+
+  @override
+  String get prayerPlaceNeeded => plainWording(_edits['prayerPlaceNeeded']) ?? super.prayerPlaceNeeded;
+
+  @override
+  String get prayerPlaceFromPhone => plainWording(_edits['prayerPlaceFromPhone']) ?? super.prayerPlaceFromPhone;
+
+  @override
+  String get prayerPlacePicked => plainWording(_edits['prayerPlacePicked']) ?? super.prayerPlacePicked;
+
+  @override
+  String get prayerPlaceUses => plainWording(_edits['prayerPlaceUses']) ?? super.prayerPlaceUses;
+
+  @override
+  String get prayerPlaceAuto => plainWording(_edits['prayerPlaceAuto']) ?? super.prayerPlaceAuto;
+
+  @override
+  String get prayerPlaceAutoBody => plainWording(_edits['prayerPlaceAutoBody']) ?? super.prayerPlaceAutoBody;
+
+  @override
+  String get prayerPlaceCity => plainWording(_edits['prayerPlaceCity']) ?? super.prayerPlaceCity;
+
+  @override
+  String get prayerPlaceCityBody => plainWording(_edits['prayerPlaceCityBody']) ?? super.prayerPlaceCityBody;
+
+  @override
+  String get prayerPlaceBahrainTable => plainWording(_edits['prayerPlaceBahrainTable']) ?? super.prayerPlaceBahrainTable;
 
   @override
   String get prayerLocationTitle => plainWording(_edits['prayerLocationTitle']) ?? super.prayerLocationTitle;

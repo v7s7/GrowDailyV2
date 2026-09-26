@@ -4,16 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/weekly_note_offer_provider.dart';
-import '../../../core/services/country_lookup_service.dart';
-import '../../../core/services/device_location_service.dart';
 import '../../../core/services/notification_service.dart';
-import '../../../core/services/prayer_times_service.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../models/notification_settings.dart';
 import '../notifiers/notification_settings_notifier.dart';
-import '../widgets/city_search_sheet.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Everything the app can notify someone about, and every knob to tune or
@@ -22,32 +18,11 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// the old inline Daily Reminder row (that setting now lives inside here
 /// instead, alongside everything else notification-related).
 ///
-/// Location for prayer-time calculation is auto-detected via on-device GPS
-/// (tapping the location row - see [_LocationRow]/DeviceLocationService),
-/// with typed city search ([showCitySearchSheet]/GeocodingService) as the
-/// fallback for denied permission, disabled location services, or simply
-/// wanting a different city (long-press the row) — e.g. while traveling.
-/// Either path resolves to one lat/lng pair cached in [NotificationSettings.
-/// location] — no location permission or search needed again. A country
-/// code for that same pair (`NotificationSettings.resolvedCountryCode`) is
-/// resolved right alongside it via CountryLookupService, feeding
-/// [PrayerTimesService.resolveRegion]'s global-coverage tier — see that
-/// function's doc comment. [PrayerTimesService] then fetches the actual 5
-/// daily times from a live prayer-times API for that pair (falling back to
-/// an offline calculation with no connection), so no further location
-/// prompts are ever needed, just a network call at scheduling time.
-///
-/// The calculation method itself is *not* user-editable — it used to be a
-/// 12-option picker, but [PrayerTimesService.resolveRegion] now auto-selects
-/// it from the saved location (a hand-verified recipe for each of the 6 GCC
-/// countries, a documented-but-not-independently-verified one for roughly
-/// 17 more, and a plain global default everywhere else — see that
-/// function's doc comment), so there's nothing left for a picker to
-/// meaningfully change.
-/// [_InfoRow] below shows the resolved method read-only. There was an Asr
-/// madhab row under it (Shafi or Hanafi) until 2026-09-25; Aziz removed it,
-/// and Asr is now always the standard time every Gulf timetable publishes
-/// (see PrayerTimesService._asrMadhab).
+/// The place prayer times are worked out from is not here any more. It was
+/// the first row of a prayer-reminder section until 2026-09-25, when it moved
+/// to its own page, Settings › موقع الصلاة (PrayerLocationScreen), with the
+/// read-only calculation method beside it: the place feeds the prayer widget
+/// and prayer habits too, and Aziz wanted a plainer way to pick it.
 class NotificationSettingsScreen extends ConsumerWidget {
   const NotificationSettingsScreen({super.key});
 
@@ -55,7 +30,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final isAr = s.isAr;
     final settings = ref.watch(notificationSettingsProvider);
     final notifier = ref.read(notificationSettingsProvider.notifier);
 
@@ -173,41 +147,9 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     ),
                   ]),
                   const SizedBox(height: 20),
-                  _SectionLabel(s.notifPrayerSection),
-                  _Card(children: [
-                    _LocationRow(location: settings.location),
-                    const _RowDivider(),
-                    _InfoRow(
-                      icon: Icons.explore_rounded,
-                      label: s.notifCalcMethod,
-                      value: settings.location == null
-                          ? s.notifLocationNotSet
-                          : PrayerTimesService.resolveRegion(
-                                  settings.location!.lat,
-                                  settings.location!.lng,
-                                  countryCode: settings.resolvedCountryCode)
-                              .method
-                              .label(isAr),
-                    ),
-                    // The global "minutes after prayer" stepper used to sit
-                    // here. Removed: it was silently added on top of each
-                    // habit's own timing, so the two fought and Add Habit's
-                    // preview showed a time that never matched what actually
-                    // fired. Timing is now picked per habit (before / on
-                    // time / after), right where the cue itself is chosen.
-                  ]),
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Text(
-                      settings.hasLocation
-                          ? s.notifLocationManualHint
-                          : s.notifLocationHint,
-                      style: TextStyle(
-                          fontSize: 12, color: gp.textTert, height: 1.4),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
+                  // The prayer place moved to its own page on 2026-09-25
+                  // (Settings › موقع الصلاة, PrayerLocationScreen): it feeds
+                  // the prayer widget and prayer habits, not only reminders.
                   _SectionLabel(s.notifQuietHoursSection),
                   _Card(children: [
                     _SwitchRow(
@@ -386,198 +328,6 @@ class _DailyReminderRow extends ConsumerWidget {
             ),
             if (reminderTime != null)
               Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Prayer location row — tap auto-detects via on-device GPS
-/// ([DeviceLocationService]), long-press opens the manual city-search sheet
-/// directly. On a failed/denied/timed-out detection, the tap path falls
-/// back to that same manual sheet automatically (with a snackbar explaining
-/// why) rather than just dead-ending on an error, so one tap always gets
-/// somewhere usable. A location, once set either way, is just a lat/lng —
-/// nothing downstream cares which path produced it.
-///
-/// No reverse-geocoding: a GPS fix is labeled with its own rounded
-/// coordinates (see [DeviceLocationFix]'s doc comment) rather than a looked-
-/// up city name, so this stays a single new permission/package instead of
-/// two.
-class _LocationRow extends ConsumerStatefulWidget {
-  final NotificationLocation? location;
-  const _LocationRow({required this.location});
-
-  @override
-  ConsumerState<_LocationRow> createState() => _LocationRowState();
-}
-
-class _LocationRowState extends ConsumerState<_LocationRow> {
-  bool _detecting = false;
-
-  Future<void> _openManualSearch() async {
-    final picked = await showCitySearchSheet(context);
-    if (!mounted || picked == null) return;
-    // The old place's country code goes with it: until the new one
-    // resolves, the city's own coordinates pick the method (see
-    // savePhoneLocation for why a stale code is worse than none).
-    ref.read(notificationSettingsProvider.notifier).update(
-          (c) => c.copyWith(clearLocation: true).copyWith(location: picked),
-        );
-    _resolveCountryInBackground(picked.lat, picked.lng);
-  }
-
-  Future<void> _detect() async {
-    HapticFeedback.selectionClick();
-    setState(() => _detecting = true);
-    final outcome = await DeviceLocationService.detect();
-    if (!mounted) return;
-    setState(() => _detecting = false);
-
-    if (outcome.isSuccess) {
-      // Coordinates are NEVER shown to the user — the label starts as a
-      // localized "finding your location…" placeholder, becomes the real
-      // «المنامة، البحرين» name the moment the reverse lookup resolves,
-      // and degrades to a plain "Location set" if that lookup fails. The
-      // raw lat/lng still power every calculation underneath; they just
-      // never appear as text.
-      //
-      // The same save the app makes on its own (savePhoneLocation): the
-      // phone's own location, kept current from here on (see
-      // autoLocatePrayerPlace), so a tap is also how someone who picked a
-      // city by hand goes back to automatic. It drops the old place's
-      // country code with the old place.
-      final s = S.of(context);
-      await savePhoneLocation(
-        ref.read,
-        outcome.fix!,
-        isAr: s.isAr,
-        resolvingLabel: s.notifLocationResolving,
-        genericLabel: s.notifLocationSetGeneric,
-        isMounted: () => mounted,
-      );
-      return;
-    }
-
-    final s = S.of(context);
-    ScaffoldMessenger.of(context).showOne(
-      SnackBar(
-        content: Text(s.notifLocationDetectFailed),
-        duration: const Duration(seconds: 3),
-      ),
-    );
-    await _openManualSearch();
-  }
-
-  /// Fire-and-forget, deliberately not awaited by either call site above:
-  /// the location itself is already set and on screen by the time this
-  /// runs, so the country code (needed only for PrayerTimesService.
-  /// resolveRegion's global fallback tier, not for this row's own display)
-  /// resolves quietly in the background rather than making the user wait
-  /// on a second network round-trip before the location row updates.
-  ///
-  /// Re-reads the settings' current location right before writing and
-  /// discards the result if it no longer matches [lat]/[lng] — guards
-  /// against a slower-to-resolve lookup from an earlier location
-  /// overwriting a newer one that's since replaced it (e.g. GPS-detect
-  /// immediately followed by a manual re-search, before the first lookup
-  /// has returned). Silently a no-op on a failed lookup too — see
-  /// CountryLookupService.lookup's doc comment.
-  /// Only the manual path uses this now: a searched city keeps the exact
-  /// label the user picked, and a GPS fix gets its label and code from
-  /// savePhoneLocation instead.
-  Future<void> _resolveCountryInBackground(double lat, double lng) async {
-    final s = S.of(context);
-    final place = await CountryLookupService.lookupPlace(lat, lng,
-        languageCode: s.isAr ? 'ar' : 'en');
-    if (!mounted) return;
-    final current = ref.read(notificationSettingsProvider).location;
-    if (current == null || current.lat != lat || current.lng != lng) return;
-    ref.read(notificationSettingsProvider.notifier).update(
-          (c) => c.copyWith(
-            resolvedCountryCode: place.code ?? c.resolvedCountryCode,
-          ),
-        );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    final s = S.of(context);
-    return InkWell(
-      onTap: _detecting ? null : _detect,
-      onLongPress: _detecting
-          ? null
-          : () {
-              HapticFeedback.mediumImpact();
-              _openManualSearch();
-            },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(Icons.location_on_rounded, size: 20, color: gp.textSec),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(s.prayerLocationTitle,
-                  style: TextStyle(
-                      fontSize: 15,
-                      color: gp.textPrimary,
-                      fontWeight: FontWeight.w500)),
-            ),
-            if (_detecting) ...[
-              SizedBox(
-                width: 13,
-                height: 13,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: gp.textTert),
-              ),
-              const SizedBox(width: 6),
-              Text(s.notifDetectingLocation,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: gp.textSec,
-                      fontWeight: FontWeight.w600)),
-            ] else ...[
-              Flexible(
-                child: Text(
-                  widget.location?.label ?? s.notifLocationNotSet,
-                  textAlign: TextAlign.end,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 13,
-                      color: gp.textSec,
-                      fontWeight: FontWeight.w600),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Icon(Icons.my_location_rounded, size: 16, color: gp.textTert),
-              // Manual city search, as its own visible target. It used to
-              // be long-press-only on this row (kept, for anyone used to
-              // it) with the tap path only falling back to it after a GPS
-              // failure — so a traveler with working GPS had no
-              // discoverable way to set a different city at all.
-              const SizedBox(width: 2),
-              InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: _detecting
-                    ? null
-                    : () {
-                        HapticFeedback.selectionClick();
-                        _openManualSearch();
-                      },
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Semantics(
-                    button: true,
-                    label: s.notifLocationSearchAction,
-                    child: Icon(Icons.search_rounded,
-                        size: 18, color: gp.textSec),
-                  ),
-                ),
-              ),
-            ],
           ],
         ),
       ),
@@ -944,54 +694,6 @@ class _SwitchRow extends StatelessWidget {
               HapticFeedback.selectionClick();
               onChanged(v);
             },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A settings row for a value that's shown but not tappable — the
-/// calculation-method line, now that it's auto-resolved from location
-/// rather than a picker (see NotificationSettingsScreen's doc comment and
-/// [PrayerTimesService.resolveRegion]). The layout of a tappable row minus
-/// the InkWell/chevron, so it still reads as "part of this list" and not
-/// visually demoted, just clearly not an action.
-class _InfoRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: gp.textSec),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 15,
-                    color: gp.textPrimary,
-                    fontWeight: FontWeight.w500)),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: 13, color: gp.textSec, fontWeight: FontWeight.w600),
-            ),
           ),
         ],
       ),

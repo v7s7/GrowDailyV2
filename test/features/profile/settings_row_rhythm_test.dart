@@ -18,15 +18,28 @@
 //     surface and no settings row — Sign Out included — showed any
 //     pressed feedback at all. Invisible in a screenshot, obvious under a
 //     finger.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/core/constants/game_constants.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/profile/screens/profile_screen.dart';
+import 'package:hive/hive.dart';
 
 void main() {
+  // The Prayer location row shows the saved place, which its notifier reads
+  // from the settings box. Opened here, before any test body: real disk I/O
+  // started inside testWidgets never finishes (see LandingHarness).
+  setUp(() async {
+    final tmp = await Directory.systemTemp.createTemp('settings_rhythm_');
+    Hive.init(tmp.path);
+    await Hive.openBox<dynamic>(GameConstants.boxSettings);
+  });
+
   Future<void> pumpSettings(WidgetTester tester,
       {Locale locale = const Locale('en')}) async {
     await tester.binding.setSurfaceSize(const Size(402, 900));
@@ -73,10 +86,11 @@ void main() {
     final appearance = rowHeight(tester, 'Appearance');
     final font = rowHeight(tester, 'Font');
     final language = rowHeight(tester, 'Language');
+    final place = rowHeight(tester, 'Prayer location');
 
-    expect({appearance, font, language}, hasLength(1),
+    expect({appearance, font, language, place}, hasLength(1),
         reason: 'the plain text rows drifted apart from each other: '
-            '$appearance / $font / $language');
+            '$appearance / $font / $language / $place');
     // The toggle row is allowed a hair of slack (the Switch is a fixed
     // 40pt once shrink-wrapped, and rounding can leave a pixel), but not
     // the 22pt gap the un-compensated version had.
@@ -84,6 +98,18 @@ void main() {
         reason: 'the Dark Mode row is $dark against $appearance for its '
             'siblings — give the Switch materialTapTargetSize.shrinkWrap '
             'and the row its smaller verticalPadding');
+  });
+
+  testWidgets('the prayer location sits under Language and names the place',
+      (tester) async {
+    await pumpSettings(tester);
+    final language = tester.getTopLeft(find.text('Language')).dy;
+    final place = tester.getTopLeft(find.text('Prayer location')).dy;
+    final bar = tester.getTopLeft(find.text('Bottom bar')).dy;
+    expect(place, greaterThan(language));
+    expect(place, lessThan(bar));
+    // Nothing saved in this test's box.
+    expect(find.text('Not set'), findsOneWidget);
   });
 
   testWidgets('rows are tall enough to hit comfortably', (tester) async {

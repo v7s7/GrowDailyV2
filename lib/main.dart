@@ -140,6 +140,7 @@ import 'features/settings/notifiers/notification_settings_notifier.dart'
 import 'features/settings/notifiers/prayer_location_auto.dart'
     show autoLocatePrayerPlace;
 import 'features/settings/screens/notification_settings_screen.dart';
+import 'features/settings/screens/prayer_location_screen.dart';
 import 'firebase_options.dart';
 import 'shared/widgets/app_snackbar.dart';
 
@@ -2958,6 +2959,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         '/premium': (_) => const PremiumScreen(),
         '/auth': (_) => const AuthScreen(),
         '/notification-settings': (_) => const NotificationSettingsScreen(),
+        '/prayer-location': (_) => const PrayerLocationScreen(),
         '/help-support': (_) => const HelpSupportScreen(),
         '/settings': (_) => const SettingsScreen(),
         '/nav-bar': (_) => const NavBarSettingsScreen(),

@@ -213,6 +213,19 @@ class _SettingsSection extends ConsumerWidget {
                   _showLanguageSheet(context);
                 },
               ),
+              // Where prayer times are worked out from (PrayerLocationScreen).
+              // Here beside Language rather than inside Notifications, where
+              // it used to be: it feeds the prayer widget and prayer habits
+              // too, and the widget's «حدّد موقعك» opens this screen.
+              _SettingsRow(
+                icon: Icons.location_on_rounded,
+                label: s.prayerPlaceTitle,
+                trailing: const _PrayerPlaceValue(),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  Navigator.pushNamed(context, '/prayer-location');
+                },
+              ),
               // The bottom bar's tabs (NavBarSettingsScreen). Free accounts
               // can open it and see what Premium unlocks, since every edit
               // inside is gated; the PRO pill here is the honest signpost,
@@ -513,6 +526,34 @@ class _SettingsValue extends StatelessWidget {
         fontSize: 13,
         color: context.gp.textSec,
         fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+/// The prayer place's name, cut short on one line: a searched city can carry
+/// a long label ("Cairo, Al Qahirah, Egypt") and the row has the width of a
+/// language name.
+class _PrayerPlaceValue extends ConsumerWidget {
+  const _PrayerPlaceValue();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = S.of(context);
+    final place = ref.watch(
+      notificationSettingsProvider.select((n) => n.location?.label),
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 160),
+      child: Text(
+        place ?? s.notifLocationNotSet,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          color: context.gp.textSec,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
