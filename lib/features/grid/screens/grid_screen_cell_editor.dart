@@ -38,6 +38,28 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
   /// that. See the ref.listen in build.
   late bool _noteWalled;
 
+  // ── Voice notes on this square (square_voice_notes.dart) ────────────────
+  // The task sheets' recorder, moved onto a day: the same VoiceNoteService,
+  // the same rows, the same gate. Unlike the written note there is no Save
+  // button: a recording is saved the moment it stops, as it is on a task.
+  late final String _voiceKey = squareVoiceKey(widget.habit.id, widget.day);
+  List<VoiceNote> _voiceNotes = const [];
+
+  /// True while this square's recordings are being read. Skipped only when
+  /// the index has loaded and says the square has none, so an ordinary
+  /// square costs no read once the index is in.
+  bool _voiceLoading = false;
+
+  /// Whether [_voiceNotes] is known to be the square's WHOLE list: read from
+  /// storage, or known empty from a loaded index. Renaming and deleting
+  /// rewrite the list, so they wait for this; recording never needs it,
+  /// because a new recording is appended (SquareVoiceStore.add), which
+  /// cannot overwrite anything this sheet has not seen.
+  bool _voiceComplete = false;
+  bool _recording = false;
+  Duration _recElapsed = Duration.zero;
+  Timer? _recTimer;
+
   @override
   void initState() {
     super.initState();
@@ -51,12 +73,308 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
       isPremium: ref.read(premiumAccessProvider),
     );
     _noteCtrl = TextEditingController(text: _noteWalled ? '' : note);
+    if (!kIsWeb) {
+      final index = ref.read(squareVoiceIndexProvider.notifier);
+      if (index.loaded && !index.has(widget.habit.id, widget.day)) {
+        _voiceComplete = true;
+      } else {
+        _voiceLoading = true;
+        _loadVoice();
+      }
+    }
   }
 
   @override
   void dispose() {
+    _recTimer?.cancel();
+    // Closing the sheet mid-take throws the take away, as the task sheets
+    // do: there is no longer anywhere to show or name it.
+    if (_recording) VoiceNoteService.instance.cancelRecording().ignore();
     _noteCtrl.dispose();
     super.dispose();
+  }
+
+  Future<bool> _loadVoice() async {
+    final uid = ref.read(authStateProvider).asData?.value?.uid;
+    try {
+      final notes =
+          await ref.read(squareVoiceStoreProvider).load(uid, _voiceKey);
+      if (!mounted) return false;
+      setState(() {
+        // A take appended while the read was in flight may not be in what
+        // came back yet: keep it, once.
+        final read = {for (final n in notes) n.id};
+        _voiceNotes = [
+          ...notes,
+          for (final n in _voiceNotes)
+            if (!read.contains(n.id)) n,
+        ];
+        _voiceComplete = true;
+        _voiceLoading = false;
+      });
+      return true;
+    } catch (_) {
+      if (mounted) setState(() => _voiceLoading = false);
+      return false;
+    }
+  }
+
+  /// Tells the journal, whose loaded month never re-reads by itself (see
+  /// _write's noteChanged). The square's real colour goes with it, so a day
+  /// someone only spoke about is not filed as «لم يكتمل» when it was green.
+  void _voiceToJournal() {
+    ref.read(gridJournalProvider.notifier).voiceChanged(
+          widget.day,
+          widget.habit.id,
+          ref.read(squareVoiceIndexProvider)[_voiceKey] ?? 0,
+          squareState: ref
+              .read(weeklyGridProvider)
+              .squareFor(widget.habit.id, widget.day),
+        );
+  }
+
+  /// A write failed for real (a rejected commit, not an offline wait). An
+  /// overlay, not a SnackBar: a SnackBar sits behind this sheet.
+  void _voiceWriteFailed(S s) {
+    if (!mounted) return;
+    showOverlayNotice(
+      context,
+      s.gridNoteSaveFailed,
+      icon: Icons.error_outline_rounded,
+    );
+  }
+
+  /// A new recording: on screen and in the Grid's corner at once, then
+  /// appended in storage (SquareVoiceStore.add). Not awaited, for the reason
+  /// SquareVoiceStore.save gives.
+  void _addVoice(VoiceNote note) {
+    final uid = ref.read(authStateProvider).asData?.value?.uid;
+    final s = S.of(context);
+    setState(() => _voiceNotes = [..._voiceNotes, note]);
+    ref.read(squareVoiceIndexProvider.notifier).added(_voiceKey);
+    _voiceToJournal();
+    ref
+        .read(squareVoiceStoreProvider)
+        .add(uid, _voiceKey, note)
+        .catchError((Object _) => _voiceWriteFailed(s));
+  }
+
+  /// A rename or a delete: rewrites the square's list, so only ever from a
+  /// list known to be whole ([_voiceComplete]). Reads it first when it is
+  /// not; if even that fails (offline, nothing cached) it does nothing and
+  /// says so, rather than rewrite a list it has only partly seen. True when
+  /// the change went ahead.
+  Future<bool> _rewriteVoice(
+    List<VoiceNote> Function(List<VoiceNote> current) change,
+  ) async {
+    final s = S.of(context);
+    if (!_voiceComplete && !await _loadVoice()) {
+      _voiceWriteFailed(s);
+      return false;
+    }
+    if (!mounted) return false;
+    final uid = ref.read(authStateProvider).asData?.value?.uid;
+    final notes = change(_voiceNotes);
+    setState(() => _voiceNotes = notes);
+    ref
+        .read(squareVoiceIndexProvider.notifier)
+        .setCount(_voiceKey, notes.length);
+    _voiceToJournal();
+    ref
+        .read(squareVoiceStoreProvider)
+        .save(uid, _voiceKey, notes)
+        .catchError((Object _) => _voiceWriteFailed(s));
+    return true;
+  }
+
+  /// Start or stop a take. The same flow as AddTaskSheet._toggleRecording:
+  /// Premium first, then the microphone, then a timer that stops the take
+  /// at VoiceNoteService.maxRecordingSeconds. Premium is asked on the start
+  /// only: a take running when Premium ends still stops, and is kept.
+  Future<void> _toggleRecording() async {
+    if (!_recording && !hasVoiceNoteAccess(ref)) {
+      showVoiceNoteGate(context, ref);
+      return;
+    }
+    final svc = VoiceNoteService.instance;
+    if (_recording) {
+      _recTimer?.cancel();
+      final result = await svc.stopRecording();
+      if (!mounted) return;
+      setState(() => _recording = false);
+      if (result == null) return; // Under a second: nothing kept.
+      // A signed-in account gets the audio as base64 too, so it follows
+      // them to a second phone, within the square's budget; a guest has no
+      // second phone (the task notes' rule, VoiceNote.audioBase64). Only
+      // against a list known to be whole: the budget is what keeps the
+      // square's document under Firestore's 1 MiB, and bytes this sheet has
+      // not seen cannot be counted, so an unread square's take stays on
+      // this phone, as an over-budget one does.
+      final uid = ref.read(authStateProvider).asData?.value?.uid;
+      String? audioBase64;
+      if (uid != null && _voiceComplete) {
+        audioBase64 = await svc.encodeForSync(
+          result.path,
+          existingSyncedBytes: _voiceNotes.fold<int>(
+            0,
+            (sum, n) => sum + (n.audioBase64?.length ?? 0),
+          ),
+        );
+        if (!mounted) return;
+      }
+      HapticFeedback.lightImpact();
+      _addVoice(VoiceNote(
+        id: const Uuid().v4(),
+        path: result.path,
+        name: '',
+        durationSeconds: result.durationSeconds,
+        createdAt: DateTime.now(),
+        audioBase64: audioBase64,
+      ));
+      return;
+    }
+    final granted = await svc.hasPermission();
+    if (!mounted) return;
+    if (!granted) {
+      showOverlayNotice(
+        context,
+        S.of(context).voiceNoteMicPermissionDenied,
+        icon: Icons.mic_off_rounded,
+      );
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    await svc.startRecording();
+    if (!mounted) return;
+    setState(() {
+      _recording = true;
+      _recElapsed = Duration.zero;
+    });
+    _recTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final next = _recElapsed + const Duration(seconds: 1);
+      setState(() => _recElapsed = next);
+      if (next.inSeconds >= VoiceNoteService.maxRecordingSeconds) {
+        _toggleRecording();
+      }
+    });
+  }
+
+  /// The recording's own name, or «تسجيل N» by its place on this square.
+  String _voiceName(int index, S s) {
+    final name = _voiceNotes[index].name.trim();
+    return name.isNotEmpty ? name : s.voiceNoteDefaultName(index + 1);
+  }
+
+  void _renameVoice(VoiceNote note, String shownName) {
+    showRenameVoiceNoteSheet(
+      context,
+      currentName: note.name,
+      onSave: (name) {
+        if (!mounted) return;
+        _rewriteVoice((current) => [
+              for (final n in current)
+                n.id == note.id ? n.copyWith(name: name.trim()) : n,
+            ]);
+      },
+    );
+  }
+
+  Future<void> _deleteVoice(VoiceNote note) async {
+    HapticFeedback.lightImpact();
+    final svc = VoiceNoteService.instance;
+    if (svc.nowPlaying.value?.noteId == note.id) svc.stopPlayback().ignore();
+    final removed = await _rewriteVoice((current) => [
+          for (final n in current)
+            if (n.id != note.id) n,
+        ]);
+    // The file on this phone goes too, as a task's does (TaskDetailSheet),
+    // but only once the recording has really left the list: a delete that
+    // could not go through must not leave a note with no sound behind it.
+    // A recording made on another phone has no file here, which is fine.
+    if (removed && note.path.isNotEmpty) File(note.path).delete().ignore();
+  }
+
+  /// The lock card that stands in for anything this square holds beyond
+  /// the free history, a written note or a recording. It opens the history
+  /// demo gate, whose button leads to Premium.
+  Widget _historyLockCard(BuildContext context, S s) {
+    final gp = context.gp;
+    return InkWell(
+      onTap: () => showHistoryDemoGate(context),
+      borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
+          borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+          border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.lock_rounded, size: 16, color: context.gp.goldInk),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                s.gridNoteLocked,
+                style:
+                    TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35),
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                size: 16, color: context.gp.goldInk),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The square's recordings, then the row that makes another.
+  ///
+  /// A free account sees the mic with its lock, and the tap is the pitch
+  /// (showVoiceNoteGate), as on a task. Recordings made while Premium stay
+  /// playable after it lapses (the app's "access ending takes nothing away"
+  /// rule), except on a day past the free history, where they are walled
+  /// exactly as a written note on that day is. Not on the web, where the
+  /// recorder has nothing to record with.
+  List<Widget> _voiceSection(BuildContext context, S s) {
+    if (kIsWeb) return const [];
+    final premium = ref.watch(premiumAccessProvider);
+    final hasVoice = _voiceNotes.isNotEmpty ||
+        ref.watch(squareVoiceIndexProvider
+            .select((m) => (m[_voiceKey] ?? 0) > 0));
+    final walled = hasVoice &&
+        !canBrowseHistoryMonth(
+          monthStart: DateTime(widget.day.year, widget.day.month),
+          now: DateTime.now().effectiveDay,
+          isPremium: premium,
+        );
+    if (walled) return [_historyLockCard(context, s)];
+    final color = context.gp.goldInk;
+    return [
+      for (var i = 0; i < _voiceNotes.length; i++) ...[
+        VoiceNoteRow(
+          note: _voiceNotes[i],
+          displayName: _voiceName(i, s),
+          color: color,
+          onRename: () => _renameVoice(_voiceNotes[i], _voiceName(i, s)),
+          onDelete: () => _deleteVoice(_voiceNotes[i]),
+        ),
+        const SizedBox(height: 6),
+      ],
+      if (_voiceLoading)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 6),
+          child: LinearProgressIndicator(minHeight: 2),
+        ),
+      VoiceNoteRecordRow(
+        recording: _recording,
+        elapsed: _recElapsed,
+        color: color,
+        locked: !premium,
+        onTap: _toggleRecording,
+      ),
+    ];
   }
 
   @override
@@ -378,40 +696,10 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
             const SizedBox(height: 8),
             if (_noteWalled)
               // No text field and no Save button: there is nothing to type
-              // over, and nothing that could write a blank through.
-              InkWell(
-                onTap: () => showHistoryDemoGate(context),
-                borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: GameColors.gold.withOpacity(gp.dark ? 0.10 : 0.08),
-                    borderRadius:
-                        BorderRadius.circular(GameSpacing.cardRadius),
-                    border:
-                        Border.all(color: GameColors.gold.withOpacity(0.35)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.lock_rounded,
-                          size: 16, color: context.gp.goldInk),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          s.gridNoteLocked,
-                          style: TextStyle(
-                              fontSize: 12.5,
-                              color: gp.textSec,
-                              height: 1.35),
-                        ),
-                      ),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 16,
-                          color: context.gp.goldInk),
-                    ],
-                  ),
-                ),
-              )
+              // over, and nothing that could write a blank through. The
+              // square's recordings sit behind the same card, since a day
+              // walled for its note is walled for its voice too.
+              _historyLockCard(context, s)
             else ...[
               TextField(
                 selectionWidthStyle: GameTextStyles.selectionWidthStyle,
@@ -422,6 +710,8 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                 style: TextStyle(fontSize: 14, color: gp.textPrimary),
                 decoration: InputDecoration(hintText: s.gridNoteHint),
               ),
+              if (!kIsWeb) const SizedBox(height: 10),
+              ..._voiceSection(context, s),
               const SizedBox(height: 14),
               SizedBox(
                 width: double.infinity,

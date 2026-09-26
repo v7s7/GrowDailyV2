@@ -719,6 +719,14 @@ class _JournalEntryCard extends StatelessWidget {
             const SizedBox(height: 10),
             HabitNoteBlock(note: entry.note, day: entry.day),
           ],
+          if (entry.voiceCount > 0) ...[
+            const SizedBox(height: 10),
+            SquareVoiceBlock(
+              habitId: entry.habitId,
+              day: entry.day,
+              count: entry.voiceCount,
+            ),
+          ],
         ],
       ),
     );

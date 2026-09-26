@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Color;
 import 'package:home_widget/home_widget.dart';
 
 import '../extensions/datetime_ext.dart';
@@ -357,6 +358,56 @@ class HomeWidgetService {
       debugPrint('[HomeWidgetService] locale write skipped: $e');
     }
   }
+
+  static const _themeKey = 'themeColors';
+
+  /// What [pushTheme] last wrote this session, so a theme that did not
+  /// change costs no write and no widget reload.
+  String? _lastTheme;
+
+  /// The app's colour theme, for the Home Screen faces to wear (Aziz,
+  /// 2026-09-25: widgets follow the theme, for everyone; the nine other
+  /// themes and your own are Premium already, so no new lock).
+  ///
+  /// One string, `presetId|#accent|#done`, read by parseWidgetTheme in
+  /// WidgetFaceRules.swift. The default theme's id makes the faces keep
+  /// their own parchment tokens exactly, so nothing changes for anyone on
+  /// it. The Habits, Tasks and Room Race faces are reloaded; the Lock Screen
+  /// ones are tinted by the system and the prayer face keeps its skies.
+  Future<void> pushTheme({
+    required String presetId,
+    required Color accent,
+    required Color done,
+  }) async {
+    if (!_supported) return;
+    final value = '$presetId|#${_rgbHex(accent)}|#${_rgbHex(done)}';
+    if (value == _lastTheme) return;
+    try {
+      // First push of this run: the faces may already wear this theme from
+      // the last one, and main.dart pushes on every cold start, so compare
+      // with what is stored before reloading three widgets for nothing.
+      if (_lastTheme == null &&
+          await HomeWidget.getWidgetData<String>(_themeKey) == value) {
+        _lastTheme = value;
+        return;
+      }
+      await HomeWidget.saveWidgetData<String>(_themeKey, value);
+      _lastTheme = value;
+      await HomeWidget.updateWidget(iOSName: _iOSWidgetName);
+      await HomeWidget.updateWidget(iOSName: _iOSMatrixWidgetName);
+      await HomeWidget.updateWidget(iOSName: _iOSRoomRaceWidgetName);
+    } catch (e) {
+      debugPrint('[HomeWidgetService] theme write skipped: $e');
+    }
+  }
+
+  /// A fresh run of the app, for tests: forgets what this run pushed, so the
+  /// next [pushTheme] compares with the stored value as a cold start does.
+  @visibleForTesting
+  Future<void> debugForgetTheme() async => _lastTheme = null;
+
+  static String _rgbHex(Color c) =>
+      (c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase();
 
   /// [saveLocale]'s last answer; English when nothing was ever written.
   Future<bool> readLocaleIsAr() async {

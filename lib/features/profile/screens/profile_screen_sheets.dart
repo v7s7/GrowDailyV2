@@ -108,7 +108,13 @@ class _ThemePresetSheet extends ConsumerWidget {
     // One tile builder for both sections, so free and premium rows are
     // provably the same control rather than two copies that drift.
     Widget buildPresetTile(ThemePreset preset) {
-      final locked = preset.isPremium && !isPremium;
+      // Not the one in use. A theme kept from a Premium that has ended
+      // stays on until sign-out, and locking its own tile drew
+      // a padlock where the check belongs, so the sheet said nothing was
+      // selected and tapping what you are wearing opened the paywall.
+      // Choosing it again changes nothing, so it needs no gate.
+      final locked =
+          preset.isPremium && !isPremium && preset.id != selectedId;
       return _ThemePresetTile(
         preset: preset,
         selected: preset.id == selectedId,
@@ -1807,8 +1813,13 @@ class _CustomThemeCard extends StatelessWidget {
                         color: context.gp.goldInk,
                       ),
                     ),
-                  )
-                else if (selected)
+                  ),
+                // In use and locked together: a custom theme kept from a
+                // Premium that has ended. It is still what the app wears,
+                // so it keeps its check; the pill says why the colours
+                // cannot be changed. The check used to give way to the pill.
+                if (locked && selected) const SizedBox(width: 6),
+                if (selected)
                   Icon(Icons.check_circle_rounded,
                       size: 18, color: context.gp.goldInk),
               ],

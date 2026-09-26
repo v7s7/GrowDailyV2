@@ -46,4 +46,30 @@ void main() {
       expect(identical(stack.replace(45, 10), stack), isTrue);
     });
   });
+
+  // Which rows may move at all. Free carries a stack only when Premium has
+  // ended (Aziz, 2026-09-26: a lapsed account "just edits the premium").
+  group('HabitReminderStack.canEdit', () {
+    const stack = HabitReminderStack(primary: -10, extras: {30, 60});
+
+    test('Premium moves any reminder', () {
+      for (final offset in stack.all) {
+        expect(stack.canEdit(offset, isPremium: true), isTrue);
+      }
+    });
+
+    test('free moves the primary, the one reminder it includes', () {
+      expect(stack.canEdit(-10, isPremium: false), isTrue);
+    });
+
+    test('free cannot move a kept extra', () {
+      expect(stack.canEdit(30, isPremium: false), isFalse);
+      expect(stack.canEdit(60, isPremium: false), isFalse);
+    });
+
+    test('a lone reminder is always free to move', () {
+      const lone = HabitReminderStack(primary: 15);
+      expect(lone.canEdit(15, isPremium: false), isTrue);
+    });
+  });
 }

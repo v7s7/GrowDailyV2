@@ -1,13 +1,24 @@
 import 'dart:async';
+import 'dart:io' show File;
 // TextDirection only: package:intl below exports a class of the same name,
 // which shadows the one every Flutter widget actually takes.
 import 'dart:ui' as ui show TextDirection;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../../core/services/voice_note_service.dart';
+import '../../../shared/widgets/overlay_notice.dart';
+import '../../../shared/widgets/voice_note_gate.dart';
+import '../../auth/notifiers/auth_notifier.dart' show authStateProvider;
+import '../../matrix/models/matrix_task.dart' show VoiceNote;
+import '../../matrix/widgets/voice_note_player.dart'
+    show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
@@ -67,6 +78,7 @@ import '../widgets/daily_quote_line.dart';
 import '../widgets/note_corner.dart';
 import '../widgets/step_count_label.dart';
 import '../notifiers/grid_journal_notifier.dart';
+import '../notifiers/square_voice_notes.dart';
 import 'grid_journal_screen.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -284,6 +296,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     final s = S.of(context);
     final rooms = ref.read(roomsControllerProvider);
     final totalCompletions = ref.read(dashboardProvider).habitTotalCompletions;
+    // The board before anything leaves it: Undo may climb back to this and
+    // no further past the cap (undoFitsHabitCap).
+    final hadBefore = ref.read(habitListProvider).length;
     // Captured before the loop clears the selection - Undo below needs to
     // know exactly which habits went, and which kind each one was.
     final removed = <({String id, bool isCatalog, bool everCompleted})>[];
@@ -359,6 +374,19 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             : SnackBarAction(
                 label: s.undo,
                 onPressed: () {
+                  // Only the ones still off come back, so only they count.
+                  final onBoard = {
+                    for (final h in ref.read(habitListProvider)) h.id,
+                  };
+                  final returning =
+                      restorable.where((r) => !onBoard.contains(r.id)).length;
+                  if (!canUndoHabitRemoval(ref,
+                      returning: returning, hadBefore: hadBefore)) {
+                    // Nothing is lost: they wait in the paused list, where
+                    // Resume asks the same cap.
+                    if (mounted) showHabitLimitGate(context, ref);
+                    return;
+                  }
                   HapticFeedback.lightImpact();
                   for (final r in restorable) {
                     if (r.isCatalog) {
@@ -631,6 +659,8 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     final messenger = ScaffoldMessenger.of(context);
     final everCompleted =
         (ref.read(dashboardProvider).habitTotalCompletions[habit.id] ?? 0) > 0;
+    // See _deleteSelected: the ceiling this pause's Undo may climb back to.
+    final hadBefore = ref.read(habitListProvider).length;
     HapticFeedback.mediumImpact();
     // eraseIfEmpty: false — Pause never destroys, not even a habit that
     // was never completed. The sheet's own hint promises the record is
@@ -682,6 +712,17 @@ class _GridScreenState extends ConsumerState<GridScreen> {
         action: SnackBarAction(
           label: s.undo,
           onPressed: () {
+            // Pause A at the cap, add or resume another inside the six
+            // seconds, Undo: one over. Refused, A stays paused, and Resume
+            // asks the same cap. Nothing to ask if it is already back.
+            final back = ref
+                .read(habitListProvider)
+                .any((h) => h.id == habit.id);
+            if (!back &&
+                !canUndoHabitRemoval(ref, returning: 1, hadBefore: hadBefore)) {
+              if (mounted) showHabitLimitGate(context, ref);
+              return;
+            }
             HapticFeedback.lightImpact();
             // Undoing the pause undoes the booking with it, or a habit put
             // straight back on the board would still be carrying a return

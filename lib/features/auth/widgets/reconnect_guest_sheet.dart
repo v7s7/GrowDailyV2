@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../habits/notifiers/custom_habits_notifier.dart' show habitLimitFor;
+import '../../premium/notifiers/premium_notifier.dart';
 import '../services/guest_migration_service.dart';
 import '../services/reload_after_migration.dart';
 
@@ -91,7 +93,15 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
 
     GuestMigrationResult? result;
     if (bringItOver) {
-      result = await GuestMigrationService.migrate(widget.uid);
+      // The cap of the account the habits land on, which may already hold
+      // habits of its own when this is answered from the Profile banner.
+      result = await GuestMigrationService.migrate(
+        widget.uid,
+        habitLimit: habitLimitFor(
+          isGuest: false,
+          isPremium: ref.read(premiumAccessProvider),
+        ),
+      );
     }
 
     await LocalStoreService.markGuestDataForDiscard(DateTime.now());
@@ -117,7 +127,10 @@ class _ReconnectSheetState extends ConsumerState<_ReconnectSheet> {
               ? s.reconnectGrace(LocalStoreService.guestDiscardGraceDays)
               : result?.failed == true
                   ? s.reconnectPartial(LocalStoreService.guestDiscardGraceDays)
-                  : s.reconnectDone,
+                  : (result?.pausedHabits ?? 0) > 0
+                      ? s.reconnectDonePaused(
+                          result!.pausedHabits, kFreeHabitLimit)
+                      : s.reconnectDone,
         ),
       ),
     );

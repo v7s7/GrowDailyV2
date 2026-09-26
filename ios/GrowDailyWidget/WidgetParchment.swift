@@ -123,14 +123,54 @@ extension Color {
     /// value that is not six hex digits, so the caller falls back to the
     /// category's colour, as the Grid does.
     static func parchmentInk(hex: String?) -> Color? {
+        parchmentSafe(hex: hex, target: 4.5)
+    }
+
+    /// The same, held to the 3:1 a FILLED shape is held to (a square, an
+    /// arc) rather than ink's 4.5:1, as parchmentGreenFill is.
+    static func parchmentFill(hex: String?) -> Color? {
+        parchmentSafe(hex: hex, target: 3)
+    }
+
+    private static func parchmentSafe(hex: String?, target: Double) -> Color? {
         guard let rgb = rgbChannels(fromHex: hex) else { return nil }
-        let light = parchmentSafeChannels(rgb, dark: false)
-        let dark = parchmentSafeChannels(rgb, dark: true)
+        let light = parchmentSafeChannels(rgb, dark: false, target: target)
+        let dark = parchmentSafeChannels(rgb, dark: true, target: target)
         return Color(uiColor: UIColor { traits in
             let c = traits.userInterfaceStyle == .dark ? dark : light
             return UIColor(red: CGFloat(c.0), green: CGFloat(c.1), blue: CGFloat(c.2), alpha: 1)
         })
     }
+
+    // ── The app's colour theme on the faces (2026-09-25) ─────────────────
+    // What the Habits, Tasks and Room Race faces paint where they painted
+    // the brand gold and green: the theme's accent and done colours, made
+    // readable on the sheet the way a habit's own colour is, or the tokens
+    // above exactly when the app is on its default theme (parseWidgetTheme
+    // in WidgetFaceRules.swift). The prayer face keeps its skies, and the
+    // Lock Screen faces are tinted by the system, so neither reads these.
+
+    /// The accent as ink: a ring, a tag, a highlighted row, a medal.
+    static var themeGold: Color {
+        widgetTheme.flatMap { parchmentInk(hex: $0.accentHex) } ?? .parchmentGold
+    }
+
+    /// The done colour as ink: counts of what is finished.
+    static var themeGreen: Color {
+        widgetTheme.flatMap { parchmentInk(hex: $0.doneHex) } ?? .parchmentGreen
+    }
+
+    /// The done colour as a filled shape: a finished square, a progress arc.
+    static var themeGreenFill: Color {
+        widgetTheme.flatMap { parchmentFill(hex: $0.doneHex) } ?? .parchmentGreenFill
+    }
+}
+
+/// The theme the app last pushed (HomeWidgetService.pushTheme), read fresh
+/// on every use rather than cached: a widget process can outlive a theme
+/// change, and a stale copy would keep painting the old colours.
+var widgetTheme: WidgetThemeColors? {
+    parseWidgetTheme(UserDefaults(suiteName: appGroupId)?.string(forKey: "themeColors"))
 }
 
 /// The sheet, as every Home Screen face's ground. Which of the two is

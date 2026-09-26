@@ -130,6 +130,19 @@ class HabitReminderStack {
     );
   }
 
+  /// Whether the reminder at [signed] may be changed on this tier.
+  ///
+  /// The primary always may: it is the one reminder free includes, and a
+  /// free account must be able to move the reminder it has. The extras are
+  /// the stack, and the stack is Premium. Only an account whose Premium
+  /// ended can be holding extras without it, and for them an extra can be
+  /// taken off (the ×, [toggle]'s removed) but not moved: moving one keeps
+  /// a Premium reminder working at a new time, which is what adding one is
+  /// gated for (Aziz, 2026-09-26: a lapsed account "just edits the
+  /// premium"). Before this, [replace] asked no tier at all.
+  bool canEdit(int signed, {required bool isPremium}) =>
+      isPremium || signed == primary || length <= kFreeHabitReminders;
+
   /// A shift typed into the custom sheet.
   ///
   /// The one thing that makes it different from a chip tap: a value the habit
@@ -137,10 +150,12 @@ class HabitReminderStack {
   /// into a field and presses Add meaning "remove my 45-minute reminder".
   /// One reminder edited into another: [old] leaves and [signed] takes its
   /// place, which is what tapping a reminder row and picking a different
-  /// value means. The count never changes, so no tier rule applies. Roles
-  /// carry over: editing the primary makes [signed] the primary. A value
-  /// the habit already carries is not doubled, the edit then only drops
-  /// [old]; and editing a reminder to what it already is changes nothing.
+  /// value means. The count never changes, so no count rule applies here;
+  /// which reminders a tier may move is [canEdit], asked before the sheet
+  /// opens. Roles carry over: editing the primary makes [signed] the
+  /// primary. A value the habit already carries is not doubled, the edit
+  /// then only drops [old]; and editing a reminder to what it already is
+  /// changes nothing.
   HabitReminderStack replace(int old, int signed) {
     if (old == signed || !contains(old)) return this;
     if (contains(signed)) {

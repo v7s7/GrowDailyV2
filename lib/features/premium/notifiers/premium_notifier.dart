@@ -331,7 +331,8 @@ final premiumAccessProvider = Provider<bool>((ref) {
   return entitled || open;
 });
 
-/// Free-tier limits. Guests keep their existing 3-habit trial; signed-in
+/// Free-tier limits. Guests have a smaller cap of their own
+/// (kGuestHabitLimit, custom_habits_notifier.dart); signed-in
 /// free accounts get a generous cap that most users won't hit for weeks —
 /// the paywall should feel like an invitation, not a wall.
 const int kFreeHabitLimit = 10;

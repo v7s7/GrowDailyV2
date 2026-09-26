@@ -130,6 +130,7 @@ const List<String> kEditableWordingKeys = [
   'statsUnavailableTitle',
   'statsUnavailableBody',
   'statsUnavailableRetry',
+  'habitsNotLoadedNotice',
   'todaysIntention',
   'pickTinyWin',
   'pickOneGoal',
@@ -866,6 +867,9 @@ const List<String> kEditableWordingKeys = [
   'premiumHaveCode',
   'premiumLifetimeOwned',
   'premiumLifetimeStillRenewing',
+  'premiumUpgradeTitle',
+  'premiumUpgradeCancelNote',
+  'premiumUpgradeCta',
   'premiumPurchasePending',
   'premiumRestore',
   'premiumRetry',
@@ -1341,6 +1345,11 @@ const List<String> kEditableWordingKeys = [
   'reportsRate',
   'reportsTotalDone',
   'reportsLongestRun',
+  'shareMonthButton',
+  'shareYearButton',
+  'shareCardShare',
+  'shareCardCaption',
+  'shareCardFailed',
   'reportsPerfect',
   'reportsHabitsSection',
   'reportsRhythmTitle',
@@ -1398,6 +1407,7 @@ const List<String> kEditableWordingKeys = [
 /// Every other S string. Each picks between several wordings in code (a
 /// number, a state, a case), so only a code change can reword it.
 const List<String> kBuiltInOnlyWordingKeys = [
+  'reconnectDonePaused',
   'daysInSentence',
   'habitsCount',
   'comebackBonusAmount',
@@ -1944,6 +1954,9 @@ class _EditedS extends S {
 
   @override
   String get statsUnavailableRetry => plainWording(_edits['statsUnavailableRetry']) ?? super.statsUnavailableRetry;
+
+  @override
+  String get habitsNotLoadedNotice => plainWording(_edits['habitsNotLoadedNotice']) ?? super.habitsNotLoadedNotice;
 
   @override
   String get todaysIntention => plainWording(_edits['todaysIntention']) ?? super.todaysIntention;
@@ -5582,6 +5595,15 @@ class _EditedS extends S {
   String get premiumLifetimeStillRenewing => plainWording(_edits['premiumLifetimeStillRenewing']) ?? super.premiumLifetimeStillRenewing;
 
   @override
+  String get premiumUpgradeTitle => plainWording(_edits['premiumUpgradeTitle']) ?? super.premiumUpgradeTitle;
+
+  @override
+  String get premiumUpgradeCancelNote => plainWording(_edits['premiumUpgradeCancelNote']) ?? super.premiumUpgradeCancelNote;
+
+  @override
+  String get premiumUpgradeCta => plainWording(_edits['premiumUpgradeCta']) ?? super.premiumUpgradeCta;
+
+  @override
   String get premiumPurchasePending => plainWording(_edits['premiumPurchasePending']) ?? super.premiumPurchasePending;
 
   @override
@@ -8199,6 +8221,21 @@ class _EditedS extends S {
 
   @override
   String get reportsLongestRun => plainWording(_edits['reportsLongestRun']) ?? super.reportsLongestRun;
+
+  @override
+  String get shareMonthButton => plainWording(_edits['shareMonthButton']) ?? super.shareMonthButton;
+
+  @override
+  String get shareYearButton => plainWording(_edits['shareYearButton']) ?? super.shareYearButton;
+
+  @override
+  String get shareCardShare => plainWording(_edits['shareCardShare']) ?? super.shareCardShare;
+
+  @override
+  String get shareCardCaption => plainWording(_edits['shareCardCaption']) ?? super.shareCardCaption;
+
+  @override
+  String get shareCardFailed => plainWording(_edits['shareCardFailed']) ?? super.shareCardFailed;
 
   @override
   String get reportsPerfect => plainWording(_edits['reportsPerfect']) ?? super.reportsPerfect;

@@ -49,6 +49,7 @@ import 'shared/widgets/app_logo.dart';
 import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
 import 'core/theme/game_theme.dart';
+import 'core/theme/theme_preset.dart' show ThemePresets;
 import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
 import 'features/achievements/models/achievement_overrides.dart';
@@ -464,6 +465,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     with WidgetsBindingObserver {
   ProviderSubscription<TimeOfDay?>? _reminderSub;
   ProviderSubscription<Locale>? _localeSub;
+  ProviderSubscription<String>? _widgetThemeSub;
+  Timer? _widgetThemeDebounce;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
   ProviderSubscription<bool>? _habitsLoadedSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitMirrorSub;
@@ -827,6 +830,32 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         FirebaseAuth.instance.setLanguageCode(next.languageCode);
         _recomputeNotifications();
       },
+    );
+
+    // The Home Screen faces wear the app's colour theme (Aziz, 2026-09-25;
+    // HomeWidgetService.pushTheme). Debounced: the custom theme's colour
+    // field repaints the app on every frame of a drag
+    // (ThemePresetNotifier.previewCustom), and each frame would otherwise be
+    // a write plus three widget reloads. Read from the preset, never from
+    // GameColors, which the theme preview screen repaints without anything
+    // being chosen. fireImmediately covers cold start and a phone whose
+    // widgets predate this, the callback itself only starts a timer.
+    _widgetThemeSub = ref.listenManual(
+      themePresetProvider,
+      (previous, next) {
+        _widgetThemeDebounce?.cancel();
+        _widgetThemeDebounce = Timer(const Duration(milliseconds: 700), () {
+          final preset = ThemePresets.byId(next);
+          HomeWidgetService.instance
+              .pushTheme(
+                presetId: preset.id,
+                accent: preset.gold,
+                done: preset.emerald,
+              )
+              .ignore();
+        });
+      },
+      fireImmediately: true,
     );
 
     // Resolve every habit's cue (fixed clock time or a prayer) into a real
@@ -2856,6 +2885,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // Before super.dispose(): the bodies they would have run read providers.
     _recomputeDebounce?.cancel();
     _habitMirrorDebounce?.cancel();
+    _widgetThemeDebounce?.cancel();
+    _widgetThemeSub?.close();
     _widgetSub?.close();
     _notificationSettingsSub?.close();
     _gridSub?.close();

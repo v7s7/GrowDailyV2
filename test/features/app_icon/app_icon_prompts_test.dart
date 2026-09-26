@@ -312,6 +312,38 @@ void main() {
       });
     });
 
+    // A phone still in a Premium colour after Premium ended keeps it, like a
+    // paid theme, but a NEW icon in that colour is an edit, and the icon
+    // page sends that edit to the paywall. Until 2026-09-26 this card put it
+    // on the phone with no question asked.
+    group('35 days, a Premium colour kept after Premium ended', () {
+      setUp(
+        () => prepare(
+          days: 35,
+          premium: false,
+          showing: const AppIconChoice(PlantShape.sprout, 'sage'),
+        ),
+      );
+
+      testWidgets('the grown plant comes in the original colours',
+          (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        try {
+          await host(tester, maybeShowIconCard);
+          expect(find.text('Your plant grew'), findsOneWidget);
+          await tester.tap(find.text('Use it'));
+          await h.settle(tester);
+          expect(
+            phone.sets,
+            [const AppIconChoice(PlantShape.grown, 'emerald_gold')],
+            reason: 'never the Premium colour without Premium',
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      });
+    });
+
     group('12 days', () {
       setUp(() => prepare());
 

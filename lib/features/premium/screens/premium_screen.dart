@@ -155,10 +155,16 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
   /// otherwise be told there is nothing to manage while a Monthly bills.
   bool _stillRenewing = false;
 
-  /// Reads both flags above from [info], the one place they are set.
+  /// Whether Premium currently comes from a store subscription, see
+  /// premiumFromStoreSubscription. Such a subscriber is shown the Lifetime
+  /// card under «بريميوم مفعّل», the only place in the app they can buy it.
+  bool _onStoreSubscription = false;
+
+  /// Reads the three flags above from [info], the one place they are set.
   void _applyOwnership(CustomerInfo info) {
     _isLifetimeBuyer = PurchaseService.instance.isLifetimeEntitled(info);
     _stillRenewing = subscriptionStillRenews(info);
+    _onStoreSubscription = premiumFromStoreSubscription(info);
   }
 
   /// The admin's offers (`offers/live`), read once when the paywall opens.
@@ -399,7 +405,19 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     return pct;
   }
 
-  Future<void> _startPurchase() async {
+  /// The Lifetime card's buy button, for someone already on Monthly. The
+  /// same purchase as the paywall's Lifetime card: [_selectedPackage] never
+  /// resolves to an offer product for someone who is Premium (see
+  /// [_activeOfferAt]), so this is always the regular Lifetime. What changes
+  /// afterwards needs no code of its own: the entitlement then names the
+  /// lifetime, this card goes, and because the Monthly still renews,
+  /// premiumLifetimeStillRenewing and Manage subscription take its place.
+  Future<void> _upgradeToLifetime() async {
+    setState(() => _selected = _PlanKind.lifetime);
+    await _startPurchase(upgrade: true);
+  }
+
+  Future<void> _startPurchase({bool upgrade = false}) async {
     final package = _selectedPackage;
     if (package == null || _isPurchasing) return;
     // Freeze the plan alongside the package. _isPurchasing only disables the
@@ -415,6 +433,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     AnalyticsService.instance.track('premium_purchase_intent', props: {
       'plan': kind.name,
       'offer': offer ?? 'none',
+      if (upgrade) 'upgrade': 'monthly_to_lifetime',
     });
     setState(() => _isPurchasing = true);
     final outcome = await PurchaseService.instance.purchase(package);
@@ -454,6 +473,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
           'plan': kind.name,
           'source': widget.source,
           'offer': offer ?? 'none',
+          if (upgrade) 'upgrade': 'monthly_to_lifetime',
         });
         // From the entitlement the store just handed back, not from the
         // selection: isLifetimeEntitled reads the real productIdentifier, so
@@ -851,6 +871,56 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2.2),
                           )
                         : Text(s.premiumManageSubscription),
+                  ),
+                ],
+                // Monthly to Lifetime. Anyone entitled never sees the plans
+                // below, so a Monthly subscriber could not buy Lifetime from
+                // the app at all. The regular Lifetime card exactly as the
+                // paywall draws it, then the one step the store will not
+                // take for them (premiumUpgradeCancelNote), then the button.
+                // Not selectable, so the card's tap does nothing: only the
+                // button buys.
+                if (_onStoreSubscription && lifetime != null) ...[
+                  const SizedBox(height: 22),
+                  Text(
+                    s.premiumUpgradeTitle,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  PremiumPlanCard(
+                    label: s.premiumLifetime,
+                    price: lifetime.storeProduct.priceString,
+                    period: s.premiumOneTime,
+                    caption: _breakEvenMonthsFor(lifetime.storeProduct) == null
+                        ? null
+                        : s.premiumLifetimeBreakEven(
+                            _breakEvenMonthsFor(lifetime.storeProduct)!),
+                    selected: true,
+                    onTap: () {},
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    s.premiumUpgradeCancelNote,
+                    style: TextStyle(
+                        fontSize: 12.5, color: gp.textSec, height: 1.4),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton(
+                    onPressed: _isPurchasing ? null : _upgradeToLifetime,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 54),
+                    ),
+                    child: _isPurchasing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2.4),
+                          )
+                        : Text(s.premiumUpgradeCta),
                   ),
                 ],
               ] else if (_loadingOffering) ...[

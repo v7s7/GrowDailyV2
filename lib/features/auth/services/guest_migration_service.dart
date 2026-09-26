@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/services/local_store_service.dart';
+import '../../habits/catalog/islamic_habit_catalog.dart';
 
 /// What this device is holding, in the terms the offer is phrased in.
 ///
@@ -50,10 +51,18 @@ class GuestSnapshot {
 /// The outcome, so the caller can tell the person the truth rather than
 /// always claiming success.
 class GuestMigrationResult {
-  const GuestMigrationResult({required this.movedDays, required this.failed});
+  const GuestMigrationResult({
+    required this.movedDays,
+    required this.failed,
+    this.pausedHabits = 0,
+  });
 
   final int movedDays;
   final bool failed;
+
+  /// The guest's habits that arrived paused, because the account's own
+  /// already filled its cap. See [GuestMigrationService.migrate].
+  final int pausedHabits;
 }
 
 /// Moves a guest's local data onto the account they just created.
@@ -133,9 +142,30 @@ class GuestMigrationService {
   /// other eight. [GuestMigrationResult.failed] reports whether any
   /// section failed so the caller can offer a retry, and the local data is
   /// left alone either way.
-  static Future<GuestMigrationResult> migrate(String uid) async {
+  ///
+  /// [habitLimit] is the account's habit cap (null for Premium). The offer
+  /// stays open for days after a registration (the Profile banner), and
+  /// until 2026-09-26 nothing asked the cap: a free account that built ten
+  /// habits of its own in that time and then said yes took the guest's five
+  /// on top, fifteen. The guest's habits that do not fit now arrive PAUSED,
+  /// with their records, and come back through Resume, which asks the cap.
+  /// See [_habitsOverCap] for which ones.
+  static Future<GuestMigrationResult> migrate(
+    String uid, {
+    int? habitLimit,
+  }) async {
     var failed = false;
     var movedDays = 0;
+
+    // Settled before anything is written. A count that cannot be read means
+    // nothing moves, rather than everything moving uncounted; the offer
+    // stays open for the retry, like any other failed run.
+    final Set<String> arrivePaused;
+    try {
+      arrivePaused = await _habitsOverCap(uid, habitLimit);
+    } catch (_) {
+      return const GuestMigrationResult(movedDays: 0, failed: true);
+    }
 
     Future<void> section(Future<void> Function() run) async {
       try {
@@ -145,9 +175,10 @@ class GuestMigrationService {
       }
     }
 
-    await section(() async => _migrateUserDoc(uid));
+    await section(() async => _migrateUserDoc(uid, arrivePaused: arrivePaused));
     await section(() async => movedDays = await _migrateDailyDocs(uid));
-    await section(() async => _migrateCustomHabits(uid));
+    await section(
+        () async => _migrateCustomHabits(uid, arrivePaused: arrivePaused));
     await section(() async => _migrateCollection(
           uid,
           collection: 'matrix_tasks',
@@ -161,7 +192,71 @@ class GuestMigrationService {
           key: LocalStoreService.guestCustomRewardsKey,
         ));
 
-    return GuestMigrationResult(movedDays: movedDays, failed: failed);
+    return GuestMigrationResult(
+      movedDays: movedDays,
+      failed: failed,
+      pausedHabits: arrivePaused.length,
+    );
+  }
+
+  /// The guest's active habits that would carry the account past
+  /// [habitLimit], which arrive paused. None for Premium (null).
+  ///
+  /// None either for an account with no habits of its own, which is the
+  /// usual yes, straight after registering. Those habits were built under
+  /// the guest's own rules, and this account's Premium may not have been
+  /// read yet at that moment: a guest who bought it carries it onto the
+  /// account at sign-in, and pausing their habits then would be wrong.
+  ///
+  /// Which ones fit: the guest's board order, the drag ranks where the
+  /// guest dragged and list order otherwise (the same fallback
+  /// habitListProvider ranks by), so the ones kept on the board are the
+  /// ones that sat highest on it.
+  static Future<Set<String>> _habitsOverCap(String uid, int? habitLimit) async {
+    if (habitLimit == null) return const {};
+    final profile = (await _userRef(uid).get()).data() ?? const {};
+    final ownIds = profile['activeCatalogIds'];
+    final ownPresets = <String>{
+      if (ownIds is List)
+        for (final id in ownIds)
+          if (id is String && IslamicHabitCatalog.findById(id) != null) id,
+    };
+    final customs = await _userRef(uid).collection('custom_habits').get();
+    final ownCustoms = <String>{
+      for (final doc in customs.docs)
+        if (doc.data()['archivedAt'] == null) doc.id,
+    };
+    final own = ownPresets.length + ownCustoms.length;
+    if (own == 0) return const {};
+
+    final settings = await LocalStoreService.settingsBox();
+    final habits = await LocalStoreService.habitsBox();
+    final guestIds = settings.get(LocalStoreService.activeCatalogIdsKey);
+    final incoming = <String>[
+      if (guestIds is List)
+        for (final id in guestIds)
+          if (id is String &&
+              IslamicHabitCatalog.findById(id) != null &&
+              !ownPresets.contains(id))
+            id,
+      for (final record in LocalStoreService.asMapList(
+          habits.get(LocalStoreService.guestCustomHabitsKey)))
+        if (record['id'] case final String id
+            when id.isNotEmpty && !ownCustoms.contains(id))
+          id,
+    ];
+    final room = habitLimit - own;
+    if (incoming.length <= room) return const {};
+
+    final order = LocalStoreService.asStringMap(
+        settings.get(LocalStoreService.habitOrderKey));
+    final position = {
+      for (var i = 0; i < incoming.length; i++) incoming[i]: i.toDouble(),
+    };
+    double rank(String id) =>
+        (order[id] as num?)?.toDouble() ?? position[id]!;
+    final ranked = [...incoming]..sort((a, b) => rank(a).compareTo(rank(b)));
+    return ranked.skip(room < 0 ? 0 : room).toSet();
   }
 
   /// Everything that lives as a field on the profile document.
@@ -171,7 +266,10 @@ class GuestMigrationService {
   /// on both sides are already identical - the guest maps were written to
   /// mirror the user document - with one deliberate exception handled
   /// below.
-  static Future<void> _migrateUserDoc(String uid) async {
+  static Future<void> _migrateUserDoc(
+    String uid, {
+    Set<String> arrivePaused = const {},
+  }) async {
     final settings = await LocalStoreService.settingsBox();
     final habits = await LocalStoreService.habitsBox();
 
@@ -231,11 +329,38 @@ class GuestMigrationService {
       if (_isNonEmpty(value)) payload[to] = value;
     }
 
-    copy(settings, LocalStoreService.activeCatalogIdsKey, 'activeCatalogIds');
+    // ADDED to the account's own presets, never written over them. A list
+    // is replaced whole by set(), merge or not, so an account that switched
+    // presets on before saying yes (from the Profile banner, days after
+    // registering) had them dropped from its board, and with no archive
+    // date they were not even listed as paused. The maps around it merge
+    // key by key, and the account's own dates survive them.
+    final guestIds = settings.get(LocalStoreService.activeCatalogIdsKey);
+    final arriving = <String>[
+      if (guestIds is List)
+        for (final id in guestIds)
+          if (id is String && !arrivePaused.contains(id)) id,
+    ];
+    if (arriving.isNotEmpty) {
+      payload['activeCatalogIds'] = FieldValue.arrayUnion(arriving);
+    }
     copy(settings, LocalStoreService.activeCatalogActivatedAtKey,
         'activeCatalogActivatedAt');
     copy(settings, LocalStoreService.activeCatalogArchivedAtKey,
         'activeCatalogArchivedAt');
+    // Over the cap (see _habitsOverCap): off the board and stamped paused
+    // today, the date pausedHabitsProvider lists a preset by.
+    final pausedPresets = [
+      for (final id in arrivePaused)
+        if (IslamicHabitCatalog.findById(id) != null) id,
+    ];
+    if (pausedPresets.isNotEmpty) {
+      final today = DateTime.now().effectiveDay.toIso8601String();
+      payload['activeCatalogArchivedAt'] = {
+        ...LocalStoreService.asStringMap(payload['activeCatalogArchivedAt']),
+        for (final id in pausedPresets) id: today,
+      };
+    }
     copy(settings, LocalStoreService.activeCatalogStintHistoryKey,
         'activeCatalogStintHistory');
     copy(settings, LocalStoreService.catalogOverridesKey,
@@ -302,12 +427,22 @@ class GuestMigrationService {
   /// separate place on the signed-in side, it is the same document
   /// carrying an archivedAt (see CustomHabitsNotifier._load, which splits
   /// one read into the two lists on exactly that field).
-  static Future<void> _migrateCustomHabits(String uid) async {
+  static Future<void> _migrateCustomHabits(
+    String uid, {
+    Set<String> arrivePaused = const {},
+  }) async {
     final habits = await LocalStoreService.habitsBox();
     final col = _userRef(uid).collection('custom_habits');
+    // An over-cap habit (see _habitsOverCap) arrives with today's archive
+    // date: paused exactly as the Grid's Pause leaves one.
+    final today = DateTime.now().effectiveDay.toIso8601String();
     final records = [
-      ...LocalStoreService.asMapList(
-          habits.get(LocalStoreService.guestCustomHabitsKey)),
+      for (final record in LocalStoreService.asMapList(
+          habits.get(LocalStoreService.guestCustomHabitsKey)))
+        if (arrivePaused.contains(record['id']))
+          {...record, 'archivedAt': today}
+        else
+          record,
       ...LocalStoreService.asMapList(
           habits.get(LocalStoreService.guestArchivedCustomHabitsKey)),
     ];

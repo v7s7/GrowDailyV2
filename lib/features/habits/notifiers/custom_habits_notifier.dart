@@ -326,10 +326,13 @@ class CustomHabitsNotifier
       final snap = await _col.get();
       // An empty answer that came from Firestore's own cache is not evidence
       // that this person has no habits — offline with nothing cached looks
-      // exactly like that. We have a board on screen from the mirror, which
-      // came from a real server answer, so keep it and mark the read
-      // untrusted rather than blanking the list and saving that emptiness.
-      if (snap.metadata.isFromCache && snap.docs.isEmpty && hydratedFromMirror) {
+      // exactly like that. With a board on screen from the mirror, which
+      // came from a real server answer, keep it and mark the read untrusted
+      // rather than blanking the list and saving that emptiness. Without
+      // one it is untrusted all the same: the list stays empty, but nothing
+      // may take that emptiness as a count (habitCountIsKnown), and until
+      // 2026-09-26 the habit cap did.
+      if (snap.metadata.isFromCache && snap.docs.isEmpty) {
         loadFailed = true;
         return;
       }
@@ -1124,11 +1127,21 @@ final habitsStillLoadingProvider = Provider<bool>((ref) {
       ref.watch(catalogOverridesProvider.notifier).isLoading;
 });
 
-/// Guests get a 3-habit trial before being asked to create an account.
-const int kGuestHabitLimit = 3;
+/// Guests get a 5-habit trial before being asked to create an account.
+///
+/// Five, not the three it used to be, because the app's own «الصلوات الخمس»
+/// plan (habit_plans.dart) is five habits: at three, a guest who tapped it
+/// met the create-an-account sheet before tracking a single day, since the
+/// plan picker checks the whole plan against this number at once. Raised on
+/// 2026-09-25 at Aziz's request. test/habit_gate_test.dart keeps that plan
+/// inside the guest cap, and premium_claims_copy_test.dart keeps the three
+/// sentences that state the number (authGuestFact, guestLimitBody, the FAQ)
+/// in step with it.
+const int kGuestHabitLimit = 5;
 
-/// The habit cap for a given tier: guests trial 3, free accounts get
-/// [kFreeHabitLimit], premium is uncapped (null). Pure so it's testable.
+/// The habit cap for a given tier: guests trial [kGuestHabitLimit], free
+/// accounts get [kFreeHabitLimit], premium is uncapped (null). Pure so it's
+/// testable.
 int? habitLimitFor({required bool isGuest, required bool isPremium}) {
   if (isPremium) return null;
   return isGuest ? kGuestHabitLimit : kFreeHabitLimit;
@@ -1143,7 +1156,65 @@ bool canAddHabits(WidgetRef ref, {int additionalCount = 1}) {
     isPremium: ref.read(premiumAccessProvider),
   );
   if (limit == null) return true;
+  if (!habitCountIsKnown(ref)) return false;
   final current = ref.read(habitListProvider).length;
   return current + additionalCount <= limit;
 }
+
+/// Whether this device knows how many habits the account has, which a cap
+/// needs before it can say yes.
+///
+/// A signed-in board comes from the server, or from the device's copy of
+/// the last answer (HabitMirror) while the server is asked. On a phone with
+/// neither, a new one offline, the list is empty because nothing has
+/// arrived, and the cap read that as "no habits": a free account could add
+/// ten there, and on reconnecting keep them on top of its real ten. Guests
+/// always know: their list is this device's own store.
+bool habitCountIsKnown(WidgetRef ref) {
+  if (ref.read(guestModeProvider)) return true;
+  if (!ref.read(habitsHydratedProvider)) return false;
+  final custom = ref.read(customHabitsProvider.notifier);
+  final catalog = ref.read(activeCatalogProvider.notifier);
+  if (custom.loadFailed && !custom.hydratedFromMirror) return false;
+  if (catalog.loadFailed && !catalog.hydratedFromMirror) return false;
+  return true;
+}
+
+/// Whether an Undo may put [returning] habits back on the board, which held
+/// [hadBefore] the moment they left it.
+///
+/// An Undo puts back what was there a moment ago, so it may always go back
+/// up to [hadBefore], even above the cap: an account whose Premium ended
+/// with 12 habits that removes three by mistake gets all twelve back. What
+/// it may not do is end above BOTH the cap and [hadBefore], which is what
+/// the Grid's two Undo buttons allowed until 2026-09-26, asking nothing: 10
+/// habits, remove 5, start a 5-habit plan, Undo, 15; and again, 20. Pure on
+/// its numbers so the rule is tested without a board.
+bool undoFitsHabitCap({
+  required int? limit,
+  required int current,
+  required int returning,
+  required int hadBefore,
+}) {
+  if (limit == null) return true;
+  final ceiling = hadBefore > limit ? hadBefore : limit;
+  return current + returning <= ceiling;
+}
+
+/// [undoFitsHabitCap] for this account's tier and board.
+bool canUndoHabitRemoval(
+  WidgetRef ref, {
+  required int returning,
+  required int hadBefore,
+}) =>
+    habitCountIsKnown(ref) &&
+    undoFitsHabitCap(
+      limit: habitLimitFor(
+        isGuest: ref.read(guestModeProvider),
+        isPremium: ref.read(premiumAccessProvider),
+      ),
+      current: ref.read(habitListProvider).length,
+      returning: returning,
+      hadBefore: hadBefore,
+    );
 

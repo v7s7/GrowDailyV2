@@ -682,8 +682,14 @@ class _GridTableState extends ConsumerState<_GridTable> {
               );
               // Hoisted so the marker and the spoken label cannot disagree.
               // trim() because clearing a note used to store '' rather than
-              // deleting the key, so old days carry tombstones.
-              final hasNote =
+              // deleting the key, so old days carry tombstones. A voice note
+              // counts as a note (square_voice_notes.dart): a day someone
+              // spoke about gets the same corner and stays just as openable.
+              // Selected per square, so a recording repaints only its own.
+              final hasVoice = ref.watch(squareVoiceIndexProvider.select(
+                (m) => (m[squareVoiceKey(habit.id, day)] ?? 0) > 0,
+              ));
+              final hasNote = hasVoice ||
                   widget.state.noteFor(habit.id, day).trim().isNotEmpty;
               // A day the habit asked nothing of: an off-day of a
               // specific-days schedule, or a quota day that was never

@@ -1744,6 +1744,21 @@ class _MiniJournalRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 11.5, color: gp.textSec),
                       )
+                    // A day someone only spoke about (square_voice_notes
+                    // .dart) says so, rather than falling to its square's
+                    // state as if nothing had been said.
+                    else if (entry.voiceCount > 0)
+                      Row(
+                        children: [
+                          Icon(Icons.mic_rounded, size: 12, color: gp.textSec),
+                          const SizedBox(width: 4),
+                          Text(
+                            s.voiceNotesTitle,
+                            style:
+                                TextStyle(fontSize: 11.5, color: gp.textSec),
+                          ),
+                        ],
+                      )
                     else
                       Text(
                         isAr ? entry.state.labelAr : entry.state.label,

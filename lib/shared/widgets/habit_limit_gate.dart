@@ -6,14 +6,38 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/services/analytics_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/auth/notifiers/auth_notifier.dart';
+import '../../features/habits/catalog/habit_plans.dart'
+    show activeCatalogProvider;
+import '../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../features/premium/notifiers/premium_notifier.dart';
 import '../../features/premium/screens/premium_screen.dart';
 import 'guest_limit_sheet.dart';
+import 'overlay_notice.dart';
 
 /// One gate for every "add habit" entry point. Guests who hit their trial
 /// cap are asked to create an account (existing flow); signed-in free users
 /// who hit the free cap get the Premium invitation.
 void showHabitLimitGate(BuildContext context, WidgetRef ref) {
+  // canAddHabits says no without a count too (habitCountIsKnown), and that
+  // is not a limit: the habits have not reached this phone. Say so rather
+  // than sell Premium, and ask the server again for a read that failed,
+  // which otherwise only the next launch would, so "try again" works.
+  if (!habitCountIsKnown(ref)) {
+    if (!ref.read(habitsStillLoadingProvider)) {
+      if (ref.read(customHabitsProvider.notifier).loadFailed) {
+        ref.invalidate(customHabitsProvider);
+      }
+      if (ref.read(activeCatalogProvider.notifier).loadFailed) {
+        ref.invalidate(activeCatalogProvider);
+      }
+    }
+    showOverlayNotice(
+      context,
+      S.of(context).habitsNotLoadedNotice,
+      icon: Icons.cloud_off_rounded,
+    );
+    return;
+  }
   AnalyticsService.instance.track('premium_gate_hit', props: {
     'gate': 'habit_limit',
     'tier': ref.read(guestModeProvider) ? 'guest' : 'free',

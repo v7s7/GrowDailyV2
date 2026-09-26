@@ -899,7 +899,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     if (freqType == null) return;
     final existing = widget.existing;
     if (existing == null && !canAddHabits(ref)) {
-      Navigator.pop(context);
+      // Habits that have not reached this phone are not a limit: the sheet,
+      // and everything typed in it, stays for the retry the notice asks for.
+      if (habitCountIsKnown(ref)) Navigator.pop(context);
       showHabitLimitGate(context, ref);
       return;
     }
@@ -2845,9 +2847,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     final settings = ref.watch(notificationSettingsProvider);
     final anchor = _reminderAnchorTime(settings);
     final offsets = _allReminderOffsets;
+    final isPremium = ref.watch(premiumAccessProvider);
     final gate = canAddHabitReminder(
       current: offsets.length,
-      isPremium: ref.watch(premiumAccessProvider),
+      isPremium: isPremium,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2861,6 +2864,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             offset,
             anchor: anchor,
             removable: offsets.length > 1,
+            locked: !_reminderStack.canEdit(offset, isPremium: isPremium),
           ),
           const SizedBox(height: 6),
         ],
@@ -2913,11 +2917,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// the last reminder is edited, never removed, which is the rule
   /// HabitReminderStack keeps. It sits after a thin divider in its own tap
   /// area, and the row keeps its chevron beside it.
+  ///
+  /// [locked]: an extra kept from a Premium that has ended. The chevron
+  /// becomes the add row's lock, so the rows that open the gate are told
+  /// apart before the tap, and the × beside it still takes it off.
   Widget _reminderRow(
     S s,
     int offset, {
     required DateTime? anchor,
     required bool removable,
+    bool locked = false,
   }) {
     final gp = context.gp;
     final landsAt = anchor?.add(Duration(minutes: offset));
@@ -2991,8 +3000,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                           ],
                           const SizedBox(width: 4),
                           Icon(
-                            Icons.chevron_right_rounded,
-                            size: 20,
+                            locked
+                                ? Icons.lock_outline_rounded
+                                : Icons.chevron_right_rounded,
+                            size: locked ? 18 : 20,
                             color: context.gp.goldInk,
                           ),
                         ],
@@ -3123,9 +3134,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   }
 
   /// A row tapped: the sheet opens on that reminder, and whatever comes
-  /// back takes its place. The count never changes here, so no tier rule
-  /// is asked; HabitReminderStack.replace keeps the roles straight.
+  /// back takes its place. HabitReminderStack.replace keeps the roles
+  /// straight. The one tier rule is which rows may move at all
+  /// (HabitReminderStack.canEdit): an extra kept from a Premium that has
+  /// ended opens the same gate the add row does, and its × still works.
   Future<void> _editReminder(int offset) async {
+    if (!_reminderStack.canEdit(offset,
+        isPremium: ref.read(premiumAccessProvider))) {
+      showReminderLimitGate(context, ref, forHabit: true);
+      return;
+    }
     final s = S.of(context);
     final chosen = await showHabitOffsetSheet(
       context,

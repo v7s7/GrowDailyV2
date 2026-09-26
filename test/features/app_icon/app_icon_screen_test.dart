@@ -38,6 +38,7 @@ void main() {
     bool premium = true,
     int days = 12,
     AppIconChoice showing = AppIconChoice.shipped,
+    AppIconPrefs prefs = const AppIconPrefs(loaded: true),
     DateTime? today,
   }) async {
     phone = FakeIconPhone(showing);
@@ -45,7 +46,7 @@ void main() {
     await h.prepare(
       extraOverrides: [
         appIconServiceProvider.overrideWithValue(phone),
-        appIconPrefsProvider.overrideWith((ref) => MemIconPrefs()),
+        appIconPrefsProvider.overrideWith((ref) => MemIconPrefs(prefs)),
         plantGrowthProvider.overrideWith((ref) => MemPlantGrowth()),
         plantFullDaysProvider.overrideWith((ref) async => days),
         premiumAccessProvider.overrideWithValue(premium),
@@ -243,6 +244,30 @@ void main() {
       await tester.tap(find.text('Use this icon'));
       await h.settle(tester);
       expect(phone.sets, [AppIconChoice.shipped]);
+    });
+  });
+
+  // «مع المظهر» on, the theme Premium (Sage), and Premium ended. The saved
+  // switch cannot apply without Premium, so the page reads it off; compared
+  // with the saved on, it opened as already changed, «previewing», with a
+  // «استخدم» that went to the paywall before anything was touched.
+  group('Premium lapsed, following a Premium theme', () {
+    setUp(
+      () => prepare(
+        premium: false,
+        showing: const AppIconChoice(PlantShape.sprout, 'sage'),
+        prefs: const AppIconPrefs(loaded: true, followTheme: true),
+      ),
+    );
+
+    testWidgets('opens on the icon it has, with nothing to apply',
+        (tester) async {
+      await open(tester);
+      expect(find.text('Sprout · Sage', findRichText: true), findsOneWidget);
+      expect(find.text('Your icon now'), findsOneWidget);
+      expect(find.text('This is your icon now'), findsOneWidget);
+      expect(find.text('Use this icon'), findsNothing);
+      expect(phone.sets, isEmpty);
     });
   });
 

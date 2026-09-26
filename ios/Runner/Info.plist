@@ -77,7 +77,12 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>GrowDaily only uses your location while the app is open, to calculate accurate prayer times for your reminders. It never tracks you in the background.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>GrowDaily uses your microphone to record short voice notes you attach to tasks. If you are signed in, your notes are saved to your private GrowDaily account so they sync across your devices.</string>
+	<string>GrowDaily uses your microphone to record short voice notes you attach to tasks and to days of your habits. If you are signed in, your notes are saved to your private GrowDaily account so they sync across your devices.</string>
+	<!-- The share card (share_card.dart): the system share sheet offers
+	     "Save Image", which iOS refuses without this. Add-only: the app
+	     never reads the photo library. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>GrowDaily saves the progress picture you chose to share to your photos when you tap Save Image. It never reads your photo library.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>GrowDaily reads your daily step count from Apple Health (including steps recorded by your Apple Watch) so walking habits you link to steps can complete themselves automatically. Steps are only read, never changed, and stay on your device.</string>
 	<!-- Required by App Store validation (error 90683) whenever the HealthKit

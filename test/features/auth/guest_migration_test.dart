@@ -311,4 +311,162 @@ void main() {
       expect((await userDoc())['level'], 1);
     });
   });
+
+  // The offer stays open for days after a registration (the Profile banner),
+  // so the account can hold habits of its own by the time it is answered.
+  // Until 2026-09-26 the guest's presets were written OVER the account's,
+  // and nothing asked the habit cap: ten of the account's own plus the
+  // guest's five made fifteen on a free account.
+  group('onto an account that already has habits', () {
+    final userRef = () => db.collection('users').doc(uid);
+    final todayIso = DateTime.now().effectiveDay.toIso8601String();
+
+    /// [presets] switched on, plus one active custom habit, as the account's
+    /// own board.
+    Future<void> accountHas(List<String> presets) async {
+      await userRef().set(
+        {'activeCatalogIds': presets},
+        SetOptions(merge: true),
+      );
+      await userRef()
+          .collection('custom_habits')
+          .doc('own_custom')
+          .set({'name': 'Mine'});
+    }
+
+    Future<List<String>> activeIds() async =>
+        List<String>.from((await userDoc())['activeCatalogIds'] as List);
+
+    test('the guest\'s presets are added to the account\'s, never over them',
+        () async {
+      await accountHas(['tahajjud']);
+      await settings
+          .put(LocalStoreService.activeCatalogIdsKey, ['morning_athkar']);
+
+      final result = await GuestMigrationService.migrate(uid);
+      expect(result.failed, isFalse);
+      expect(await activeIds(), containsAll(['tahajjud', 'morning_athkar']));
+    });
+
+    test('free: the guest\'s habits that do not fit arrive paused, in the '
+        'guest\'s own board order', () async {
+      // Eight presets and one custom: nine of ten.
+      await accountHas([
+        'tahajjud',
+        'daily_walk',
+        'gym_consistency',
+        'sleep_schedule',
+        'deep_work_block',
+        'inbox_zero',
+        'daily_planning',
+        'no_phone_morning',
+      ]);
+      await settings.put(LocalStoreService.activeCatalogIdsKey,
+          ['morning_athkar', 'evening_athkar']);
+      await habits.put(LocalStoreService.guestCustomHabitsKey, [
+        {'id': 'guest_read', 'name': 'Read'},
+      ]);
+      // The guest dragged the custom habit to the top of their board.
+      await settings.put(LocalStoreService.habitOrderKey, {
+        'guest_read': 0.0,
+        'morning_athkar': 1.0,
+        'evening_athkar': 2.0,
+      });
+
+      final result = await GuestMigrationService.migrate(uid, habitLimit: 10);
+      expect(result.failed, isFalse);
+      expect(result.pausedHabits, 2);
+
+      final ids = await activeIds();
+      expect(ids, hasLength(8), reason: 'the account keeps its own eight');
+      expect(ids, isNot(contains('morning_athkar')));
+      expect(ids, isNot(contains('evening_athkar')));
+      expect(
+        (await userDoc())['activeCatalogArchivedAt'],
+        {'morning_athkar': todayIso, 'evening_athkar': todayIso},
+        reason: 'stamped paused, so the paused list offers them back',
+      );
+      final read =
+          (await userRef().collection('custom_habits').doc('guest_read').get())
+              .data()!;
+      expect(read['archivedAt'], isNull,
+          reason: 'the one that fits is the one highest on the guest board');
+      expect(read['name'], 'Read');
+    });
+
+    test('a custom habit over the cap arrives paused too', () async {
+      await accountHas([
+        'tahajjud',
+        'daily_walk',
+        'gym_consistency',
+        'sleep_schedule',
+        'deep_work_block',
+        'inbox_zero',
+        'daily_planning',
+        'no_phone_morning',
+        'cold_shower',
+      ]);
+      await habits.put(LocalStoreService.guestCustomHabitsKey, [
+        {'id': 'guest_read', 'name': 'Read'},
+      ]);
+
+      final result = await GuestMigrationService.migrate(uid, habitLimit: 10);
+      expect(result.pausedHabits, 1);
+      final read =
+          (await userRef().collection('custom_habits').doc('guest_read').get())
+              .data()!;
+      expect(read['archivedAt'], todayIso);
+      expect(read['name'], 'Read', reason: 'paused, with its whole record');
+    });
+
+    test('Premium takes every one of them', () async {
+      await accountHas([
+        'tahajjud',
+        'daily_walk',
+        'gym_consistency',
+        'sleep_schedule',
+        'deep_work_block',
+        'inbox_zero',
+        'daily_planning',
+        'no_phone_morning',
+        'cold_shower',
+      ]);
+      await settings.put(LocalStoreService.activeCatalogIdsKey,
+          ['morning_athkar', 'evening_athkar']);
+
+      final result = await GuestMigrationService.migrate(uid);
+      expect(result.pausedHabits, 0);
+      expect(await activeIds(), hasLength(11));
+    });
+  });
+
+  // The usual yes, straight after registering: the account is empty, and the
+  // guest's board arrives as it was, whatever its size. Those habits were
+  // built under the guest's own rules, and a guest who bought Premium has it
+  // carried onto the account at sign-in, which may not have been read yet.
+  test('an account with no habits of its own takes the guest\'s as they were',
+      () async {
+    final guest = [
+      'tahajjud',
+      'daily_walk',
+      'gym_consistency',
+      'sleep_schedule',
+      'deep_work_block',
+      'inbox_zero',
+      'daily_planning',
+      'no_phone_morning',
+      'cold_shower',
+      'wake_early',
+      'no_sugar',
+      'morning_athkar',
+    ];
+    await settings.put(LocalStoreService.activeCatalogIdsKey, guest);
+
+    final result = await GuestMigrationService.migrate(uid, habitLimit: 10);
+    expect(result.pausedHabits, 0);
+    expect(
+      List<String>.from((await userDoc())['activeCatalogIds'] as List),
+      guest,
+    );
+  });
 }

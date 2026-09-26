@@ -80,8 +80,16 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
     final follow = _follow && followAllowed && !_ramadan;
     final plain = AppIconChoice(_shape, follow ? matched.id : _colourId);
     final choice = _ramadan ? AppIconChoice.ramadan : plain;
+    // The saved «مع المظهر» as it can still apply. A Premium theme's colour
+    // is not followed without Premium, so for an account whose Premium ended
+    // the switch reads off; compared with the saved on, the page opened as
+    // already changed ("previewing", its «استخدم» a paywall) before anything
+    // was touched.
+    final savedFollow = prefs.followTheme &&
+        followAllowed &&
+        !(current?.isRamadan ?? false);
     final dirty =
-        current != null && (choice != current || follow != prefs.followTheme);
+        current != null && (choice != current || follow != savedFollow);
 
     final seasonal = <Widget>[
       _SectionTitle(s.appIconSeasonSection),

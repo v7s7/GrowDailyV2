@@ -48,6 +48,24 @@ bool subscriptionStillRenews(CustomerInfo info) {
   return false;
 }
 
+/// Whether [info]'s Premium is a store subscription (Monthly, or an annual
+/// if one is ever sold) rather than Lifetime or a grant, i.e. whether
+/// Lifetime is still something this person could buy.
+///
+/// The Premium page hides its plans from anyone entitled, which left a
+/// Monthly subscriber with no way to Lifetime from the app at all (Aziz,
+/// 2026-09-25: "do 4"). This decides who gets the Lifetime card instead.
+/// Only an App Store or Play entitlement counts: a hand grant (RevenueCat
+/// promotional, the store Aziz's own account and three others hold until
+/// 2226) has no Monthly to replace, and an unknown store is not offered a
+/// purchase on a guess.
+bool premiumFromStoreSubscription(CustomerInfo info) {
+  final e = info.entitlements.all[PurchaseService.entitlementId];
+  if (e == null || !e.isActive) return false;
+  if (isLifetimeProductId(e.productIdentifier)) return false;
+  return e.store == Store.appStore || e.store == Store.playStore;
+}
+
 /// Outcome of a purchase or restore attempt - a plain result type rather
 /// than throwing, so callers (PremiumScreen) can show the right UI for
 /// each case (error banner vs. silent no-op on cancel) without a try/catch

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -27,6 +28,24 @@ class ShareService {
   /// guarantees.
   static Future<void> shareText(BuildContext context, String text) {
     return SharePlus.instance.share(ShareParams(
+      text: text,
+      sharePositionOrigin: _originFor(context),
+    ));
+  }
+
+  /// Shares a PNG the app drew, the share card of a month or a year
+  /// (share_card.dart), with [text] as its caption where the target shows
+  /// one (WhatsApp does, an Instagram story does not). share_plus writes the
+  /// bytes to a temporary file itself. Same origin fix as [shareText].
+  static Future<void> shareImage(
+    BuildContext context,
+    Uint8List png, {
+    required String fileName,
+    String? text,
+  }) {
+    return SharePlus.instance.share(ShareParams(
+      files: [XFile.fromData(png, mimeType: 'image/png', name: fileName)],
+      fileNameOverrides: [fileName],
       text: text,
       sharePositionOrigin: _originFor(context),
     ));

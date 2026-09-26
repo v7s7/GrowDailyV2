@@ -248,13 +248,15 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   }
 
   Future<void> _toggleRecording() async {
-    if (!hasVoiceNoteAccess(ref)) {
+    // Only STARTING a take is Premium; see TaskDetailSheet._toggleRecording
+    // for the paywall-every-second this used to cause.
+    if (!_recording && !hasVoiceNoteAccess(ref)) {
       showVoiceNoteGate(context, ref);
       return;
     }
     if (_recording) {
-      final result = await VoiceNoteService.instance.stopRecording();
       _timer?.cancel();
+      final result = await VoiceNoteService.instance.stopRecording();
       if (!mounted) return;
       setState(() => _recording = false);
       if (result != null) {

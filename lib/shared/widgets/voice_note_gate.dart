@@ -31,6 +31,11 @@ void showVoiceNoteGate(BuildContext context, WidgetRef ref) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
+    // A default sheet stops at 9/16 of the screen. The body grew a line on
+    // 2026-09-25 (habit days joined tasks) and then overflowed on a short
+    // screen; the card sizes itself to its content, so this changes nothing
+    // on a phone where it already fit. Same as the guest limit sheet.
+    isScrollControlled: true,
     builder: (ctx) => Padding(
       padding: EdgeInsets.fromLTRB(
           16, 0, 16, 24 + MediaQuery.of(ctx).padding.bottom),

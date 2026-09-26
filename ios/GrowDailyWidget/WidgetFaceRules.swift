@@ -441,3 +441,39 @@ func parchmentSafeChannels(_ rgb: (Double, Double, Double), dark: Bool,
     }
     return mix(hi)
 }
+
+// ── The app's colour theme (2026-09-25) ──────────────────────────────────
+//
+// Aziz: the Home Screen faces follow the app's theme, for everyone. Free
+// accounts have two themes and everything else is Premium already, so this
+// needs no lock of its own. HomeWidgetService.pushTheme writes one string,
+// "presetId|#accent|#done"; the Habits, Tasks and Room Race faces wear its
+// two colours where they wore the brand gold and green (themeGold,
+// themeGreen and themeGreenFill in WidgetParchment.swift), made readable on
+// the sheet by the same rule a habit's own colour gets.
+
+/// The two colours a face wears, as six hex digits with or without "#".
+struct WidgetThemeColors: Equatable {
+    let accentHex: String
+    let doneHex: String
+}
+
+/// The default theme's id (ThemePresets.defaultId on the Dart side).
+let widgetDefaultThemeId = "emerald_gold"
+
+/// The app's theme from the string pushTheme wrote, or nil. nil for the
+/// default theme, for nothing written yet, and for anything malformed: the
+/// faces then keep the hand-solved parchment tokens exactly, so an account
+/// on the default theme sees no change at all, and a phone updated before
+/// the app has run once looks as it always did.
+func parseWidgetTheme(_ raw: String?) -> WidgetThemeColors? {
+    guard let parts = raw?.split(separator: "|", omittingEmptySubsequences: false),
+          parts.count == 3 else { return nil }
+    let id = String(parts[0])
+    let accent = String(parts[1])
+    let done = String(parts[2])
+    guard !id.isEmpty, id != widgetDefaultThemeId,
+          rgbChannels(fromHex: accent) != nil,
+          rgbChannels(fromHex: done) != nil else { return nil }
+    return WidgetThemeColors(accentHex: accent, doneHex: done)
+}

@@ -6,6 +6,7 @@ import '../../../core/services/local_store_service.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/square_state.dart';
 import 'note_index_notifier.dart';
+import 'square_voice_notes.dart';
 
 /// Whether a (state, note) pair is worth keeping in the Habit Notes journal
 /// (see grid_journal_notifier.dart's own doc comment) — a note with real
@@ -41,11 +42,17 @@ class GridJournalEntry {
   final SquareState state;
   final String note;
 
+  /// How many voice notes the square carries (square_voice_notes.dart). A
+  /// square someone only spoke about is an entry too, with an empty [note]:
+  /// the journal is where people go back to what they said about a day.
+  final int voiceCount;
+
   const GridJournalEntry({
     required this.day,
     required this.habitId,
     required this.state,
     required this.note,
+    this.voiceCount = 0,
   });
 }
 
@@ -135,8 +142,29 @@ class GridJournalState {
 class GridJournalNotifier extends StateNotifier<GridJournalState> {
   final String? _uid;
 
-  GridJournalNotifier(this._uid) : super(GridJournalState.initial()) {
+  /// The squares carrying voice notes, `{squareVoiceKey: count}`, read at
+  /// parse time (squareVoiceIndexProvider). A callback rather than a value
+  /// so a recording made mid-session is seen by the next month read without
+  /// rebuilding this notifier, which would throw the loaded month away.
+  final Map<String, int> Function() _voiceCounts;
+
+  GridJournalNotifier(this._uid, {Map<String, int> Function()? voiceCounts})
+      : _voiceCounts = voiceCounts ?? _noVoice,
+        super(GridJournalState.initial()) {
     _loadMonth();
+  }
+
+  static Map<String, int> _noVoice() => const {};
+
+  /// This month's squares with recordings, as day number to habit ids.
+  Map<int, Set<String>> _voiceDaysIn(DateTime month) {
+    final out = <int, Set<String>>{};
+    for (final key in _voiceCounts().keys) {
+      final parsed = parseSquareVoiceKey(key);
+      if (parsed == null || !parsed.day.isSameMonthAs(month)) continue;
+      (out[parsed.day.day] ??= <String>{}).add(parsed.habitId);
+    }
+    return out;
   }
 
   List<DateTime> _daysOf(DateTime month) {
@@ -168,6 +196,7 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
     final writtenDays = <int>{};
     var fromCache = true;
     final days = _daysOf(month);
+    final voiceDays = _voiceDaysIn(month);
 
     try {
       if (_uid != null) {
@@ -189,21 +218,35 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
             .endAt(['$monthKey-31'])
             .get();
         fromCache = snap.metadata.isFromCache;
+        final seen = <int>{};
         for (final doc in snap.docs) {
           final day = _dayFromKey(doc.id);
           if (day == null || day.isAfter(DateTime.now().effectiveDay)) continue;
           final data = doc.data();
-          _parseInto(day, data, entries);
+          seen.add(day.day);
+          _parseInto(day, data, entries,
+              voiceHabits: voiceDays[day.day] ?? const {});
           if (notesRowHasWriting(
               (data['squareNotes'] as Map?)?.cast<String, dynamic>())) {
             writtenDays.add(day.day);
           }
         }
+        // A day someone only spoke about may have no daily document at all.
+        // Nothing was recorded on it then, so `none` is its square's real
+        // state rather than a guess (see noteChanged on why a guess is not
+        // allowed here).
+        for (final d in voiceDays.keys) {
+          if (seen.contains(d)) continue;
+          final day = DateTime(month.year, month.month, d);
+          if (day.isAfter(DateTime.now().effectiveDay)) continue;
+          _parseInto(day, const {}, entries, voiceHabits: voiceDays[d]!);
+        }
       } else {
         fromCache = false;
         for (final day in days) {
           final d = await LocalStoreService.getDailyMap(day.toDateKey());
-          _parseInto(day, d, entries);
+          _parseInto(day, d, entries,
+              voiceHabits: voiceDays[day.day] ?? const {});
         }
       }
     } catch (_) {
@@ -275,8 +318,9 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
   void _parseInto(
     DateTime day,
     Map<String, dynamic> d,
-    List<GridJournalEntry> entries,
-  ) {
+    List<GridJournalEntry> entries, {
+    Set<String> voiceHabits = const {},
+  }) {
     final rawStates = d['squareStates'];
     final states = rawStates is Map
         ? rawStates.map((k, v) =>
@@ -286,15 +330,18 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
     final notes = rawNotes is Map
         ? rawNotes.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''))
         : const <String, String>{};
-    for (final habitId in {...states.keys, ...notes.keys}) {
+    final counts = voiceHabits.isEmpty ? const <String, int>{} : _voiceCounts();
+    for (final habitId in {...states.keys, ...notes.keys, ...voiceHabits}) {
       final squareState = states[habitId] ?? SquareState.none;
       final note = notes[habitId] ?? '';
-      if (isJournalWorthy(squareState, note)) {
+      final voiceCount = counts[squareVoiceKey(habitId, day)] ?? 0;
+      if (isJournalWorthy(squareState, note) || voiceCount > 0) {
         entries.add(GridJournalEntry(
           day: day,
           habitId: habitId,
           state: squareState,
           note: note,
+          voiceCount: voiceCount,
         ));
       }
     }
@@ -407,12 +454,14 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
     );
     if (at >= 0) {
       final existing = entries[at];
-      if (isJournalWorthy(existing.state, trimmed)) {
+      if (isJournalWorthy(existing.state, trimmed) ||
+          existing.voiceCount > 0) {
         entries[at] = GridJournalEntry(
           day: existing.day,
           habitId: habitId,
           state: existing.state,
           note: trimmed,
+          voiceCount: existing.voiceCount,
         );
       } else {
         // A cleared note on an otherwise ordinary square stops being worth
@@ -439,10 +488,68 @@ class GridJournalNotifier extends StateNotifier<GridJournalState> {
     }
     state = state.copyWith(entries: entries);
   }
+
+  /// Patches a square's voice-note count the Grid just changed, the
+  /// recordings' twin of [noteChanged] and for the same reason: this
+  /// provider never re-reads a loaded month by itself.
+  void voiceChanged(
+    DateTime day,
+    String habitId,
+    int count, {
+    required SquareState squareState,
+  }) {
+    if (!state.monthStart.isSameMonthAs(day)) return;
+    final entries = [...state.entries];
+    final at = entries.indexWhere(
+      (e) => e.habitId == habitId && e.day.isSameDayAs(day),
+    );
+    if (at >= 0) {
+      final existing = entries[at];
+      if (count > 0 || isJournalWorthy(existing.state, existing.note)) {
+        entries[at] = GridJournalEntry(
+          day: existing.day,
+          habitId: habitId,
+          state: existing.state,
+          note: existing.note,
+          voiceCount: count,
+        );
+      } else {
+        entries.removeAt(at);
+      }
+    } else if (count > 0) {
+      entries
+        ..add(GridJournalEntry(
+          day: day,
+          habitId: habitId,
+          state: squareState,
+          note: '',
+          voiceCount: count,
+        ))
+        ..sort((a, b) {
+          final byDay = b.day.compareTo(a.day);
+          return byDay != 0 ? byDay : a.habitId.compareTo(b.habitId);
+        });
+    } else {
+      return;
+    }
+    state = state.copyWith(entries: entries);
+  }
 }
 
 final gridJournalProvider =
     StateNotifierProvider<GridJournalNotifier, GridJournalState>((ref) {
   final uid = ref.watch(authStateProvider).asData?.value?.uid;
-  return GridJournalNotifier(uid);
+  final notifier = GridJournalNotifier(
+    uid,
+    voiceCounts: () => ref.read(squareVoiceIndexProvider),
+  );
+  // The recordings' index is one read of its own and can land after this
+  // month's read: fold it in once, when it first arrives with something in
+  // it. Later changes come through voiceChanged instead.
+  ref.listen<Map<String, int>>(squareVoiceIndexProvider, (prev, next) {
+    if ((prev == null || prev.isEmpty) && next.isNotEmpty) {
+      notifier.refresh();
+    }
+  });
+  return notifier;
 });

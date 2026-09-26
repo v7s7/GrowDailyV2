@@ -318,8 +318,8 @@ class S {
       : 'synced to all your devices.';
   String get authGuestLead => isAr ? 'بدون حساب:' : 'Without an account:';
   String get authGuestFact => isAr
-      ? '3 عادات، محفوظة على هذا الجهاز.'
-      : '3 habits, on this phone.';
+      ? '5 عادات، محفوظة على هذا الجهاز.'
+      : '5 habits, on this phone.';
   // Parallel with the three buttons above it in BOTH languages: every one
   // now opens on «المتابعة» / "Continue". The "3 habits" it used to carry is
   // stated in the line underneath instead, in both languages, so the button
@@ -337,8 +337,8 @@ class S {
   // would still be describing something that has not happened. What does
   // carry the fact is [guestFreshStartWarning], shown alongside.
   String get guestLimitBody => isAr
-      ? 'كضيف تقدر تضيف 3 عادات. الحساب المجاني يرفع الحد لـ 10، وعاداتك تنتقل معك لأي جهاز.'
-      : 'Guest mode is capped at 3 habits. A free account raises that to 10 and syncs across your devices.';
+      ? 'كضيف تقدر تضيف 5 عادات. الحساب المجاني يرفع الحد لـ 10، وعاداتك تنتقل معك لأي جهاز.'
+      : 'Guest mode is capped at 5 habits. A free account raises that to 10 and syncs across your devices.';
   /// Rewritten when the reconnect offer shipped. This used to promise the
   /// opposite ("does not carry over"), which was true at the time and is
   /// now false in the one direction that matters: the offer is made right
@@ -375,6 +375,27 @@ class S {
   String get reconnectWorking => isAr ? 'ننقل تقدمك...' : 'Moving your progress...';
   String get reconnectDone =>
       isAr ? 'تم. تقدمك الآن في حسابك.' : 'Done. Your progress is on your account.';
+
+  /// [reconnectDone] when some of the guest's habits arrived paused: the
+  /// account's own habits already filled the free cap
+  /// (GuestMigrationService._habitsOverCap). Says where they are, so none
+  /// reads as lost. DRAFT, Aziz's call.
+  String reconnectDonePaused(int paused, int limit) {
+    if (!isAr) {
+      final habits = paused == 1 ? '1 habit' : '$paused habits';
+      return 'Done. Your progress is on your account. $habits arrived '
+          'paused, because free includes $limit. Resume them from Add Habit.';
+    }
+    final habits = paused == 1
+        ? 'عادة وحدة'
+        : paused == 2
+            ? 'عادتين'
+            : paused <= 10
+                ? '$paused عادات'
+                : '$paused عادة';
+    return 'تم. تقدمك الآن في حسابك، و$habits وصلت موقوفة لأن المجاني فيه '
+        '$limit عادات. ترجّعها من «إضافة عادة».';
+  }
 
   /// Deliberately not phrased as a plain failure: nothing was lost, the
   /// local copy is untouched, and the retry is a real one (the migration
@@ -716,6 +737,14 @@ class S {
       ? 'أرقامك محفوظة كلها، لكن ما وصلت لهذا الجهاز. تأكد من الاتصال وجرب مرة ثانية.'
       : 'All your numbers are safe, they just have not reached this device. Check your connection and try again.';
   String get statsUnavailableRetry => isAr ? 'جرب مرة ثانية' : 'Retry';
+
+  /// An add tapped before the account's habits reached this phone (a new
+  /// phone offline): the habit cap has nothing to count yet, so it says
+  /// that instead of the limit (habit_limit_gate.dart). DRAFT, Aziz's call.
+  String get habitsNotLoadedNotice => isAr
+      ? 'عاداتك ما وصلت لهذا الجهاز بعد. تأكد من الاتصال وجرّب مرة ثانية.'
+      : "Your habits haven't reached this phone yet. Check your connection "
+          'and try again.';
 
   // Intention card
   String get todaysIntention => isAr ? 'نية اليوم' : "Today's intention";
@@ -3176,21 +3205,34 @@ class S {
   String get premiumBenefitAppearanceDesc => isAr
       ? 'اختر لونين والمظهر كله يتبعهم، أو خذ واحد من 9 مظاهر جاهزة.'
       : 'Pick two colours and the whole theme follows, or take one of 9 ready-made themes.';
-  // Real gate: kFreeTaskReminders = 1 (premium_notifier.dart), enforced by
-  // ReminderPicker.canStack via showReminderLimitGate. This was the Tasks
-  // page's main cap and the paywall never mentioned it — a free user first
-  // learned the feature existed by hitting its wall.
+  // Real gates, one rule for both (premium_notifier.dart): kFreeTaskReminders
+  // = 1, enforced by ReminderPicker.canStack, and kFreeHabitReminders = 1,
+  // enforced by canAddHabitReminder in Add Habit; both end at
+  // showReminderLimitGate. This row first came in because the Tasks cap was
+  // on no paywall line at all, so a free user learned it existed by hitting
+  // its wall. It then sold tasks only («للمهمة» / "task reminders") while
+  // the HABIT gate, whose sheet uses Maghrib as its example, opens the
+  // paywall with this same row on top (PremiumReason.tasks): someone who had
+  // just tried a second Maghrib reminder was greeted by a line about tasks,
+  // and a habit's stack was sold nowhere. Now it names both, in the FAQ's own
+  // words («أكثر من تذكير للعادة أو المهمة»), under the gate sheet's own
+  // Arabic title. The member names keep "Task" on purpose: the admin Wording
+  // page keys edits by name, and a rename would orphan one. DRAFT wording
+  // (2026-09-25), Aziz picks the final text.
   String get premiumBenefitTaskRemindersTitle =>
-      isAr ? 'تذكيرات متعددة للمهمة' : 'Stacked task reminders';
+      isAr ? 'تذكيرات متعددة' : 'Stacked reminders';
   String get premiumBenefitTaskRemindersDesc => isAr
-      ? 'سلسلة تنبيهات للمهمة الواحدة: قبلها بيوم، بساعة، وعند موعدها.'
-      : 'A ladder of nudges per task: a day out, an hour out, and on time.';
+      ? 'أكثر من تذكير للعادة أو المهمة، مثلًا قبل المغرب بعشر دقايق وفي وقتها.'
+      : 'More than one reminder per habit or task, like ten minutes before Maghrib and again on time.';
   String get premiumBenefitVoiceTitle => isAr ? 'ملاحظات صوتية' : 'Voice notes';
   // Real gate: hasVoiceNoteAccess (voice_note_gate.dart), flat premium-only
   // check, no free tier.
+  // Habit days joined tasks on 2026-09-25 (square_voice_notes.dart), so the
+  // row sells both; premium_claims_copy_test.dart pins that it names both
+  // and still never «تأمل». DRAFT wording for the habit half.
   String get premiumBenefitVoiceDesc => isAr
-      ? 'سجّل ملاحظة صوتية لأي مهمة، بدون ما تكتب.'
-      : 'Record a voice note on any task. No typing needed.';
+      ? 'سجّل ملاحظة صوتية لأي مهمة أو أي يوم من عاداتك، بدون ما تكتب.'
+      : 'Record a voice note on any task or any day of a habit. No typing needed.';
   // Real gate: NavBarSettingsScreen puts every add, remove and reorder
   // behind premiumAccessProvider. The bar itself, and Reset, stay free.
   String get premiumBenefitNavBarTitle =>
@@ -3324,6 +3366,24 @@ class S {
   String get premiumLifetimeStillRenewing => isAr
       ? 'عندك بريميوم مدى الحياة، وعندك بعد اشتراك شهري يتجدد. ألغِ الشهري حتى ما ينخصم منك مرة ثانية.'
       : 'You own Premium for life, and a monthly subscription is still renewing. Cancel the monthly so you are not charged again.';
+  // ── Monthly to Lifetime (2026-09-25) ─────────────────────────────────
+  // The three lines around the Lifetime card a Monthly subscriber sees under
+  // «بريميوم مفعّل» (premiumFromStoreSubscription decides who). Buying it
+  // does NOT cancel the Monthly: the store keeps renewing it until the
+  // person cancels, so the note says so BEFORE the purchase, in the same
+  // words as the button above it. After the purchase
+  // [premiumLifetimeStillRenewing] repeats it until they do. The card itself
+  // reuses premiumLifetime / premiumOneTime / premiumLifetimeBreakEven.
+  //
+  // DRAFT WORDING, not yet Aziz's.
+  String get premiumUpgradeTitle => isAr
+      ? 'ادفع مرة وحدة بدل كل شهر'
+      : 'Pay once instead of every month';
+  String get premiumUpgradeCancelNote => isAr
+      ? 'الشهري ما يتوقف لحاله. بعد ما تشتري مدى الحياة، ألغِ الشهري من «إدارة الاشتراك» حتى ما ينخصم منك مرة ثانية.'
+      : 'The monthly plan does not stop by itself. After buying Lifetime, cancel it under Manage subscription so you are not charged again.';
+  String get premiumUpgradeCta =>
+      isAr ? 'اشترِ مدى الحياة' : 'BUY LIFETIME';
   /// A purchase the store is holding for someone else to finish: a parent's
   /// Ask to Buy approval on iPhone, or a cash payment Google Play lets people
   /// complete later. No money has moved, and it arrives on its own when it
@@ -3458,9 +3518,11 @@ class S {
   String get voiceNoteGateTitle => isAr
       ? 'الملاحظات الصوتية ميزة بريميوم'
       : 'Voice notes are a Premium feature';
+  // Tasks and, since 2026-09-25, a habit's day (square_voice_notes.dart):
+  // this sheet opens from both mics. DRAFT wording for the habit half.
   String get voiceNoteGateBody => isAr
-      ? 'سجّل ملاحظة صوتية سريعة لأي مهمة، متاحة مع بريميوم.'
-      : 'Record a quick voice note on any task, available with Premium.';
+      ? 'سجّل ملاحظة صوتية سريعة على أي مهمة أو أي يوم من عاداتك، متاحة مع بريميوم.'
+      : 'Record a quick voice note on any task or any day of a habit, available with Premium.';
   String get voiceNoteRecording => isAr ? 'جارٍ التسجيل…' : 'Recording…';
   String get voiceNoteTapToRecord => isAr ? 'اضغط للتسجيل' : 'Tap to record';
   String get voiceNoteTapToStop => isAr ? 'اضغط للإيقاف' : 'Tap to stop';
@@ -5275,6 +5337,21 @@ class S {
   // the green makes this one self-describing instead of looking like the
   // same stat disagreeing with itself across two screens.
   String get reportsLongestRun => isAr ? 'أطول تتابع أخضر' : 'Longest green run';
+  // ── Share card (share_card.dart, 2026-09-25) ─────────────────────────
+  // A month's card for everyone, a year's for Premium (Aziz's pick). The
+  // card itself reuses the report's labels above; these are the button under
+  // the report's numbers, the sheet's button, the caption that rides along
+  // where the app shows one, and the one failure line. No link in the
+  // caption on purpose: /join is a room invite and Play is closed until
+  // production. DRAFT wording, not yet Aziz's.
+  String get shareMonthButton => isAr ? 'شارك شهرك' : 'Share your month';
+  String get shareYearButton => isAr ? 'شارك سنتك' : 'Share your year';
+  String get shareCardShare => isAr ? 'مشاركة' : 'Share';
+  String get shareCardCaption =>
+      isAr ? 'أتابع عاداتي مع GrowDaily' : 'Tracking my habits with GrowDaily';
+  String get shareCardFailed => isAr
+      ? 'ما قدرنا نجهّز الصورة. جرّب مرة ثانية.'
+      : 'Could not make the picture. Try again.';
 
   /// The ribbon on a habit card whose period was fully met.
   String get reportsPerfect => isAr ? 'كامل' : 'PERFECT';

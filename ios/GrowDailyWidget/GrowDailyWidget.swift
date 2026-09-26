@@ -475,7 +475,7 @@ struct ProgressRing: View {
         let hour = Calendar.current.component(.hour, from: Date())
         return hour >= 18 && total > 0 && completed < total
     }
-    private var ringColor: Color { isUrgent ? .parchmentWarn : .parchmentGreen }
+    private var ringColor: Color { isUrgent ? .parchmentWarn : .themeGreen }
 
     var body: some View {
         ZStack {
@@ -554,8 +554,8 @@ func habitInk(_ habit: TodayHabit) -> Color {
     case "money": return .parchmentWarn
     case "mind": return .parchmentPurple
     case "sleep": return .parchmentSleep
-    case "social", "custom", nil: return .parchmentGold
-    default: return .parchmentGreen // faith, fasting, quran, athkar, sadaqah
+    case "social", "custom", nil: return .themeGold
+    default: return .themeGreen // faith, fasting, quran, athkar, sadaqah
     }
 }
 
@@ -595,13 +595,13 @@ struct HabitDaySquare: View {
         let resting = !habit.done && !habit.isDue
         ZStack {
             if habit.done {
-                shape.fill(Color.parchmentGreenFill)
+                shape.fill(Color.themeGreenFill)
                 Image(systemName: "checkmark")
                     .font(.system(size: size * 0.5, weight: .heavy))
                     .foregroundColor(.white)
             } else if partial {
-                shape.fill(Color.parchmentGreenFill.opacity(0.32))
-                shape.stroke(Color.parchmentGreenFill, lineWidth: 1.2)
+                shape.fill(Color.themeGreenFill.opacity(0.32))
+                shape.stroke(Color.themeGreenFill, lineWidth: 1.2)
                 Text(verbatim: "\(habit.timesDone)/\(habit.target)")
                     .font(.system(size: size * 0.36, weight: .heavy))
                     .foregroundColor(.parchmentInk)
@@ -609,10 +609,10 @@ struct HabitDaySquare: View {
                     .lineLimit(1)
                     .padding(.horizontal, 1)
             } else if resting {
-                shape.fill(Color.parchmentGreenFill.opacity(0.18))
+                shape.fill(Color.themeGreenFill.opacity(0.18))
             } else {
                 shape.fill(Color.parchmentSurface.opacity(0.55))
-                shape.stroke(Color.parchmentGold, lineWidth: 1.3)
+                shape.stroke(Color.themeGold, lineWidth: 1.3)
             }
         }
         .frame(width: size, height: size)
@@ -662,7 +662,7 @@ struct HabitWidgetRow: View {
                 // read as a habit left undone.
                 Text(copy.notDue)
                     .font(.system(size: max(8.5, fontSize - 3.5), weight: .semibold))
-                    .foregroundColor(.parchmentGreen)
+                    .foregroundColor(.themeGreen)
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -730,7 +730,7 @@ struct DayProgressBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.parchmentSurface)
                 Capsule()
-                    .fill(isUrgent ? Color.parchmentWarn : Color.parchmentGreenFill)
+                    .fill(isUrgent ? Color.parchmentWarn : Color.themeGreenFill)
                     .frame(width: geo.size.width * progress)
                     .animation(.easeOut(duration: 0.6), value: progress)
             }
@@ -754,7 +754,7 @@ struct HabitStatusLine: View {
                 .font(.system(size: size, weight: .heavy))
                 .foregroundColor(entry.totalToday <= 0 ? .parchmentSecondary
                                  : entry.completedToday >= entry.totalToday
-                                 ? .parchmentGreen : .parchmentInk)
+                                 ? .themeGreen : .parchmentInk)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .layoutPriority(1)
@@ -793,7 +793,7 @@ struct GrowDailySmallView: View {
                 // this is the one mark that says it at a glance.
                 Image(systemName: entry.totalToday > 0 ? "checkmark.seal.fill" : "leaf")
                     .font(.system(size: 34))
-                    .foregroundColor(entry.totalToday > 0 ? .parchmentGreen : .parchmentSecondary)
+                    .foregroundColor(entry.totalToday > 0 ? .themeGreen : .parchmentSecondary)
                     .frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
@@ -848,7 +848,7 @@ struct GrowDailyMediumView: View {
                         if entry.totalToday > 0 {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 16))
-                                .foregroundColor(.parchmentGreen)
+                                .foregroundColor(.themeGreen)
                         }
                         Text(entry.totalToday > 0
                              ? entry.copy.allDoneToday
@@ -1273,10 +1273,10 @@ struct RoomDayCell: View {
     /// a strip, which is why the ramp was rebuilt for the parchment.
     private func levelColor(_ level: Int) -> Color {
         switch level {
-        case 1: return Color.parchmentGreenFill.opacity(0.38)
-        case 2: return Color.parchmentGreenFill.opacity(0.58)
-        case 3: return Color.parchmentGreenFill.opacity(0.78)
-        case 4: return Color.parchmentGreenFill
+        case 1: return Color.themeGreenFill.opacity(0.38)
+        case 2: return Color.themeGreenFill.opacity(0.58)
+        case 3: return Color.themeGreenFill.opacity(0.78)
+        case 4: return Color.themeGreenFill
         default: return Color.parchmentSurface
         }
     }
@@ -1301,7 +1301,7 @@ struct RoomDayCell: View {
                 shape.fill(Color.parchmentSecondary.opacity(0.3))
             case .rest:
                 // A granted rest: soft, under the ramp's lowest step.
-                shape.fill(Color.parchmentGreenFill.opacity(0.22))
+                shape.fill(Color.themeGreenFill.opacity(0.22))
             case .missed:
                 shape.fill(Color.parchmentSurface)
                 shape.stroke(Color.parchmentMiss.opacity(0.45), lineWidth: 0.8)
@@ -1312,7 +1312,7 @@ struct RoomDayCell: View {
             }
             if isToday && mark != .outside {
                 // Gold means "today" everywhere in this app.
-                shape.stroke(Color.parchmentGold, lineWidth: 1.3)
+                shape.stroke(Color.themeGold, lineWidth: 1.3)
             }
         }
     }
@@ -1434,7 +1434,7 @@ struct RoomPlaceMark: View {
             } else if rank < 1 {
                 Text(verbatim: "–").foregroundColor(.parchmentSecondary)
             } else if rank == 1 {
-                Image(systemName: "trophy.fill").foregroundColor(.parchmentGold)
+                Image(systemName: "trophy.fill").foregroundColor(.themeGold)
             } else {
                 Text(verbatim: "\(rank)")
                     .foregroundColor(rank == 2 ? .parchmentSilver
@@ -1513,7 +1513,7 @@ extension RoomRaceRow {
         switch rank {
         case 2: return .parchmentSilver
         case 3: return .parchmentBronze
-        default: return .parchmentGold
+        default: return .themeGold
         }
     }
 }
@@ -1541,7 +1541,7 @@ struct RoomRaceNameLine: View {
                 .lineLimit(1)
                 .layoutPriority(1)
             if showTags {
-                if row.isMe { RoomRaceTag(text: entry.copy.youTag, color: .parchmentGold) }
+                if row.isMe { RoomRaceTag(text: entry.copy.youTag, color: .themeGold) }
                 if row.isLeader == true {
                     RoomRaceTag(text: entry.copy.leaderTag, color: .parchmentSecondary)
                 }
@@ -1577,8 +1577,8 @@ extension View {
         return self
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(shape.fill(isMine ? Color.parchmentGold.opacity(0.08) : Color.clear))
-            .overlay(shape.stroke(isMine ? Color.parchmentGold.opacity(0.4) : Color.clear, lineWidth: 1))
+            .background(shape.fill(isMine ? Color.themeGold.opacity(0.08) : Color.clear))
+            .overlay(shape.stroke(isMine ? Color.themeGold.opacity(0.4) : Color.clear, lineWidth: 1))
     }
 }
 
@@ -1729,7 +1729,7 @@ struct RoomRaceListView: View {
                     .foregroundColor(.parchmentInk)
                     .lineLimit(1)
                     .layoutPriority(1)
-                if row.isMe { RoomRaceTag(text: entry.copy.youTag, color: .parchmentGold) }
+                if row.isMe { RoomRaceTag(text: entry.copy.youTag, color: .themeGold) }
                 if row.isLeader == true {
                     RoomRaceTag(text: entry.copy.leaderTag, color: .parchmentSecondary)
                 }
@@ -1778,7 +1778,7 @@ struct RoomRaceListView: View {
             Spacer(minLength: 4)
             Text(entry.copy.todayFinished(finished, counted))
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(finished == counted ? .parchmentGreen : .parchmentSecondary)
+                .foregroundColor(finished == counted ? .themeGreen : .parchmentSecondary)
                 .contentTransition(.numericText())
         }
     }
@@ -1872,7 +1872,7 @@ struct GrowDailyRoomRaceWidget: Widget {
 // same roomRaceJson data, just laid out for a tiny accessory slot instead
 // of a Home Screen size.
 //
-// Deliberately no explicit .foregroundColor(.parchmentGold/.parchmentGreen/etc.) here,
+// Deliberately no explicit .foregroundColor(.themeGold/.themeGreen/etc.) here,
 // unlike the Home Screen Room Race views above - accessory-family Lock
 // Screen widgets are rendered by the system in its own monochrome tint
 // (the always-on-display/lock-screen accent), which overrides custom
@@ -2321,7 +2321,7 @@ struct MatrixTaskRow: View {
             Button(intent: MarkTaskDoneIntent(taskId: task.id)) {
                 Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 15))
-                    .foregroundColor(task.isDone ? .parchmentGreen : .parchmentSecondary)
+                    .foregroundColor(task.isDone ? .themeGreen : .parchmentSecondary)
             }
             .buttonStyle(.plain)
             Text(task.title)
@@ -2363,7 +2363,7 @@ struct MatrixEmptyView: View {
         VStack(spacing: 6) {
             Image(systemName: "checkmark.seal")
                 .font(.system(size: 20))
-                .foregroundColor(.parchmentGreen.opacity(0.8))
+                .foregroundColor(.themeGreen.opacity(0.8))
             Text(copy.nothingUrgent)
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(.parchmentInk)
@@ -2401,7 +2401,7 @@ struct MatrixHeaderRow: View {
             Link(destination: matrixQuickAddURL) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(.parchmentGold)
+                    .foregroundColor(.themeGold)
             }
         }
     }
@@ -2501,7 +2501,7 @@ struct MatrixSmallView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 4) {
                         Image(systemName: "square.stack.3d.up.fill")
-                            .foregroundColor(.parchmentGold)
+                            .foregroundColor(.themeGold)
                             .font(.system(size: 14))
                         Text(verbatim: "\(entry.tasks.count)")
                             .font(.system(size: 22, weight: .heavy))

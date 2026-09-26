@@ -647,6 +647,58 @@ void main() {
       expect(find.text(ar.reminderGateTitle), findsOneWidget);
     });
 
+    // Only an account whose Premium ended holds a stack on the free tier,
+    // and until 2026-09-26 it could move every reminder in it (Aziz: a
+    // lapsed account "just edits the premium"). The primary is the one
+    // reminder free includes; the extra is Premium's, removable, not
+    // movable.
+    testWidgets(
+        'a stack kept from an ended Premium: the extra wears a lock and '
+        'opens the gate, the primary still moves, the × still removes',
+        (tester) async {
+      final habit = habits['bothSides']!;
+      await open(tester, habit);
+      final extra = find.text('بعد الفجر بـ30 دقيقة');
+      expect(extra, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.ancestor(of: extra, matching: find.byType(Ink)).first,
+          matching: find.byIcon(Icons.lock_outline_rounded),
+        ),
+        findsOneWidget,
+        reason: 'the extra row says it is locked before the tap',
+      );
+      expect(
+        find.byIcon(Icons.chevron_right_rounded),
+        findsOneWidget,
+        reason: 'the primary row keeps its chevron',
+      );
+
+      await tapText(tester, 'بعد الفجر بـ30 دقيقة');
+      expect(find.text(ar.reminderGateTitle), findsOneWidget);
+      Navigator.of(tester.element(find.text(ar.reminderGateTitle))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text(ar.habitOffsetSave), findsNothing,
+          reason: 'no offset sheet opened behind the gate');
+
+      await tapText(tester, 'قبل الفجر بـ10 دقائق');
+      await flipInSheet(tester, ar.offsetAfterLabel);
+      expect(find.text('بعد الفجر بـ10 دقائق'), findsOneWidget);
+
+      final extraRow =
+          find.ancestor(of: extra, matching: find.byType(Ink)).first;
+      await tester.tap(find.descendant(
+        of: extraRow,
+        matching: find.byIcon(Icons.close_rounded),
+      ));
+      await tester.pumpAndSettle();
+      expect(extra, findsNothing);
+
+      await save(tester);
+      expect(stored(habit.id).reminderOffsetMinutes, 10);
+      expect(stored(habit.id).extraReminderOffsets, isEmpty);
+    });
+
     testWidgets('a quit habit behaves the same', (tester) async {
       final habit = habits['quit']!;
       await open(tester, habit);

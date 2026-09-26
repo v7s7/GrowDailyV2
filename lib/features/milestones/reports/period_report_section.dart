@@ -28,9 +28,13 @@ import '../../grid/screens/monthly_heatmap_screen.dart'
     show
         HeatmapInputs,
         HeatmapMonthSection,
+        heatLevel,
         heatmapScheduledOn,
         showHeatmapDayDetail,
         watchHeatmapInputs;
+import '../../premium/screens/premium_screen.dart'
+    show PremiumReason, PremiumScreen;
+import 'share_card.dart';
 import '../models/milestone_event.dart';
 import '../notifiers/habit_history_notifier.dart';
 import '../notifiers/milestone_notifier.dart';
@@ -687,6 +691,45 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     }
   }
 
+  /// The share card for the period on screen (share_card.dart), built from
+  /// the very numbers the screen prints: [summary] is the one the header card
+  /// above the button reads, its placeholders included, and each day's
+  /// colour is the map's own heat level over what that day owed, from the
+  /// same [inputs] the calendar above draws with.
+  ShareCardData _shareData(
+    ShareCardScope scope, {
+    required PeriodSummary summary,
+    required HeatmapInputs inputs,
+    required DateTime today,
+    required String locale,
+  }) {
+    final window = reportWindow(_scope, _anchor);
+    final lastDay = DateTime(today.year, today.month, today.day);
+    final levels = <String, int>{};
+    for (var d = window.start;
+        !d.isAfter(window.end) && !d.isAfter(lastDay);
+        d = DateTime(d.year, d.month, d.day + 1)) {
+      final key = d.toDateKey();
+      levels[key] = heatLevel(
+        inputs.counts[key] ?? 0,
+        heatmapScheduledOn(inputs.habits, d, inputs.isGreen,
+            markOn: inputs.markOn),
+      );
+    }
+    return ShareCardData(
+      scope: scope,
+      period: window.start,
+      periodLabel: _periodLabel(locale),
+      totalDone: summary.totalDone,
+      rate: summary.hasRate ? '${(summary.rate * 100).round()}%' : '–',
+      bestDay: summary.bestDay == null
+          ? '–'
+          : westernDate(summary.bestDay!, 'd MMM', locale),
+      longestRun: summary.longestRun,
+      levels: levels,
+    );
+  }
+
   /// Opens the picker for whichever grain is showing.
   ///
   /// The week arm has no isUnlocked predicate because weeks are not gated
@@ -1200,7 +1243,21 @@ void tapDay(DateTime day) => _showDay(
           delta: delta,
           chips: milestoneChips(context, story),
         ),
-        const SizedBox(height: 10),
+        // A month's card is everyone's: any month this tab can show, a free
+        // account can already see (share_card.dart).
+        ShareCardButton(
+          label: s.shareMonthButton,
+          onTap: () => showShareCardSheet(
+            context,
+            _shareData(
+              ShareCardScope.month,
+              summary: summary,
+              inputs: inputs,
+              today: today,
+              locale: locale,
+            ),
+          ),
+        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         _monthCards(
@@ -1321,7 +1378,38 @@ void tapDay(DateTime day) => _showDay(
         ),
         const SizedBox(height: 14),
         ReportHeaderCard(summary: summary, locale: locale, delta: delta),
-        const SizedBox(height: 10),
+        // A year's card is Premium, the line the free history draws
+        // everywhere else ("Your full history"), so the paywall it opens
+        // leads with exactly that.
+        ShareCardButton(
+          label: s.shareYearButton,
+          locked: !ref.watch(premiumAccessProvider),
+          onTap: () {
+            if (!ref.read(premiumAccessProvider)) {
+              HapticFeedback.selectionClick();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const PremiumScreen(
+                    source: 'share_year_card',
+                    reason: PremiumReason.history,
+                  ),
+                ),
+              );
+              return;
+            }
+            showShareCardSheet(
+              context,
+              _shareData(
+                ShareCardScope.year,
+                summary: summary,
+                inputs: inputs,
+                today: today,
+                locale: locale,
+              ),
+            );
+          },
+        ),
         _SectionLabel(s.reportsHabitsSection),
         const SizedBox(height: 8),
         for (final st in active) ...[

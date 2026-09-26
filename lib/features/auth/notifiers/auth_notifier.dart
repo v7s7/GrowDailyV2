@@ -676,6 +676,12 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
   /// this person achieved and when, the second an active push token, so a
   /// deleted account could still have been sent a notification.
   ///
+  /// `square_voice` (recordings of the person's own voice on Grid squares,
+  /// square_voice_notes.dart) joined on 2026-09-25, and with it `meta`,
+  /// which was missing too: it holds the note index and the recordings'
+  /// index, i.e. which days someone wrote or spoke about. `square_audit`,
+  /// the trail of square changes kept for support, was missing as well.
+  ///
   /// Room participant docs are deleted too, and separately, because they do
   /// not live under `users/{uid}` at all: they sit at
   /// `rooms/{code}/participants/{uid}` and carry a display name and a
@@ -693,6 +699,9 @@ class AuthNotifier extends StateNotifier<AsyncValue<void>> {
       'milestones',
       'fcmTokens',
       'habit_history',
+      'square_voice',
+      'square_audit',
+      'meta',
     ];
     // Before the user doc goes, since that is where the room codes live.
     await _leaveAllRooms(uid, userRef);

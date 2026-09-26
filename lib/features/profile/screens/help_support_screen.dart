@@ -215,9 +215,9 @@ const List<FaqEntry> kFaqEntries = [
         'and Premium?',
     questionAr: 'ما الفرق بين الضيف والحساب المجاني وبريميوم؟',
     answerEn:
-        'A guest can add up to 3 habits, and everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit and adds your full history, a complete view of every habit, your own theme plus 9 ready-made themes, more than one reminder per habit or task, voice notes on tasks, and your own bottom bar.',
+        'A guest can add up to 5 habits, and everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit and adds your full history, a complete view of every habit, your own theme plus 9 ready-made themes, more than one reminder per habit or task, voice notes on tasks and habit days, and your own bottom bar.',
     answerAr:
-        'كضيف تقدر تضيف لحد 3 عادات، وكل شي يبقى على هذا الجهاز. الحساب المجاني يرفع الحد لـ 10 عادات ويحفظ نسخة من تقدّمك. بريميوم يلغي حد العادات، ويفتح لك سجلّك الكامل، وصورة كاملة عن كل عادة، ومظهر تسويه بنفسك مع 9 مظاهر جاهزة، وأكثر من تذكير للعادة أو المهمة، وملاحظات صوتية للمهام، وشريط سفلي على كيفك.',
+        'كضيف تقدر تضيف لحد 5 عادات، وكل شي يبقى على هذا الجهاز. الحساب المجاني يرفع الحد لـ 10 عادات ويحفظ نسخة من تقدّمك. بريميوم يلغي حد العادات، ويفتح لك سجلّك الكامل، وصورة كاملة عن كل عادة، ومظهر تسويه بنفسك مع 9 مظاهر جاهزة، وأكثر من تذكير للعادة أو المهمة، وملاحظات صوتية للمهام وأيام العادات، وشريط سفلي على كيفك.',
     group: FaqGroup.account,
   ),
   FaqEntry(

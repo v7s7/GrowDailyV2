@@ -179,13 +179,19 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   }
 
   Future<void> _toggleRecording() async {
-    if (!hasVoiceNoteAccess(ref)) {
+    // Only STARTING a take is Premium. Asked before the stop too, a take
+    // still running when Premium ended could not be stopped: Stop opened
+    // the paywall, and at the cap the timer below called this every second
+    // and opened a new one each time.
+    if (!_recording && !hasVoiceNoteAccess(ref)) {
       showVoiceNoteGate(context, ref);
       return;
     }
     if (_recording) {
-      final result = await VoiceNoteService.instance.stopRecording();
+      // Before the await, so the timer cannot stop the take a second time
+      // while the first stop is still finishing.
       _timer?.cancel();
+      final result = await VoiceNoteService.instance.stopRecording();
       if (!mounted) return;
       setState(() => _recording = false);
       if (result != null) {
