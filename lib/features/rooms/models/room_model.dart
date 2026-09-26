@@ -2068,6 +2068,17 @@ class RoomParticipant {
     return DateTime(wall.year, wall.month, wall.day);
   }
 
+  /// The first instant, in UTC, at which any inhabited clock has closed the
+  /// week ending on [weekEnd]: kDayCutoffHour on the next day at UTC+14,
+  /// the moment its last day stops being markable there
+  /// (DateTimeGameExt.isOpenDayAt, isQuotaWeekClosed).
+  static DateTime _earliestCloseOf(DateTime weekEnd) => DateTime.utc(
+        weekEnd.year,
+        weekEnd.month,
+        weekEnd.day + 1,
+        kDayCutoffHour - _kEastmostUtcOffsetHours,
+      );
+
   /// The Saturday that starts [day]'s week, counted in calendar days.
   /// startOfDisplayWeek subtracts a Duration, which a daylight saving change
   /// on this device can push into the day before.
@@ -2175,8 +2186,16 @@ class RoomParticipant {
   ///    at UTC-12, and their phone grades that week by Monday's rule;
   ///  * the window's last day: UTC+14, so a week ages out as early as it
   ///    does anywhere;
-  ///  * the last sync's day ([lastSyncedAt]): UTC+14, the latest day it can
-  ///    have run on.
+  ///  * whether the last sync ([lastSyncedAt]) came after a week closed: its
+  ///    instant against the week's earliest close anywhere, kDayCutoffHour
+  ///    on the day after the week at UTC+14. A week closes on a phone when
+  ///    its last day does, not at midnight (isQuotaWeekClosed, which gained
+  ///    that grace after this was written). Read at midnight, as it was
+  ///    until 2026-09-26, a sync on the evening of a week's last day counted
+  ///    as a sync after the close, so that week was never corrected: Perla
+  ///    in A8GEL7 synced at 20:08 on Friday 25 September, in Bahrain, and
+  ///    her week of the 19th kept a cross on every blank day, the three its
+  ///    quota rests included, until her own phone came back.
   /// Keys the member's phone wrote (lastSyncedDay, rule, pause, away and day
   /// keys) are already its own calendar and are read as written.
   ///
@@ -2188,10 +2207,10 @@ class RoomParticipant {
   ///
   /// Apart from those two blind spots and the one case after this list, the
   /// cost is time, never a wrong answer:
-  ///  * a Bahrain member's closed week is corrected about 15 hours after it
-  ///    closes on their phone (Saturday 12:00 UTC against Friday 21:00 UTC),
-  ///    never before;
-  ///  * a week whose last sync was stamped at 13:00 Bahrain time or later on
+  ///  * a Bahrain member's closed week is corrected about 5 hours after it
+  ///    closes on their phone (Saturday 12:00 UTC against 07:00 UTC, 10:00
+  ///    in Bahrain), never before;
+  ///  * a week whose last sync was stamped at 23:00 Bahrain time or later on
   ///    its own last day stays as recorded;
   ///  * a Bahrain room is left as recorded from 13:00 Bahrain time on the
   ///    day before its last day, and for good once it has ended, so its
@@ -2276,8 +2295,7 @@ class RoomParticipant {
     final joinedWest = west(joinedAt);
     final firstOnAnyPhone =
         joinedWest.isAfter(startWest) ? joinedWest : startWest;
-    final syncedAt = lastSyncedAt;
-    final syncedOn = syncedAt == null ? null : east(syncedAt);
+    final syncedAt = lastSyncedAt?.toUtc();
 
     final out = <String, int>{};
     for (var week = _saturdayOn(windowStart);
@@ -2287,9 +2305,12 @@ class RoomParticipant {
       // Closed now: isQuotaWeekClosed.
       if (!weekEnd.isBefore(today)) continue;
       // Open at the last sync. A sync after the week closed stamps a
-      // lastSyncedDay past its end, or an instant some clock puts past it.
+      // lastSyncedDay past its end, or an instant past the week's close on
+      // some clock (see "Which clock": its grace, at UTC+14).
       if (weekEnd.toDateKey().compareTo(synced) < 0) continue;
-      if (syncedOn != null && weekEnd.isBefore(syncedOn)) continue;
+      if (syncedAt != null && !syncedAt.isBefore(_earliestCloseOf(weekEnd))) {
+        continue;
+      }
       if (quotaOkWeeks.contains(week.toDateKey())) continue;
 
       final first = week.isAfter(windowStart) ? week : windowStart;
