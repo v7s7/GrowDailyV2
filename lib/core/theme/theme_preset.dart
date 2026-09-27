@@ -335,7 +335,7 @@ const _emeraldGold = ThemePreset(
 /// square reads as "more Ocean," not "a different theme peeking through."
 const _ocean = ThemePreset(
   id: 'ocean',
-  nameEn: 'Ocean',
+  nameEn: 'Turquoise',
   nameAr: 'فيروزي',
   isPremium: true,
   gold: Color(0xFF2FA8A0),
@@ -395,7 +395,7 @@ final _burgundy = ThemePreset.custom(
 /// rather than competing for attention.
 const _monochrome = ThemePreset(
   id: 'monochrome',
-  nameEn: 'Monochrome',
+  nameEn: 'Gold',
   nameAr: 'ذهبي',
   isPremium: true,
   gold: Color(0xFFC9A24A),
@@ -431,7 +431,7 @@ const _monochrome = ThemePreset(
 /// reading cold.
 const _amberDusk = ThemePreset(
   id: 'amber_dusk',
-  nameEn: 'Amber Dusk',
+  nameEn: 'Caramel',
   nameAr: 'كراميل',
   isPremium: true,
   gold: Color(0xFFD97A3A),
@@ -469,7 +469,7 @@ const _amberDusk = ThemePreset(
 /// breaking the moody palette.
 const _nourViolet = ThemePreset(
   id: 'nour_violet',
-  nameEn: 'Nour Violet',
+  nameEn: 'Violet',
   nameAr: 'بنفسجي',
   isPremium: true,
   gold: Color(0xFFA38BDA),
@@ -624,7 +624,7 @@ const _babyPink = ThemePreset(
 /// clearly distinct from the teal accent instead of blending into it.
 const _teal = ThemePreset(
   id: 'teal',
-  nameEn: 'Teal',
+  nameEn: 'Emerald',
   nameAr: 'زمردي',
   isPremium: true,
   gold: Color(0xFF1FBDAD),

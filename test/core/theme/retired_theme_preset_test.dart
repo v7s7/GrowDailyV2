@@ -19,7 +19,11 @@ void main() {
   test('Rose & Ink is gone, and Burgundy stands where it stood', () {
     final ids = ThemePresets.all.map((p) => p.id).toList();
     expect(ids, isNot(contains('rose_ink')));
-    expect(ids.indexOf('burgundy'), 2, reason: 'right after Ocean');
+    expect(
+      ids.indexOf('burgundy'),
+      2,
+      reason: 'right after Turquoise (ocean)',
+    );
     expect(ids, hasLength(11));
   });
 

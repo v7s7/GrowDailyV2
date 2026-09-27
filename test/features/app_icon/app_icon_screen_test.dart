@@ -120,7 +120,7 @@ void main() {
       expect(find.text('Preview'), findsOneWidget);
       expect(phone.sets, isEmpty, reason: 'a tap alone must not change it');
 
-      await tester.tap(find.text('Ocean'));
+      await tester.tap(find.text('Turquoise'));
       await h.settle(tester);
       expect(phone.sets, isEmpty);
 
@@ -195,7 +195,7 @@ void main() {
       // 9 theme colours and 13 more; the two shapes still ahead and the
       // Ramadan icon (September) are the other locks on the page.
       expect(find.byIcon(Icons.lock_rounded), findsNWidgets(22 + 2 + 1));
-      await tester.tap(find.text('Ocean'));
+      await tester.tap(find.text('Turquoise'));
       await h.settle(tester);
       expect(find.byType(PremiumScreen), findsOneWidget);
       expect(phone.sets, isEmpty);
@@ -217,7 +217,7 @@ void main() {
     });
   });
 
-  group('Premium lapsed, the phone still in Ocean', () {
+  group('Premium lapsed, the phone still in Turquoise (ocean)', () {
     setUp(
       () => prepare(
         premium: false,
@@ -228,7 +228,7 @@ void main() {
     testWidgets('keeps it, but a new icon in it goes to the paywall',
         (tester) async {
       await open(tester);
-      expect(find.text('Sprout · Ocean', findRichText: true), findsOneWidget);
+      expect(find.text('Sprout · Turquoise', findRichText: true), findsOneWidget);
       await tester.tap(find.text('Seedling'));
       await h.settle(tester);
       await tester.tap(find.text('Use this icon'));

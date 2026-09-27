@@ -2259,8 +2259,8 @@ class S {
   String get appIconColourRed => isAr ? 'أحمر' : 'Red';
   String get appIconColourYellow => isAr ? 'أصفر' : 'Yellow';
   String get appIconColourGreen => isAr ? 'أخضر' : 'Green';
-  String get appIconColourBrown => isAr ? 'موكا' : 'Brown';
-  String get appIconColourGrey => isAr ? 'فضي' : 'Grey';
+  String get appIconColourBrown => isAr ? 'موكا' : 'Mocha';
+  String get appIconColourGrey => isAr ? 'فضي' : 'Silver';
   String get appIconColourBlack => isAr ? 'أسود' : 'Black';
   String get appIconColourWhite => isAr ? 'أبيض' : 'White';
   String get appIconColourVanilla => isAr ? 'فانيلا' : 'Vanilla';

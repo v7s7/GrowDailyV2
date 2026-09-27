@@ -81,7 +81,7 @@ void main() {
     // Another Premium theme is still locked, and still the paywall.
     expect(
       find.descendant(
-        of: tileRow('Ocean'),
+        of: tileRow('Turquoise'),
         matching: find.byIcon(Icons.lock_rounded),
       ),
       findsOneWidget,

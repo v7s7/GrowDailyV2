@@ -125,7 +125,7 @@ void main() {
           await host(tester, offer);
           expect(find.text('Match the app icon too?'), findsOneWidget);
           expect(
-            find.text('The Ocean icon on your Home Screen'),
+            find.text('The Turquoise icon on your Home Screen'),
             findsOneWidget,
           );
           expect(phone.sets, isEmpty);
