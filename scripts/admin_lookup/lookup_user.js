@@ -70,7 +70,8 @@ async function main() {
 
   let report;
   try {
-    report = await loadAccountReport(uid, authRecord);
+    // A file on disk: no prayer place in it, see lib/prayer_place.js.
+    report = await loadAccountReport(uid, authRecord, undefined, { forFile: true });
   } catch (e) {
     fail(e.message);
   }

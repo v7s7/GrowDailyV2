@@ -220,6 +220,7 @@ const SHELL_STYLES = `
   .cmdk-item .who { min-width: 0; flex: 1; }
   .cmdk-item .nm { display: block; font-size: 13.5px; font-weight: 600; unicode-bidi: plaintext; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cmdk-item .ml { display: block; font-size: 11.5px; color: var(--text-tert); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmdk-item .fl { flex: 0 0 auto; font-size: 14px; line-height: 1; }
   .cmdk-item .go { color: var(--text-tert); }
   .cmdk-empty { padding: 26px 12px; text-align: center; color: var(--text-tert); font-size: 13px; }
   .cmdk-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-tert); }

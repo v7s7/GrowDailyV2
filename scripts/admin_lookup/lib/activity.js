@@ -58,6 +58,7 @@ const {
 // The app's own day rules, so a feed row cannot disagree with the phone.
 const DayRules = require('./day_rules');
 const { accountHabitDocs, CATALOG_PROFILE_FIELDS } = require('./habit_catalog');
+const { prayerPlaceOf, PRAYER_PLACE_FIELDS } = require('./prayer_place');
 
 function db() {
   return admin.firestore();
@@ -752,6 +753,9 @@ async function scanOneAccount(uid, profile, authRow) {
       totalHabitCompletions: profile && profile.totalHabitCompletions != null
         ? profile.totalHabitCompletions : null,
       locale: (profile && profile.locale) || '',
+      // The flag beside their name, and the drawer's Prayer place line.
+      // Never the coordinates: prayerPlaceOf leaves them behind.
+      place: prayerPlaceOf(profile),
       habitCount: habitDocs.filter((d) => !d.data().archivedAt).length,
       todayKey: todayParts.key,
       todayDone,
@@ -810,7 +814,7 @@ async function scanActivity(forceRefresh) {
     const profileSnap = await db().collection('users')
       .select('displayName', 'createdAt', 'level', 'currentStreak', 'longestStreak',
         'gold', 'cumulativeXp', 'totalHabitCompletions', 'tzOffsetMinutes', 'locale',
-        'undoneCompletions', ...CATALOG_PROFILE_FIELDS)
+        'undoneCompletions', ...CATALOG_PROFILE_FIELDS, ...PRAYER_PLACE_FIELDS)
       .get();
     profileSnap.forEach((doc) => profiles.set(doc.id, doc.data()));
     _scanProfiles = profiles;
@@ -851,6 +855,7 @@ async function scanActivity(forceRefresh) {
             totalHabitCompletions: profile.totalHabitCompletions != null
               ? profile.totalHabitCompletions : null,
             locale: profile.locale || '',
+            place: prayerPlaceOf(profile),
             habitCount: null,
             todayKey: effectiveTodayParts(profile.tzOffsetMinutes).key,
             todayDone: 0,

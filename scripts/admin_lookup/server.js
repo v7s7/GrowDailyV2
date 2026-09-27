@@ -195,6 +195,9 @@ ${SHELL_STYLES}
   table.users tr:last-child td { border-bottom: none; }
   table.users tr.row:hover { background: var(--surface-2); cursor: pointer; }
   .u-name { font-weight: 650; font-size: 13.5px; letter-spacing: -0.1px; unicode-bidi: isolate; }
+  .u-flag, .dw-flag { margin-inline-start: 6px; cursor: default; }
+  .u-flag { font-size: 13px; }
+  .dw-flag { font-size: 15px; }
   .u-email { font-size: 11.5px; color: var(--text-sec); }
   .u-uid { font-family: var(--mono); font-size: 10.5px; letter-spacing: -0.2px; color: var(--text-tert); }
   .u-date { font-size: 12.5px; white-space: nowrap; }
@@ -450,6 +453,21 @@ ${SHELL_STYLES}
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  // An account's prayer place (lib/prayer_place.js): the flag beside the
+  // name, with the place in its tooltip, and the drawer's own line. The
+  // server builds it from a checked two-letter code and leaves the
+  // coordinates behind.
+  function flagHtml(place, cls) {
+    if (!place || !place.flag) return '';
+    return '<span class="' + cls + '" title="' + esc(place.title) + '">' + esc(place.flag) + '</span>';
+  }
+  function placeHtml(place) {
+    if (!place) return '<span class="muted">none saved</span>';
+    return '<span title="' + esc(place.title) + '">'
+      + (place.flag ? esc(place.flag) + ' ' : '')
+      + '<span class="bidi">' + esc(place.label) + '</span>'
+      + ' <span class="muted">· ' + esc(place.sourceText) + '</span></span>';
+  }
   // Every date and time on this page, in one language.
   //
   // Leaving the locale argument out means the MACHINE's locale, and this
@@ -552,6 +570,7 @@ ${SHELL_STYLES}
     return '<div class="dw-head">'
       + '<div class="dw-head-main">'
       + '<div class="dw-name">' + esc(a.displayName || '(no name set)')
+      + flagHtml(a.place, 'dw-flag')
       + (a.disabled ? '<span class="disabled-chip">Disabled</span>' : '') + '</div>'
       + '<div class="dw-mail">' + esc(a.email || '(no email)') + '</div>'
       + '</div>'
@@ -578,6 +597,7 @@ ${SHELL_STYLES}
       + line('Last sign-in', a.lastSignIn ? esc(ago(new Date(a.lastSignIn).getTime())) : '<span class="muted">never</span>')
       + line('On the app now', (a.lastActiveAt && Date.now() - new Date(a.lastActiveAt).getTime() <= onlineMs)
           ? '<span class="bool true">yes</span>' : '<span class="muted">no</span>')
+      + line('Prayer place', placeHtml(a.place))
       + line('uid', '<button class="uid-copy" data-copy="' + esc(a.uid)
           + '"><span class="uid">' + esc(a.uid) + '</span><span class="uid-copy-ico">⧉</span></button>')
 
@@ -1331,6 +1351,7 @@ ${SHELL_STYLES}
       return '<tr class="row" data-uid="' + esc(u.uid) + '">'
         + '<td><div class="u-name">' + (isOnline ? '<span class="online-dot"></span>' : '')
           + '<span class="bidi">' + esc(u.displayName || '(no name set)') + '</span>'
+          + flagHtml(u.place, 'u-flag')
           + (u.disabled ? '<span class="disabled-chip">Disabled</span>' : '') + '</div>'
           + '<div class="u-email">' + esc(u.email || '(no email)') + '</div>'
           + '<div class="u-uid">' + esc(u.uid) + '</div></td>'

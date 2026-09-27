@@ -39,6 +39,7 @@ const {
 // copy of them rather than a fresh guess per surface.
 const DayRules = require('./day_rules');
 const { accountHabitDocs } = require('./habit_catalog');
+const { prayerPlaceOf, profileForDisplay, PRAYER_PLACE_FIELDS } = require('./prayer_place');
 
 function db() {
   return admin.firestore();
@@ -427,11 +428,14 @@ function buildDaySection(raw, dateKey) {
 /**
  * One account's full report: the Day section (for [dateKey], default their
  * today), the Auth record, the profile, every subcollection, and rooms.
- * Returns { uid, authRecord, profileData, sections, todaySummary } - the
- * shape both lookup_user.js and server.js hand straight to render.js's
+ * Returns { uid, authRecord, profileData, sections, place, todaySummary } -
+ * the shape both lookup_user.js and server.js hand straight to render.js's
  * buildReportBody.
+ *
+ * [forFile] is lookup_user.js, whose report is saved to disk: it gets no
+ * prayer place at all, see prayer_place.js's profileForDisplay.
  */
-async function loadAccountReport(uid, authRecord, dateKey) {
+async function loadAccountReport(uid, authRecord, dateKey, { forFile = false } = {}) {
   const raw = await getAccountRaw(uid, authRecord);
   const { profileData, subcollections, docsByCollection, habitCtx, roomsSectionHtml } = raw;
   const tz = profileData && profileData.tzOffsetMinutes;
@@ -512,8 +516,9 @@ async function loadAccountReport(uid, authRecord, dateKey) {
         <tr><th>disabled</th><td>${authRecord.disabled}</td></tr>
       </tbody></table>`);
   }
+  // Every field as stored, except the prayer place's exact point.
   rawParts.push('<h3>Profile document</h3>' + (profileData
-    ? `<details class="doc"><summary>All raw profile fields</summary>${renderFieldTable(profileData)}</details>`
+    ? `<details class="doc"><summary>All raw profile fields</summary>${renderFieldTable(profileForDisplay(profileData, { forFile }))}</details>`
     : '<p class="muted">No Firestore profile doc.</p>'));
   for (const col of subcollections) {
     if (['daily', 'custom_habits', 'matrix_tasks'].includes(col.id)) continue;
@@ -527,6 +532,7 @@ async function loadAccountReport(uid, authRecord, dateKey) {
     authRecord,
     profileData,
     sections,
+    place: forFile ? null : prayerPlaceOf(profileData),
     dayKey: day.dayKey,
     isToday: day.isToday,
     todayKey: day.todayKey,
@@ -589,13 +595,17 @@ async function listAllUsers(forceRefresh) {
 
   const namesSnap = await db().collection('users')
     .select('displayName', 'createdAt', 'level', 'currentStreak', 'gold',
-      'totalHabitCompletions', 'tzOffsetMinutes', 'locale')
+      'totalHabitCompletions', 'tzOffsetMinutes', 'locale', ...PRAYER_PLACE_FIELDS)
     .get();
   const names = new Map(); // uid -> displayName
+  // uid -> prayerPlaceOf, the flag beside each name in the Cmd+K finder.
+  const places = new Map();
   const firestoreCreatedAt = new Map(); // uid -> ISO string, fallback only
   namesSnap.forEach((doc) => {
     const d = doc.data();
     if (d.displayName) names.set(doc.id, d.displayName);
+    const place = prayerPlaceOf(d);
+    if (place) places.set(doc.id, place);
     if (d.createdAt) {
       const dt = typeof d.createdAt.toDate === 'function' ? d.createdAt.toDate() : new Date(d.createdAt);
       if (!Number.isNaN(dt.getTime())) firestoreCreatedAt.set(doc.id, dt.toISOString());
@@ -609,6 +619,7 @@ async function listAllUsers(forceRefresh) {
     createdAt: u.createdAt || firestoreCreatedAt.get(u.uid) || null,
     lastSignIn: u.lastSignIn || null,
     disabled: u.disabled,
+    place: places.get(u.uid) || null,
   }));
   // A Firestore profile with no matching Auth account shouldn't normally
   // happen, but a manually-deleted Auth user (e.g. via the console, not
@@ -624,6 +635,7 @@ async function listAllUsers(forceRefresh) {
         createdAt: firestoreCreatedAt.get(doc.id) || null,
         lastSignIn: null,
         disabled: false,
+        place: places.get(doc.id) || null,
       });
     }
   });

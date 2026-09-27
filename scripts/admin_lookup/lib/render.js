@@ -1757,7 +1757,7 @@ function renderDocList(id, label, docs, ctx) {
 // "Theme custom" identical visual weight so nothing was findable at a
 // glance. Inline pairs read left to right in a fifth of the height, and the
 // value leads because the value is what is being looked up.
-function renderHighlights(profileData) {
+function renderHighlights(profileData, place) {
   if (!profileData) return '';
   const items = HIGHLIGHT_FIELDS
     .filter(([key]) => profileData[key] !== undefined && profileData[key] !== null)
@@ -1773,6 +1773,16 @@ function renderHighlights(profileData) {
         ? `<div class="${cls}"><span>${escapeHtml(label)}</span><b>${display}</b></div>`
         : `<div class="${cls}"><b>${display}</b><span>${escapeHtml(label)}</span></div>`;
     });
+
+  // Where their prayer times are worked out from (lib/prayer_place.js): the
+  // place's own label, as the app saved it, and how it was set. The live
+  // report only; a saved one passes no place.
+  if (place) {
+    const flag = place.flag ? `${escapeHtml(place.flag)} ` : '';
+    items.push(`<div class="stat text group-start" title="${escapeHtml(place.title)}">`
+      + `<span>Prayer place</span><b>${flag}<span class="bidi">${escapeHtml(place.label)}</span></b>`
+      + `<span class="stat-src">${escapeHtml(place.sourceText)}</span></div>`);
+  }
 
   // The one number nobody could get without doing the subtraction by hand,
   // and the one the ticket is usually about: how many green squares this
@@ -2032,7 +2042,7 @@ function renderDayCard({
 // document to scroll through; a non-empty search still reveals every
 // section at once (see REPORT_SCRIPT's applyFilters), so nothing becomes
 // harder to find because of this.
-function buildReportBody({ uid, authRecord, profileData, sections }) {
+function buildReportBody({ uid, authRecord, profileData, sections, place }) {
   const title = authRecord?.email || profileData?.displayName || uid;
   // The Day tab's count goes amber when that day's three records disagree,
   // so an admin stepping through a month sees which days are worth opening
@@ -2075,10 +2085,16 @@ function buildReportBody({ uid, authRecord, profileData, sections }) {
     ? escapeHtml(profileData.displayName)
     : escapeHtml(authRecord?.email || uid);
   const sub = profileData?.displayName && authRecord?.email ? escapeHtml(authRecord.email) : '';
+  // Their prayer place's country, beside the name, with the place itself in
+  // the tooltip (lib/prayer_place.js). Nothing when no country is known.
+  const flag = place && place.flag
+    ? `<span class="idline-flag" title="${escapeHtml(place.title)}">${escapeHtml(place.flag)}</span>`
+    : '';
   const header = `
     <div class="idline">
       <div class="idline-who">
         <h1 class="idline-name bidi">${who}</h1>
+        ${flag}
         ${sub ? `<span class="idline-mail">${sub}</span>` : ''}
       </div>
       <button type="button" class="uid-copy" data-copy="${escapeHtml(uid)}" title="Copy this uid">
@@ -2086,7 +2102,7 @@ function buildReportBody({ uid, authRecord, profileData, sections }) {
       </button>
     </div>
   `;
-  return { title, nav, header, stats: renderHighlights(profileData), body: sectionsHtml };
+  return { title, nav, header, stats: renderHighlights(profileData, place), body: sectionsHtml };
 }
 
 // Colors pulled from this app's own default theme preset
@@ -2360,6 +2376,7 @@ const BASE_STYLES = `
   .idline { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin: var(--s2) 0 var(--s3); }
   .idline-who { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
   .idline-name { font-size: 17px; font-weight: 700; letter-spacing: -0.2px; margin: 0; }
+  .idline-flag { font-size: 15px; line-height: 1; cursor: default; }
   .idline-mail { font-size: 12.5px; color: var(--text-sec); }
   .uid-copy { display: inline-flex; align-items: center; gap: var(--s1); padding: 3px var(--s2); border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); cursor: pointer; color: var(--text-tert); font-family: inherit; }
   .uid-copy:hover { border-color: var(--accent); color: var(--accent); }
@@ -2396,6 +2413,8 @@ const BASE_STYLES = `
   .stat b { font-size: var(--t-5); font-weight: 700; letter-spacing: -0.2px; font-variant-numeric: tabular-nums; }
   .stat span { font-size: var(--t-1); color: var(--text-sec); text-transform: uppercase; letter-spacing: 0.4px; }
   .stat.text b { font-size: var(--t-2); font-weight: 600; color: var(--text-sec); font-variant-numeric: normal; }
+  /* How the prayer place was set: a phrase after the value, not a label. */
+  .stat .stat-src { text-transform: none; letter-spacing: 0; color: var(--text-tert); }
   .stat.gap b { color: var(--warn); }
 
   table.fields { border-collapse: collapse; width: 100%; margin: 6px 0; }

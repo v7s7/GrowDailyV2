@@ -51,6 +51,10 @@
         uid: a.uid,
         name: a.displayName || '',
         email: a.email || '',
+        // Their prayer place's flag (lib/prayer_place.js), shown and never
+        // searched: this finds people, it does not sort them by country.
+        flag: (a.place && a.place.flag) || '',
+        placeTitle: (a.place && a.place.title) || '',
         hay: ((a.displayName || '') + ' ' + (a.email || '') + ' ' + a.uid).toLowerCase(),
       };
     });
@@ -108,6 +112,13 @@
       who.appendChild(el('span', 'nm', a.name || a.email || a.uid.slice(0, 10)));
       who.appendChild(el('span', 'ml', (a.name ? a.email + ' · ' : '') + a.uid));
       row.appendChild(who);
+      // Its own column rather than inside the name, whose plaintext
+      // direction would put the flag on the left of an Arabic name.
+      if (a.flag) {
+        var flag = el('span', 'fl', a.flag);
+        flag.title = a.placeTitle;
+        row.appendChild(flag);
+      }
       row.appendChild(el('span', 'go', '↵'));
       row.addEventListener('mouseenter', function () { selected = i; paintSelection(); });
       row.addEventListener('click', function () { openAccount(a.uid); });
