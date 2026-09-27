@@ -301,7 +301,7 @@ void main() {
     });
 
     test(
-        'the first green square awards +10 XP and the First Victory achievement',
+        'the first green square counts toward the First Victory achievement',
         () async {
       // effectiveDay, not raw now: between midnight and the 10 AM flex cutoff
       // (DateTimeGameExt.effectiveDay) the calendar day is ahead of the
@@ -315,8 +315,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final dash = container.read(dashboardProvider);
-      // +10 for the square, +25 from the First Victory unlock.
-      expect(dash.cumulativeXp, 35);
+      // +25 from the First Victory unlock, and nothing for the square itself:
+      // on an open day green is paid by completeHabit, never by the flat rate
+      // (see WeeklyGridNotifier._flatRateXp). This read +10 for the square
+      // while setSquare priced changes from the colours, which charged the
+      // flat rate for a green its own receipt said it never pays.
+      expect(dash.cumulativeXp, 25);
       expect(dash.unlockedAchievements, contains('green_1'));
       expect(dash.gold, 10);
       expect(dash.totalGreenSquares, 1);
@@ -352,9 +356,10 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
       final dash = container.read(dashboardProvider);
-      // Net effect identical to coloring it green once (+10 square, +25
-      // one-time First Victory) — the achievement never re-unlocks.
-      expect(dash.cumulativeXp, 35);
+      // Net effect identical to coloring it green once (+25 one-time First
+      // Victory, the square itself nothing on the flat rate, see the test
+      // above) — the achievement never re-unlocks.
+      expect(dash.cumulativeXp, 25);
       expect(dash.totalGreenSquares, 1);
       // Grid color changes alone never grant a streak point (see the test
       // above) — asserted again here as a regression guard against the

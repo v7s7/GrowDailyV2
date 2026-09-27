@@ -19,11 +19,25 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
   /// (see grid_screen.dart's `_handleSquareTap`/`_handlePaletteTap`), so by
   /// the time a color change reaches here, it was never going to be the
   /// day's 100% moment.
-  Future<void> applyGridSquareChange({
+  ///
+  /// Returns the XP that actually moved, with the write behind it (which only
+  /// a test waits for). A gain can land short of [xpDelta] where the day's
+  /// ceiling clamps it, and a debit where the account holds less than it
+  /// asks back. WeeklyGridNotifier.setSquare records exactly what moved on
+  /// the square's receipt, so a later correction gives back what was paid and
+  /// never what the colour costs.
+  ///
+  /// [dateKey] is the square's own day: today, or yesterday inside its grace
+  /// tail, the only two setSquare's anti-backdating guard lets through. The
+  /// square spends that day's allowance, as completeHabit's payments do:
+  /// today's lives in `state`, a grace day's on its own document
+  /// (dayEarnedXp), held in [_graceSpent] because a square is priced in the
+  /// same step that colours it and cannot stop to read the day.
+  ({int xp, Future<void> written}) applyGridSquareChange({
     required int xpDelta,
     required int greenDelta,
     required String dateKey,
-  }) async {
+  }) {
     // Same refusal as completeHabit's, for the same reason and with the same
     // stakes — see the long comment there. This path needed it just as much:
     // the batch below writes level, currentLevelXp, cumulativeXp, gold and
@@ -33,7 +47,9 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // a single tap landing on a partial colour after a failed load was enough
     // to flatten the real account document — the one tap that guard was
     // written to prevent, arriving through the door it doesn't cover.
-    if (_uid != null && state.loadFailed) return;
+    if (_uid != null && state.loadFailed) {
+      return (xp: 0, written: Future<void>.value());
+    }
 
     var newLevel = state.level;
     var newCurrentLevelXp = state.currentLevelXp;
@@ -44,9 +60,23 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // let a user keep XP by taking a colour back off once the day was full.
     // Gold is untouched here: this path pays gold only through achievement
     // unlocks, which are exempt by design.
-    final todayKey = DashboardNotifier._todayKey;
+    //
+    // The ceiling is the square's own day's. This used to read today's slot
+    // for every square, so during the morning grace a جزئي on yesterday moved
+    // today's XP figure, never reached yesterday's ledger, and was capped by
+    // what TODAY had spent rather than by what yesterday had.
+    final todayKey = _todayKeyNow;
+    final isGraceDay = dateKey != todayKey;
+    final spentXp =
+        isGraceDay ? _graceSpentOn(dateKey) : state.earnedXpOn(todayKey);
     final gridCap = xpDelta > 0
-        ? _allowedToday(xp: xpDelta, gold: 0, habitCount: 0)
+        ? _allowedOn(
+            spentXp: spentXp,
+            spentGold: 0,
+            xp: xpDelta,
+            gold: 0,
+            habitCount: 0,
+          )
         : null;
     final cappedXpDelta = gridCap?.xp ?? xpDelta;
 
@@ -62,24 +92,29 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       newCumulativeXp = result.newCumulativeXp;
     }
 
+    // What moved, measured before any medal below adds XP of its own: the
+    // figure the square's receipt records, and the room a debit gives back.
+    final movedXp = newCumulativeXp - state.cumulativeXp;
+
     // A reversal gives its room back. What a positive delta banked against
-    // today's ceiling, its negative twin must release, or every recolour
+    // the day's ceiling, its negative twin must release, or every recolour
     // down and back up burns allowance for nothing and the day counter
     // drifts away from cumulative XP: the residue measured on Aziz's account
     // on 2026-09-07 (cumulative moved by 5, the day counter by 20) was this
     // path debiting without releasing. Sized from what actually left the
     // account, so a debit floored at zero frees no room it did not reclaim,
     // and clamped at zero like uncompleteHabit's own refund.
-    final int? newXpToday;
+    final int? newSpent;
     if (xpDelta > 0) {
-      newXpToday = gridCap!.newXpToday;
+      newSpent = gridCap!.newXpToday;
     } else if (xpDelta < 0) {
-      final removed = state.cumulativeXp - newCumulativeXp;
-      final raw = state.earnedXpOn(todayKey) - removed;
-      newXpToday = raw < 0 ? 0 : raw;
+      final raw = spentXp + movedXp;
+      newSpent = raw < 0 ? 0 : raw;
     } else {
-      newXpToday = null;
+      newSpent = null;
     }
+    final graceSpendMoved =
+        isGraceDay && newSpent != null ? newSpent - spentXp : 0;
 
     final rawTotalGreen = state.totalGreenSquares + greenDelta;
     final newTotalGreen = rawTotalGreen < 0 ? 0 : rawTotalGreen;
@@ -98,6 +133,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     // habit completion happened to re-check it. Passing the unchanged
     // counters through alongside the changed ones costs nothing and closes
     // that hole.
+    final grantMarkBefore = state.levelGrantPaidThrough;
     final unlocks = _resolveUnlocks(
       unlockedIds: state.unlockedAchievements,
       level: newLevel,
@@ -107,7 +143,7 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
       totalCompletions: state.totalCompletions,
       greenSquares: newTotalGreen,
       categoryCompletions: state.categoryCompletions,
-      levelGrantPaidThrough: state.levelGrantPaidThrough,
+      levelGrantPaidThrough: grantMarkBefore,
     );
     final newly = unlocks.newly;
     final newUnlockedIds = unlocks.unlockedIds;
@@ -118,27 +154,71 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
     final newGold = state.gold + unlocks.bonusGold;
     final didLevelUp = newLevel > state.level;
 
+    // ── Milestone Event Log ────────────────────────────────────
+    //
+    // The Journey page, Monthly Story and the Legacy Shelf read this log and
+    // nothing else, and only completeHabit and earnStreakFromPartialCredit
+    // wrote to it: a جزئي whose five XP crossed a level moved the level bar,
+    // paid the level's gold, and never reached the story. The same two kinds
+    // completeHabit logs for the same moments.
+    //
+    // A level is logged when the grant mark moves, i.e. the first time the
+    // account reaches it, not on every crossing. Since exact reversal
+    // (2026-09-07) a square takes a level back and gives it again with one
+    // tap each way, and each lap would otherwise tell the same level-up again.
+    // Medals never un-unlock, so those need no such care.
+    final nowInstant = DateTime.now();
+    final milestoneEvents = <MilestoneEvent>[
+      if (newGrantMark > grantMarkBefore)
+        MilestoneEvent(
+          id: '',
+          type: MilestoneType.levelUp,
+          occurredAt: nowInstant,
+          data: {'level': newLevel},
+        ),
+      for (final a in newly)
+        MilestoneEvent(
+          id: '',
+          type: MilestoneType.achievementUnlocked,
+          occurredAt: nowInstant,
+          data: {'achievementId': a.id, 'tier': a.tier.name},
+        ),
+    ];
+
     state = state.copyWith(
       level: newLevel,
+      // Moved with the grant it just paid, here as well as on the user doc
+      // below. It used to move only there, so every later resolution in the
+      // session started from the old mark and paid the same level's gold
+      // again: the next square, the next completion, and a guest's save
+      // wrote the old mark back for the next launch to pay it once more.
+      levelGrantPaidThrough: newGrantMark,
       currentLevelXp: newCurrentLevelXp,
       cumulativeXp: newCumulativeXp,
       gold: newGold,
-      earnedDayKey: newXpToday == null ? null : todayKey,
-      earnedXpToday: newXpToday,
+      // Today's slot for a square of today only. A grace day's spend is its
+      // own (_graceSpent, and its document below).
+      earnedDayKey: isGraceDay || newSpent == null ? null : todayKey,
+      earnedXpToday: isGraceDay ? null : newSpent,
       totalGreenSquares: newTotalGreen,
       dailyGreenCounts: newDailyGreenCounts,
       unlockedAchievements: newUnlockedIds,
       newlyUnlocked: newly,
       didJustLevelUp: didLevelUp,
     );
+    if (isGraceDay && newSpent != null) {
+      _graceSpent = (dayKey: dateKey, xp: newSpent);
+    }
 
     if (_uid == null) {
-      await _saveGuestState();
-      return;
+      return (
+        xp: movedXp,
+        written: _saveGuestGridChange(dateKey, graceSpendMoved),
+      );
     }
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _db.batch();
 
       // No 'lastActiveDate' write here, on purpose — this method's own
       // doc comment above already says it "deliberately does not touch
@@ -162,9 +242,9 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         // clobbering whatever another device had added or spent meanwhile.
         if (unlocks.bonusGold != 0)
           'gold': FieldValue.increment(unlocks.bonusGold),
-        if (newXpToday != null) ...{
+        if (newSpent != null && !isGraceDay) ...{
           'earnedDayKey': todayKey,
-          'earnedXpToday': newXpToday,
+          'earnedXpToday': newSpent,
         },
         // arrayUnion of only what was just earned — see completeHabit's
         // identical write for why this must never be a wholesale overwrite.
@@ -182,6 +262,20 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
         };
       }
       batch.set(_userRef, userUpdate, SetOptions(merge: true));
+      // A grace day's own ledger, where completeHabit keeps it. An increment,
+      // for the reason the guest write gives (_saveGuestGridChange).
+      if (graceSpendMoved != 0) {
+        batch.set(
+          _dailyRefFor(DateTime.parse(dateKey)),
+          {'dayEarnedXp': FieldValue.increment(graceSpendMoved)},
+          SetOptions(merge: true),
+        );
+      }
+      // Same batch as the level they record, as in completeHabit: both land
+      // or neither does.
+      for (final e in milestoneEvents) {
+        batch.set(_milestonesRef.doc(), e.toFirestore());
+      }
 
       // Not awaited — same reason as completeHabit's commit (see the long
       // comment there). This one is called straight from WeeklyGridNotifier.
@@ -191,8 +285,27 @@ extension DashboardNotifierGridRewards on DashboardNotifier {
           (Object e, StackTrace st) =>
               _recordWriteFailure('applyGridSquareChange', e, st)));
     } catch (e, st) {
-      await _recordWriteFailure('applyGridSquareChange', e, st);
+      return (
+        xp: movedXp,
+        written: _recordWriteFailure('applyGridSquareChange', e, st),
+      );
     }
+    return (xp: movedXp, written: Future<void>.value());
+  }
+
+  /// [applyGridSquareChange]'s guest write: the account, and a grace day's
+  /// own ledger moved by [graceSpendMoved].
+  ///
+  /// Moved rather than written whole, so a figure this notifier never read
+  /// (see _graceSpent) cannot overwrite the one the day holds.
+  Future<void> _saveGuestGridChange(String dateKey, int graceSpendMoved) async {
+    await _saveGuestState();
+    if (graceSpendMoved == 0) return;
+    await LocalStoreService.updateDailyMap(dateKey, (day) {
+      final raw =
+          ((day['dayEarnedXp'] as num?)?.toInt() ?? 0) + graceSpendMoved;
+      day['dayEarnedXp'] = raw < 0 ? 0 : raw;
+    });
   }
 
   /// Keeps the heatmap's day rollup honest when a *past* day's square is

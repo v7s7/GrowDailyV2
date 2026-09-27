@@ -444,6 +444,9 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       gold: (priorPaid?.gold ?? 0) + paidGold,
     );
     if (!isGraceDay) _paidToday[habitId] = newPaid;
+    // A grace day's new running spend, for the next square priced against it
+    // (see _graceSpent).
+    if (isGraceDay) _graceSpent = (dayKey: dayKey, xp: capped.newXpToday);
 
     final result = XpCalculator.applyXpGain(
       currentLevel: state.level,
@@ -747,7 +750,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       // marked is yesterday. Stamping it with today would put yesterday's
       // completion on a document that says it happened today.
       final now = markDay;
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _db.batch();
 
       batch.set(
         _dailyRefFor(markDay),

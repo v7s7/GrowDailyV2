@@ -16,10 +16,15 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/services/local_store_service.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
+import 'package:grow_daily_v2/core/utils/xp_calculator.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
+import 'package:grow_daily_v2/features/grid/models/square_state.dart';
+import 'package:grow_daily_v2/features/grid/notifiers/square_audit.dart';
+import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 import 'package:hive/hive.dart';
 
 import '../../helpers/never_bonus_random.dart';
@@ -228,5 +233,144 @@ void main() {
       final s = c.read(dashboardProvider);
       expect(s.levelGrantPaidThrough, s.level);
     });
+
+    // ── A level reached on the Grid ───────────────────────────────────
+    //
+    // A جزئي's flat five XP can be what crosses a level. The Grid's reward
+    // path paid that level's grant and wrote the moved mark to the account,
+    // but left the mark in memory where it was, so every later resolution in
+    // the session started from the old mark and paid the same level again:
+    // the next square, the next completion, and for a guest the next launch,
+    // since its save wrote the old mark back.
+
+    /// The Grid, loaded. A square set before the week's first read lands is
+    /// replaced by that read.
+    Future<WeeklyGridNotifier> gridOf(ProviderContainer c) async {
+      c.read(weeklyGridProvider);
+      await waitUntil(
+        () => !c.read(weeklyGridProvider).isLoading,
+        describe: 'the grid to load',
+      );
+      return c.read(weeklyGridProvider.notifier);
+    }
+
+    /// Five XP short of the next level, so one جزئي is what crosses it.
+    Future<void> fiveShortOfNextLevel(ProviderContainer c) async {
+      final s = c.read(dashboardProvider);
+      await earnXp(
+        c,
+        XpCalculator.xpToNextLevel(s.level) - s.currentLevelXp - 5,
+      );
+    }
+
+    /// A جزئي picked on today's square, as the palette picks it, with the
+    /// guest save that runs behind it landed.
+    Future<void> partialOn(ProviderContainer c, String habitId) async {
+      final grid = await gridOf(c);
+      grid.setSquare(
+        habitId,
+        DateTime.now().effectiveDay,
+        SquareState.partial,
+        source: kSquareSourcePalette,
+      );
+      final xp = c.read(dashboardProvider).cumulativeXp;
+      await waitUntilAsync(
+        () async =>
+            (await LocalStoreService.getSettingsMap(
+              LocalStoreService.guestDashboardKey,
+            ))['cumulativeXp'] ==
+            xp,
+        describe: 'the square\'s guest save',
+      );
+    }
+
+    test('a level a square reaches moves the mark with it', () async {
+      final c = await launch();
+      await warmUp(c);
+      await fiveShortOfNextLevel(c);
+      final before = c.read(dashboardProvider);
+
+      await partialOn(c, 'square-a');
+
+      final after = c.read(dashboardProvider);
+      expect(
+        after.level,
+        before.level + 1,
+        reason: 'the جزئي is what crosses the level',
+      );
+      expect(after.gold - before.gold, grantsAcross(before.level, after.level));
+      expect(
+        after.levelGrantPaidThrough,
+        after.level,
+        reason: 'the grant was paid, so the mark has to say so',
+      );
+    });
+
+    test('the next square after it pays no second grant', () async {
+      final c = await launch();
+      await warmUp(c);
+      await fiveShortOfNextLevel(c);
+      await partialOn(c, 'square-a');
+      final afterLevelUp = c.read(dashboardProvider);
+
+      await partialOn(c, 'square-b');
+
+      expect(c.read(dashboardProvider).level, afterLevelUp.level);
+      expect(
+        c.read(dashboardProvider).gold,
+        afterLevelUp.gold,
+        reason: 'no level crossed, so no grant owed',
+      );
+    });
+
+    test('the next completion after it pays no second grant', () async {
+      final c = await launch();
+      await warmUp(c);
+      await fiveShortOfNextLevel(c);
+      await partialOn(c, 'square-a');
+      final afterLevelUp = c.read(dashboardProvider);
+
+      await earnXp(c, 10);
+
+      expect(c.read(dashboardProvider).level, afterLevelUp.level);
+      expect(
+        c.read(dashboardProvider).gold,
+        afterLevelUp.gold,
+        reason: 'no level crossed, so no grant owed',
+      );
+    });
+
+    test('a relaunch after it pays nothing again', () async {
+      final first = await launch();
+      await warmUp(first);
+      await fiveShortOfNextLevel(first);
+      await partialOn(first, 'square-a');
+      final afterLevelUp = first.read(dashboardProvider);
+      await LocalStoreService.settleDailyWrites();
+
+      final second = await launch();
+      final s = second.read(dashboardProvider);
+      expect(s.level, afterLevelUp.level);
+      expect(s.levelGrantPaidThrough, afterLevelUp.level);
+      expect(
+        s.gold,
+        afterLevelUp.gold,
+        reason: 'the save wrote the old mark back, so the launch paid the '
+            'level again',
+      );
+    });
   });
+}
+
+/// [waitUntil] for a condition that has to read storage to answer.
+Future<void> waitUntilAsync(
+  Future<bool> Function() ready, {
+  required String describe,
+}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 30));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await ready()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail('Timed out waiting for: $describe.');
 }

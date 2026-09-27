@@ -172,7 +172,7 @@ extension DashboardNotifierStreakFromPartial on DashboardNotifier {
     }
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _db.batch();
       batch.set(
         _dailyRefFor(markDay),
         {

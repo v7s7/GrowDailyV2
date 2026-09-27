@@ -82,7 +82,7 @@ void main() {
       xpDelta: 10,
       greenDelta: 1,
       dateKey: '2026-08-14',
-    );
+    ).written;
 
     final s = notifier.debugState;
     // Unguarded, the square's XP and green count land in state and are then
@@ -105,7 +105,7 @@ void main() {
       xpDelta: 5,
       greenDelta: 0,
       dateKey: '2026-08-14',
-    );
+    ).written;
 
     expect(notifier.debugState.cumulativeXp, 0);
     expect(notifier.debugState.level, 1);
@@ -151,14 +151,19 @@ void main() {
     // doc to destroy and owns its own failure path, so the same call must
     // still award normally rather than being caught by the new checks.
     final guest = DashboardNotifier(null, random: _NeverBonusRandom());
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // The load itself, not a fixed 50 ms: a load still in flight replaces
+    // the whole state when it lands, square and all. The square's write now
+    // also touches the day store (a square on any day but today charges that
+    // day's own ledger), which queues behind the load's own read of it, so
+    // the load always landed on top of the square and this read zero.
+    await guest.ready;
 
     final before = guest.debugState.cumulativeXp;
     await guest.applyGridSquareChange(
       xpDelta: 10,
       greenDelta: 1,
       dateKey: '2026-08-14',
-    );
+    ).written;
 
     // At least the square's own 10 XP. Not an exact figure: the first green
     // square also crosses a greenSquares achievement, whose reward is added

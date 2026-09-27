@@ -1139,12 +1139,25 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// awaited resolves as soon as its load does.
   Future<void> get ready => _initialLoad ?? Future<void>.value();
 
-  DashboardNotifier(this._uid, {Random? random, DateTime Function()? clock})
-      : _random = random ?? Random(),
+  DashboardNotifier(
+    this._uid, {
+    Random? random,
+    DateTime Function()? clock,
+    FirebaseFirestore? firestore,
+  })  : _random = random ?? Random(),
         _clock = clock ?? DateTime.now,
+        _firestore = firestore,
         super(DashboardState.initial()) {
     _initialLoad = _uid != null ? _loadToday() : _loadGuestToday();
   }
+
+  /// The store, injectable for tests like [_random] and [_clock]: with a
+  /// fake here a signed-in notifier runs its real load and its real writes
+  /// (see grid_level_journey_test.dart). Null in the app, which is
+  /// FirebaseFirestore.instance.
+  final FirebaseFirestore? _firestore;
+
+  FirebaseFirestore get _db => _firestore ?? FirebaseFirestore.instance;
 
   /// The wall clock, injectable for tests.
   ///
@@ -1247,6 +1260,30 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   /// left them behind. Both seen on 2026-09-07.
   final Map<String, ({int xp, int gold})> _paidToday = {};
 
+  /// A grace day's running spend against its own ceiling (its document's
+  /// `dayEarnedXp`), held for the Grid's flat rate. A square is priced in the
+  /// same synchronous step that colours it (applyGridSquareChange hands the
+  /// XP that moved straight to the square's receipt), so unlike completeHabit
+  /// it cannot stop to read the day first.
+  ///
+  /// Kept by everything that moves that figure: read with yesterday's counts
+  /// ([readGraceDay], every load while yesterday is open), and set by
+  /// completeHabit, uncompleteHabit and applyGridSquareChange when they land
+  /// on a grace day. Unlike [DashboardState.graceCompletions] it IS priced
+  /// against, but only to size the ceiling: a stale figure misjudges the room
+  /// left by the few XP it is out, and never pays a slice twice.
+  ///
+  /// Nothing held for a day reads as nothing spent. The one gap is the first
+  /// moment after midnight, before the midnight refresh has read yesterday,
+  /// and a grace tail that has only just begun has spent nothing yet.
+  ({String dayKey, int xp})? _graceSpent;
+
+  /// [_graceSpent] for [dayKey], zero when nothing is held for that day.
+  int _graceSpentOn(String dayKey) {
+    final held = _graceSpent;
+    return held != null && held.dayKey == dayKey ? held.xp : 0;
+  }
+
   static Map<String, ({int xp, int gold})> _paidFromStored(
       Map<String, dynamic> d) {
     final xp = d['habitPaidXp'];
@@ -1326,11 +1363,17 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
     if (key == _todayKeyNow || !markDay.isOpenDayAt(_clock())) return;
     final heldBefore = state.graceCompletions;
     final keyBefore = state.graceDayKey;
+    final spentBefore = _graceSpent;
     final stored = await _readStoredDay(markDay);
     if (!mounted) return;
     if (!identical(state.graceCompletions, heldBefore) ||
         state.graceDayKey != keyBefore) {
       return;
+    }
+    // The day's spend with its counts, unless a square priced against it
+    // while this read was out: that square's figure is the fresher one.
+    if (_graceSpent == spentBefore) {
+      _graceSpent = (dayKey: key, xp: stored.earnedXp);
     }
     state = state.copyWith(
       graceCompletions: stored.completions,
@@ -1479,7 +1522,7 @@ class DashboardNotifier extends StateNotifier<DashboardState> {
   }
 
   DocumentReference<Map<String, dynamic>> get _userRef =>
-      FirebaseFirestore.instance.collection('users').doc(_uid);
+      _db.collection('users').doc(_uid);
 
   DocumentReference<Map<String, dynamic>> get _dailyRef =>
       _dailyRefFor(DateTime.now().effectiveDay);

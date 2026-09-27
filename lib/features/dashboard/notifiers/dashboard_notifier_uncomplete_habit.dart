@@ -129,10 +129,17 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // another day must not touch the board on screen.
     Map<String, int> dayCompletions = state.completions;
     var dayPaid = _paidToday;
+    // The day's own running spend, which this undo gives room back to (see
+    // the earn counter below): today's lives in `state`, a grace day's on its
+    // own document, exactly where completeHabit charged it.
+    var daySpentXp = state.earnedXpOn(markDay.toDateKey());
+    var daySpentGold = state.earnedGoldOn(markDay.toDateKey());
     if (isGraceDay) {
       final stored = await _readStoredDay(markDay);
       dayCompletions = stored.completions;
       dayPaid = stored.paid;
+      daySpentXp = stored.earnedXp;
+      daySpentGold = stored.earnedGold;
     }
 
     final current = dayCompletions[habitId] ?? 0;
@@ -376,10 +383,18 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     // once-per-lifetime, so no lap can mint from it. Clamped at zero, and
     // read through earnedXpOn so an undo landing after the cutoff sees the
     // fresh day's zero rather than yesterday's spend.
-    final rawEarnedXp = state.earnedXpOn(dayKey) - removedXp;
+    //
+    // A grace day gives its own figure back, read off its document with its
+    // counts. This read `state` for every day, and `state` only holds the
+    // today slot, so an undo on yesterday wrote yesterday's ledger from a
+    // figure that was not its own, zero as often as not, and whatever else
+    // its grace tail had spent was lost with it.
+    final rawEarnedXp = daySpentXp - removedXp;
     final newEarnedXpToday = rawEarnedXp < 0 ? 0 : rawEarnedXp;
-    final rawEarnedGold = state.earnedGoldOn(dayKey) - removedGold;
+    final rawEarnedGold = daySpentGold - removedGold;
     final newEarnedGoldToday = rawEarnedGold < 0 ? 0 : rawEarnedGold;
+    // And the square priced next against that day sees it (_graceSpent).
+    if (isGraceDay) _graceSpent = (dayKey: dayKey, xp: newEarnedXpToday);
 
     // ── The day-counters ────────────────────────────────────────
     //
@@ -464,7 +479,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     }
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _db.batch();
 
       batch.set(
         _dailyRefFor(markDay),
@@ -758,7 +773,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     }
 
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = _db.batch();
 
       // The completion itself, back on the day it happened, so a restored day
       // is indistinguishable from one that was never touched: dayMark's rule 2

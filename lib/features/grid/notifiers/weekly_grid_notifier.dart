@@ -548,10 +548,12 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// Set a square to an explicit state (used by the long-press palette).
   ///
   /// Every color change feeds the app's XP/green-square progression: the
-  /// fixed XP for the new color minus the XP the old color already banked.
-  /// This is delta-based so cycling a square back and forth nets to exactly
-  /// what a single direct change would have earned; nothing to farm by
-  /// tapping repeatedly. Does *not* touch the streak — see
+  /// flat rate for the new color ([_flatRateXp]) minus what this square has
+  /// actually been paid (its receipt, [WeeklyGridState.flatPaid]). This is
+  /// delta-based so cycling a square back and forth nets to exactly what a
+  /// single direct change would have earned; nothing to farm by tapping
+  /// repeatedly, and nothing taken back that was never paid. Does *not*
+  /// touch the streak — see
   /// [DashboardNotifier.applyGridSquareChange]'s doc comment for why a Grid
   /// color change alone never earns today's streak point.
   void setSquare(
@@ -627,21 +629,38 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       return;
     }
 
-    final xpDelta = value.xpValue - old.xpValue;
-    if (xpDelta != 0 || greenDelta != 0) {
-      _ref.read(dashboardProvider.notifier).applyGridSquareChange(
-            xpDelta: xpDelta,
+    // Priced from the receipt, not from the colours: what the new colour
+    // costs on the flat rate, less what the flat rate has actually paid on
+    // this square (WeeklyGridState.flatPaid).
+    //
+    // `value.xpValue - old.xpValue` assumed the old colour had been paid its
+    // price, which only holds for a colour this method painted. The steps
+    // link leaves a جزئي at half the goal without paying for it, and so does
+    // the palette's مكتمل to جزئي correction on a done square; tapping either
+    // one empty, or picking فشل or تخطّي on it, docked five XP never paid.
+    // The same colour picked again is not a new mark: it changes nothing,
+    // where it used to write the colour's receipt over one that said zero.
+    final paidBefore = state.flatPaidFor(habitId, day);
+    final owed = value == old ? paidBefore : _flatRateXp(value);
+    var paid = paidBefore;
+    if (owed != paidBefore || greenDelta != 0) {
+      paid += _ref
+          .read(dashboardProvider.notifier)
+          .applyGridSquareChange(
+            xpDelta: owed - paidBefore,
             greenDelta: greenDelta,
             dateKey: key,
-          );
+          )
+          .xp;
     }
     // The receipt. This is the ONE method that pays the flat rate, so it is the
     // one that records what is owed back if the canonical completion path later
     // takes this square over — see WeeklyGridState.flatPaid and
     // setSquareStateOnlyAsync, which used to infer the amount from the colour
     // and so refunded five XP for a جزئي that a counted habit had painted from
-    // its own count and never been paid for.
-    _recordFlatPaid(habitId, day, _flatRateXp(value));
+    // its own count and never been paid for. What actually moved, not the
+    // price: the daily ceiling can let in less than the five a جزئي asks.
+    _recordFlatPaid(habitId, day, paid);
   }
 
   /// Records (or clears, at zero) the flat-rate XP banked on one square, in
@@ -689,15 +708,19 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     });
   }
 
-  /// The XP a square showing [s] was paid by [setSquare]'s flat-rate delta
-  /// math, and therefore the amount still owed back if something else takes
+  /// What [setSquare]'s flat rate pays for a square showing [s], and
+  /// therefore what its receipt says is owed back if something else takes
   /// that square over.
   ///
-  /// `complete` is deliberately zero rather than its own 10: on today it is
-  /// special-cased straight to `DashboardNotifier.completeHabit` (see
-  /// grid_screen_table's tap handler), so a green square's XP never came
+  /// `complete` is deliberately zero rather than its own 10: on an open day
+  /// green is paid by `DashboardNotifier.completeHabit` (the square's tap and
+  /// the palette both route it there), so a green square's XP never comes
   /// from the flat rate and reversing it here would refund it twice — once
-  /// via this path and again via `uncompleteHabit`.
+  /// via this path and again via `uncompleteHabit`. The one way green still
+  /// reaches [setSquare] on an open day is the palette's مكتمل on a day the
+  /// account already counts as done, where the square only needs repainting,
+  /// exactly what the square's own tap does there (markCompleteFromHabit). It
+  /// used to pay ten more on top, priced from the colours.
   static int _flatRateXp(SquareState s) =>
       s == SquareState.complete ? 0 : s.xpValue;
 
