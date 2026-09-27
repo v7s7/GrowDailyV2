@@ -186,6 +186,36 @@ test('a weekly quota owes only its load-bearing days', () => {
     ['owed', 'owed']);
 });
 
+test('a جزئي is a session holding a place at half credit (2026-09-26)', () => {
+  // Aziz's week of 19 September, تمرين 4x: half on Saturday and Sunday, then
+  // nothing. Three rest days, two misses, 1 of 4.
+  assert.deepEqual(
+    R.weeklyQuotaDemand({ dayCount: 7, doneDays: [], halfDays: [0, 1], target: 4 }),
+    ['half', 'half', 'spare', 'spare', 'spare', 'owed', 'owed']);
+  assert.equal(
+    R.quotaWeekCredit({ dayCount: 7, doneDays: [], halfDays: [0, 1], target: 4 }), 1);
+  // Two halves, then four whole sessions: the whole ones take the places.
+  assert.deepEqual(
+    R.weeklyQuotaDemand({ dayCount: 7, doneDays: [2, 3, 4, 5], halfDays: [0, 1], target: 4 }),
+    ['earned', 'earned', 'done', 'done', 'done', 'done', 'earned']);
+  assert.equal(
+    R.quotaWeekCredit({ dayCount: 7, doneDays: [2, 3, 4, 5], halfDays: [0, 1], target: 4 }), 4);
+  // Two whole and two halves: 3 of 4.
+  assert.equal(
+    R.quotaWeekCredit({ dayCount: 7, doneDays: [0, 1], halfDays: [2, 3], target: 4 }), 3);
+  // Three whole and two halves: the earlier half keeps the last place.
+  assert.deepEqual(
+    [...R.quotaWeekPlaces({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 })]
+      .sort(),
+    [0, 2, 3, 4]);
+  assert.equal(
+    R.quotaWeekCredit({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 }), 3.5);
+  // No halves: exactly the old answer.
+  assert.deepEqual(
+    R.weeklyQuotaDemand({ dayCount: 7, doneDays: [1, 3], target: 3 }),
+    ['spare', 'done', 'spare', 'done', 'spare', 'spare', 'owed']);
+});
+
 test('the quota week is the SATURDAY week the Grid draws', () => {
   // 2026-09-10 is a Thursday; its week opened on Saturday the 5th.
   assert.equal(R.displayWeekStartKey('2026-09-10'), '2026-09-05');

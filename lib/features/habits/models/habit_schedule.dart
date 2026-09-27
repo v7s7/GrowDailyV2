@@ -130,15 +130,36 @@ int scheduledGapBy({
   return runDaysStrictlyBetween(last, day, runsOn) + 1;
 }
 
+/// The days of a quota week a reminder may count as logged, as week
+/// positions, or null when it may claim nothing about the week.
+///
+/// A جزئي holds one of the week's places (weekly_quota_plan.dart), so it is a
+/// day trained: two halves are «٢ من ٤», and the days after them are owed or
+/// rest exactly as the Grid paints them. But «هدف الأسبوع تم» is only true of
+/// whole sessions: once they meet [target] the reminder counts them alone,
+/// and while halves fill the places short of that, the week is neither met
+/// (a whole session would still take a half's place and raise it) nor
+/// lacking a day, so nothing is said about it at all.
+Set<int>? quotaReminderWeekDays({
+  required Set<int> whole,
+  required Set<int> half,
+  required int target,
+}) {
+  if (whole.length >= target) return whole;
+  if (whole.length + half.length >= target) return null;
+  return {...whole, ...half};
+}
+
 /// What a flexible weekly quota ("N times a week, any days") can honestly
 /// say about itself on [fireDay], the day a reminder will land on.
 ///
 /// A quota habit has no scheduled weekdays to count, so the questions above
 /// do not apply to it; what it has instead is the week. [weekStart] is the
 /// Saturday that starts the CURRENT display week, [doneDays] the indices
-/// (0 = that Saturday) already logged in it, or null while the week's
-/// squares have not loaded, and [lastDone] the habit's last completed day on
-/// any week, or null if it never has been.
+/// (0 = that Saturday) already logged in it, a جزئي included (a half session
+/// holds one of the week's places, see weekly_quota_plan.dart), or null while
+/// the week's squares have not loaded, and [lastDone] the habit's last
+/// completed day on any week, or null if it never has been.
 ///
 ///  - [done]: how many of the week [fireDay] falls in are already logged.
 ///    Known for the current week; zero for a later one, since nothing in it

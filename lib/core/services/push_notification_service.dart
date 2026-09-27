@@ -199,9 +199,16 @@ class PushNotificationService {
 
   bool _requested = false;
 
+  /// Stands in for [requestPermissionAndInit] in widget tests, which have
+  /// no Firebase app for FirebaseMessaging to reach. RoomsHubScreen asks as
+  /// it builds, so without this no test could pump that screen for a
+  /// signed-in account.
+  @visibleForTesting
+  Future<void> Function()? requestOverride;
+
   /// Call from a moment permission makes sense (RoomsHubScreen's build - see
   /// that screen's own call site - the first real Rooms touchpoint) — safe
-  /// to call on every rebuild of a plain ConsumerWidget, unlike a real
+  /// to call on every rebuild, as that build does, rather than from a real
   /// one-shot initState: [_requested] makes every call after the first a
   /// no-op, and
   /// even without that guard, iOS itself no-ops a repeat permission prompt
@@ -209,6 +216,8 @@ class PushNotificationService {
   /// NotificationService.requestPermissions' own local-notification prompt,
   /// whichever of the two happens to run first.
   Future<void> requestPermissionAndInit() async {
+    final override = requestOverride;
+    if (override != null) return override();
     if (kIsWeb || _requested) return;
     _requested = true;
     try {

@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/wording_edits.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -62,12 +63,19 @@ const List<({String titleEn, String titleAr, String url})> kGuideVideos = [];
 enum FaqGroup { basics, rewards, rooms, features, account }
 
 class FaqEntry {
+  /// Stable across releases, and never reused: the admin tool's edits to a
+  /// question (its words, its place, taking it off) are keyed by this, so a
+  /// renamed id would drop them and a reused one would lay them over the
+  /// wrong question. Lower case words joined by dashes; the admin tool's own
+  /// questions start with 'q-', so a built-in id never does.
+  final String id;
   final String questionEn;
   final String questionAr;
   final String answerEn;
   final String answerAr;
   final FaqGroup group;
   const FaqEntry({
+    required this.id,
     required this.questionEn,
     required this.questionAr,
     required this.answerEn,
@@ -83,7 +91,8 @@ class FaqEntry {
 /// were written (streak-freeze auto-consume logic in
 /// dashboard_notifier_loading.dart, the 10 AM day cutoff in
 /// datetime_ext.dart, Room habit-editing in rooms_notifier.dart, guest/free
-/// habit caps in custom_habits_notifier.dart, Premium's real benefit list in
+/// habit caps in custom_habits_notifier.dart, the free room limit in
+/// room_limit.dart, Premium's real benefit list in
 /// premium_screen.dart, Night Review's screen, the bottom bar customiser in
 /// nav_bar_settings_screen.dart,
 /// the Journey/Life Timeline milestone log, prayer-time reminders in
@@ -92,8 +101,17 @@ class FaqEntry {
 /// short, no dashes on purpose - reads like a person answering, not a spec.
 /// If any of these mechanics change, double check these still describe them
 /// accurately.
+///
+/// Since 2026-09-26 these are the FAQ's built-in text, and the admin tool's
+/// FAQ page can edit, move, take off or add to them without a release (see
+/// content_edits.dart and [faqSectionsFor]). Editing an answer here still
+/// reaches phones, unless the admin tool has edited that same field; the
+/// admin page then flags it as changed in code. A question added here shows
+/// on phones even after the admin has saved a list of its own, right after
+/// the question it follows here.
 const List<FaqEntry> kFaqEntries = [
   FaqEntry(
+    id: 'mark-done',
     questionEn: 'How do I mark a habit done?',
     questionAr: 'كيف أعلّم عادة بأنها منجزة؟',
     answerEn:
@@ -103,6 +121,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.basics,
   ),
   FaqEntry(
+    id: 'streak',
     questionEn: 'How does my streak work?',
     questionAr: 'كيف تعمل سلسلتي؟',
     answerEn:
@@ -112,6 +131,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.basics,
   ),
   FaqEntry(
+    id: 'missed-day',
     questionEn: 'What happens if I miss a day?',
     questionAr: 'ماذا يحدث إذا فوّت يومًا؟',
     answerEn:
@@ -121,6 +141,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.basics,
   ),
   FaqEntry(
+    id: 'day-end',
     questionEn: 'Why doesn\'t my day end at midnight?',
     questionAr: 'ليش يومي ما ينتهي عند منتصف الليل؟',
     answerEn:
@@ -130,6 +151,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.basics,
   ),
   FaqEntry(
+    id: 'xp-gold',
     questionEn: 'What\'s the difference between XP and Gold?',
     questionAr: 'ما الفرق بين الخبرة والذهب؟',
     answerEn:
@@ -139,6 +161,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rewards,
   ),
   FaqEntry(
+    id: 'daily-cap',
     questionEn: 'Is there a limit to how much I can earn in a day?',
     questionAr: 'في حد للي أقدر أكسبه في اليوم؟',
     answerEn:
@@ -148,6 +171,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rewards,
   ),
   FaqEntry(
+    id: 'shop-prestige',
     questionEn: 'What\'s the difference between the Shop and Level Prestige?',
     questionAr: 'ما الفرق بين المتجر ومرتبة المستوى؟',
     answerEn:
@@ -157,6 +181,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rewards,
   ),
   FaqEntry(
+    id: 'rooms',
     questionEn: 'What are Rooms?',
     questionAr: 'ما هي الغرف؟',
     answerEn:
@@ -166,6 +191,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rooms,
   ),
   FaqEntry(
+    id: 'team-room',
     questionEn: 'What is a team room?',
     questionAr: 'شنو غرفة الفريق؟',
     answerEn:
@@ -175,6 +201,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.rooms,
   ),
   FaqEntry(
+    id: 'room-new-habit',
     questionEn: 'Can the leader add a new habit to a Room later?',
     questionAr: 'هل يمكن للقائد إضافة عادة جديدة للغرفة لاحقًا؟',
     answerEn:
@@ -183,7 +210,20 @@ const List<FaqEntry> kFaqEntries = [
         'نعم، في أي وقت. سيظهر لكل من في الغرفة تنبيه لربط إحدى عاداتهم بها.',
     group: FaqGroup.rooms,
   ),
+  // The free room limit (kFreeRoomLimit, room_limit.dart), 2026-09-26.
+  // DRAFT wording, Aziz picks the final text.
   FaqEntry(
+    id: 'room-limit',
+    questionEn: 'How many rooms can I be in?',
+    questionAr: 'كم غرفة أقدر أكون فيها؟',
+    answerEn:
+        'A free account can be in 3 rooms at a time, and rooms you lead count too. Finished rooms don\'t count, and leaving a room frees up its place. Premium has no limit, and if it ends you keep every room you\'re in.',
+    answerAr:
+        'الحساب المجاني يقدر يكون في 3 غرف في نفس الوقت، والغرف اللي أنت قائدها تنحسب منها. الغرف اللي انتهت ما تنحسب، ولو غادرت غرفة تفضّي مكانها. بريميوم ما فيه حد، وإذا انتهى تبقى في كل غرفك.',
+    group: FaqGroup.rooms,
+  ),
+  FaqEntry(
+    id: 'night-review',
     questionEn: 'What is Night Review?',
     questionAr: 'ما هو تقييم الليل؟',
     answerEn:
@@ -193,6 +233,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.features,
   ),
   FaqEntry(
+    id: 'journey-empty',
     questionEn: 'Why is my Journey or Timeline page empty?',
     questionAr: 'لماذا صفحة الرحلة أو الخط الزمني فارغة؟',
     answerEn:
@@ -202,6 +243,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.features,
   ),
   FaqEntry(
+    id: 'bottom-bar',
     questionEn: 'Can I change the tabs in the bottom bar?',
     questionAr: 'أقدر أغيّر الشريط السفلي؟',
     answerEn:
@@ -211,16 +253,18 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.features,
   ),
   FaqEntry(
+    id: 'plans',
     questionEn: 'What\'s the difference between a guest, a free account, '
         'and Premium?',
     questionAr: 'ما الفرق بين الضيف والحساب المجاني وبريميوم؟',
     answerEn:
-        'A guest can add up to 5 habits, and everything stays on this one device. A free account raises that to 10 habits and backs up your progress. Premium removes the habit limit and adds your full history, a complete view of every habit, your own theme plus 9 ready-made themes, more than one reminder per habit or task, voice notes on tasks and habit days (up to 100 a month), and your own bottom bar.',
+        'A guest can add up to 5 habits, and everything stays on this one device. A free account raises that to 10 habits, can be in 3 rooms at a time, and backs up your progress. Premium removes the habit and room limits and adds your full history, a complete view of every habit, your own theme plus 9 ready-made themes, more than one reminder per habit or task, voice notes on tasks and habit days (up to 100 a month), and your own bottom bar.',
     answerAr:
-        'كضيف تقدر تضيف لحد 5 عادات، وكل شي يبقى على هذا الجهاز. الحساب المجاني يرفع الحد لـ 10 عادات ويحفظ نسخة من تقدّمك. بريميوم يلغي حد العادات، ويفتح لك سجلّك الكامل، وصورة كاملة عن كل عادة، ومظهر تسويه بنفسك مع 9 مظاهر جاهزة، وأكثر من تذكير للعادة أو المهمة، وملاحظات صوتية للمهام وأيام العادات (لحد 100 في الشهر)، وشريط سفلي على كيفك.',
+        'كضيف تقدر تضيف لحد 5 عادات، وكل شي يبقى على هذا الجهاز. الحساب المجاني يرفع الحد لـ 10 عادات، ويعطيك 3 غرف في نفس الوقت، ويحفظ نسخة من تقدّمك. بريميوم يلغي حد العادات والغرف، ويفتح لك سجلّك الكامل، وصورة كاملة عن كل عادة، ومظهر تسويه بنفسك مع 9 مظاهر جاهزة، وأكثر من تذكير للعادة أو المهمة، وملاحظات صوتية للمهام وأيام العادات (لحد 100 في الشهر)، وشريط سفلي على كيفك.',
     group: FaqGroup.account,
   ),
   FaqEntry(
+    id: 'prayer-reminder',
     questionEn: 'Why isn\'t my prayer-time reminder going off?',
     questionAr: 'لماذا لا يعمل تذكير الصلاة؟',
     answerEn:
@@ -230,6 +274,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.account,
   ),
   FaqEntry(
+    id: 'task-reminder',
     questionEn: 'How do I set a reminder for a task?',
     questionAr: 'كيف أضبط تذكيرًا لمهمة؟',
     answerEn:
@@ -239,6 +284,7 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.account,
   ),
   FaqEntry(
+    id: 'delete-account',
     questionEn: 'Can I delete my account?',
     questionAr: 'هل يمكنني حذف حسابي؟',
     answerEn:
@@ -248,6 +294,39 @@ const List<FaqEntry> kFaqEntries = [
     group: FaqGroup.account,
   ),
 ];
+
+/// The FAQ as this phone shows it: [kFaqEntries] under the code's groups,
+/// with the admin tool's [edits] laid over them (see resolveFaq in
+/// content_edits.dart). The groups' built-in headings come from
+/// S.faqGroupTitle in each language; an edited heading replaces them.
+List<FaqSection> faqSectionsFor(FaqEdits? edits) {
+  const ar = S(Locale('ar'));
+  const en = S(Locale('en'));
+  return resolveFaq(
+    groups: [
+      for (final g in FaqGroup.values)
+        FaqBuiltInGroup(
+          id: g.name,
+          ar: ar.faqGroupTitle(g.name),
+          en: en.faqGroupTitle(g.name),
+        ),
+    ],
+    items: [
+      for (final e in kFaqEntries)
+        FaqBuiltInItem(
+          group: e.group.name,
+          item: FaqItem(
+            id: e.id,
+            questionAr: e.questionAr,
+            questionEn: e.questionEn,
+            answerAr: e.answerAr,
+            answerEn: e.answerEn,
+          ),
+        ),
+    ],
+    edits: edits,
+  );
+}
 
 /// "Help & Support" - a new, previously-nonexistent Settings destination
 /// (see ProfileScreen's Settings section). Three independent sections, each
@@ -333,42 +412,45 @@ class _FaqListState extends State<_FaqList> {
   // already uses for the same reason: reading one answer at a time is the
   // point, not accumulating a wall of open text.
   //
-  // Keyed on the question rather than an index now that the list is split
-  // into cards: an index is only unique within its own card, so two answers
-  // in two groups would have opened together.
-  String? _expandedIndex;
+  // Keyed on the question's id rather than an index now that the list is
+  // split into cards: an index is only unique within its own card, so two
+  // answers in two groups would have opened together. The id, not the
+  // question's words, because the admin tool can change the words while
+  // the answer is open, and the answer should stay open.
+  String? _expandedId;
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final s = S.of(context);
+    // Read through WordingScope, which registers this list to rebuild when
+    // the admin tool saves, the same way S.of does for every string.
+    final sections = faqSectionsFor(WordingScope.of(context).faq);
     // One card per group, each under its own quiet heading. Groups with no
-    // questions in them simply do not appear, so adding or moving an entry
-    // above needs nothing here.
+    // questions in them simply do not appear (resolveFaq leaves them out),
+    // so adding or moving an entry needs nothing here.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final group in FaqGroup.values)
-          if (kFaqEntries.where((e) => e.group == group).isNotEmpty) ...[
-            if (group != FaqGroup.values.first) const SizedBox(height: 18),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8, right: 2, left: 2),
-              child: Text(
-                s.faqGroupTitle(group.name),
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textTert,
-                ),
+        for (var g = 0; g < sections.length; g++) ...[
+          if (g != 0) const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, right: 2, left: 2),
+            child: Text(
+              sections[g].title(widget.isAr),
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: gp.textTert,
               ),
             ),
-            _groupCard(kFaqEntries.where((e) => e.group == group).toList()),
-          ],
+          ),
+          _groupCard(sections[g].items),
+        ],
       ],
     );
   }
 
-  Widget _groupCard(List<FaqEntry> entries) {
+  Widget _groupCard(List<FaqItem> entries) {
     final gp = context.gp;
     return Container(
       decoration: BoxDecoration(
@@ -383,13 +465,11 @@ class _FaqListState extends State<_FaqList> {
             _FaqRow(
               entry: entries[i],
               isAr: widget.isAr,
-              isExpanded: _expandedIndex == entries[i].questionEn,
+              isExpanded: _expandedId == entries[i].id,
               onTap: () {
                 HapticFeedback.selectionClick();
-                setState(() => _expandedIndex =
-                    _expandedIndex == entries[i].questionEn
-                        ? null
-                        : entries[i].questionEn);
+                setState(() => _expandedId =
+                    _expandedId == entries[i].id ? null : entries[i].id);
               },
             ),
           ],
@@ -400,7 +480,7 @@ class _FaqListState extends State<_FaqList> {
 }
 
 class _FaqRow extends StatelessWidget {
-  final FaqEntry entry;
+  final FaqItem entry;
   final bool isAr;
   final bool isExpanded;
   final VoidCallback onTap;

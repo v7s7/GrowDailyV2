@@ -269,6 +269,8 @@ function sidebar({ active, inPageViews = false, projectId = '', counts = {} } = 
     ${view('accounts', 'Accounts', 'users', inPageViews ? 'cntAccounts' : null)}
     <div class="nav-label">Change</div>
     <a class="nav-item${active === 'wording' ? ' active' : ''}" href="/wording">${icon('languages')}<span>Wording</span></a>
+    <a class="nav-item${active === 'faq' ? ' active' : ''}" href="/faq">${icon('circle-help')}<span>FAQ</span></a>
+    <a class="nav-item${active === 'premium' ? ' active' : ''}" href="/premium">${icon('crown')}<span>Premium</span></a>
     <a class="nav-item${active === 'achievements' ? ' active' : ''}" href="/achievements">${icon('trophy')}<span>Achievements</span></a>
     <a class="nav-item${active === 'creators' ? ' active' : ''}" href="/creators">${icon('ticket')}<span>Creators</span></a>
     <a class="nav-item${active === 'sale' ? ' active' : ''}" href="/sale">${icon('tag')}<span>Sale</span></a>

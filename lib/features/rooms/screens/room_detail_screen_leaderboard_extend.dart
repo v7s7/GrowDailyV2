@@ -519,25 +519,50 @@ class RoomStrip extends StatelessWidget {
   /// row honest (a miss is still a red cross) while a tap keeps the record.
   final bool compact;
 
+  /// The shared-plan slot to draw alone (the room's habit filter, see
+  /// roomHabitFilterProvider), or null for the whole plan. A slot draws its
+  /// own window (roomSlotStripWindow: from the day it joined this member's
+  /// plan to its last counted day) and its own days (roomStripSlotDayOf);
+  /// every cell, marker and week bar is otherwise the same drawing, so a
+  /// filtered strip reads exactly like the plain one.
+  final int? slot;
+
   const RoomStrip({
     super.key,
     required this.room,
     required this.participant,
     required this.isYou,
     this.compact = false,
+    this.slot,
   });
+
+  /// [slot]'s own window at [now]; null for the whole plan, and for a slot
+  /// that never counted for this member (the strip then draws nothing).
+  ({DateTime first, DateTime last})? _slotWindow(DateTime now) => slot == null
+      ? null
+      : roomSlotStripWindow(room, participant, slot!, now: now);
+
+  /// One day of this strip: the whole plan's, or [slot]'s alone.
+  RoomStripDay _stateFor(DateTime day, DateTime now) => slot == null
+      ? roomStripDayOf(room, participant, day, now: now)
+      : roomStripSlotDayOf(room, participant, slot!, day, now: now);
 
   /// Up to seven cells, oldest first, ending on the same day the full grid
   /// ends on; the caption says what the window is.
-  Widget _buildCompact(BuildContext context) {
+  Widget _buildCompact(
+    BuildContext context,
+    ({DateTime first, DateTime last})? window,
+  ) {
     final gp = context.gp;
     final dark = gp.dark;
     final s = S.of(context);
     final backdrop = _cellBackdrop(context);
-    final windowStart = participant.countedStartIn(room);
-    final last = room.lastCountedDay;
+    final windowStart = window?.first ?? participant.countedStartIn(room);
+    final last = window?.last ?? room.lastCountedDay;
     final realToday = DateTime.now().startOfDay;
-    final end = (!room.isEnded && realToday.isAfter(last)) ? realToday : last;
+    final end = (window == null && !room.isEnded && realToday.isAfter(last))
+        ? realToday
+        : last;
     final days = <DateTime>[];
     for (var d = end;
         !d.isBefore(windowStart) && days.length < 7;
@@ -658,7 +683,9 @@ class RoomStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (compact) return _buildCompact(context);
+    final window = _slotWindow(DateTime.now());
+    if (slot != null && window == null) return const SizedBox.shrink();
+    if (compact) return _buildCompact(context, window);
     final dark = context.gp.dark;
     final backdrop = _cellBackdrop(context);
     // Their own window, so a late joiner's strip starts the day they joined
@@ -670,8 +697,17 @@ class RoomStrip extends StatelessWidget {
     // البداية ring landed on the wrong square and the visible cells no
     // longer matched the denominator beside them. Paused days stay in the
     // window and simply paint nothing (see _cellFor).
-    final windowStart = participant.countedStartIn(room);
-    final last = room.lastCountedDay;
+    //
+    // A filtered strip (one habit, see [slot]) narrows it to that habit's
+    // own days in this member's plan, so a habit added last week is a short
+    // strip starting on its own «البداية» rather than a month of squares it
+    // was never asked on, and a removed one stops on its «آخر يوم».
+    final windowStart = window?.first ?? participant.countedStartIn(room);
+    final last = window?.last ?? room.lastCountedDay;
+    // The last square of a removed habit's strip is its last counted day,
+    // and says so, the way today's square says «اليوم».
+    final labelLastDay =
+        window != null && window.last.isBefore(room.lastCountedDay);
     final span = last.difference(windowStart).inDays + 1;
     final totalDays = room.duration == RoomDuration.open
         ? span.clamp(1, _maxOpenRoomDays)
@@ -689,9 +725,12 @@ class RoomStrip extends StatelessWidget {
     // carries the isRealToday ring, renders empty (no credit read for it),
     // and contributes nothing to any score — daysElapsedIn/creditFor still
     // stop at lastCountedDay, which is the whole flex-hours contract. Only
-    // for a room that hasn't ended: a finished room's history is final.
+    // for a room that hasn't ended: a finished room's history is final. Nor
+    // for one habit's strip, whose window already says where it stops.
     final realToday = DateTime.now().startOfDay;
-    if (!room.isEnded && realToday.isAfter(last)) days.add(realToday);
+    if (window == null && !room.isEnded && realToday.isAfter(last)) {
+      days.add(realToday);
+    }
 
     // Saturday-start weeks, one column per week AND per month. Every date
     // lands on its true weekday row (Sat=0 at the top through Fri=6 at the
@@ -905,6 +944,8 @@ class RoomStrip extends StatelessWidget {
                                 s,
                                 gp.textPrimary,
                                 backdrop,
+                                lastDayColour:
+                                    labelLastDay ? gp.textTert : null,
                               ),
                             ],
                           ],
@@ -1005,10 +1046,23 @@ class RoomStrip extends StatelessWidget {
     var settled = 0;
     var real = 0;
     var open = false;
+    final now = DateTime.now();
     for (final i in column.dayIndex) {
       if (i < 0) continue;
       final day = days[i];
       if (day.isAfter(room.lastCountedDay)) continue;
+      // One habit's strip asks the same questions of that habit's own days:
+      // nothing owed (a pause, a stand-down, a stretch the slot was out of
+      // the plan) leaves the week, and a rest day is settled, as creditFor
+      // settles one.
+      if (slot != null) {
+        final state = _stateFor(day, now);
+        if (state.isStoodDown) continue;
+        real++;
+        if (state.credit >= 1.0) settled++;
+        if (!_weekIsClosed(day)) open = true;
+        continue;
+      }
       // A paused day is outside the score on both sides (daysElapsedIn skips
       // it), so it must not make a week of finished days read as short.
       //
@@ -1075,6 +1129,10 @@ class RoomStrip extends StatelessWidget {
     // Today keeps its gold border either way.
     bool markStart = true,
     bool labelToday = true,
+    // Set only on a removed habit's own strip (the habit filter): its last
+    // square is its last counted day and is labelled «آخر يوم» in this
+    // colour, on the side where «اليوم» sits.
+    Color? lastDayColour,
   }) {
     if (index < 0 || index >= days.length) {
       return const SizedBox(width: _cell, height: _cell);
@@ -1098,7 +1156,9 @@ class RoomStrip extends StatelessWidget {
     // one rule this strip and the Room Race Home Screen widget both read, so
     // a day can never be a miss here and a plain empty square there. The
     // notes that follow say why each state exists; the arithmetic is there.
-    final state = roomStripDayOf(room, participant, day, now: DateTime.now());
+    // One habit's strip reads roomStripSlotDayOf instead, which answers in
+    // the same shape from that habit's own marks (see [slot]).
+    final state = _stateFor(day, DateTime.now());
     // Four states, not two, and the reason is that "empty" used to mean
     // both "nothing was owed" and "you missed it".
     //
@@ -1227,7 +1287,13 @@ class RoomStrip extends StatelessWidget {
               : null,
     );
 
-    if (!isStart && !(isToday && labelToday)) return cell;
+    // A removed habit's strip ends on its last counted day, which is not
+    // today: that square names itself, on the side «اليوم» uses.
+    final isLastDay = lastDayColour != null &&
+        index == days.length - 1 &&
+        !isToday &&
+        !isStart;
+    if (!isStart && !(isToday && labelToday) && !isLastDay) return cell;
 
     // The labels that replaced the legend row underneath the strip. That row
     // spelled out "البداية" once, far from the cell it described, and
@@ -1279,6 +1345,7 @@ class RoomStrip extends StatelessWidget {
         // it names are visibly the same thing.
         if (isToday && !isStart)
           _cellLabel(s.progressToday, GameColors.gold, false),
+        if (isLastDay) _cellLabel(s.roomLastDayLabel, lastDayColour, false),
       ],
     );
   }
@@ -1442,6 +1509,12 @@ class _LeaderboardRow extends ConsumerWidget {
   final bool isYou;
   final bool isLeader;
 
+  /// The room's habit filter (roomHabitFilterProvider): the shared-plan slot
+  /// every row is drawn for, and its name as the viewer's own tile says it.
+  /// Null for the whole plan.
+  final int? filterSlot;
+  final String? filterLabel;
+
   const _LeaderboardRow({
     required this.rank,
     required this.sharedPlace,
@@ -1449,6 +1522,8 @@ class _LeaderboardRow extends ConsumerWidget {
     required this.room,
     required this.isYou,
     required this.isLeader,
+    this.filterSlot,
+    this.filterLabel,
   });
 
   /// How demanding this member's plan is — "4× a week", "Daily", or a count
@@ -1495,7 +1570,30 @@ class _LeaderboardRow extends ConsumerWidget {
     // differ, so somebody carrying part of the plan sees their honest rate
     // right beside the one the board placed them by, and everybody else sees
     // why. See RoomParticipant.roomProgressRatio.
-    final ratio = participant.roomProgressRatio(room);
+    //
+    // With the habit filter on (a tile tapped on the plan card), the row's
+    // strip, number, bar and count are that one habit's instead, read from
+    // the per-habit marks (see room_habit_strip.dart). Display only: the
+    // place, the cup and the order of the rows stay the room score's.
+    final slot = filterSlot;
+    final clock = DateTime.now();
+    final slotScore =
+        slot == null ? null : roomSlotScore(room, participant, slot, now: clock);
+    // Why a filtered row may have nothing to draw: the habit was never in
+    // this member's plan (removed before they joined), or their phone has
+    // not sent a per-habit record yet (a build from before the marks).
+    final slotNote = slot == null
+        ? null
+        : roomSlotStripWindow(room, participant, slot, now: clock) == null
+            ? s.roomHabitFilterNotTheirs
+            : participant.dailyHabitMarks.isEmpty
+                ? s.roomHabitFilterNoMarks
+                : null;
+    final ratio = slotScore == null
+        ? participant.roomProgressRatio(room)
+        : slotScore.asked > 0
+            ? slotScore.done / slotScore.asked
+            : 0.0;
     final ownPercent = (participant.progressRatio(room) * 100).round();
     final coverage = participant.planCoverageIn(room);
     final carriesPartOfPlan =
@@ -1716,122 +1814,151 @@ class _LeaderboardRow extends ConsumerWidget {
                   ),
                 ],
                 const SizedBox(height: 7),
-                RoomStrip(
-                  room: room,
-                  participant: participant,
-                  isYou: isYou,
-                  compact: ref.watch(roomRowsCompactProvider),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      // ExcludeSemantics because the whole row merges into
-                      // one announcement: a progress bar contributes its
-                      // value as a bare, unitless "86" on the end of it,
-                      // after the row has already said "86%" in words. Two
-                      // numbers, one of them corresponding to nothing on
-                      // screen, on a board where the numbers ARE the
-                      // content. The bar is a second drawing of the
-                      // percentage beside it, so it has nothing of its own
-                      // to say.
-                      child: ExcludeSemantics(
-                        child: ClipRRect(
-                          borderRadius:
-                              BorderRadius.circular(GameSpacing.pillRadius),
-                          child: LinearProgressIndicator(
-                            value: ratio,
-                            backgroundColor: gp.border,
-                            valueColor: AlwaysStoppedAnimation(
-                              medalColor ?? GameColors.gold,
+                // A filtered row with nothing to draw says why, in the
+                // strip's place, and leaves out the bar and the count under
+                // it: a zero there would read as a habit never done.
+                if (slotNote != null)
+                  Text(
+                    slotNote,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: gp.textTert,
+                      height: 1.35,
+                    ),
+                  )
+                else ...[
+                  RoomStrip(
+                    room: room,
+                    participant: participant,
+                    isYou: isYou,
+                    compact: ref.watch(roomRowsCompactProvider),
+                    slot: slot,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        // ExcludeSemantics because the whole row merges into
+                        // one announcement: a progress bar contributes its
+                        // value as a bare, unitless "86" on the end of it,
+                        // after the row has already said "86%" in words. Two
+                        // numbers, one of them corresponding to nothing on
+                        // screen, on a board where the numbers ARE the
+                        // content. The bar is a second drawing of the
+                        // percentage beside it, so it has nothing of its own
+                        // to say.
+                        child: ExcludeSemantics(
+                          child: ClipRRect(
+                            borderRadius:
+                                BorderRadius.circular(GameSpacing.pillRadius),
+                            child: LinearProgressIndicator(
+                              value: ratio,
+                              backgroundColor: gp.border,
+                              valueColor: AlwaysStoppedAnimation(
+                                medalColor ?? GameColors.gold,
+                              ),
+                              minHeight: 6,
                             ),
-                            minHeight: 6,
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    // Visible regardless of hideDetails, same as the heatmap
-                    // and progress bar above - it's a count, not which habit
-                    // is behind it, so there's nothing to hide here.
-                    //
-                    // Pinned LTR and grouped in its own Row: a flame plus its
-                    // number is one badge, not prose, and letting Arabic's
-                    // right-to-left flow reorder it separated the digit from
-                    // the flame it belongs to (it read as part of the day
-                    // count sitting next to it instead). The day count below
-                    // deliberately does NOT get this treatment - "2 من 2" IS
-                    // Arabic prose and has to follow the ambient direction.
-                    if (streak >= 1) ...[
-                      Directionality(
-                        textDirection: TextDirection.ltr,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Labelled for the same reason the cup is:
-                            // inside the row's merged announcement its
-                            // number is otherwise an orphan quantity
-                            // wedged between the badges and the day
-                            // count, and on a ranked board a loose number
-                            // reads as another score. Reuses the existing
-                            // word rather than inventing copy, so it
-                            // lands as "السلسلة، 4".
-                            Icon(
-                              Icons.local_fire_department_rounded,
-                              size: 12,
-                              color: context.gp.iconStreak,
-                              semanticLabel: s.streak,
-                            ),
-                            const SizedBox(width: 2),
-                            Text(
-                              '$streak',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
+                      const SizedBox(width: 10),
+                      // Visible regardless of hideDetails, same as the heatmap
+                      // and progress bar above - it's a count, not which habit
+                      // is behind it, so there's nothing to hide here.
+                      //
+                      // Pinned LTR and grouped in its own Row: a flame plus its
+                      // number is one badge, not prose, and letting Arabic's
+                      // right-to-left flow reorder it separated the digit from
+                      // the flame it belongs to (it read as part of the day
+                      // count sitting next to it instead). The day count below
+                      // deliberately does NOT get this treatment - "2 من 2" IS
+                      // Arabic prose and has to follow the ambient direction.
+                      if (slot == null && streak >= 1) ...[
+                        Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Labelled for the same reason the cup is:
+                              // inside the row's merged announcement its
+                              // number is otherwise an orphan quantity
+                              // wedged between the badges and the day
+                              // count, and on a ranked board a loose number
+                              // reads as another score. Reuses the existing
+                              // word rather than inventing copy, so it
+                              // lands as "السلسلة، 4".
+                              Icon(
+                                Icons.local_fire_department_rounded,
+                                size: 12,
                                 color: context.gp.iconStreak,
+                                semanticLabel: s.streak,
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 2),
+                              Text(
+                                '$streak',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: context.gp.iconStreak,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 9),
+                        const SizedBox(width: 9),
+                      ],
+                      // The ROOM numbers, the same pair the percent above is
+                      // divided from. They used to be daysCompleted /
+                      // daysElapsedIn, this member's OWN count, which was the
+                      // same thing until the board started ranking by the room
+                      // score. On a partial plan it stopped being: Aziz's row in
+                      // A8GEL7 printed «27 من 39» under «31%», and 27/39 is 69%,
+                      // the number two lines further down labelled «المرتبطة».
+                      // The member sheet already prints the room pair, so the
+                      // two screens disagreed about the same member as well.
+                      // Only on a whole plan, where this fraction, the percent
+                      // above it and the squares to its left are all the same
+                      // three numbers and cannot disagree.
+                      //
+                      // On a PARTIAL plan every reading of it was wrong. As
+                      // the own pair it printed «27 من 39» under «31%», which
+                      // is 69%, the number already spelled out two lines down
+                      // as «المرتبطة». As the room pair it prints «12.1 من 39»
+                      // beside a strip showing 27 solid green squares, and no
+                      // reading reconciles 12.1 with counting them: the room
+                      // numerator is weighted plan coverage, not days done.
+                      // Either way it is a second score that contradicts
+                      // something on its own row, and it is redundant, because
+                      // roomPlanCoverage and roomOwnRate below already say
+                      // both halves. This is the «23 من 44» / «1 من عادتين»
+                      // pair Aziz asked about. The exact figures stay one tap
+                      // away on the member sheet, where «الأيام» labels them.
+                      // Filtered: the habit's own pair, done over asked, the
+                      // two numbers its percent is divided from. Nothing
+                      // before its first decided day: «0 من 0» says less
+                      // than no line at all.
+                      if (slotScore != null)
+                        slotScore.asked > 0
+                            ? Text(
+                                s.roomDayCount(slotScore.done, slotScore.asked),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: gp.textTert,
+                                ),
+                              )
+                            : const SizedBox.shrink()
+                      else if (!carriesPartOfPlan)
+                        Text(
+                          s.roomDayCount(
+                            participant.roomDaysCompleted(room),
+                            participant.roomDaysElapsedIn(room),
+                          ),
+                          style: TextStyle(fontSize: 10.5, color: gp.textTert),
+                        ),
                     ],
-                    // The ROOM numbers, the same pair the percent above is
-                    // divided from. They used to be daysCompleted /
-                    // daysElapsedIn, this member's OWN count, which was the
-                    // same thing until the board started ranking by the room
-                    // score. On a partial plan it stopped being: Aziz's row in
-                    // A8GEL7 printed «27 من 39» under «31%», and 27/39 is 69%,
-                    // the number two lines further down labelled «المرتبطة».
-                    // The member sheet already prints the room pair, so the
-                    // two screens disagreed about the same member as well.
-                    // Only on a whole plan, where this fraction, the percent
-                    // above it and the squares to its left are all the same
-                    // three numbers and cannot disagree.
-                    //
-                    // On a PARTIAL plan every reading of it was wrong. As
-                    // the own pair it printed «27 من 39» under «31%», which
-                    // is 69%, the number already spelled out two lines down
-                    // as «المرتبطة». As the room pair it prints «12.1 من 39»
-                    // beside a strip showing 27 solid green squares, and no
-                    // reading reconciles 12.1 with counting them: the room
-                    // numerator is weighted plan coverage, not days done.
-                    // Either way it is a second score that contradicts
-                    // something on its own row, and it is redundant, because
-                    // roomPlanCoverage and roomOwnRate below already say
-                    // both halves. This is the «23 من 44» / «1 من عادتين»
-                    // pair Aziz asked about. The exact figures stay one tap
-                    // away on the member sheet, where «الأيام» labels them.
-                    if (!carriesPartOfPlan)
-                      Text(
-                        s.roomDayCount(
-                          participant.roomDaysCompleted(room),
-                          participant.roomDaysElapsedIn(room),
-                        ),
-                        style: TextStyle(fontSize: 10.5, color: gp.textTert),
-                      ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1842,19 +1969,20 @@ class _LeaderboardRow extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '${(ratio * 100).round()}%',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: gp.textPrimary,
+                if (slotNote == null)
+                  Text(
+                    '${(ratio * 100).round()}%',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
                   ),
-                ),
                 // How much of the plan this member carries, and their own
                 // rate when it differs from the score above. Only drawn on a
                 // partial plan: a row on the whole plan says nothing extra,
                 // so the common case stays exactly as it was.
-                if (carriesPartOfPlan) ...[
+                if (slot == null && carriesPartOfPlan) ...[
                   const SizedBox(height: 2),
                   Text(
                     s.roomPlanCoverage(coverage.linked, coverage.total),
@@ -1886,16 +2014,31 @@ class _LeaderboardRow extends ConsumerWidget {
                 // exists to remove.
                 Builder(
                   builder: (_) {
-                    final label = _cadenceLabel(s);
+                    // Filtered, the name of the habit the number is for, the
+                    // way the viewer's own tile says it.
+                    final label = slot == null
+                        ? _cadenceLabel(s)
+                        : slotNote == null
+                            ? filterLabel
+                            : null;
                     if (label == null) return const SizedBox.shrink();
                     return Padding(
                       padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
-                          color: gp.textTert,
+                      // Capped: this column sizes to its widest line, and a
+                      // habit's name is longer than any cadence, so an
+                      // uncapped one would take its width from the strip.
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 64),
+                        child: Text(
+                          label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.end,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textTert,
+                          ),
                         ),
                       ),
                     );
@@ -2408,6 +2551,26 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
     final showAll = _expanded || sorted.length <= _initialRows;
     final visibleCount = showAll ? sorted.length : _initialRows;
 
+    // The room's habit filter (a tile tapped on the plan card, see
+    // _PlanTiles): one shared-plan slot for every row, named the way the
+    // viewer's own tile names it. A slot the plan no longer has is no filter.
+    final pickedSlot = roomHabitFilterAvailable(widget.room)
+        ? ref.watch(roomHabitFilterProvider(widget.room.code))
+        : null;
+    String? filterLabel;
+    if (pickedSlot != null &&
+        pickedSlot >= 0 &&
+        pickedSlot < widget.room.sharedHabits.length) {
+      final me = all.where((m) => m.participant.uid == widget.myUid);
+      final myNames =
+          me.isEmpty ? const <String>[] : me.first.participant.linkedHabitNames;
+      filterLabel = pickedSlot < myNames.length &&
+              myNames[pickedSlot].trim().isNotEmpty
+          ? myNames[pickedSlot]
+          : widget.room.sharedHabits[pickedSlot].name;
+    }
+    final filterSlot = filterLabel == null ? null : pickedSlot;
+
     Widget rowAt(int i) => Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _LeaderboardRow(
@@ -2417,6 +2580,8 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
             room: widget.room,
             isYou: sorted[i].participant.uid == widget.myUid,
             isLeader: sorted[i].participant.uid == widget.room.createdBy,
+            filterSlot: filterSlot,
+            filterLabel: filterLabel,
           ),
         );
 
@@ -2464,6 +2629,18 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
           ),
           const SizedBox(height: 10),
         ],
+        if (filterSlot != null) ...[
+          _HabitFilterBar(
+            label: filterLabel!,
+            onClear: () {
+              HapticFeedback.selectionClick();
+              ref
+                  .read(roomHabitFilterProvider(widget.room.code).notifier)
+                  .state = null;
+            },
+          ),
+          const SizedBox(height: 10),
+        ],
         for (var i = 0; i < visibleCount; i++) rowAt(i),
         if (myRowIsHidden) ...[
           Padding(
@@ -2496,6 +2673,66 @@ class _LeaderboardListState extends ConsumerState<_LeaderboardList> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The bar above the rows while the habit filter is on: the habit's name, and
+/// the ✕ that puts the whole plan back (a second tap on its tile does too).
+/// Aziz, 2026-09-27, choosing this layout on the design canvas: "no need for
+/// that word تعرض", so it is the name alone.
+class _HabitFilterBar extends StatelessWidget {
+  final String label;
+  final VoidCallback onClear;
+
+  const _HabitFilterBar({required this.label, required this.onClear});
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Container(
+      height: 38,
+      padding: const EdgeInsetsDirectional.only(start: 12, end: 2),
+      decoration: BoxDecoration(
+        color: GameColors.gold.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: GameColors.gold.withOpacity(0.30)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: gp.goldInk,
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 38,
+            height: 38,
+            child: IconButton(
+              padding: EdgeInsets.zero,
+              tooltip: s.roomHabitFilterClear,
+              onPressed: onClear,
+              icon: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: gp.textPrimary.withOpacity(0.06),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.close_rounded, size: 15, color: gp.textSec),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

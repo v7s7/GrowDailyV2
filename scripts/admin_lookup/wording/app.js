@@ -15,7 +15,7 @@
   const R = window.WordingRules;
   // The edition of the page's styles this script is written for: the
   // --wording-styles value in lib/wording_page.js. See renderBanners.
-  const STYLES_EDITION = '2';
+  const STYLES_EDITION = '3';
   const LANGS = ['ar', 'en'];
   const LANG_NAME = { ar: 'Arabic', en: 'English' };
   const PAGE_SIZE = 80;
@@ -1681,8 +1681,13 @@
 
   // ---- History ------------------------------------------------------------
 
+  /** What a History row changed: one string in one language, or one of
+   *  the three lists (the daily lines, the FAQ, the Premium benefit list),
+   *  each saved whole. */
   function targetOf(row) {
-    return row.kind === 'quotes' ? 'quotes' : row.key + '/' + row.lang;
+    return row.kind === 'quotes' || row.kind === 'faq' || row.kind === 'benefits'
+      ? row.kind
+      : row.key + '/' + row.lang;
   }
 
   function renderHistory() {
@@ -1711,6 +1716,9 @@
     if (row.kind === 'quotes') {
       what = h('div', { class: 'what' }, 'Daily lines', row.undoOf ? ' (undo)' : '');
       change = quotesChange(row);
+    } else if (row.kind === 'faq' || row.kind === 'benefits') {
+      what = h('div', { class: 'what' }, row.kind === 'faq' ? 'FAQ' : 'Premium benefit list', row.undoOf ? ' (undo)' : '');
+      change = listChange(row);
     } else {
       const entry = state.byKey.get(row.key);
       what = h('div', { class: 'what' }, LANG_NAME[row.lang] || row.lang,
@@ -1755,6 +1763,20 @@
     const words = R.lineChangeWords(R.describeLineChanges(before, after));
     if (words) text += ' ' + words.charAt(0).toUpperCase() + words.slice(1) + '.';
     return h('div', { class: 'none' }, text);
+  }
+
+  /** A FAQ or benefit list save, told by the FAQ and Premium pages' own
+   *  rules (content_rules.js), with a link to the page that edits it. */
+  function listChange(row) {
+    const C = window.ContentRules;
+    const catalog = state.data.catalog;
+    let words = '';
+    if (C && row.kind === 'faq' && catalog.faq) words = C.describeFaqChange(catalog.faq, row.before, row.after);
+    if (C && row.kind === 'benefits' && catalog.benefits) words = C.describeBenefitsChange(catalog.benefits, row.before, row.after);
+    const faq = row.kind === 'faq';
+    return h('div', { class: 'none' },
+      words ? words.charAt(0).toUpperCase() + words.slice(1) + '. ' : '',
+      'Edited on the ', h('a', { href: faq ? '/faq' : '/premium' }, faq ? 'FAQ page' : 'Premium page'), '.');
   }
 
   async function undo(row) {

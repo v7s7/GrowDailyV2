@@ -613,6 +613,14 @@ const List<String> kEditableWordingKeys = [
   'appIconColourGreen',
   'appIconColourBrown',
   'appIconColourGrey',
+  'appIconColourBlack',
+  'appIconColourWhite',
+  'appIconColourVanilla',
+  'appIconColourMatcha',
+  'appIconColourLavender',
+  'appIconColourBeige',
+  'appIconColourMistBlue',
+  'appIconColourMint',
   'appIconFullDaysLeft',
   'appIconNextShape',
   'appIconAllShapes',
@@ -829,6 +837,8 @@ const List<String> kEditableWordingKeys = [
   'premiumSubhead',
   'premiumBenefitHabitsTitle',
   'premiumBenefitHabitsDesc',
+  'premiumBenefitRoomsTitle',
+  'premiumBenefitRoomsDesc',
   'premiumBenefitHistoryTitle',
   'premiumBenefitHistoryDesc',
   'premiumBenefitInsightsTitle',
@@ -901,6 +911,8 @@ const List<String> kEditableWordingKeys = [
   'helpGuidesSectionTitle',
   'habitLimitTitle',
   'habitLimitBody',
+  'roomLimitTitle',
+  'roomLimitBody',
   'voiceNoteGateTitle',
   'voiceNoteGateBody',
   'voiceNoteRecording',
@@ -1085,6 +1097,13 @@ const List<String> kEditableWordingKeys = [
   'roomRemoveHabitAlreadyRemoved',
   'roomPlanLockedEnded',
   'roomLastDayLabel',
+  'roomPlanLastDaySection',
+  'roomPlanRemovedSection',
+  'roomPlanTileShowDays',
+  'roomHabitFilterClear',
+  'roomHabitFilterNoMarks',
+  'roomHabitFilterNotTheirs',
+  'roomRemoveFromPlanAction',
   'roomHabitRestoredSnack',
   'roomPlanNoticeTitle',
   'roomPlanNoticeRemovedToday',
@@ -4204,6 +4223,30 @@ class _EditedS extends S {
   String get appIconColourGrey => plainWording(_edits['appIconColourGrey']) ?? super.appIconColourGrey;
 
   @override
+  String get appIconColourBlack => plainWording(_edits['appIconColourBlack']) ?? super.appIconColourBlack;
+
+  @override
+  String get appIconColourWhite => plainWording(_edits['appIconColourWhite']) ?? super.appIconColourWhite;
+
+  @override
+  String get appIconColourVanilla => plainWording(_edits['appIconColourVanilla']) ?? super.appIconColourVanilla;
+
+  @override
+  String get appIconColourMatcha => plainWording(_edits['appIconColourMatcha']) ?? super.appIconColourMatcha;
+
+  @override
+  String get appIconColourLavender => plainWording(_edits['appIconColourLavender']) ?? super.appIconColourLavender;
+
+  @override
+  String get appIconColourBeige => plainWording(_edits['appIconColourBeige']) ?? super.appIconColourBeige;
+
+  @override
+  String get appIconColourMistBlue => plainWording(_edits['appIconColourMistBlue']) ?? super.appIconColourMistBlue;
+
+  @override
+  String get appIconColourMint => plainWording(_edits['appIconColourMint']) ?? super.appIconColourMint;
+
+  @override
   String appIconFullDaysLeft(int n) {
     final wordingEdit = _edits['appIconFullDaysLeft'];
     if (wordingEdit == null) return super.appIconFullDaysLeft(n);
@@ -5392,6 +5435,12 @@ class _EditedS extends S {
   String get premiumBenefitHabitsDesc => plainWording(_edits['premiumBenefitHabitsDesc']) ?? super.premiumBenefitHabitsDesc;
 
   @override
+  String get premiumBenefitRoomsTitle => plainWording(_edits['premiumBenefitRoomsTitle']) ?? super.premiumBenefitRoomsTitle;
+
+  @override
+  String get premiumBenefitRoomsDesc => plainWording(_edits['premiumBenefitRoomsDesc']) ?? super.premiumBenefitRoomsDesc;
+
+  @override
   String get premiumBenefitHistoryTitle => plainWording(_edits['premiumBenefitHistoryTitle']) ?? super.premiumBenefitHistoryTitle;
 
   @override
@@ -5711,6 +5760,26 @@ class _EditedS extends S {
                 },
         ) ??
         super.habitLimitBody(limit);
+  }
+
+  @override
+  String get roomLimitTitle => plainWording(_edits['roomLimitTitle']) ?? super.roomLimitTitle;
+
+  @override
+  String roomLimitBody(int limit) {
+    final wordingEdit = _edits['roomLimitBody'];
+    if (wordingEdit == null) return super.roomLimitBody(limit);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'limit': () => '$limit',
+                }
+              : <String, String Function()>{
+                  'limit': () => '$limit',
+                },
+        ) ??
+        super.roomLimitBody(limit);
   }
 
   @override
@@ -6350,7 +6419,7 @@ class _EditedS extends S {
   }
 
   @override
-  String roomQuotaWeekProgress(String habit, int done, int target) {
+  String roomQuotaWeekProgress(String habit, String done, int target) {
     final wordingEdit = _edits['roomQuotaWeekProgress'];
     if (wordingEdit == null) return super.roomQuotaWeekProgress(habit, done, target);
     return fillWording(
@@ -6630,6 +6699,27 @@ class _EditedS extends S {
 
   @override
   String get roomLastDayLabel => plainWording(_edits['roomLastDayLabel']) ?? super.roomLastDayLabel;
+
+  @override
+  String get roomPlanLastDaySection => plainWording(_edits['roomPlanLastDaySection']) ?? super.roomPlanLastDaySection;
+
+  @override
+  String get roomPlanRemovedSection => plainWording(_edits['roomPlanRemovedSection']) ?? super.roomPlanRemovedSection;
+
+  @override
+  String get roomPlanTileShowDays => plainWording(_edits['roomPlanTileShowDays']) ?? super.roomPlanTileShowDays;
+
+  @override
+  String get roomHabitFilterClear => plainWording(_edits['roomHabitFilterClear']) ?? super.roomHabitFilterClear;
+
+  @override
+  String get roomHabitFilterNoMarks => plainWording(_edits['roomHabitFilterNoMarks']) ?? super.roomHabitFilterNoMarks;
+
+  @override
+  String get roomHabitFilterNotTheirs => plainWording(_edits['roomHabitFilterNotTheirs']) ?? super.roomHabitFilterNotTheirs;
+
+  @override
+  String get roomRemoveFromPlanAction => plainWording(_edits['roomRemoveFromPlanAction']) ?? super.roomRemoveFromPlanAction;
 
   @override
   String roomHabitRestoredSnack(String habitName) {

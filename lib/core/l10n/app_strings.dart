@@ -2259,8 +2259,16 @@ class S {
   String get appIconColourRed => isAr ? 'أحمر' : 'Red';
   String get appIconColourYellow => isAr ? 'أصفر' : 'Yellow';
   String get appIconColourGreen => isAr ? 'أخضر' : 'Green';
-  String get appIconColourBrown => isAr ? 'بني' : 'Brown';
-  String get appIconColourGrey => isAr ? 'رمادي' : 'Grey';
+  String get appIconColourBrown => isAr ? 'موكا' : 'Brown';
+  String get appIconColourGrey => isAr ? 'فضي' : 'Grey';
+  String get appIconColourBlack => isAr ? 'أسود' : 'Black';
+  String get appIconColourWhite => isAr ? 'أبيض' : 'White';
+  String get appIconColourVanilla => isAr ? 'فانيلا' : 'Vanilla';
+  String get appIconColourMatcha => isAr ? 'ماتشا' : 'Matcha';
+  String get appIconColourLavender => isAr ? 'لافندر' : 'Lavender';
+  String get appIconColourBeige => isAr ? 'بيج' : 'Beige';
+  String get appIconColourMistBlue => isAr ? 'أزرق ضبابي' : 'Mist Blue';
+  String get appIconColourMint => isAr ? 'نعناعي' : 'Mint';
   // The plant grows with FULL days: days that reached 80% of their habits,
   // the streak's own bar, counted over all time and never needing to be in
   // a row (Aziz, 2026-09-25). «يوم كامل» is the app's word for that day
@@ -3167,6 +3175,17 @@ class S {
   String get premiumBenefitHabitsDesc => isAr
       ? 'ابنِ كل عادة تهمّك، بلا أي قيود.'
       : 'Build every habit you care about, with nothing holding you back.';
+  // Real gate: kFreeRoomLimit (3) in premium_notifier.dart, asked by
+  // canTakeAnotherRoom (room_limit.dart) before Create and Join. The room
+  // limit sheet opens the paywall with this row on top (PremiumReason.rooms).
+  // "As many as you like" is true here, unlike reminders: Premium has no
+  // room cap and a room has no member cap. DRAFT wording (2026-09-26), Aziz
+  // picks the final text.
+  String get premiumBenefitRoomsTitle =>
+      isAr ? 'غرف غير محدودة' : 'Unlimited rooms';
+  String get premiumBenefitRoomsDesc => isAr
+      ? 'انضم لأي عدد من الغرف أو أنشئ غرفك، كلها في نفس الوقت.'
+      : 'Join as many rooms as you like, or create your own, all at the same time.';
   String get premiumBenefitHistoryTitle =>
       isAr ? 'سجلّك الكامل' : 'Your full history';
   // Real gate: canBrowseHistoryMonth (premium_notifier.dart), kFreeHistoryMonths
@@ -3513,6 +3532,22 @@ class S {
   String habitLimitBody(int limit) => isAr
       ? 'الخطة المجانية تشمل $limit عادات. افتح عادات غير محدودة مع بريميوم.'
       : 'The free plan includes $limit habits. Unlock unlimited habits with Premium.';
+
+  // ── Room limit gate ──────────────────────────────────────────────────────
+  // showRoomLimitGate (room_limit_gate.dart), for a free account already in
+  // kFreeRoomLimit rooms that taps Create or Join. The body says what counts
+  // (rooms you lead do, finished rooms do not) and names the free way out
+  // first: someone swapping a finished challenge for a new one should not
+  // read this as "pay or nothing". «غادر» matches the Leave Room button
+  // (roomLeaveAction «مغادرة الغرفة»). «$limit غرف» is right for 3 to 10;
+  // a limit of 11 or more would need «غرفة». DRAFT wording (2026-09-26),
+  // Aziz picks the final text.
+  String get roomLimitTitle => isAr
+      ? 'وصلت لحد الغرف في الخطة المجانية'
+      : 'You\'ve reached the free room limit';
+  String roomLimitBody(int limit) => isAr
+      ? 'الخطة المجانية تشمل $limit غرف في نفس الوقت، والغرف اللي أنت قائدها تنحسب منها. الغرف اللي انتهت ما تنحسب. غادر غرفة عشان تفضّي مكان، أو افتح غرف غير محدودة مع بريميوم.'
+      : 'The free plan includes $limit rooms at a time, and the ones you lead count too. Finished rooms don\'t count. Leave a room to free up a place, or unlock unlimited rooms with Premium.';
 
   // ── Voice note gate ──────────────────────────────────────────────────────
   String get voiceNoteGateTitle => isAr
@@ -3984,8 +4019,11 @@ class S {
   /// One line per flexible weekly-quota habit on the plan card ("تمرين:
   /// 2/4 هذا الأسبوع"). The quota's week-level standing has no other home on
   /// this screen: the headline above only answers *today*, so a "4x a week"
-  /// person had to keep the count in their head.
-  String roomQuotaWeekProgress(String habit, int done, int target) => isAr
+  /// person had to keep the count in their head. [done] is what the week is
+  /// worth in the room, already written out: a جزئي is half («1 من 4» for
+  /// two of them, «2.5 من 3» for two whole and one), see
+  /// weekly_quota_plan.dart.
+  String roomQuotaWeekProgress(String habit, String done, int target) => isAr
       ? '$habit: $done من $target هذا الأسبوع'
       : '$habit: $done of $target this week';
 
@@ -4202,9 +4240,39 @@ class S {
       ? 'الغرفة خلصت، وخطتها تبقى مثل ما هي.'
       : 'This room has ended, so its plan stays as it is.';
 
-  /// The tag on a plan chip on the day it was removed: it still counts
-  /// today, and tomorrow it is gone from the card.
+  /// The label beside the last square of a removed habit's own strip (the
+  /// room's habit filter): the last day it counted.
   String get roomLastDayLabel => isAr ? 'آخر يوم' : 'Last day';
+
+  /// The plan card's rows (Aziz, 2026-09-27: removed habits "in gray ... so
+  /// its separate"). Above the habits the leader removed today, which still
+  /// count today; then above the ones already gone, gray, for a week. Draft
+  /// wording, Aziz picks.
+  String get roomPlanLastDaySection => isAr
+      ? 'آخر يوم لها اليوم، ومن باجر ما تنحسب'
+      : 'Last day today. From tomorrow they do not count';
+  String get roomPlanRemovedSection =>
+      isAr ? 'انشالت من الخطة' : 'Removed from the plan';
+
+  /// The room's habit filter: tap a habit tile on the plan card and every
+  /// member's strip shows that habit alone. The tile's spoken hint, the ✕
+  /// on the bar above the rows, and the line a row shows when that member's
+  /// phone has not sent its per-habit record yet. Draft wording.
+  String get roomPlanTileShowDays =>
+      isAr ? 'اعرض أيامها في الغرفة' : 'Show its days in the room';
+  String get roomHabitFilterClear =>
+      isAr ? 'اعرض كل العادات' : 'Show all habits';
+  String get roomHabitFilterNoMarks => isAr
+      ? 'تفاصيل العادات لهذا العضو ما وصلت إلى الآن'
+      : 'Habit details for this member have not arrived yet';
+  String get roomHabitFilterNotTheirs => isAr
+      ? 'هذه العادة ما كانت في خطة هذا العضو'
+      : 'This habit was never in this member’s plan';
+
+  /// The leader's remove, in the menu a long press on a plan tile opens
+  /// (the tap is the habit filter now). Draft wording.
+  String get roomRemoveFromPlanAction =>
+      isAr ? 'إزالة من الخطة' : 'Remove from the plan';
   String roomHabitRestoredSnack(String habitName) => isAr
       ? 'رجعت «$habitName» للخطة، وتنحسب من اليوم'
       : '"$habitName" is back in the plan and counts from today';

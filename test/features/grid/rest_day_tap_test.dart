@@ -142,6 +142,50 @@ void main() {
       expect((short.reason, short.weekAfter, short.weekTarget),
           (RestDayReason.notNeeded, 2, 3));
       expect(short.covers, isNull);
+
+      // A جزئي is one of the week's sessions (Aziz, 2026-09-26: "0.5 is a
+      // day count"), the way the Grid rests this very day because of it: a
+      // whole Saturday and a half Monday are two of three.
+      final withHalf = restDayTapFor(
+        habit: threeTimes,
+        days: week,
+        index: 1,
+        isGreenAt: {0}.contains,
+        isUnmarkedAt: (i) => !{0, 2}.contains(i),
+        isHalfAt: {2}.contains,
+        now: thursdayMorning,
+      );
+      expect((withHalf.reason, withHalf.weekAfter, withHalf.weekTarget),
+          (RestDayReason.notNeeded, 3, 3));
+      expect(withHalf.covers, isNull, reason: 'a place was still free');
+
+      // Its places full, one of them a half: a whole session here takes the
+      // latest half's place ("unless it's overwritten with a full day"), so
+      // the pop-up names that day, and the target is not called met.
+      final fullOfHalves = restDayTapFor(
+        habit: threeTimes,
+        days: week,
+        index: 1,
+        isGreenAt: {0}.contains,
+        isUnmarkedAt: (i) => !{0, 2, 3}.contains(i),
+        isHalfAt: {2, 3}.contains,
+        now: thursdayMorning,
+      );
+      expect(fullOfHalves.reason, RestDayReason.notNeeded);
+      expect(fullOfHalves.covers, week[3]);
+
+      // Met in whole sessions: the halves have no place, and are not counted.
+      final metInWhole = restDayTapFor(
+        habit: threeTimes,
+        days: week,
+        index: 1,
+        isGreenAt: {0, 2, 3}.contains,
+        isUnmarkedAt: (i) => !{0, 2, 3, 4}.contains(i),
+        isHalfAt: {4}.contains,
+        now: thursdayMorning,
+      );
+      expect((metInWhole.reason, metInWhole.weekAfter, metInWhole.covers),
+          (RestDayReason.quotaMet, 4, null));
     });
   });
 

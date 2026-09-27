@@ -32,18 +32,28 @@
 ///    [weeklyQuotaDemand]: either it was actually done, or skipping it put
 ///    the week's target out of arithmetic reach. A `spare` day (enough days
 ///    still remain) and an `earned` day (the target is already banked) owe
-///    nothing.
+///    nothing. A جزئي is a session too: it holds one of the week's places
+///    at half credit until whole sessions take them all (Aziz, 2026-09-26:
+///    "0.5 is a day count, unless it's overwritten with a full day"), which
+///    is what the optional [MarkOnDay] each function here takes is for. Its
+///    place decides which days after it are rest, but its OWN day it owes
+///    only when the week needed that day on its own (see [habitOwesDay]):
+///    half a session on a day the week could have rested is effort on top.
 ///
-/// Because [weeklyQuotaDemand] is day-local, a resolved day's answer never
+/// Because [weeklyQuotaDemand] is day-local, an empty day's answer never
 /// flips retroactively, and the count of owed-and-empty days in a week is
 /// exactly the shortfall — a 4x week with 2 sessions marks precisely 2 days
 /// missed, never 5 and never 0. That guarantee is what makes this safe to use
-/// as a denominator everywhere.
+/// as a denominator everywhere. A day holding a جزئي is the one that can
+/// move after the fact, and only one way: a whole session later in the week
+/// takes its place, and the day stops owing anything.
 ///
 /// A day the habit did NOT owe is still perfectly tappable: doing a fifth
 /// session on a 4x week is someone doing more than they promised, and it
 /// enters both sides of the ratio (see [habitOwesDay]'s `done` branch), so
-/// extra work can only ever pull a day up.
+/// extra work can only ever pull a day up. The same promise is why a جزئي on
+/// a day the week did not need leaves that day's count entirely: on both
+/// sides at half, it would pull it DOWN.
 library;
 
 import '../../../core/extensions/datetime_ext.dart';
@@ -84,12 +94,13 @@ bool isFlexibleQuotaOn(IslamicHabitTemplate habit, DateTime day) =>
 /// its own reader and they all get the same arithmetic.
 typedef GreenOnDay = bool Function(String habitId, DateTime day);
 
-/// Reads what, if anything, was recorded for one habit on one day. Only the
-/// moved-session rule needs more than [GreenOnDay]: a session on a day off a
-/// specific-days plan covers a planned day with NOTHING recorded, never one
-/// the person marked فشل, تخطّي or جزئي (see moved_day_plan.dart). Every
+/// Reads what, if anything, was recorded for one habit on one day. Two rules
+/// need more than [GreenOnDay]: a session on a day off a specific-days plan
+/// covers a planned day with NOTHING recorded, never one the person marked
+/// فشل, تخطّي or جزئي (see moved_day_plan.dart); and a flexible quota's week
+/// counts a جزئي as a half session (see weekly_quota_plan.dart). Every
 /// function taking one treats it as optional, and without it reads a day that
-/// is not green as unmarked.
+/// is not green as unmarked, a جزئي included.
 typedef MarkOnDay = SquareState Function(String habitId, DateTime day);
 
 /// What the Saturday week containing [day] asked of [habit], day by day,
@@ -105,25 +116,65 @@ typedef MarkOnDay = SquareState Function(String habitId, DateTime day);
 /// only [day]'s own entry is an answer, which is the only one [quotaDemandOn]
 /// reads. Every session of the week still counts toward the target, the ones
 /// logged under the old schedule included: "four times this week" means this
-/// week. And because [weeklyQuotaDemand] is day-local, a day's verdict never
-/// depends on what came after it, so the old schedule's days of a week cut
-/// short by a change are judged exactly as they were before it.
+/// week. And because [weeklyQuotaDemand] is day-local, an empty day's verdict
+/// never depends on what came after it, so the old schedule's days of a week
+/// cut short by a change are judged exactly as they were before it.
+///
+/// [markOn] tells a جزئي from an empty day: a half session holds one of the
+/// week's places (see weekly_quota_plan.dart). Without it every day that is
+/// not green reads empty.
 List<DayDemand>? quotaDemandForWeekOf({
   required IslamicHabitTemplate habit,
   required DateTime day,
   required GreenOnDay isGreen,
+  MarkOnDay? markOn,
+}) {
+  final week = _quotaWeekOf(
+    habit: habit,
+    day: day,
+    isGreen: isGreen,
+    markOn: markOn,
+  );
+  if (week == null) return null;
+  return weeklyQuotaDemand(
+    dayCount: 7,
+    doneDays: week.whole,
+    halfDays: week.half,
+    target: week.target,
+  );
+}
+
+/// The sessions of the Saturday week holding [day], by week position (0 is
+/// that Saturday): whole, half, and the target in force on [day]. Null when
+/// [day]'s own schedule was not a flexible quota.
+({Set<int> whole, Set<int> half, int target, int index})? _quotaWeekOf({
+  required IslamicHabitTemplate habit,
+  required DateTime day,
+  required GreenOnDay isGreen,
+  MarkOnDay? markOn,
 }) {
   final cadence = habit.cadenceOn(day);
   if (!cadence.isFlexibleQuota) return null;
   final start = day.startOfDisplayWeek;
-  return weeklyQuotaDemand(
-    dayCount: 7,
-    doneDays: {
-      for (var i = 0; i < 7; i++)
-        if (isGreen(habit.id, DateTime(start.year, start.month, start.day + i)))
-          i,
-    },
+  final week = [
+    for (var i = 0; i < 7; i++) DateTime(start.year, start.month, start.day + i),
+  ];
+  final whole = {
+    for (var i = 0; i < 7; i++)
+      if (isGreen(habit.id, week[i])) i,
+  };
+  return (
+    whole: whole,
+    half: markOn == null
+        ? const <int>{}
+        : {
+            for (var i = 0; i < 7; i++)
+              if (!whole.contains(i) &&
+                  markOn(habit.id, week[i]) == SquareState.partial)
+                i,
+          },
     target: cadence.frequencyTarget,
+    index: day.startOfDay.difference(start).inDays,
   );
 }
 
@@ -144,11 +195,15 @@ List<DayDemand>? quotaDemandForWeekOf({
 /// [movedDayDemand] instead (see [movedDemandForRow]), so the planned day that
 /// session stands in for reads as covered on the Grid and in the reports
 /// alike.
+///
+/// [isHalfAt] says which squares hold a جزئي, a half session that takes one
+/// of a quota week's places (see weekly_quota_plan.dart); null reads none.
 List<DayDemand?>? quotaDemandForRow({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
   required bool Function(int index) isGreenAt,
   bool Function(int index)? isUnmarkedAt,
+  bool Function(int index)? isHalfAt,
   DateTime? now,
 }) {
   if (!days.any((d) => habit.cadenceOn(d).isFlexibleQuota)) {
@@ -162,6 +217,7 @@ List<DayDemand?>? quotaDemandForRow({
   }
   List<DayDemand?>? out;
   Set<int>? done;
+  Set<int>? half;
   final byTarget = <int, List<DayDemand>>{};
   for (var i = 0; i < days.length; i++) {
     final cadence = habit.cadenceOn(days[i]);
@@ -170,11 +226,18 @@ List<DayDemand?>? quotaDemandForRow({
       for (var j = 0; j < days.length; j++)
         if (isGreenAt(j)) j,
     };
+    half ??= isHalfAt == null
+        ? const {}
+        : {
+            for (var j = 0; j < days.length; j++)
+              if (!done.contains(j) && isHalfAt(j)) j,
+          };
     final week = byTarget.putIfAbsent(
       cadence.frequencyTarget,
       () => weeklyQuotaDemand(
         dayCount: days.length,
         doneDays: done!,
+        halfDays: half!,
         target: cadence.frequencyTarget,
       ),
     );
@@ -333,8 +396,14 @@ DayDemand? quotaDemandOn({
   required IslamicHabitTemplate habit,
   required DateTime day,
   required GreenOnDay isGreen,
+  MarkOnDay? markOn,
 }) {
-  final week = quotaDemandForWeekOf(habit: habit, day: day, isGreen: isGreen);
+  final week = quotaDemandForWeekOf(
+    habit: habit,
+    day: day,
+    isGreen: isGreen,
+    markOn: markOn,
+  );
   if (week == null) return null;
   final start = day.startOfDisplayWeek;
   final i = day.startOfDay.difference(start).inDays;
@@ -361,13 +430,36 @@ bool habitOwesDay({
       movedDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn);
   if (moved != null) return !moved.isRest;
   if (!habit.isScheduledFor(day)) return false;
-  final demand = quotaDemandOn(habit: habit, day: day, isGreen: isGreen);
+  final demand =
+      quotaDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn);
   // Daily and specific-days habits: isScheduledFor already is the answer.
   if (demand == null) return true;
   // `done` counts, and must: a session that happened adds 1 to both sides of
   // the ratio, so extra sessions can only pull a day up, never create a
-  // 3-of-2. Only a rest day (spare or earned) leaves the denominator.
-  return !demand.isRest;
+  // 3-of-2. Only a rest day (spare or earned, which is also a half whole
+  // sessions have pushed out of the week's places) leaves the denominator.
+  if (demand != DayDemand.half) return !demand.isRest;
+  // A جزئي holding a place owes its day only when the week needed that day
+  // on its own: the verdict the day would have had empty, which depends only
+  // on the sessions before it. On any other day the half is effort on top
+  // of what was asked. Its place still counts for the WEEK (the rooms, the
+  // reports, which later days are rest), but on its own day it can only
+  // help: on both sides at half it would pull the day DOWN, and a day
+  // streak was lost that way, marking the half before the daily habit that
+  // finished the day read (1 + 0.5) of 2, under the bar.
+  final week = _quotaWeekOf(
+    habit: habit,
+    day: day,
+    isGreen: isGreen,
+    markOn: markOn,
+  )!;
+  return weeklyQuotaDemand(
+        dayCount: 7,
+        doneDays: week.whole,
+        halfDays: {...week.half}..remove(week.index),
+        target: week.target,
+      )[week.index] ==
+      DayDemand.owed;
 }
 
 /// Every habit in [habits] that owed [day], by id.

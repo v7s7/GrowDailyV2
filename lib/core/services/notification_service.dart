@@ -146,9 +146,11 @@ typedef HabitReminderInput = ({
   /// quotaFactsOn (habit_schedule.dart) and habitOnTimeLine.
   int? weekTarget,
   /// For a quota habit, the indices (0 = the Saturday that starts the
-  /// current display week) of this week's days already logged, or null
-  /// while the week's squares are not loaded, in which case the wording
-  /// makes no claim about the week. Ignored when [weekTarget] is null.
+  /// current display week) of this week's days already logged, a جزئي
+  /// included (a half session holds one of the week's places, see
+  /// weekly_quota_plan.dart), or null while the week's squares are not
+  /// loaded, in which case the wording makes no claim about the week.
+  /// Ignored when [weekTarget] is null.
   Set<int>? weekDoneDays,
 });
 

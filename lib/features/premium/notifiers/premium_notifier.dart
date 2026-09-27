@@ -337,6 +337,18 @@ final premiumAccessProvider = Provider<bool>((ref) {
 /// the paywall should feel like an invitation, not a wall.
 const int kFreeHabitLimit = 10;
 
+/// How many rooms a free account can be in at the same time (Aziz,
+/// 2026-09-26). Rooms it leads count like rooms it joined. A room stops
+/// counting once it has ended and stays on the list as a record, and
+/// leaving one frees its place, so this is "3 at a time", never "3 ever"
+/// (roomsHoldingAPlace, room_limit.dart). Premium is uncapped.
+///
+/// Gates starting and joining only (canTakeAnotherRoom): an account already
+/// past it, because Premium ended, keeps every room it is in, the same rule
+/// as habits over [kFreeHabitLimit]. Guests never reach Rooms at all
+/// (RoomsHubScreen's guest gate), so there is no guest number.
+const int kFreeRoomLimit = 3;
+
 /// How many reminders the free tier can attach to a single Matrix task.
 /// One is the whole free offering here, and deliberately so: a single
 /// reminder is what a task app is expected to do at all, while *stacking*

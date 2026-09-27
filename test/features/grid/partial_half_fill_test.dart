@@ -22,6 +22,7 @@ import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 
 import '../../helpers/landing_harness.dart';
+import '../../helpers/wait_until.dart';
 
 void main() {
   group('the partial state is drawn as half full, not as a timer', () {
@@ -128,6 +129,17 @@ void main() {
     setUp(() async {
       h = LandingHarness();
       await h.prepare(activeCatalogIds: const ['inbox_zero']);
+      // The week's first read, landed before the test seeds a square. That
+      // read replaces the whole week of states when it arrives, so a mark set
+      // while it was in flight survived on every day but the week's first,
+      // and on a Saturday today IS the first: the waterline vanished and the
+      // test failed every Saturday, all day (2026-09-26; the trap is in
+      // widget-tests-hive-fake-async's notes).
+      h.container.read(weeklyGridProvider);
+      await waitUntil(
+        () => !h.container.read(weeklyGridProvider).isLoading,
+        describe: 'the grid to finish its first load',
+      );
     });
     tearDown(() => h.dispose());
 

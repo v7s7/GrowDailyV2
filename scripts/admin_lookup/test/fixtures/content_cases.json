@@ -1,0 +1,1523 @@
+{
+  "about": "Shared cases for the FAQ and benefit list resolvers. scripts/admin_lookup/test/content.test.js runs them against wording/content_rules.js and test/core/content_edits_test.dart runs them against lib/core/l10n/content_edits.dart, so the admin tool's preview and the phones agree. A case's layout (or list) is the whole answer; titles and texts check the words of the groups and questions they name.",
+  "faqBuiltIn": {
+    "groups": [
+      {
+        "id": "basics",
+        "ar": "الأساسيات",
+        "en": "Basics"
+      },
+      {
+        "id": "rooms",
+        "ar": "الغرف",
+        "en": "Rooms"
+      },
+      {
+        "id": "account",
+        "ar": "الحساب",
+        "en": "Account"
+      }
+    ],
+    "items": [
+      {
+        "id": "a",
+        "group": "basics",
+        "qAr": "كيف أ؟",
+        "qEn": "How A?",
+        "aAr": "جواب أ.",
+        "aEn": "Answer A."
+      },
+      {
+        "id": "b",
+        "group": "basics",
+        "qAr": "كيف ب؟",
+        "qEn": "How B?",
+        "aAr": "جواب ب.",
+        "aEn": "Answer B."
+      },
+      {
+        "id": "c",
+        "group": "rooms",
+        "qAr": "كيف ج؟",
+        "qEn": "How C?",
+        "aAr": "جواب ج.",
+        "aEn": "Answer C."
+      },
+      {
+        "id": "d",
+        "group": "rooms",
+        "qAr": "كيف د؟",
+        "qEn": "How D?",
+        "aAr": "جواب د.",
+        "aEn": "Answer D."
+      },
+      {
+        "id": "e",
+        "group": "account",
+        "qAr": "كيف و؟",
+        "qEn": "How E?",
+        "aAr": "جواب و.",
+        "aEn": "Answer E."
+      }
+    ]
+  },
+  "faqCases": [
+    {
+      "name": "no edits is the built-in FAQ",
+      "edits": null,
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a document that is not a map is no edits",
+      "edits": "nonsense",
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "an order that is not a list is no order",
+      "edits": {
+        "order": "x",
+        "hidden": "y"
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "one edited field replaces that field only",
+      "edits": {
+        "text": {
+          "b": {
+            "aEn": "  New answer B.  "
+          }
+        }
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ],
+      "texts": {
+        "b": {
+          "qAr": "كيف ب؟",
+          "qEn": "How B?",
+          "aAr": "جواب ب.",
+          "aEn": "New answer B."
+        }
+      }
+    },
+    {
+      "name": "a hidden question is left out",
+      "edits": {
+        "hidden": [
+          "c"
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a group with every question hidden is left out",
+      "edits": {
+        "hidden": [
+          "c",
+          "d"
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "reordered inside a group",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "b",
+              "a"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "b",
+            "a"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "moved across groups, and groups reordered",
+      "edits": {
+        "order": [
+          {
+            "group": "account",
+            "items": [
+              "e",
+              "b"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "c"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "d"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "account",
+          [
+            "e",
+            "b"
+          ]
+        ],
+        [
+          "basics",
+          [
+            "a",
+            "c"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "d"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "an added question in an added group",
+      "edits": {
+        "order": [
+          {
+            "group": "g-extra01",
+            "items": [
+              "q-new00001",
+              "a"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ],
+        "groups": {
+          "g-extra01": {
+            "ar": "أسئلة أكثر",
+            "en": "More questions"
+          }
+        },
+        "text": {
+          "q-new00001": {
+            "qAr": "سؤال جديد؟",
+            "qEn": "A new question?",
+            "aAr": "جواب جديد.",
+            "aEn": "A new answer."
+          }
+        }
+      },
+      "layout": [
+        [
+          "g-extra01",
+          [
+            "q-new00001",
+            "a"
+          ]
+        ],
+        [
+          "basics",
+          [
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ],
+      "titles": {
+        "g-extra01": {
+          "ar": "أسئلة أكثر",
+          "en": "More questions"
+        }
+      },
+      "texts": {
+        "q-new00001": {
+          "qAr": "سؤال جديد؟",
+          "qEn": "A new question?",
+          "aAr": "جواب جديد.",
+          "aEn": "A new answer."
+        }
+      }
+    },
+    {
+      "name": "an added question with a language missing is left out",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "q-new00001",
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ],
+        "text": {
+          "q-new00001": {
+            "qAr": "سؤال؟",
+            "qEn": "Q?",
+            "aAr": "جواب."
+          }
+        }
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "an added group with no heading is left out, and its built-in questions go home",
+      "edits": {
+        "order": [
+          {
+            "group": "g-extra02",
+            "items": [
+              "a"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a built-in question added after the save follows the one before it",
+      "edits": {
+        "order": [
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "a"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a built-in question with no earlier sibling shown goes first in its group",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "d",
+              "c"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "d",
+            "c"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a new question whose group is not shown brings the group back after the last earlier group",
+      "edits": {
+        "order": [
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a new question in the first group, with that group not shown, goes first",
+      "edits": {
+        "order": [
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "the first mention of a group or a question wins",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "a",
+              "b"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "c"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          }
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "hidden wins over the order",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ],
+        "hidden": [
+          "a"
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "ids nobody knows are ignored",
+      "edits": {
+        "order": [
+          {
+            "group": "basics",
+            "items": [
+              "zz",
+              "a",
+              "b"
+            ]
+          },
+          {
+            "group": "nope",
+            "items": [
+              "c"
+            ]
+          }
+        ],
+        "text": {
+          "zz": {
+            "qAr": "x"
+          }
+        },
+        "hidden": [
+          "ghost"
+        ]
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "edited headings lay over the built-in ones, per language",
+      "edits": {
+        "groups": {
+          "basics": {
+            "en": "The basics"
+          },
+          "rooms": {
+            "ar": "غرفنا",
+            "en": "  "
+          }
+        }
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ],
+      "titles": {
+        "basics": {
+          "ar": "الأساسيات",
+          "en": "The basics"
+        },
+        "rooms": {
+          "ar": "غرفنا",
+          "en": "Rooms"
+        }
+      }
+    },
+    {
+      "name": "an added group with one language shows it in both",
+      "edits": {
+        "order": [
+          {
+            "group": "g-extra01",
+            "items": [
+              "q-new00001"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "a",
+              "b"
+            ]
+          },
+          {
+            "group": "rooms",
+            "items": [
+              "c",
+              "d"
+            ]
+          },
+          {
+            "group": "account",
+            "items": [
+              "e"
+            ]
+          }
+        ],
+        "groups": {
+          "g-extra01": {
+            "en": "Extra"
+          }
+        },
+        "text": {
+          "q-new00001": {
+            "qAr": "سؤال جديد؟",
+            "qEn": "A new question?",
+            "aAr": "جواب جديد.",
+            "aEn": "A new answer."
+          }
+        }
+      },
+      "layout": [
+        [
+          "g-extra01",
+          [
+            "q-new00001"
+          ]
+        ],
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ],
+      "titles": {
+        "g-extra01": {
+          "ar": "Extra",
+          "en": "Extra"
+        }
+      }
+    },
+    {
+      "name": "a group id a plain JavaScript object would know is still an id nobody knows",
+      "edits": {
+        "order": [
+          {
+            "group": "toString",
+            "items": [
+              "a",
+              "c"
+            ]
+          },
+          {
+            "group": "basics",
+            "items": [
+              "b"
+            ]
+          }
+        ],
+        "text": {
+          "constructor": {
+            "qAr": "x"
+          }
+        }
+      },
+      "layout": [
+        [
+          "basics",
+          [
+            "a",
+            "b"
+          ]
+        ],
+        [
+          "rooms",
+          [
+            "c",
+            "d"
+          ]
+        ],
+        [
+          "account",
+          [
+            "e"
+          ]
+        ]
+      ]
+    }
+  ],
+  "benefitBuiltIn": {
+    "items": [
+      {
+        "id": "habits",
+        "icon": "grid_on",
+        "titleKey": "habitsTitle",
+        "descKey": "habitsDesc"
+      },
+      {
+        "id": "rooms",
+        "icon": "groups",
+        "titleKey": "roomsTitle",
+        "descKey": "roomsDesc"
+      },
+      {
+        "id": "history",
+        "icon": "history",
+        "titleKey": "historyTitle",
+        "descKey": "historyDesc"
+      },
+      {
+        "id": "future",
+        "icon": "auto_awesome",
+        "titleKey": "futureTitle",
+        "descKey": "futureDesc"
+      }
+    ],
+    "icons": [
+      "grid_on",
+      "groups",
+      "history",
+      "auto_awesome",
+      "star",
+      "mic"
+    ],
+    "fallbackIcon": "auto_awesome"
+  },
+  "benefitCases": [
+    {
+      "name": "no edits is the built-in list",
+      "edits": null,
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "a document that is not a map is no edits",
+      "edits": [
+        "x"
+      ],
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "a hidden benefit is left out",
+      "edits": {
+        "hidden": [
+          "rooms"
+        ]
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "reordered",
+      "edits": {
+        "order": [
+          "history",
+          "habits",
+          "rooms",
+          "future"
+        ]
+      },
+      "list": [
+        [
+          "history",
+          "history"
+        ],
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "a built-in benefit's new icon",
+      "edits": {
+        "icons": {
+          "habits": "star"
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "star"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "an icon this build does not have keeps the benefit's own",
+      "edits": {
+        "icons": {
+          "habits": "rocket_launch"
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "an added benefit",
+      "edits": {
+        "order": [
+          "habits",
+          "b-new00001",
+          "rooms",
+          "history",
+          "future"
+        ],
+        "added": {
+          "b-new00001": {
+            "icon": "mic",
+            "titleAr": "ميزة جديدة",
+            "titleEn": "A new thing",
+            "descAr": "وصفها.",
+            "descEn": "What it does."
+          }
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "b-new00001",
+          "mic",
+          {
+            "icon": "mic",
+            "titleAr": "ميزة جديدة",
+            "titleEn": "A new thing",
+            "descAr": "وصفها.",
+            "descEn": "What it does."
+          }
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "an added benefit with an icon this build does not have wears the fallback",
+      "edits": {
+        "order": [
+          "b-new00001",
+          "habits",
+          "rooms",
+          "history",
+          "future"
+        ],
+        "added": {
+          "b-new00001": {
+            "icon": "rocket_launch",
+            "titleAr": "ميزة جديدة",
+            "titleEn": "A new thing",
+            "descAr": "وصفها.",
+            "descEn": "What it does."
+          }
+        }
+      },
+      "list": [
+        [
+          "b-new00001",
+          "auto_awesome",
+          {
+            "icon": "rocket_launch",
+            "titleAr": "ميزة جديدة",
+            "titleEn": "A new thing",
+            "descAr": "وصفها.",
+            "descEn": "What it does."
+          }
+        ],
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "an added benefit with a field missing is left out",
+      "edits": {
+        "order": [
+          "habits",
+          "b-new00001",
+          "rooms",
+          "history",
+          "future"
+        ],
+        "added": {
+          "b-new00001": {
+            "icon": "mic",
+            "titleAr": "x",
+            "titleEn": "x",
+            "descAr": "x"
+          }
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "a built-in benefit added after the save follows the one before it",
+      "edits": {
+        "order": [
+          "habits",
+          "history",
+          "future"
+        ]
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "new built-in benefits stack after each other",
+      "edits": {
+        "order": [
+          "future",
+          "habits"
+        ]
+      },
+      "list": [
+        [
+          "future",
+          "auto_awesome"
+        ],
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ]
+      ]
+    },
+    {
+      "name": "a built-in benefit with nothing before it shown goes first",
+      "edits": {
+        "order": [
+          "rooms",
+          "history",
+          "future"
+        ]
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "duplicates and ids nobody knows are ignored",
+      "edits": {
+        "order": [
+          "habits",
+          "habits",
+          "zz",
+          "rooms"
+        ],
+        "hidden": [
+          "ghost"
+        ],
+        "icons": {
+          "zz": "star"
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    },
+    {
+      "name": "ids and icons a plain JavaScript object would know are still unknown",
+      "edits": {
+        "order": [
+          "constructor",
+          "habits"
+        ],
+        "icons": {
+          "habits": "valueOf"
+        },
+        "added": {
+          "toString": {
+            "icon": "star"
+          }
+        }
+      },
+      "list": [
+        [
+          "habits",
+          "grid_on"
+        ],
+        [
+          "rooms",
+          "groups"
+        ],
+        [
+          "history",
+          "history"
+        ],
+        [
+          "future",
+          "auto_awesome"
+        ]
+      ]
+    }
+  ]
+}

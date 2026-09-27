@@ -11,8 +11,10 @@ import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../habits/widgets/add_habit_sheet.dart';
 import '../models/room_model.dart';
+import '../notifiers/room_limit.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../../../shared/widgets/app_snackbar.dart';
+import '../../../shared/widgets/room_limit_gate.dart';
 
 /// The quick-pick room lengths, in days - the common cases every leader
 /// reaches for at a glance, matching every other quick-pick control in the
@@ -179,6 +181,17 @@ class _CreateRoomSheetState extends ConsumerState<CreateRoomSheet> {
       return;
     }
     setState(() => _isSubmitting = true);
+    // The free room limit again, at the write. The Create button asked
+    // before this sheet opened, but a room joined on another phone since,
+    // or Premium ending with the sheet open, would slip past that alone.
+    // The form stays filled in underneath the gate. See canTakeAnotherRoom.
+    final mayCreate = await canTakeAnotherRoom(ref);
+    if (!mounted) return;
+    if (!mayCreate) {
+      setState(() => _isSubmitting = false);
+      showRoomLimitGate(context, ref);
+      return;
+    }
     HapticFeedback.mediumImpact();
     // Read before the await below, so this never touches context across an
     // async gap.

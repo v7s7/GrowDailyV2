@@ -16,6 +16,8 @@ void main() {
   List<String> benefitLines(S s) => [
         s.premiumBenefitHabitsTitle,
         s.premiumBenefitHabitsDesc,
+        s.premiumBenefitRoomsTitle,
+        s.premiumBenefitRoomsDesc,
         s.premiumBenefitHistoryTitle,
         s.premiumBenefitHistoryDesc,
         s.premiumBenefitInsightsTitle,

@@ -435,12 +435,15 @@ void main() {
           threeWithHalf.creditedUnits,
           pct(threeWithHalf.rate),
         ),
-        (3, 4.5, '100%'),
+        (3, 4.0, '100%'),
       );
       expect(
         withHalf.summary.rate,
-        closeTo(0.45, 1e-9),
-        reason: 'the half adds on top, as its fourth green already did',
+        closeTo(0.40, 1e-9),
+        reason: 'the half has no place left: four whole sessions already '
+            'hold the week\'s three (Aziz, 2026-09-26: "0.5 is a day count, '
+            'unless it\'s overwritten with a full day"). It used to add on '
+            'top, as the fourth green still does',
       );
       expect(withHalf.summary.totalDone, 4);
     });
@@ -485,18 +488,18 @@ void main() {
     });
   });
 
-  group('a quota week still reachable owes nothing and holds credit', () {
+  group('a quota week still reachable owes its closed half', () {
     // A 3x a week habit added Saturday 5 September and marked جزئي that day,
     // beside a daily habit added Friday the 4th, green the 4th and blank the
     // 5th, read at 11:00 on Sunday the 6th.
     //
-    // While its week can still fit all three sessions the quota habit owes 0
-    // (owed = min(T, max(G, T - S)), see [expectedCompletions]), so its half
-    // is credit the header has no denominator for, and its own card prints
-    // the placeholder. Recorded as the reading that ships, not as a settled
-    // rule: whether a habit's credit should be capped at what that habit
-    // owed before the header sums it is Aziz's to answer. Capped, this reads
-    // 50%, which is the one card on the screen that prints a number.
+    // The half closed at 10:00 and is a session (Aziz, 2026-09-26: "0.5 is
+    // a day count"), so the week owes it while the other two sessions can
+    // still fit (owed = min(T, max(G, T - S)), see [expectedCompletions]):
+    // 0.5 of 1, and its card prints 50% beside the daily's. Until then the
+    // quota owed nothing, its card printed the placeholder, and the half was
+    // credit the header had no denominator for, reading 75% above the one
+    // card that printed a number.
     final habits = [
       habit(
         'three',
@@ -511,7 +514,7 @@ void main() {
       'daily': {sep(4): SquareState.complete},
     };
 
-    test('the header reads above the only card that prints a number', () {
+    test('the header reads what its cards read', () {
       final r = report(
         habits: habits,
         history: history,
@@ -520,20 +523,16 @@ void main() {
       );
       final three = r.stats.first;
       expect(
-        (three.expected, three.creditedUnits, three.hasRate),
-        (0, 0.5, false),
+        (three.expected, three.creditedUnits, pct(three.rate)),
+        (1, 0.5, '50%'),
       );
       final daily = r.stats.last;
       expect(
         (daily.expected, daily.creditedUnits, pct(daily.rate)),
         (2, 1.0, '50%'),
       );
-      expect((r.summary.expectedTotal, r.summary.creditedTotal), (2, 1.5));
-      expect(
-        pct(r.summary.rate),
-        '75%',
-        reason: 'green squares alone read 50%, the daily card exactly',
-      );
+      expect((r.summary.expectedTotal, r.summary.creditedTotal), (3, 1.5));
+      expect(pct(r.summary.rate), '50%');
     });
   });
 
@@ -1062,15 +1061,15 @@ void main() {
       });
     });
 
-    testWidgets('شهري: a reachable quota week reads above its only card',
+    testWidgets('شهري: a reachable quota week reads its closed half',
         (tester) async {
       // The quota case above, on the screen itself: the 3x a week habit added
       // Saturday the 5th and marked جزئي that day, beside the daily habit
       // added Friday the 4th, green the 4th and blank the 5th, read at 11:00
-      // on Sunday the 6th. Its week can still hold every session, so its card
-      // prints the placeholder and the header's 75% stands above the 50% of
-      // the only card that prints a number. Mounted rather than argued,
-      // because this is the reading Aziz has to rule on.
+      // on Sunday the 6th. The half is a session its week owes (Aziz,
+      // 2026-09-26), so its card prints 50% and the header reads the cards.
+      // Until that ruling this card printed the placeholder under a 75%
+      // header.
       await mountAt(
         tester,
         DateTime(2026, 9, 6, 11),
@@ -1089,13 +1088,13 @@ void main() {
         },
         scope: ReportScope.month,
       );
-      expect(monthCards(tester), {'three': '–', 'daily': '50%'});
+      expect(monthCards(tester), {'three': '50%', 'daily': '50%'});
       final summary = header(tester).summary;
       expect(
         (summary.totalDone, summary.expectedTotal, summary.creditedTotal),
-        (1, 2, 1.5),
+        (1, 3, 1.5),
       );
-      expect(headerRate(tester), '75%', reason: 'green squares read 50%');
+      expect(headerRate(tester), '50%');
     });
 
     testWidgets('أسبوعي with a session off the plan reads it, not a dash',

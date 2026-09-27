@@ -16,9 +16,18 @@
 //     Everything the admin tool's Wording page lists: every S string with its
 //     built-in Arabic and English, its section, the comments written above
 //     it, the screens that show it, and whether it can be edited; plus the
-//     built-in daily quotes. Gitignored: the admin tool reruns this script
-//     with --catalog-only whenever app_strings.dart or daily_quotes.dart has
-//     changed since the catalog it holds.
+//     built-in daily quotes, and (since 2026-09-26, for the FAQ and Premium
+//     pages) the built-in FAQ from help_support_screen.dart and the
+//     paywall's built-in benefit list and icon names from
+//     premium_benefits.dart. Gitignored: the admin tool reruns this script
+//     with --catalog-only whenever one of those sources has changed since
+//     the catalog it holds.
+//
+//     The FAQ and the benefit list are read leniently: if either cannot be
+//     read (a file moved, an entry written in another form), the catalog
+//     carries null and a sentence saying why, which the admin page shows,
+//     and everything else is written as usual. A broken FAQ never stops the
+//     strings from being editable.
 //
 // Usage, from docs/wording/generator:
 //   dart run bin/gen_wording_edits.dart                 write both files
@@ -53,6 +62,8 @@ import 'package:analyzer/dart/ast/visitor.dart';
 
 const _appStringsPath = 'lib/core/l10n/app_strings.dart';
 const _quotesPath = 'lib/core/l10n/daily_quotes.dart';
+const _faqPath = 'lib/features/profile/screens/help_support_screen.dart';
+const _benefitsPath = 'lib/features/premium/premium_benefits.dart';
 const _partPath = 'lib/core/l10n/app_strings_edited.g.dart';
 const _catalogPath = 'scripts/admin_lookup/wording/catalog.json';
 const _usagePath = 'docs/wording/generator/.cache/usage.json';
@@ -61,6 +72,15 @@ const _usagePath = 'docs/wording/generator/.cache/usage.json';
 /// parameter with one of these names would be shadowed, so the script
 /// refuses rather than emit code that quietly reads the wrong value.
 const _reservedNames = {'wordingEdit', '_edits'};
+
+/// The start of every id the admin tool gives what it adds: a question
+/// ('q-'), a group ('g-'), a benefit ('b-'). A built-in id never starts
+/// with one, so the two can never collide.
+const _addedIdPrefixes = ['q-', 'g-', 'b-'];
+
+/// What the catalog's shape is. The admin tool rebuilds a catalog written
+/// in an older shape, the same as one built from older sources.
+const _catalogFormat = 2;
 
 const _builtInOnlyWhy =
     'Has more than one wording, picked in code (by a number, a state or a '
@@ -81,6 +101,8 @@ void main(List<String> args) {
 
   final stringsSource = File('$root/$_appStringsPath').readAsStringSync();
   final quotesSource = File('$root/$_quotesPath').readAsStringSync();
+  final faqSource = _readIfThere('$root/$_faqPath');
+  final benefitsSource = _readIfThere('$root/$_benefitsPath');
   final members = _readMembers(stringsSource);
   final usage = _readUsage('$root/$_usagePath');
 
@@ -93,8 +115,14 @@ void main(List<String> args) {
       _catalogPath: _catalogJson(
         members: members,
         quotes: _readQuotes(quotesSource),
+        faq: _leniently('FAQ', _faqPath,
+            () => _readFaq(faqSource, stringsSource)),
+        benefits: _leniently('benefit list', _benefitsPath,
+            () => _readBenefits(benefitsSource, members)),
         stringsSource: stringsSource,
         quotesSource: quotesSource,
+        faqSource: faqSource,
+        benefitsSource: benefitsSource,
         usage: usage,
       ),
     if (!catalogOnly) _partPath: _partSource(members),
@@ -497,6 +525,265 @@ List<Map<String, Object?>> _readQuotes(String source) {
   return out;
 }
 
+// ─── Reading the FAQ and the benefit list ───────────────────────────────────
+
+String? _readIfThere(String path) {
+  final file = File(path);
+  return file.existsSync() ? file.readAsStringSync() : null;
+}
+
+/// [read]'s result, or its failure as a sentence for the admin page. Never
+/// throws: see the header, a list that cannot be read costs that list only.
+({Map<String, Object?>? data, String? error}) _leniently(
+  String what,
+  String path,
+  Map<String, Object?> Function() read,
+) {
+  try {
+    return (data: read(), error: null);
+  } catch (e) {
+    final said = e is StateError ? e.message : '$e';
+    stderr.writeln('Could not read the $what from $path: $said');
+    return (data: null, error: 'The $what could not be read from $path: $said');
+  }
+}
+
+/// The value of [name] among [arguments], or null.
+Expression? _named(ArgumentList arguments, String name) {
+  for (final a in arguments.arguments) {
+    if (a is NamedExpression && a.name.label.name == name) return a.expression;
+  }
+  return null;
+}
+
+String _stringArg(ArgumentList arguments, String name, String where) {
+  final e = _named(arguments, name);
+  if (e is! StringLiteral) {
+    throw StateError('$where has no plain string for $name.');
+  }
+  // A value interpolated with $ cannot be shown by the admin tool as text;
+  // a brace typed in the sentence itself is just a character.
+  final rendered = _render(e);
+  if (rendered.tokens.isNotEmpty) {
+    throw StateError('$where interpolates a value into $name.');
+  }
+  return rendered.text;
+}
+
+ArgumentList _entryArguments(Expression element, String type, int line) =>
+    switch (element) {
+      MethodInvocation(:final methodName, :final argumentList)
+          when methodName.name == type =>
+        argumentList,
+      InstanceCreationExpression(:final constructorName, :final argumentList)
+          when constructorName.type.name.lexeme == type =>
+        argumentList,
+      _ => throw StateError('the list holds something that is not a '
+          '$type(...) at line $line.'),
+    };
+
+ListLiteral _topLevelList(CompilationUnit unit, String name) {
+  for (final d in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
+    for (final v in d.variables.variables) {
+      if (v.name.lexeme != name) continue;
+      final init = v.initializer;
+      if (init is ListLiteral) return init;
+      throw StateError('$name is not written as a list literal.');
+    }
+  }
+  throw StateError('there is no top-level $name.');
+}
+
+void _checkIds(List<String> ids, String what) {
+  final seen = <String>{};
+  for (final id in ids) {
+    if (!RegExp(r'^[a-z0-9]+(-[a-z0-9]+)*$').hasMatch(id)) {
+      throw StateError('$what id "$id" is not lower case words joined by '
+          'dashes.');
+    }
+    if (_addedIdPrefixes.any(id.startsWith)) {
+      throw StateError('$what id "$id" starts like an id the admin tool '
+          'gives its own additions (${_addedIdPrefixes.join(', ')}).');
+    }
+    if (!seen.add(id)) throw StateError('$what id "$id" is used twice.');
+  }
+}
+
+/// The built-in FAQ: its groups (the FaqGroup enum's order, with each
+/// group's heading from S.faqGroupTitle) and kFaqEntries in order.
+Map<String, Object?> _readFaq(String? source, String stringsSource) {
+  if (source == null) throw StateError('the file is not there.');
+  final unit = parseString(content: source, throwIfDiagnostics: false).unit;
+  final info = unit.lineInfo;
+
+  final groupEnum = unit.declarations
+      .whereType<EnumDeclaration>()
+      .where((e) => e.namePart.typeName.lexeme == 'FaqGroup')
+      .firstOrNull;
+  if (groupEnum == null) throw StateError('there is no enum FaqGroup.');
+  final groupIds = [
+    for (final c in groupEnum.body.constants) c.name.lexeme,
+  ];
+
+  final titles = _faqGroupTitles(stringsSource);
+  final groups = [
+    for (final id in groupIds)
+      {
+        'id': id,
+        'ar': (titles[id] ?? titles['_'])?.$1 ??
+            (throw StateError('S.faqGroupTitle has no heading for $id.')),
+        'en': (titles[id] ?? titles['_'])!.$2,
+      },
+  ];
+
+  final items = <Map<String, Object?>>[];
+  for (final element in _topLevelList(unit, 'kFaqEntries').elements) {
+    final line = info.getLocation(element.offset).lineNumber;
+    final args = _entryArguments(element as Expression, 'FaqEntry', line);
+    final where = 'The FaqEntry at line $line';
+    final group = _named(args, 'group');
+    final groupId = switch (group) {
+      PrefixedIdentifier(:final prefix, :final identifier)
+          when prefix.name == 'FaqGroup' =>
+        identifier.name,
+      _ => throw StateError('$where has no FaqGroup.<name> group.'),
+    };
+    if (!groupIds.contains(groupId)) {
+      throw StateError('$where names a group FaqGroup does not have.');
+    }
+    items.add({
+      'id': _stringArg(args, 'id', where),
+      'group': groupId,
+      'qAr': _stringArg(args, 'questionAr', where),
+      'qEn': _stringArg(args, 'questionEn', where),
+      'aAr': _stringArg(args, 'answerAr', where),
+      'aEn': _stringArg(args, 'answerEn', where),
+    });
+  }
+  _checkIds([for (final i in items) i['id']! as String], 'A question');
+  return {'groups': groups, 'items': items};
+}
+
+/// S.faqGroupTitle's headings by case: `'basics' => isAr ? '...' : '...'`,
+/// with '_' for the default case.
+Map<String, (String, String)> _faqGroupTitles(String stringsSource) {
+  final unit =
+      parseString(content: stringsSource, throwIfDiagnostics: false).unit;
+  final s = unit.declarations
+      .whereType<ClassDeclaration>()
+      .firstWhere((c) => c.namePart.typeName.lexeme == 'S');
+  final method = (s.body as BlockClassBody)
+      .members
+      .whereType<MethodDeclaration>()
+      .where((m) => m.name.lexeme == 'faqGroupTitle')
+      .firstOrNull;
+  final body = method?.body;
+  final e = body is ExpressionFunctionBody ? body.expression : null;
+  if (e is! SwitchExpression) {
+    throw StateError('S.faqGroupTitle is not a switch on the group.');
+  }
+  final out = <String, (String, String)>{};
+  for (final c in e.cases) {
+    final pattern = c.guardedPattern.pattern;
+    final key = switch (pattern) {
+      ConstantPattern(:final expression) when expression is StringLiteral =>
+        _render(expression).text,
+      WildcardPattern() => '_',
+      _ => throw StateError('S.faqGroupTitle has a case that is neither a '
+          'group name nor _.'),
+    };
+    final value = c.expression;
+    if (value is! ConditionalExpression ||
+        value.condition.toSource() != 'isAr' ||
+        value.thenExpression is! StringLiteral ||
+        value.elseExpression is! StringLiteral) {
+      throw StateError('S.faqGroupTitle\'s $key case is not '
+          'isAr ? \'...\' : \'...\'.');
+    }
+    out[key] = (
+      _render(value.thenExpression as StringLiteral).text,
+      _render(value.elseExpression as StringLiteral).text,
+    );
+  }
+  return out;
+}
+
+/// The paywall's built-in benefits (kBuiltInPremiumBenefits, in order, each
+/// with the S members of its title and description), the icon names a row
+/// may wear (kBenefitIcons, in order) and the fallback icon.
+Map<String, Object?> _readBenefits(String? source, List<_Member> members) {
+  if (source == null) throw StateError('the file is not there.');
+  final unit = parseString(content: source, throwIfDiagnostics: false).unit;
+  final info = unit.lineInfo;
+  final keys = {for (final m in members) m.key};
+
+  String member(ArgumentList args, String name, String where) {
+    final e = _named(args, name);
+    final body = e is FunctionExpression ? e.body : null;
+    final read = body is ExpressionFunctionBody ? body.expression : null;
+    final key = switch (read) {
+      PrefixedIdentifier(:final identifier) => identifier.name,
+      PropertyAccess(:final propertyName) => propertyName.name,
+      _ => throw StateError('$where\'s $name is not (s) => s.<member>.'),
+    };
+    if (!keys.contains(key)) {
+      throw StateError('$where\'s $name reads S.$key, which S does not have.');
+    }
+    return key;
+  }
+
+  final icons = <String>[];
+  for (final d in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
+    for (final v in d.variables.variables) {
+      if (v.name.lexeme != 'kBenefitIcons') continue;
+      final init = v.initializer;
+      if (init is! SetOrMapLiteral) {
+        throw StateError('kBenefitIcons is not written as a map literal.');
+      }
+      for (final element in init.elements) {
+        if (element is MapLiteralEntry && element.key is StringLiteral) {
+          icons.add(_render(element.key as StringLiteral).text);
+        }
+      }
+    }
+  }
+  if (icons.isEmpty) throw StateError('there is no kBenefitIcons map.');
+
+  String? fallback;
+  for (final d in unit.declarations.whereType<TopLevelVariableDeclaration>()) {
+    for (final v in d.variables.variables) {
+      if (v.name.lexeme == 'kBenefitFallbackIcon' &&
+          v.initializer is StringLiteral) {
+        fallback = _render(v.initializer as StringLiteral).text;
+      }
+    }
+  }
+  if (fallback == null || !icons.contains(fallback)) {
+    throw StateError('kBenefitFallbackIcon is missing or not in '
+        'kBenefitIcons.');
+  }
+
+  final items = <Map<String, Object?>>[];
+  for (final element in _topLevelList(unit, 'kBuiltInPremiumBenefits').elements) {
+    final line = info.getLocation(element.offset).lineNumber;
+    final args = _entryArguments(element as Expression, 'BuiltInBenefit', line);
+    final where = 'The BuiltInBenefit at line $line';
+    final icon = _stringArg(args, 'icon', where);
+    if (!icons.contains(icon)) {
+      throw StateError('$where wears "$icon", which kBenefitIcons does not '
+          'have.');
+    }
+    items.add({
+      'id': _stringArg(args, 'id', where),
+      'icon': icon,
+      'titleKey': member(args, 'title', where),
+      'descKey': member(args, 'desc', where),
+    });
+  }
+  _checkIds([for (final i in items) i['id']! as String], 'A benefit');
+  return {'items': items, 'icons': icons, 'fallbackIcon': fallback};
+}
+
 // ─── Usage (screens) ────────────────────────────────────────────────────────
 
 Map<String, Object?>? _readUsage(String path) {
@@ -512,16 +799,24 @@ Map<String, Object?>? _readUsage(String path) {
 String _catalogJson({
   required List<_Member> members,
   required List<Map<String, Object?>> quotes,
+  required ({Map<String, Object?>? data, String? error}) faq,
+  required ({Map<String, Object?>? data, String? error}) benefits,
   required String stringsSource,
   required String quotesSource,
+  required String? faqSource,
+  required String? benefitsSource,
   required Map<String, Object?>? usage,
 }) {
   final catalog = {
     'about': 'Generated by docs/wording/generator/bin/gen_wording_edits.dart '
-        'for the admin tool\'s Wording page. Do not edit by hand.',
+        'for the admin tool\'s Wording, FAQ and Premium pages. Do not edit by '
+        'hand.',
+    'format': _catalogFormat,
     // A fingerprint of each source, so the admin tool can tell when the app's
     // wording moved on since this catalog was built. FNV-1a over the UTF-8
     // bytes: not a security hash, just cheap to compute the same way in Node.
+    // A source that is not there is null, which the admin tool reads the
+    // same way, so a missing file is not "changed" on every page load.
     'sources': {
       'appStrings': {
         'path': _appStringsPath,
@@ -530,6 +825,16 @@ String _catalogJson({
       'dailyQuotes': {
         'path': _quotesPath,
         'fnv1a': _fnv1a(utf8.encode(quotesSource)),
+      },
+      'faq': {
+        'path': _faqPath,
+        'fnv1a': faqSource == null ? null : _fnv1a(utf8.encode(faqSource)),
+      },
+      'benefits': {
+        'path': _benefitsPath,
+        'fnv1a': benefitsSource == null
+            ? null
+            : _fnv1a(utf8.encode(benefitsSource)),
       },
     },
     'screensFrom': usage == null ? null : _usagePath,
@@ -553,6 +858,10 @@ String _catalogJson({
         },
     ],
     'quotes': quotes,
+    'faq': faq.data,
+    if (faq.error != null) 'faqError': faq.error,
+    'benefits': benefits.data,
+    if (benefits.error != null) 'benefitsError': benefits.error,
   };
   return '${const JsonEncoder.withIndent('  ').convert(catalog)}\n';
 }

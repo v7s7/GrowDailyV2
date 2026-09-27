@@ -6,7 +6,7 @@ import '../../grid/models/square_state.dart';
 import '../../habits/models/habit_day_demand.dart' show movedDemandOn;
 import '../../habits/models/habit_model.dart' show HabitFrequencyType;
 import '../../habits/models/weekly_quota_plan.dart'
-    show DayDemand, weeklyQuotaDemand;
+    show DayDemand, quotaWeekPlaces, weeklyQuotaDemand;
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
 import 'habit_day_marks.dart';
@@ -227,6 +227,11 @@ bool missIsAttributable(IslamicHabitTemplate habit) =>
 bool missIsAttributableOn(IslamicHabitTemplate habit, DateTime day) =>
     !habit.cadenceOn(day).isFlexibleQuota;
 
+/// A mark that is a session of a flexible quota: a whole one (green) or a
+/// half one (جزئي). See weekly_quota_plan.dart.
+bool _isSession(SquareState mark) =>
+    markIsDone(mark) || mark == SquareState.partial;
+
 int expectedCompletions({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
@@ -306,20 +311,30 @@ int expectedCompletions({
   //
   //   owed = min(T, max(G, T - S))
   //
-  // T is that clamped target, G the settled days finished in full (green),
-  // S the days not yet settled (still open, or still to come). G counts
-  // greens only. A جزئي that has closed still earns its half
-  // (HabitPeriodStat.creditedUnits), but it is not a finished session:
-  // counted as one, it made the week owe a whole session more for half a
-  // session's credit, so a 3x week with Saturday done read 75% with a closed
-  // جزئي Sunday and 100% with a blank one. Its half now sits on top of what
-  // is owed, where the rate stops at 100%, the reading a week that can still
-  // reach its target already gets with nothing on Sunday. It is the reachability
+  // T is that clamped target, G the settled sessions, S the days not yet
+  // settled (still open, or still to come). A جزئي that has closed is a
+  // session: Aziz, 2026-09-26, "0.5 is a day count, unless it's overwritten
+  // with a full day" (weekly_quota_plan.dart). It holds one of the week's
+  // places at half credit, the way the Grid and the rooms count it, and
+  // earns its half only while it holds one (see
+  // HabitPeriodStat.creditedUnits): a closed 4x week of two halves is 1 of
+  // 4, of two whole and two halves 3 of 4, of two halves and four whole 4 of
+  // 4, as the rooms score them. It is the reachability
   // RoomParticipant.quotaWeekIsLost crosses a room's week out on, so a blank
   // 4x week starts owing on the morning its fourth blank day closes: not on
   // its first morning, and not only once Friday is over. A closed week has
   // S = 0 and owes T, exactly the old clamp, and so does every week when
   // [now] is null.
+  //
+  // Until that ruling a closed جزئي sat on top of what was owed instead,
+  // chosen so that marking half of Sunday never read worse than leaving it
+  // blank: a 3x week with Saturday done read 100% on Monday either way, where
+  // it now reads 75% with the half (1.5 of 2, the rooms' number too). The
+  // two cannot both hold once a whole session can push a half out: on top,
+  // two halves read 100% of a 2x week's one owed session, and FINISHING the
+  // week with a whole session then read 75%. Doing more must never read
+  // worse, so the half is owed from the morning its day closes, and the only
+  // thing it can read below is a blank day the week had not asked for yet.
   //
   // The week is only ever the part of it inside the report window. A week a
   // month edge cuts (Sat 26 Sep to Fri 2 Oct, read on the October card) is
@@ -386,19 +401,25 @@ int expectedCompletions({
     final index = DateTime.utc(day.year, day.month, day.day)
         .difference(DateTime.utc(start.year, start.month, start.day))
         .inDays;
+    SquareState markAt(int i) =>
+        weekMarks[DateTime(start.year, start.month, start.day + i)
+            .toDateKey()] ??
+        SquareState.none;
     final demand = weeklyQuotaDemand(
       dayCount: 7,
       doneDays: {
         for (var i = 0; i < 7; i++)
-          if (markIsDone(weekMarks[DateTime(
-                      start.year, start.month, start.day + i)
-                  .toDateKey()] ??
-              SquareState.none))
-            i,
+          if (markIsDone(markAt(i))) i,
+      },
+      halfDays: {
+        for (var i = 0; i < 7; i++)
+          if (markAt(i) == SquareState.partial) i,
       },
       target: habit.cadenceOn(day).frequencyTarget,
     )[index];
-    if (demand == DayDemand.owed) dayByDay++;
+    // A blank day the target broke on, or a جزئي holding one of the week's
+    // places; a جزئي whole sessions pushed out owes nothing.
+    if (demand == DayDemand.owed || demand == DayDemand.half) dayByDay++;
   }
 
   final alivePerWeek = <String, int>{};
@@ -418,7 +439,7 @@ int expectedCompletions({
     alivePerWeek[key] = (alivePerWeek[key] ?? 0) + 1;
     if (!settled(day)) {
       stillOpenPerWeek[key] = (stillOpenPerWeek[key] ?? 0) + 1;
-    } else if (markIsDone(marks[dayKey] ?? SquareState.none)) {
+    } else if (_isSession(marks[dayKey] ?? SquareState.none)) {
       finishedPerWeek[key] = (finishedPerWeek[key] ?? 0) + 1;
     }
   }
@@ -466,6 +487,15 @@ class HabitPeriodStat {
   /// Fractional, unlike [doneCount], which is why the two exist separately:
   /// "5 يوم" must stay an honest count of days, while the percentage can
   /// reflect a half-finished one.
+  ///
+  /// A flexible quota's جزئي earns its half only while it holds one of its
+  /// week's places (quotaWeekPlaces: whole sessions take them first, then
+  /// the earliest halves). Aziz, 2026-09-26: "0.5 is a day count, unless it's
+  /// overwritten with a full day". Two halves and four whole sessions on a
+  /// 4x week are 4, not 5; three whole and two halves are 3.5, not a PERFECT
+  /// 4. Whole sessions are counted as they always were, past the target
+  /// included: whether a week's extra sessions may fill another week's gap is
+  /// the per-habit cap the header tests keep open, not this rule.
   final double creditedUnits;
 
   const HabitPeriodStat._({
@@ -494,17 +524,55 @@ class HabitPeriodStat {
     var rest = 0;
     var failed = 0;
     var credit = 0.0;
+    // Every settled session, by Saturday week, as week positions, whole and
+    // half; and each flexible-quota جزئي with the target its own day was
+    // under. Its half is credited once the week's places are known: see
+    // [creditedUnits]. Every session of the week competes for them, the ones
+    // under another schedule included, as the Grid row resolves a week the
+    // schedule changed in (quotaDemandForRow). The Saturday is found on the
+    // calendar, not by subtracting days of 24 hours, so a week holding a
+    // clock change stays one week.
+    final weeks =
+        <String, ({Set<int> whole, Set<int> half, Map<int, int> quotaHalf})>{};
     for (final entry in marks.entries) {
       final mark = entry.value;
       if (markIsDone(mark)) done.add(entry.key);
       if (markIsRest(mark)) rest++;
       if (mark == SquareState.failed) failed++;
-      if (now == null) {
-        credit += markCredit(mark);
-      } else {
-        final day = DateTime.tryParse(entry.key);
-        if (day == null || day.isSettledAt(now, answered: mark.answersDay)) {
-          credit += markCredit(mark);
+      final day = DateTime.tryParse(entry.key);
+      if (now != null &&
+          day != null &&
+          !day.isSettledAt(now, answered: mark.answersDay)) {
+        continue;
+      }
+      credit += markCredit(mark);
+      if (day == null || !_isSession(mark)) continue;
+      final index = (day.weekday - DateTime.saturday + 7) % 7;
+      final week = weeks.putIfAbsent(
+        DateTime(day.year, day.month, day.day - index).toDateKey(),
+        () => (whole: <int>{}, half: <int>{}, quotaHalf: <int, int>{}),
+      );
+      if (markIsDone(mark)) {
+        week.whole.add(index);
+        continue;
+      }
+      week.half.add(index);
+      final cadence = habit.cadenceOn(day);
+      if (cadence.isFlexibleQuota) {
+        week.quotaHalf[index] = cadence.frequencyTarget;
+      }
+    }
+    // Take back the half of every quota جزئي left without a place.
+    for (final week in weeks.values) {
+      for (final half in week.quotaHalf.entries) {
+        final places = quotaWeekPlaces(
+          dayCount: 7,
+          doneDays: week.whole,
+          halfDays: week.half,
+          target: half.value,
+        );
+        if (!places.contains(half.key)) {
+          credit -= markCredit(SquareState.partial);
         }
       }
     }

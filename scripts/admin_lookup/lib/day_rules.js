@@ -231,30 +231,77 @@ function newestClosedKey(nowLocalMs) {
  * asking is fixed by what was banked before it and how many days followed
  * it, so a resolved day's verdict never flips later.
  *
- *   'done'   recorded on this day
+ *   'done'   a whole session recorded on this day
+ *   'half'   a جزئي holding one of the week's places, at half credit
  *   'owed'   load-bearing: skip it and the target is out of reach
  *   'spare'  not needed yet, enough days remain
- *   'earned' not needed at all, the target was already met
+ *   'earned' not needed at all, the target was already met; also a جزئي
+ *            whole sessions have pushed out of the week's places
+ *
+ * [halfDays] are the جزئي days (a day in both sets is whole). A half is a
+ * session for the arithmetic, Aziz's 2026-09-26 ruling: "0.5 is a day count,
+ * unless it's overwritten with a full day" (see quotaWeekPlaces).
  */
-function weeklyQuotaDemand({ dayCount, doneDays, target }) {
+function weeklyQuotaDemand({ dayCount, doneDays, target, halfDays }) {
   if (!(dayCount > 0)) return [];
   const done = doneDays instanceof Set ? doneDays : new Set(doneDays || []);
+  const half = halfDays instanceof Set ? halfDays : new Set(halfDays || []);
   const effectiveTarget = Math.min(Math.max(target, 1), dayCount);
+  const places = quotaWeekPlaces({ dayCount, doneDays: done, halfDays: half, target });
   const out = [];
   let doneBefore = 0;
   for (let i = 0; i < dayCount; i++) {
-    const need = effectiveTarget - doneBefore;
-    if (need <= 0) {
-      out.push(done.has(i) ? 'done' : 'earned');
-    } else if (done.has(i)) {
+    const isWhole = done.has(i);
+    const isHalf = !isWhole && half.has(i);
+    if (isWhole) {
       out.push('done');
+    } else if (isHalf) {
+      out.push(places.has(i) ? 'half' : 'earned');
     } else {
-      const remaining = dayCount - i; // includes this day
-      out.push(remaining - need <= 0 ? 'owed' : 'spare');
+      const need = effectiveTarget - doneBefore;
+      if (need <= 0) {
+        out.push('earned');
+      } else {
+        const remaining = dayCount - i; // includes this day
+        out.push(remaining - need <= 0 ? 'owed' : 'spare');
+      }
     }
-    if (done.has(i)) doneBefore++;
+    if (isWhole || isHalf) doneBefore++;
   }
   return out;
+}
+
+/**
+ * quotaWeekPlaces in weekly_quota_plan.dart: which sessions hold the week's
+ * [target] places. Whole sessions first, earliest first; then halves,
+ * earliest first, into whatever is left.
+ */
+function quotaWeekPlaces({ dayCount, doneDays, halfDays, target }) {
+  const out = new Set();
+  if (!(dayCount > 0)) return out;
+  const done = doneDays instanceof Set ? doneDays : new Set(doneDays || []);
+  const half = halfDays instanceof Set ? halfDays : new Set(halfDays || []);
+  const effectiveTarget = Math.min(Math.max(target, 1), dayCount);
+  for (let i = 0; i < dayCount && out.size < effectiveTarget; i++) {
+    if (done.has(i)) out.add(i);
+  }
+  for (let i = 0; i < dayCount && out.size < effectiveTarget; i++) {
+    if (!done.has(i) && half.has(i)) out.add(i);
+  }
+  return out;
+}
+
+/**
+ * quotaWeekCredit in weekly_quota_plan.dart: what the week's places are
+ * worth in days, a whole session one and a half one half.
+ */
+function quotaWeekCredit({ dayCount, doneDays, halfDays, target }) {
+  const done = doneDays instanceof Set ? doneDays : new Set(doneDays || []);
+  let credit = 0;
+  for (const i of quotaWeekPlaces({ dayCount, doneDays: done, halfDays, target })) {
+    credit += done.has(i) ? 1 : 0.5;
+  }
+  return credit;
 }
 
 /** Nothing was owed, so an empty square is not a miss. DayDemand.isRest. */
@@ -339,20 +386,26 @@ function missIsAttributable(habitData) {
  * whole Saturday week.
  *
  * [isGreenOn] answers "was this habit green on that key", which is what the
- * Grid row itself feeds weeklyQuotaDemand. Returns null for any habit that
- * is not a flexible quota, so a caller can tell "no demand rule applies"
- * from "the rule says spare".
+ * Grid row itself feeds weeklyQuotaDemand, and [isHalfOn] "was it جزئي"
+ * (a half session, see weeklyQuotaDemand; none when absent). Returns null
+ * for any habit that is not a flexible quota, so a caller can tell "no
+ * demand rule applies" from "the rule says spare".
  */
-function quotaDemandOn({ habitData, dayKey, isGreenOn }) {
+function quotaDemandOn({ habitData, dayKey, isGreenOn, isHalfOn }) {
   if (!isFlexibleQuota(habitData)) return null;
   const weekStart = displayWeekStartKey(dayKey);
   const days = [];
   for (let i = 0; i < 7; i++) days.push(shiftKey(weekStart, i));
   const doneDays = new Set();
-  days.forEach((k, i) => { if (isGreenOn(k)) doneDays.add(i); });
+  const halfDays = new Set();
+  days.forEach((k, i) => {
+    if (isGreenOn(k)) doneDays.add(i);
+    else if (isHalfOn && isHalfOn(k)) halfDays.add(i);
+  });
   const demand = weeklyQuotaDemand({
     dayCount: 7,
     doneDays,
+    halfDays,
     target: Number(habitData.frequencyTarget) || 1,
   });
   return demand[days.indexOf(dayKey)] || null;
@@ -467,6 +520,7 @@ function scoreDay({ habits, dayData, dayKey, nowLocalMs, todayKey }) {
   const list = habits || [];
   const today = todayKey || (nowLocalMs == null ? dayKey : keyAtOffset(nowLocalMs, 0));
   const isGreenOn = (id) => (key) => isGreen(dayMark(key === dayKey ? dayData : null, id));
+  const isHalfOn = (id) => (key) => dayMark(key === dayKey ? dayData : null, id) === 'partial';
 
   const rows = [];
   let done = 0, failed = 0, rested = 0, owed = 0, covered = 0;
@@ -486,6 +540,7 @@ function scoreDay({ habits, dayData, dayKey, nowLocalMs, todayKey }) {
       habitData: asOf,
       dayKey,
       isGreenOn: h.isGreenOn || isGreenOn(h.id),
+      isHalfOn: h.isHalfOn || isHalfOn(h.id),
     });
 
     if (isRestMark(mark)) {
@@ -902,6 +957,8 @@ module.exports = {
   isSettledAt,
   newestClosedKey,
   weeklyQuotaDemand,
+  quotaWeekPlaces,
+  quotaWeekCredit,
   demandIsRest,
   displayWeekStartKey,
   habitAsOf,

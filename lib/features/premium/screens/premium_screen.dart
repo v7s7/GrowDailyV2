@@ -17,9 +17,11 @@ import '../../../core/services/analytics_service.dart';
 import '../../../core/services/purchase_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
+import '../../../core/l10n/wording_edits.dart';
 import '../notifiers/premium_notifier.dart';
 import '../offers/offers_store.dart';
 import '../offers/paywall_offer.dart';
+import '../premium_benefits.dart';
 import '../widgets/offer_strip.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -87,7 +89,8 @@ const String _privacyPolicyUrl =
 /// for. All eleven entry points used to land on an identical screen opening
 /// with "unlimited habits", including the ones you reach by tapping a locked
 /// COLOUR — pitching habit limits to someone who just asked about themes.
-enum PremiumReason { general, appearance, history, tasks, voice, navBar }
+/// [rooms] is the free room limit (showRoomLimitGate).
+enum PremiumReason { general, appearance, history, tasks, voice, navBar, rooms }
 
 class PremiumScreen extends ConsumerStatefulWidget {
   /// Defaults to [PremiumReason.general] so every existing call site keeps
@@ -800,9 +803,10 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                     (e) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _BenefitRow(
-                        icon: e.value.$1,
-                        title: e.value.$2,
-                        desc: e.value.$3,
+                        icon: e.value.icon,
+                        title: e.value.title,
+                        desc: e.value.desc,
+                        showsPalette: e.value.id == 'appearance',
                       )
                           .animate(delay: (200 + e.key * 70).ms)
                           .fadeIn(duration: 350.ms)
@@ -1168,90 +1172,50 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
     );
   }
 
-  // Every bullet still maps to a real, currently-enforced gate — see each
-  // string's doc comment in app_strings.dart for exactly which file/check
-  // backs it. Copy was rewritten shorter and warmer per user feedback
-  // (previous two-clause descriptions read as "a lot of details"). The
-  // last bullet is the one promise rather than a gate: Premium features
-  // added later come with it (see premiumBenefitFutureDesc for what keeps
-  // that true). Still deliberately doesn't include a "Family grids" bullet:
-  // that one has no user-directed exception and remains unbuilt with no
-  // mention anywhere.
   /// The benefit the user came for, first. Everything else keeps its order,
   /// so the list still reads as a considered sequence rather than a shuffle.
-  List<(IconData, String, String)> _orderedBenefits(S s) {
-    final all = _benefits(s);
-    final leadIcon = switch (widget.reason) {
+  ///
+  /// The list itself, and what keeps each row true, is premium_benefits.dart:
+  /// the code's own rows with the admin tool's edits laid over them, read
+  /// through WordingScope so a save on the admin tool repaints an open
+  /// paywall. The lead row is found by its id, so it still leads when the
+  /// admin has given it another icon, and nothing leads when the admin has
+  /// taken it off.
+  List<PremiumBenefitView> _orderedBenefits(S s) {
+    final all = premiumBenefitsFor(s, WordingScope.of(context).benefits);
+    final leadId = switch (widget.reason) {
       PremiumReason.general => null,
-      PremiumReason.appearance => Icons.palette_rounded,
-      PremiumReason.history => Icons.history_rounded,
-      PremiumReason.tasks => Icons.notifications_active_rounded,
-      PremiumReason.voice => Icons.mic_rounded,
-      PremiumReason.navBar => Icons.dashboard_customize_rounded,
+      PremiumReason.appearance => 'appearance',
+      PremiumReason.history => 'history',
+      PremiumReason.tasks => 'reminders',
+      PremiumReason.voice => 'voice',
+      PremiumReason.navBar => 'bottom-bar',
+      PremiumReason.rooms => 'rooms',
     };
-    if (leadIcon == null) return all;
-    final i = all.indexWhere((b) => b.$1 == leadIcon);
+    if (leadId == null) return all;
+    final i = all.indexWhere((b) => b.id == leadId);
     if (i <= 0) return all;
     return [all[i], ...all]..removeAt(i + 1);
   }
-
-  List<(IconData, String, String)> _benefits(S s) => [
-        (
-          Icons.grid_on_rounded,
-          s.premiumBenefitHabitsTitle,
-          s.premiumBenefitHabitsDesc,
-        ),
-        (
-          Icons.history_rounded,
-          s.premiumBenefitHistoryTitle,
-          s.premiumBenefitHistoryDesc,
-        ),
-        (
-          Icons.insights_rounded,
-          s.premiumBenefitInsightsTitle,
-          s.premiumBenefitInsightsDesc,
-        ),
-        (
-          Icons.palette_rounded,
-          s.premiumBenefitAppearanceTitle,
-          s.premiumBenefitAppearanceDesc,
-        ),
-        (
-          Icons.mic_rounded,
-          s.premiumBenefitVoiceTitle,
-          s.premiumBenefitVoiceDesc,
-        ),
-        (
-          Icons.notifications_active_rounded,
-          s.premiumBenefitTaskRemindersTitle,
-          s.premiumBenefitTaskRemindersDesc,
-        ),
-        (
-          Icons.dashboard_customize_rounded,
-          s.premiumBenefitNavBarTitle,
-          s.premiumBenefitNavBarDesc,
-        ),
-        (
-          // A heart read as charity; this row sells what comes next.
-          Icons.auto_awesome_rounded,
-          s.premiumBenefitFutureTitle,
-          s.premiumBenefitFutureDesc,
-        ),
-      ];
 }
 
 class _BenefitRow extends StatelessWidget {
   final IconData icon;
   final String title;
   final String desc;
-  const _BenefitRow(
-      {required this.icon, required this.title, required this.desc});
 
   /// The colour benefit shows colour. This paywall sells a visual product and
   /// had none on it: seven identical tinted squares and seven lines of text.
   /// A strip of the real palette says "make your own theme" faster than the
-  /// sentence above it can.
-  bool get _showsPalette => icon == Icons.palette_rounded;
+  /// sentence above it can. The theme row by its id ('appearance'), not by
+  /// its icon, which the admin tool can change.
+  final bool showsPalette;
+  const _BenefitRow({
+    required this.icon,
+    required this.title,
+    required this.desc,
+    required this.showsPalette,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1287,7 +1251,7 @@ class _BenefitRow extends StatelessWidget {
                 style:
                     TextStyle(fontSize: 12.5, color: gp.textSec, height: 1.35),
               ),
-              if (_showsPalette) ...[
+              if (showsPalette) ...[
                 const SizedBox(height: 10),
                 Row(
                   children: [

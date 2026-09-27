@@ -9,8 +9,10 @@ import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/services/push_notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
+import '../../../shared/widgets/room_limit_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/room_model.dart';
+import '../notifiers/room_limit.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/create_room_sheet.dart';
 import '../widgets/join_room_sheet.dart';
@@ -21,11 +23,82 @@ import 'room_detail_screen.dart';
 /// screen rather than a new bottom-nav tab (see the Profile row's own doc
 /// comment) - Rooms is an occasional, opt-in feature, not something that
 /// needs permanent nav-bar real estate next to Grid/Matrix/Focus/Profile.
-class RoomsHubScreen extends ConsumerWidget {
-  const RoomsHubScreen({super.key});
+///
+/// Also where a room invite lands: see [initialJoinCode].
+class RoomsHubScreen extends ConsumerStatefulWidget {
+  const RoomsHubScreen({super.key, this.initialJoinCode});
+
+  /// A room invite's code, from a `growdaily://join/CODE` or https
+  /// `/join/CODE` link (main.dart's pendingJoinCodeProvider listener pushes
+  /// this screen with it). The Join sheet then opens over this screen by
+  /// itself, once, filled in and already searched, so the invite reads as
+  /// "here is the room, tap Join" with Rooms underneath; a join opens the
+  /// room, as the Join button's does. A guest gets _GuestGate's sign-in
+  /// explanation and no sheet: Rooms need an account, so its Join would
+  /// only fail.
+  final String? initialJoinCode;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RoomsHubScreen> createState() => _RoomsHubScreenState();
+}
+
+class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
+  /// The push animation an invite's sheet is waiting on (see initState).
+  Animation<double>? _routeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialJoinCode == null) return;
+    // After the first frame, since a sheet cannot be pushed mid-build, and
+    // once this page has finished sliding in, so the sheet rises over Rooms
+    // as it does when Join is tapped here rather than over a page still on
+    // its way in (the same wait as ThemePreviewScreen's). A page popped
+    // before it lands never opens it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final anim = ModalRoute.of(context)?.animation;
+      if (anim == null || anim.isCompleted) {
+        _openInvite();
+      } else {
+        _routeAnimation = anim..addStatusListener(_onRouteAnimStatus);
+      }
+    });
+  }
+
+  void _onRouteAnimStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    _routeAnimation?.removeStatusListener(_onRouteAnimStatus);
+    _routeAnimation = null;
+    _openInvite();
+  }
+
+  void _openInvite() {
+    if (!mounted || ref.read(guestModeProvider)) return;
+    _openJoinSheet(initialCode: widget.initialJoinCode);
+  }
+
+  /// The Join sheet, then the room it joined. One path for the Join button
+  /// and an invite, so both end in the room the same way.
+  Future<void> _openJoinSheet({String? initialCode}) async {
+    final code =
+        await showJoinRoomSheet(context, ref, initialCode: initialCode);
+    if (code != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => RoomDetailScreen(code: code)),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _routeAnimation?.removeStatusListener(_onRouteAnimStatus);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
     final isGuest = ref.watch(guestModeProvider);
@@ -99,13 +172,9 @@ class RoomsHubScreen extends ConsumerWidget {
                       heroTag: 'roomsJoinFab',
                       backgroundColor: Theme.of(context).colorScheme.secondary,
                       foregroundColor: Theme.of(context).colorScheme.onSecondary,
-                      onPressed: () async {
+                      onPressed: () {
                         clearRoomsLesson();
-                        final code = await showJoinRoomSheet(context, ref);
-                        if (code != null && context.mounted) {
-                          Navigator.push(context,
-                              MaterialPageRoute(builder: (_) => RoomDetailScreen(code: code)));
-                        }
+                        _openJoinSheet();
                       },
                       icon: const Icon(Icons.tag_rounded),
                       label: Text(s.roomJoinAction),
@@ -117,6 +186,18 @@ class RoomsHubScreen extends ConsumerWidget {
                       foregroundColor: Theme.of(context).colorScheme.onPrimary,
                       onPressed: () async {
                         clearRoomsLesson();
+                        // The free room limit, asked before the form rather
+                        // than after it: two steps filled in and then
+                        // refused is the worst place to learn it. Join is
+                        // not asked here, because its sheet shows WHICH room
+                        // a code or an invite is for first (JoinRoomSheet
+                        // asks on Join). CreateRoomSheet asks again on
+                        // submit. See canTakeAnotherRoom.
+                        if (!await canTakeAnotherRoom(ref)) {
+                          if (context.mounted) showRoomLimitGate(context, ref);
+                          return;
+                        }
+                        if (!context.mounted) return;
                         final code = await showCreateRoomSheet(context, ref);
                         if (code != null && context.mounted) {
                           Navigator.push(context,

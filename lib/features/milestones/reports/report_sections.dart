@@ -666,6 +666,7 @@ List<MatrixCellState> weekCellStates({
     days: weekDays,
     isGreenAt: (i) => stat.markOn(weekDays[i]).isGreen,
     isUnmarkedAt: (i) => stat.markOn(weekDays[i]) == SquareState.none,
+    isHalfAt: (i) => stat.markOn(weekDays[i]) == SquareState.partial,
     now: now,
   );
   return [

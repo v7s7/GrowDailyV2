@@ -464,4 +464,129 @@ void main() {
     expect(weekStart.weekday, DateTime.saturday);
     expect(DateTime(2026, 9, 13).weekday, DateTime.sunday);
   });
+
+  // Aziz, 2026-09-26: "0.5 is a day count, unless it's overwritten with a
+  // full day". A جزئي holds one of the week's places, read through the
+  // MarkOnDay every surface already passes for moved days.
+  group('a جزئي on a flexible quota is a session', () {
+    MarkOnDay marks(Map<int, SquareState> byIndex) => (habitId, day) {
+          for (final e in byIndex.entries) {
+            if (DateTime(2026, 9, 12 + e.key).difference(day).inDays == 0) {
+              return e.value;
+            }
+          }
+          return SquareState.none;
+        };
+    GreenOnDay greens(Map<int, SquareState> byIndex) =>
+        (habitId, day) => marks(byIndex)(habitId, day).isGreen;
+
+    List<bool> owed(Map<int, SquareState> byIndex, {bool withMarks = true}) => [
+          for (final day in week())
+            habitOwesDay(
+              habit: quota4,
+              day: day,
+              isGreen: greens(byIndex),
+              markOn: withMarks ? marks(byIndex) : null,
+            ),
+        ];
+
+    test('two halves then nothing: only the last two days owe', () {
+      // The halves hold two of the four places, so the misses fall on
+      // Thursday and Friday; and neither half day owes itself, because the
+      // week could have rested both: half a session on a day nobody asked
+      // for is effort on top, never a half-missed day.
+      const week = {0: SquareState.partial, 1: SquareState.partial};
+      expect(owed(week), [false, false, false, false, false, true, true]);
+      // Without the marks a half reads as blank, the rule before 2026-09-26:
+      // the misses fall on the last four days.
+      expect(owed(week, withMarks: false),
+          [false, false, false, true, true, true, true]);
+    });
+
+    test('a half on a day the week needed owes that day, at its half', () {
+      // Nothing until Thursday: Thursday and Friday are two of the four the
+      // week can no longer do without, so a half there owes its day.
+      const week = {5: SquareState.partial, 6: SquareState.partial};
+      expect(owed(week), [false, false, false, true, true, true, true]);
+    });
+
+    test('whole sessions push the halves out of the week', () {
+      const week = {
+        0: SquareState.partial,
+        1: SquareState.partial,
+        2: SquareState.complete,
+        3: SquareState.complete,
+        4: SquareState.complete,
+        5: SquareState.complete,
+      };
+      expect(owed(week), [false, false, true, true, true, true, false]);
+    });
+
+    test('the Grid row resolves the same days', () {
+      const byIndex = {0: SquareState.partial, 1: SquareState.partial};
+      final row = quotaDemandForRow(
+        habit: quota4,
+        days: week(),
+        isGreenAt: (i) => (byIndex[i] ?? SquareState.none).isGreen,
+        isHalfAt: (i) => byIndex[i] == SquareState.partial,
+      );
+      expect(row, [
+        DayDemand.half,
+        DayDemand.half,
+        DayDemand.spare,
+        DayDemand.spare,
+        DayDemand.spare,
+        DayDemand.owed,
+        DayDemand.owed,
+      ]);
+      // The three days after the halves paint as rest once past; the owed
+      // two never do. Read the Saturday after the week.
+      for (var i = 2; i <= 6; i++) {
+        expect(
+          isCoveredDay(
+            habit: quota4,
+            day: week()[i],
+            today: DateTime(2026, 9, 19),
+            square: SquareState.none,
+            demand: row![i],
+          ),
+          i <= 4,
+          reason: 'day $i',
+        );
+      }
+    });
+
+    test('the live board: a half the day needed stays on, one it did not '
+        'stays off', () {
+      // The day streak's board. Saturday's half was not needed, so it cannot
+      // cost the day: marked before a daily habit that finishes the day, it
+      // used to read (1 + 0.5) of 2, under the streak's bar.
+      final daily = makeHabit(
+        type: HabitFrequencyType.daily,
+        target: 1,
+        id: 'daily',
+      );
+      const saturday = {0: SquareState.partial};
+      expect(
+        boardHabitsOn(
+          habits: [daily, quota4],
+          day: week()[0],
+          isGreen: greens(saturday),
+          markOn: marks(saturday),
+        ).map((h) => h.id),
+        ['daily'],
+      );
+      // Thursday with nothing before it: the week needed Thursday.
+      const thursday = {5: SquareState.partial};
+      expect(
+        boardHabitsOn(
+          habits: [daily, quota4],
+          day: week()[5],
+          isGreen: greens(thursday),
+          markOn: marks(thursday),
+        ).map((h) => h.id),
+        ['daily', quota4.id],
+      );
+    });
+  });
 }

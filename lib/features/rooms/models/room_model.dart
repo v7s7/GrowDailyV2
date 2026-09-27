@@ -1987,6 +1987,12 @@ class RoomParticipant {
   ///    multi-habit plan it can only overstate what is already done, which
   ///    can only make a week look more reachable than it is.
   ///
+  /// A day with a جزئي stored ([dailyPartialCount]) has already held its
+  /// session: a half takes one of the week's places the way a whole one does
+  /// (weekly_quota_plan.dart, Aziz's 2026-09-26 ruling). Read as a spent
+  /// blank, two halves on Saturday and Sunday lost the week on Tuesday, and
+  /// the strip crossed out days the week's close then rested.
+  ///
   /// Days still to come count as available only while the room is still
   /// running on them: [lastCountedDay] is today for a live room, and a room
   /// that ends mid-week has nothing to offer after [endDate].
@@ -2038,6 +2044,7 @@ class RoomParticipant {
         // is in the past and long since spent — counting it would hand every
         // finished room one imaginary session.
         if ((dailyDoneCount[key] ?? 0) > 0 ||
+            (dailyPartialCount[key] ?? 0) > 0 ||
             d.isAfter(today) ||
             d.isOpenDayAt(clock)) {
           reachable++;

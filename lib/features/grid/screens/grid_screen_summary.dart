@@ -731,8 +731,9 @@ class _SummaryCard extends StatelessWidget {
   /// only for the ring's PERCENTAGE, never for what counts as owed.
   ///
   /// A quota habit that isn't load-bearing today stays off [board] (see
-  /// boardHabitsOn) even when its square carries a جزئي: a half session
-  /// never banks toward the weekly target (see habitOwesDay), so the day
+  /// boardHabitsOn) even when its square carries a جزئي: the half holds one
+  /// of the week's places (weekly_quota_plan.dart), but on its own day it
+  /// owes only what the week needed that day (see habitOwesDay), so the day
   /// genuinely wasn't required. But the effort was real, and today's own
   /// ring is the one safe place to show it. The board already lets a FULL
   /// extra session in on a rest day, because adding a whole unit to both

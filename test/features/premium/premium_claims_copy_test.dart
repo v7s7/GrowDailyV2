@@ -94,6 +94,38 @@ void main() {
     expect(faq.answerAr, contains('لحد $kVoiceNotesPerMonth في الشهر'));
   });
 
+  // The free room limit (room_limit.dart, 2026-09-26) is stated in the gate,
+  // in the Premium answer and in its own Rooms question, always "at a time",
+  // because finished rooms and rooms you left free their place. Written out
+  // as a digit in both FAQ answers, so pinned to the constant like the guest
+  // cap: raising the limit must not leave a sentence saying 3.
+  test('every sentence that states the room limit states kFreeRoomLimit', () {
+    final premium = kFaqEntries
+        .firstWhere((e) => e.questionEn.contains('a guest, a free account'));
+    final rooms =
+        kFaqEntries.firstWhere((e) => e.questionEn.contains('How many rooms'));
+    expect(rooms.group, FaqGroup.rooms);
+    for (final line in [
+      en.roomLimitBody(kFreeRoomLimit),
+      premium.answerEn,
+      rooms.answerEn,
+    ]) {
+      expect(line, contains('$kFreeRoomLimit rooms at a time'), reason: line);
+    }
+    for (final line in [
+      ar.roomLimitBody(kFreeRoomLimit),
+      premium.answerAr,
+      rooms.answerAr,
+    ]) {
+      expect(line, contains('$kFreeRoomLimit غرف في نفس الوقت'), reason: line);
+    }
+    // Premium lifts it, in the Premium answer, and the rooms answer says an
+    // account keeps its rooms when Premium ends (the lapse rule).
+    expect(premium.answerEn, contains('habit and room limits'));
+    expect(premium.answerAr, contains('حد العادات والغرف'));
+    expect(rooms.answerEn, contains('keep every room'));
+  });
+
   test('the last trial day makes no calendar claim', () {
     // trialDaysLeft is 1 for the final 24 hours, which often cross midnight.
     expect(en.premiumTrialLine(1), isNot(contains('today')));

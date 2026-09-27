@@ -185,7 +185,14 @@ bool roomStripMissIsFinal(
       !participant.quotaWeekIsLost(day.toDateKey(), room, now: now)) {
     return false;
   }
-  return roomStripQuotaDemandOn(room, participant, day) != DayDemand.spare;
+  // Owed only, not "anything but spare". A blank day after a week's places
+  // are held is `earned`, a rest day: once a جزئي holds a place (2026-09-26)
+  // that can be a week the grader never banks in quotaOkWeeks, so a member
+  // whose phone has not graded those days yet would have them crossed out
+  // on everyone else's board. Null (the record cannot say) still crosses, as
+  // it always has.
+  final demand = roomStripQuotaDemandOn(room, participant, day);
+  return demand == null || demand == DayDemand.owed;
 }
 
 /// What [day] owes its quota week, the way the week's close will grade it:
@@ -249,11 +256,22 @@ DayDemand? roomStripQuotaDemandOn(
   if (present.any((k) => participant.recordedScheduledCountFor(k) == 0)) {
     return null;
   }
+  final done = {
+    for (var i = 0; i < present.length; i++)
+      if ((participant.dailyDoneCount[present[i]] ?? 0) > 0) i,
+  };
   final demand = weeklyQuotaDemand(
     dayCount: present.length,
-    doneDays: {
+    doneDays: done,
+    // A day holding a stored جزئي held one of the week's places, the way the
+    // grader counts it (weeklyQuotaScheduledDays): read as blank, two halves
+    // on Saturday and Sunday put the week's misses on Tuesday to Friday
+    // instead of Thursday and Friday.
+    halfDays: {
       for (var i = 0; i < present.length; i++)
-        if ((participant.dailyDoneCount[present[i]] ?? 0) > 0) i,
+        if (!done.contains(i) &&
+            (participant.dailyPartialCount[present[i]] ?? 0) > 0)
+          i,
     },
     target: rule.frequencyTarget,
   );

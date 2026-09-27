@@ -14,9 +14,14 @@
 /// ── Where the edits live ────────────────────────────────────────────────
 /// One Firestore document, [kWordingDocPath]:
 ///
-///   strings  {ar: {key: text}, en: {key: text}}  one entry per edited S member
-///   quotes   [{ar, en}, ...]                     the whole daily rotation, or absent
-///   version  int                                 bumped by every save
+///   strings   {ar: {key: text}, en: {key: text}}  one entry per edited S member
+///   quotes    [{ar, en}, ...]                     the whole daily rotation, or absent
+///   faq       {order?, hidden?, text?, groups?}   the FAQ's edits, or absent
+///   benefits  {order?, hidden?, icons?, added?}   the paywall list's edits, or absent
+///   version   int                                 bumped by every save
+///
+/// The two lists (the FAQ and the paywall's benefits) are edited per item
+/// and have their own file, content_edits.dart, which says why and how.
 ///
 /// Anyone may read it (guests have no Firebase account, and every word in it
 /// ships inside the app anyway); nobody may write it from a client. The only
@@ -53,7 +58,10 @@ import 'package:flutter/widgets.dart';
 import 'package:hive/hive.dart';
 
 import '../services/local_store_service.dart';
+import 'content_edits.dart';
 import 'daily_quotes.dart';
+
+export 'content_edits.dart';
 
 /// The one document the admin tool writes and every device reads.
 const String kWordingDocPath = 'wording/live';
@@ -66,6 +74,8 @@ class WordingEdits {
     this.ar = const {},
     this.en = const {},
     this.quotes,
+    this.faq,
+    this.benefits,
     this.version = 0,
   });
 
@@ -83,6 +93,14 @@ class WordingEdits {
   /// Grid with no line at all, so it parses to null instead.
   final List<DailyQuote>? quotes;
 
+  /// The FAQ's edits, null for the built-in FAQ (see content_edits.dart).
+  final FaqEdits? faq;
+
+  /// The paywall benefit list's edits, null for the built-in list (see
+  /// content_edits.dart). The words of a built-in benefit are S strings,
+  /// edited in [ar] and [en] like any other.
+  final BenefitEdits? benefits;
+
   /// The admin tool's save counter. Informational only; nothing orders
   /// snapshots by it, because Firestore already delivers them in order.
   final int version;
@@ -92,7 +110,12 @@ class WordingEdits {
   Map<String, String> stringsFor(String languageCode) =>
       languageCode == 'ar' ? ar : en;
 
-  bool get isEmpty => ar.isEmpty && en.isEmpty && quotes == null;
+  bool get isEmpty =>
+      ar.isEmpty &&
+      en.isEmpty &&
+      quotes == null &&
+      faq == null &&
+      benefits == null;
 
   /// The document as Firestore (or this device's cached copy) holds it.
   ///
@@ -108,6 +131,8 @@ class WordingEdits {
       ar: _stringMap(strings is Map ? strings['ar'] : null),
       en: _stringMap(strings is Map ? strings['en'] : null),
       quotes: _quoteList(data['quotes']),
+      faq: FaqEdits.fromData(data['faq']),
+      benefits: BenefitEdits.fromData(data['benefits']),
       version: version is num ? version.toInt() : 0,
     );
   }
@@ -147,6 +172,8 @@ class WordingEdits {
           'quotes': [
             for (final q in quotes!) {'ar': q.ar, 'en': q.en},
           ],
+        if (faq != null) 'faq': faq!.toJson(),
+        if (benefits != null) 'benefits': benefits!.toJson(),
         'version': version,
       };
 }

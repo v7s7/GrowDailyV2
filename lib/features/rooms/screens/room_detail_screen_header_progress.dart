@@ -696,47 +696,58 @@ class _MilestoneRow extends StatelessWidget {
 /// for whether other participants can see which specific habit(s) these
 /// are (see RoomsController.toggleHideDetails) - a decision only the
 /// participant themself makes, so this card only ever renders for "mine".
-/// One habit chip in "Your plan", aware of which shared-plan slot it sits in
-/// so it can render the states a slot can actually be in, and offer the one
-/// action that makes sense for each:
+/// One habit tile on "Your plan", aware of which shared-plan slot it is and
+/// which row of the card it sits in (see roomPlanTilesFor):
 ///
-///  - **Counting** (the normal case): gold chip. For the room's leader in a
-///    shared-plan room that has not ended, a long-press opens the same
-///    remove confirm as the menu's «إزالة عادة» (see
-///    _confirmRemoveSharedHabit) - long-press, not a visible X, so a
-///    destructive plan-wide change can't happen from a mis-tap on a chip
-///    this small.
-///    Tapping it, for any member of a running shared-plan room, opens
-///    showRelinkPlanHabitSheet: change which of your habits fills the slot,
-///    from today on (Aziz, 2026-09-25: "edit the connection if one make
-///    mistake").
-///  - **Skipped by this person** (see kDeclinedSlot): muted, struck through.
-///    Tapping offers to add it after all, which resolves the slot to a fresh
-///    habit cloned from the plan's own template - a skip was never meant to
-///    be permanent.
-///  - **Removed by the leader, last day** (see RoomHabitTemplate.stopsOn):
-///    it still counts today, so it keeps its look and says «آخر يوم». No
-///    action on it. From the next day it has no chip at all (see
-///    [_planChipShown]): the habit stays in the member's Grid, no longer tied
-///    to the room (Aziz, 2026-09-22).
-class _PlanSlotChip extends ConsumerWidget {
+///  - **Today** (the normal case): gold. A small tick in its corner once it
+///    is done today, read from the same record the headline's «1 من 3»
+///    counts (dailyHabitMarks, written beside dailyDoneCount), so the two
+///    cannot disagree. Skipped by this member (kDeclinedSlot): muted and
+///    struck through, with «متخطاة» under it.
+///  - **Last day**: the leader removed it today and it still counts today
+///    (RoomHabitTemplate.stopsOn), so it keeps its gold, dashed, in its own
+///    row under today's.
+///  - **Removed**: its last day is over. Gray and dashed, in the row
+///    «انشالت من الخطة», for kRemovedPlanTileDays days.
+///
+/// Every tile is the same size, three to a row (Aziz, 2026-09-27: "make it
+/// size fit all same so its better cleaner design"). The chips they replace
+/// were as wide as their names, and the morning after a removal the card
+/// showed seven of them for a day that counted three.
+///
+/// TAP is the room's habit filter (his pick on the design canvas, option ب,
+/// 2026-09-27): every member's strip below draws this habit alone, and a
+/// second tap puts the whole plan back. Only where a filter means something
+/// (roomHabitFilterAvailable); elsewhere a tile is only its name.
+///
+/// LONG PRESS holds what the tap used to do, all in one place: change which
+/// of your habits fills the slot (showRelinkPlanHabitSheet, any member of a
+/// running shared plan; Aziz, 2026-09-25), add a skipped habit after all,
+/// and the leader's remove (_confirmRemoveSharedHabit), still behind a long
+/// press so a plan-wide change never comes from a mis-tap. One action opens
+/// straight away; more than one opens a short menu named after the habit.
+class _PlanTile extends ConsumerWidget {
   final RoomModel room;
   final RoomParticipant mine;
-  final int index;
-  const _PlanSlotChip({
+  final RoomPlanTile tile;
+  final bool doneToday;
+  final bool selected;
+  final double height;
+
+  /// The filter toggle; null where the tiles are not a filter.
+  final VoidCallback? onTap;
+
+  const _PlanTile({
     required this.room,
     required this.mine,
-    required this.index,
+    required this.tile,
+    required this.doneToday,
+    required this.selected,
+    required this.height,
+    required this.onTap,
   });
 
-  bool get _isSkipped =>
-      index < mine.linkedHabitIds.length &&
-      mine.linkedHabitIds[index] == kDeclinedSlot;
-
-  bool get _isRemoved =>
-      room.habitMode == RoomHabitMode.shared &&
-      index < room.sharedHabits.length &&
-      room.sharedHabits[index].isRemoved;
+  int get _slot => tile.slot;
 
   Future<void> _undoSkip(BuildContext context, WidgetRef ref) async {
     final s = S.of(context);
@@ -750,7 +761,7 @@ class _PlanSlotChip extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(mine.linkedHabitNames[index]),
+        title: Text(mine.linkedHabitNames[_slot]),
         content: Text(s.roomSkippedHint),
         actions: [
           TextButton(
@@ -765,109 +776,513 @@ class _PlanSlotChip extends ConsumerWidget {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(roomsControllerProvider).resolvePlanHabit(room, index);
+    await ref.read(roomsControllerProvider).resolvePlanHabit(room, _slot);
+  }
+
+  /// What a long press offers on this tile, in the order the menu lists it.
+  List<_PlanTileAction> _actions(
+    BuildContext context,
+    WidgetRef ref,
+    String? uid,
+  ) {
+    final s = S.of(context);
+    final inPlan = tile.row == RoomPlanTileRow.today;
+    final canRemove = inPlan &&
+        !tile.skipped &&
+        !room.isEnded &&
+        room.habitMode == RoomHabitMode.shared &&
+        uid != null &&
+        uid == room.createdBy &&
+        _slot < room.sharedHabits.length;
+    return [
+      // Any member may change which of their habits fills a slot of a
+      // running shared plan, never in the lobby (relinkSheetOpensFor).
+      if (inPlan && !tile.skipped && relinkSheetOpensFor(room, mine, _slot))
+        (
+          icon: Icons.link_rounded,
+          label: s.roomRelinkTitle,
+          destructive: false,
+          run: () => showRelinkPlanHabitSheet(
+                context,
+                room: room,
+                mine: mine,
+                slot: _slot,
+              ),
+        ),
+      // A skip was never meant to be permanent: adding it resolves the slot
+      // to a fresh habit cloned from the plan's own template.
+      if (tile.skipped)
+        (
+          icon: Icons.add_circle_outline_rounded,
+          label: s.roomNewHabitBannerAction,
+          destructive: false,
+          run: () => _undoSkip(context, ref),
+        ),
+      if (canRemove)
+        (
+          icon: Icons.playlist_remove_rounded,
+          label: s.roomRemoveFromPlanAction,
+          destructive: true,
+          run: () => _confirmRemoveSharedHabit(context, ref, room, _slot),
+        ),
+    ];
+  }
+
+  void _openActions(
+    BuildContext context,
+    String title,
+    List<_PlanTileAction> actions,
+  ) {
+    HapticFeedback.mediumImpact();
+    if (actions.length == 1) {
+      actions.single.run();
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => _PlanTileActionsSheet(
+        title: title,
+        actions: actions,
+        // Popped first, then run on the card's own context, which outlives
+        // the sheet: the relink sheet and the remove confirm open from it.
+        onPick: (a) {
+          Navigator.of(sheetContext).pop();
+          a.run();
+        },
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
     final s = S.of(context);
-    final label = mine.linkedHabitNames[index];
-    final muted = _isSkipped;
+    final name = mine.linkedHabitNames[_slot];
     final uid = ref.watch(authStateProvider).asData?.value?.uid;
-    final canRemove = !muted &&
-        !_isRemoved &&
-        !room.isEnded &&
-        room.habitMode == RoomHabitMode.shared &&
-        uid != null &&
-        uid == room.createdBy &&
-        index < room.sharedHabits.length;
+    final actions = _actions(context, ref, uid);
+    final lastDay = tile.row == RoomPlanTileRow.lastDay;
+    final removed = tile.row == RoomPlanTileRow.removed;
+    final skipped = tile.skipped;
 
-    final chip = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: muted
-            ? gp.textTert.withOpacity(0.12)
-            : GameColors.gold.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 9.5,
-              fontWeight: FontWeight.w700,
-              color: muted ? gp.textTert : context.gp.goldInk,
-              decoration: _isSkipped ? TextDecoration.lineThrough : null,
-            ),
-          ),
-          if (muted || _isRemoved) ...[
-            const SizedBox(width: 4),
-            Text(
-              _isRemoved ? s.roomLastDayLabel : s.roomSkippedLabel,
-              style: TextStyle(
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w600,
-                  color: muted ? gp.textTert : context.gp.goldInk),
-            ),
-          ],
-        ],
+    final Color fill;
+    final Color ink;
+    if (selected) {
+      fill = GameColors.gold.withOpacity(0.24);
+      ink = gp.goldInk;
+    } else if (removed) {
+      fill = gp.textTert.withOpacity(0.06);
+      ink = gp.textTert;
+    } else if (skipped) {
+      fill = gp.textTert.withOpacity(0.12);
+      ink = gp.textTert;
+    } else if (lastDay) {
+      fill = GameColors.gold.withOpacity(0.05);
+      ink = gp.goldInk;
+    } else {
+      fill = GameColors.gold.withOpacity(0.12);
+      ink = gp.goldInk;
+    }
+    // A dashed edge on the two kinds that are leaving or gone, so the eye
+    // sets them apart from the habits that stay before reading a word.
+    final Color? dashed = selected
+        ? null
+        : removed
+            ? gp.textTert.withOpacity(0.45)
+            : lastDay
+                ? GameColors.gold.withOpacity(0.55)
+                : null;
+
+    final nameText = Text(
+      name,
+      textAlign: TextAlign.center,
+      maxLines: skipped ? 1 : 2,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w700,
+        height: 1.3,
+        color: ink,
+        decoration: skipped ? TextDecoration.lineThrough : null,
+        decorationColor: ink,
       ),
     );
+    final body = Container(
+      height: height,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(10),
+        border: selected ? Border.all(color: GameColors.gold, width: 2) : null,
+      ),
+      child: skipped
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                nameText,
+                Text(
+                  s.roomSkippedLabel,
+                  style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textTert,
+                  ),
+                ),
+              ],
+            )
+          : nameText,
+    );
 
-    if (_isRemoved) return chip;
-    if (_isSkipped) {
-      return GestureDetector(
-        onTap: () => _undoSkip(context, ref),
-        child: chip,
-      );
-    }
-    // Any member may change which of their habits fills a slot of a running
-    // shared plan, never in the lobby (relinkSheetOpensFor); the leader's
-    // long-press stays the remove.
-    final canRelink = relinkSheetOpensFor(room, mine, index);
-    if (!canRemove && !canRelink) return chip;
-    return GestureDetector(
-      onTap: canRelink
-          ? () => showRelinkPlanHabitSheet(
-                context,
-                room: room,
-                mine: mine,
-                slot: index,
-              )
-          : null,
-      onLongPress: canRemove
-          ? () {
-              HapticFeedback.mediumImpact();
-              _confirmRemoveSharedHabit(context, ref, room, index);
-            }
-          : null,
-      child: chip,
+    final states = [
+      name,
+      if (doneToday) s.roomMarkedToday,
+      if (skipped) s.roomSkippedLabel,
+      if (lastDay) s.roomLastDayLabel,
+      if (removed) s.roomPlanRemovedSection,
+    ];
+    final onLongPress =
+        actions.isEmpty ? null : () => _openActions(context, name, actions);
+    // The actions ride on this node as well as on the detector below:
+    // excludeSemantics drops the detector's own, and a tile a screen reader
+    // announced as a button but could not press would be worse than none.
+    return Semantics(
+      button: onTap != null,
+      selected: onTap != null ? selected : null,
+      label: states.join(s.isAr ? '، ' : ', '),
+      hint: onTap != null ? s.roomPlanTileShowDays : null,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            body,
+            if (dashed != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _DashedRRectPainter(color: dashed, radius: 10),
+                  ),
+                ),
+              ),
+            if (doneToday)
+              PositionedDirectional(
+                top: -6,
+                end: -6,
+                child: _DoneTick(
+                  // The ring is the plan card's own colour, so the tick
+                  // reads as sitting on the corner rather than on the tile.
+                  ring: Color.alphaBlend(
+                    GameColors.gold.withOpacity(0.08),
+                    gp.bg,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-/// Whether slot [i] still has a chip on this member's plan card: always,
-/// unless the leader removed it and its last counted day is over (including
-/// that day's grace tail, see RoomModel.slotLiveOnOpenDayAt), or it was
-/// removed before this member joined and so was never theirs.
-bool _planChipShown(RoomModel room, RoomParticipant mine, int i) {
-  if (room.habitMode != RoomHabitMode.shared) return true;
-  if (i >= room.sharedHabits.length) return true;
-  if (!room.sharedHabits[i].isRemoved) return true;
-  if (mine.slotRemovedBeforeJoin(room, i)) return false;
-  return room.slotLiveOnOpenDayAt(i, DateTime.now());
+/// One thing a long press on a plan tile can do.
+typedef _PlanTileAction = ({
+  IconData icon,
+  String label,
+  bool destructive,
+  VoidCallback run,
+});
+
+/// The short menu a long press opens when a tile has more than one action
+/// (the leader's own tile: change the linked habit, or remove it from the
+/// plan). The same shell as the member options sheet.
+class _PlanTileActionsSheet extends StatelessWidget {
+  final String title;
+  final List<_PlanTileAction> actions;
+  final ValueChanged<_PlanTileAction> onPick;
+
+  const _PlanTileActionsSheet({
+    required this.title,
+    required this.actions,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 16 + MediaQuery.of(context).padding.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+              ),
+            ),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final a in actions)
+              InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  onPick(a);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Row(
+                    children: [
+                      Icon(
+                        a.icon,
+                        size: 20,
+                        color: a.destructive ? gp.errorInk : gp.textPrimary,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          a.label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color:
+                                a.destructive ? gp.errorInk : gp.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The corner tick on a plan tile done today: the app's own done colour,
+/// ringed in the card's colour.
+class _DoneTick extends StatelessWidget {
+  final Color ring;
+  const _DoneTick({required this.ring});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 17,
+      height: 17,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: GameColors.success,
+        shape: BoxShape.circle,
+        border: Border.all(color: ring, width: 2),
+      ),
+      child: const Icon(Icons.check_rounded, size: 11, color: Colors.white),
+    );
+  }
+}
+
+/// A dashed rounded-rect edge, for the tiles that are leaving or gone.
+class _DashedRRectPainter extends CustomPainter {
+  final Color color;
+  final double radius;
+  const _DashedRRectPainter({required this.color, required this.radius});
+
+  static const double _dash = 4;
+  static const double _gap = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          (Offset.zero & size).deflate(0.5),
+          Radius.circular(radius),
+        ),
+      );
+    for (final metric in path.computeMetrics()) {
+      for (var d = 0.0; d < metric.length; d += _dash + _gap) {
+        final end = d + _dash < metric.length ? d + _dash : metric.length;
+        canvas.drawPath(metric.extractPath(d, end), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashedRRectPainter old) =>
+      old.color != color || old.radius != radius;
+}
+
+/// The plan card's habit tiles in their rows: today's, then the ones the
+/// leader removed today (still counting), then the ones already gone (see
+/// roomPlanTilesFor). Three equal tiles to a row, all one height, so a long
+/// name wraps inside its own tile instead of making it wider than the rest.
+///
+/// Reads the day clock rather than DateTime.now(), so a habit whose last day
+/// just ended moves to the gray row at midnight on a card left open.
+class _PlanTiles extends ConsumerWidget {
+  final RoomModel room;
+  final RoomParticipant mine;
+  const _PlanTiles({required this.room, required this.mine});
+
+  static const double _gap = 6;
+
+  /// Wider than [_gap]: the corner tick of a tile in the row below sits
+  /// six points above that tile.
+  static const double _runGap = 9;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final now = ref.watch(dayClockProvider);
+    final tiles = roomPlanTilesFor(room, mine, now);
+    if (tiles.isEmpty) return const SizedBox.shrink();
+    final filterOn = roomHabitFilterAvailable(room, now: now);
+    final selected =
+        filterOn ? ref.watch(roomHabitFilterProvider(room.code)) : null;
+    final marks = mine.habitMarksFor(now.effectiveDay.toDateKey());
+    bool doneToday(RoomPlanTile t) =>
+        t.row != RoomPlanTileRow.removed &&
+        marks != null &&
+        t.slot < mine.linkedHabitIds.length &&
+        marks[mine.linkedHabitIds[t.slot]] == RoomHabitMark.done;
+    // Two lines of the name at the reader's own text size, never less than
+    // 40: every tile is this tall, so a one-line name and a two-line one
+    // still make an even row. 1.3 is the name's own line height (_PlanTile).
+    final twoLines =
+        MediaQuery.textScalerOf(context).scale(11.5) * 1.3 * 2 + 10;
+    final height = twoLines > 40 ? twoLines : 40.0;
+
+    Widget rowOf(List<RoomPlanTile> list, double width) {
+      final w = (width - _gap * 2) / 3;
+      return Wrap(
+        spacing: _gap,
+        runSpacing: _runGap,
+        children: [
+          for (final t in list)
+            SizedBox(
+              width: w,
+              child: _PlanTile(
+                room: room,
+                mine: mine,
+                tile: t,
+                doneToday: doneToday(t),
+                selected: selected == t.slot,
+                height: height,
+                onTap: filterOn
+                    ? () {
+                        HapticFeedback.selectionClick();
+                        final filter =
+                            ref.read(roomHabitFilterProvider(room.code).notifier);
+                        filter.state = filter.state == t.slot ? null : t.slot;
+                      }
+                    : null,
+              ),
+            ),
+        ],
+      );
+    }
+
+    Widget label(String text, Color color) => Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 9),
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(height: 1, color: gp.border.withOpacity(0.6)),
+              ),
+            ],
+          ),
+        );
+
+    final today = [for (final t in tiles) if (t.row == RoomPlanTileRow.today) t];
+    final lastDay = [
+      for (final t in tiles)
+        if (t.row == RoomPlanTileRow.lastDay) t,
+    ];
+    final removed = [
+      for (final t in tiles)
+        if (t.row == RoomPlanTileRow.removed) t,
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (today.isNotEmpty) rowOf(today, constraints.maxWidth),
+          if (lastDay.isNotEmpty) ...[
+            label(s.roomPlanLastDaySection, gp.goldInk),
+            rowOf(lastDay, constraints.maxWidth),
+          ],
+          if (removed.isNotEmpty) ...[
+            label(s.roomPlanRemovedSection, gp.textTert),
+            rowOf(removed, constraints.maxWidth),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 /// One flexible weekly-quota habit's standing in the current grid week, for
-/// [_MyPlanCard]'s per-quota line: how many of [target] are banked, and
-/// whether today is a [DayDemand.owed] day — a day that cannot be skipped
-/// without putting the target out of reach.
+/// [_MyPlanCard]'s per-quota line: what the week is worth so far out of
+/// [target], and whether today is a [DayDemand.owed] day — a day that cannot
+/// be skipped without putting the target out of reach.
+///
+/// Worth, not sessions, because this line sits among the room's scores: a
+/// جزئي holds one of the week's places at half (Aziz, 2026-09-26, see
+/// weekly_quota_plan.dart), so two whole and a half on a 3x habit is 2.5 of
+/// 3, which the room scores it; counted as three sessions the line read
+/// «3 من 3» beside a week the room holds at 83%.
 typedef _QuotaStanding = ({
   String name,
-  int done,
+  double done,
   int target,
   bool neededToday,
 });
@@ -909,16 +1324,28 @@ List<_QuotaStanding> _quotaWeekStandings(
       for (var i = 0; i < days.length; i++)
         if (grid.squareFor(id, days[i]).isGreen) i,
     };
+    final halfIdx = {
+      for (var i = 0; i < days.length; i++)
+        if (!doneIdx.contains(i) &&
+            grid.squareFor(id, days[i]) == SquareState.partial)
+          i,
+    };
     final demand = weeklyQuotaDemand(
       dayCount: days.length,
       doneDays: doneIdx,
+      halfDays: halfIdx,
       target: target,
     );
     final todayIdx = days.indexWhere((d) => d.isSameDayAs(today));
     out.add(
       (
         name: habit.localName(S.of(ref.context).isAr),
-        done: doneIdx.length,
+        done: quotaWeekCredit(
+          dayCount: days.length,
+          doneDays: doneIdx,
+          halfDays: halfIdx,
+          target: target,
+        ),
         target: target.clamp(1, days.length),
         neededToday: todayIdx >= 0 && demand[todayIdx] == DayDemand.owed,
       ),
@@ -1121,21 +1548,12 @@ class _MyPlanCard extends ConsumerWidget {
           ),
           if (!collapsed) ...[
           // Index-aware rather than a filtered copy of the names: each
-          // chip's POSITION is what maps it back to its shared-plan slot,
-          // which is exactly what the skipped/withdrawn states and the
-          // leader's remove action both need (see _PlanSlotChip).
+          // tile's slot is what maps it back to the shared plan, which the
+          // skipped, last-day and removed rows, the habit filter and the
+          // long-press actions all need (see _PlanTile).
           if (names.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (var i = 0; i < mine.linkedHabitNames.length; i++)
-                  if (mine.linkedHabitNames[i].trim().isNotEmpty &&
-                      _planChipShown(room, mine, i))
-                    _PlanSlotChip(room: room, mine: mine, index: i),
-              ],
-            ),
+            const SizedBox(height: 12),
+            _PlanTiles(room: room, mine: mine),
           ],
           // A flexible weekly quota's week-level standing ("2 of 4 this
           // week"), one line per quota habit. The headline above only
@@ -1161,9 +1579,13 @@ class _MyPlanCard extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     q.neededToday
-                        ? '${s.roomQuotaWeekProgress(q.name, q.done, q.target)}'
+                        ? '${s.roomQuotaWeekProgress(q.name, roomScoreText(q.done), q.target)}'
                             ' · ${s.roomQuotaNeededToday}'
-                        : s.roomQuotaWeekProgress(q.name, q.done, q.target),
+                        : s.roomQuotaWeekProgress(
+                            q.name,
+                            roomScoreText(q.done),
+                            q.target,
+                          ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(

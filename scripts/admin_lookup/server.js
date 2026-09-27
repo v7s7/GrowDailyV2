@@ -1713,6 +1713,78 @@ app.post('/api/wording/undo', localWriteOnly, wordingJson, async (req, res) => {
   }
 });
 
+// ---- FAQ and Premium: the app's two lists, edited without a release ----
+//
+// The FAQ (Help & Support) and the paywall's list of what Premium includes,
+// plus every sentence on the paywall. Both lists live in wording/live beside
+// the string edits (lib/wording.js; the app side is
+// lib/core/l10n/content_edits.dart), so they share its rule, its History and
+// its Undo, and a save needs no deploy. The pages are lib/content_pages.js
+// and the scripts in content/; the rules both pages and the server run are
+// wording/content_rules.js. Every write goes through localWriteOnly.
+const { renderFaqPage, renderPremiumPage } = require('./lib/content_pages');
+const CONTENT_SCRIPTS = new Set(['kit.js', 'faq.js', 'premium.js']);
+
+app.get('/faq', (req, res) => {
+  res.type('html').send(renderFaqPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/premium', (req, res) => {
+  res.type('html').send(renderPremiumPage({ projectId: PROJECT_ID }));
+});
+
+// A named whitelist, like /static: nothing else in content/ is served.
+app.get('/content/:file', (req, res) => {
+  if (!CONTENT_SCRIPTS.has(req.params.file)) return res.status(404).end();
+  res.type('application/javascript').sendFile(path.join(__dirname, 'content', req.params.file));
+});
+
+app.get('/wording/content_rules.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'content_rules.js'));
+});
+
+app.post('/api/wording/faq', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { catalog } = await wording.currentCatalog();
+    if (!catalog) throw new wording.WordingInputError('The list of strings is missing.', 500);
+    const body = req.body || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    const result = await wording.saveFaq(db, admin.firestore.FieldValue, {
+      builtIn: catalog.faq,
+      draft: body.draft,
+      checked: body.checked,
+      // What the page was built from: the FAQ edits it loaded (null for none)
+      // and the fingerprint of the app's own FAQ. A stale page is refused.
+      base: has('base') ? body.base : undefined,
+      builtInFingerprint: body.builtInFingerprint,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, wording: await wording.readWording(db) });
+  } catch (e) {
+    wordingError(res, e);
+  }
+});
+
+app.post('/api/wording/premium', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const { catalog } = await wording.currentCatalog();
+    const body = req.body || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    const result = await wording.savePremium(db, admin.firestore.FieldValue, {
+      catalog,
+      strings: body.strings,
+      stringsBase: body.stringsBase,
+      benefits: has('benefits') ? body.benefits : undefined,
+      benefitsBase: has('benefitsBase') ? body.benefitsBase : undefined,
+      builtInFingerprint: body.builtInFingerprint,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, wording: await wording.readWording(db) });
+  } catch (e) {
+    wordingError(res, e);
+  }
+});
+
 // ---- Achievements: every medal's name and description, edited without a
 // release. Same shape as Wording just above (write route behind
 // localWriteOnly, whole-document replace inside a transaction), sized for

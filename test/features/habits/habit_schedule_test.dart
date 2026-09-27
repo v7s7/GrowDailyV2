@@ -290,4 +290,30 @@ void main() {
       expect(f.missedSinceLastDone, 7);
     });
   });
+
+  // Aziz, 2026-09-26: a جزئي is a day trained, and «هدف الأسبوع تم» is said
+  // of whole sessions only.
+  group('quotaReminderWeekDays', () {
+    test('halves count as days trained while the week has room', () {
+      expect(quotaReminderWeekDays(whole: {}, half: {0, 1}, target: 4), {0, 1});
+      expect(
+          quotaReminderWeekDays(whole: {0}, half: {2}, target: 4), {0, 2});
+    });
+
+    test('met in whole sessions: only they are counted', () {
+      expect(
+        quotaReminderWeekDays(whole: {0, 1, 2}, half: {3}, target: 3),
+        {0, 1, 2},
+      );
+    });
+
+    test('halves filling the week short of whole ones: nothing is claimed', () {
+      // Two whole and a half on a 3x habit is 2.5 of 3, and a whole session
+      // today would still take the half's place: neither "met" nor "one
+      // left" is true.
+      expect(quotaReminderWeekDays(whole: {0, 1}, half: {2}, target: 3), isNull);
+      expect(quotaReminderWeekDays(whole: {}, half: {0, 1, 2, 3}, target: 4),
+          isNull);
+    });
+  });
 }

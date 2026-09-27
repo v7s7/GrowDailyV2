@@ -133,7 +133,7 @@ class _RoomBody extends ConsumerWidget {
                 PopupMenuItem(
                     value: 'addHabit', child: Text(s.roomAddHabitAction)),
                 // Right under add, where a leader looks for it. The long
-                // press on a plan chip (see _PlanSlotChip) still reaches the
+                // press on a plan tile (see _PlanTile) still reaches the
                 // same confirm, but nobody had found it: no leader used it in
                 // any of the 15 rooms (2026-09-22).
                 PopupMenuItem(
@@ -351,7 +351,7 @@ Future<void> _addHabitToPlan(
 
 /// Leader-only, 'shared'-mode-only: the «إزالة عادة» menu item. Lists the
 /// habits still in the plan, then hands the pick to the same confirm the
-/// plan chip's long press opens ([_confirmRemoveSharedHabit]).
+/// plan tile's long press opens ([_confirmRemoveSharedHabit]).
 ///
 /// A plan down to one habit is answered before anything opens: a room needs
 /// at least one, and a list with a single row the leader cannot remove would
@@ -399,7 +399,7 @@ Future<void> _showLastHabitDialog(BuildContext context) {
 }
 
 /// The one confirm for removing a shared habit, whichever way the leader got
-/// here (the menu's list, or a long press on the plan chip). Says exactly
+/// here (the menu's list, or a long press on the plan tile). Says exactly
 /// what happens: it still counts today and for nobody from tomorrow, days
 /// before stay, everyone keeps the habit in their own list. Or, when nothing
 /// has counted yet (a room not started, a habit added today), that it goes

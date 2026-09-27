@@ -1017,13 +1017,26 @@ WeeklyHabitCredit weeklyHabitCreditFor({
 ///
 /// Returns indices into [presentDays] (which must be chronological, and
 /// already filtered to the days this habit existed on within the room's
-/// range). [doneDays] is the subset of those that are green.
+/// range). [doneDays] is the subset of those that are green, [halfDays] the
+/// ones marked جزئي.
+///
+/// A half is a session here, as everywhere a quota week is resolved (Aziz,
+/// 2026-09-26: "0.5 is a day count, unless it's overwritten with a full
+/// day"; see weekly_quota_plan.dart). It takes one of the week's places at
+/// half credit, and whole sessions take the places first. Before this a half
+/// was read as an empty day, so a week of two halves and nothing else placed
+/// its misses on its four LAST days and excused the halves as rest: his week
+/// of 19 September scored 0 of 4 in both rooms, where it is 1 of 4.
 ///
 /// The three cases:
-///  - Target reached: only the days actually done are answerable; the rest of
-///    the week is rest, and rest that was earned is not a miss. Checked first
-///    so hitting the target early credits immediately rather than making
-///    someone wait for the week to close, matching [weeklyHabitCreditFor].
+///  - Every place held: only the sessions holding a place are answerable
+///    ([quotaWeekPlaces]: the earliest whole sessions, then the earliest
+///    halves); the rest of the week is rest, and rest that was earned is not
+///    a miss. Checked first so hitting the target early credits immediately
+///    rather than making someone wait for the week to close, matching
+///    [weeklyHabitCreditFor]. A week held partly by halves is graded on what
+///    they are worth, half a day each, and can still rise: a whole session
+///    later in the week takes the place of its latest half.
 ///  - Target not reached and the week is still open: every day so far counts.
 ///    A week in progress is never handed its rest days in advance — that's
 ///    the same "credit before the fact" trap [quotaOkWeeks] documents for
@@ -1049,29 +1062,46 @@ List<int> weeklyQuotaScheduledDays({
   required Set<int> doneDays,
   required int target,
   required bool isWeekClosed,
+  Set<int> halfDays = const {},
 }) {
   if (presentDays.isEmpty) return const [];
   final effectiveTarget = target.clamp(1, presentDays.length);
-  final done = presentDays.where(doneDays.contains).toList();
-  // A weekly target is the commitment, not a seven-day multiplier. Once it
-  // has been met, the first `target` sessions are the room's completed work;
-  // later sessions remain visible in the person's own Grid, but are rest
-  // days as far as this room's score is concerned. Otherwise a 4x habit
+  // weeklyQuotaDemand and quotaWeekPlaces work in week positions (0-based),
+  // presentDays holds indices into the sync's own day range — translate in,
+  // then back out. A day both green and جزئي is whole.
+  final whole = <int>{
+    for (var p = 0; p < presentDays.length; p++)
+      if (doneDays.contains(presentDays[p])) p,
+  };
+  final half = <int>{
+    for (var p = 0; p < presentDays.length; p++)
+      if (!whole.contains(p) && halfDays.contains(presentDays[p])) p,
+  };
+  // A weekly target is the commitment, not a seven-day multiplier. Once its
+  // places are held, the sessions holding them are the room's completed
+  // work; later sessions remain visible in the person's own Grid, but are
+  // rest days as far as this room's score is concerned. Otherwise a 4x habit
   // could cover a miss in a daily habit simply by being done on days five,
   // six and seven.
-  if (done.length >= effectiveTarget)
-    return done.take(effectiveTarget).toList();
+  if (whole.length + half.length >= effectiveTarget) {
+    final places = quotaWeekPlaces(
+      dayCount: presentDays.length,
+      doneDays: whole,
+      halfDays: half,
+      target: effectiveTarget,
+    );
+    return [
+      for (var p = 0; p < presentDays.length; p++)
+        if (places.contains(p)) presentDays[p],
+    ];
+  }
   if (!isWeekClosed) return presentDays;
-  // Closed and short. weeklyQuotaDemand works in week positions (0-based),
-  // presentDays holds indices into the sync's own day range — translate in,
-  // then back out. Answerable = done days + owed days; spare/earned days are
-  // the excused rest.
+  // Closed and short. Answerable = the sessions + the owed days;
+  // spare/earned days are the excused rest.
   final demand = weeklyQuotaDemand(
     dayCount: presentDays.length,
-    doneDays: {
-      for (var p = 0; p < presentDays.length; p++)
-        if (doneDays.contains(presentDays[p])) p,
-    },
+    doneDays: whole,
+    halfDays: half,
     target: effectiveTarget,
   );
   return [
@@ -4637,6 +4667,13 @@ class RoomsController {
             for (final i in present)
               if (isGreen(i, id)) i,
           };
+          // Half sessions (جزئي): each holds a place in the week at half
+          // credit, so they decide which blank days were rest and which were
+          // missed exactly as whole ones do. See weeklyQuotaScheduledDays.
+          final half = {
+            for (final i in present)
+              if (!done.contains(i) && isPartial(i, id)) i,
+          };
           final isClosed = isQuotaWeekClosed(
             weekStart: entry.key,
             lastCountedDay: room.lastCountedDayAt(_clock()),
@@ -4646,6 +4683,7 @@ class RoomsController {
           final answerable = weeklyQuotaScheduledDays(
             presentDays: present,
             doneDays: done,
+            halfDays: half,
             target: weekRule.frequencyTarget,
             isWeekClosed: isClosed,
           );
@@ -4678,11 +4716,22 @@ class RoomsController {
           // weeklyQuotaScheduledDays' own doc describes: a week in progress
           // must never read as spotless and then decay.
           if (isClosed) {
-            var sessions = 0.0;
-            for (final i in present) {
-              sessions +=
-                  done.contains(i) ? 1.0 : (isPartial(i, id) ? 0.5 : 0.0);
-            }
+            // What the week's places are worth, the same number the counts
+            // above add up to: a half with no place left adds nothing, where
+            // a plain sum of every mark made two halves beside three whole
+            // sessions a whole fourth.
+            final sessions = quotaWeekCredit(
+              dayCount: present.length,
+              doneDays: {
+                for (var p = 0; p < present.length; p++)
+                  if (done.contains(present[p])) p,
+              },
+              halfDays: {
+                for (var p = 0; p < present.length; p++)
+                  if (half.contains(present[p])) p,
+              },
+              target: weekRule.frequencyTarget,
+            );
             final share = weeklyShareFor(
               target: weekRule.frequencyTarget,
               presentDays: present.length,
@@ -4945,6 +4994,12 @@ class RoomsController {
         final target = cutByPlan
             ? rule.frequencyTarget.clamp(1, window.length)
             : rule.frequencyTarget;
+        // Whole sessions only: a week is HELD once its target was met in
+        // full, and four halves are 2 of 4. A جزئي still holds its place in
+        // pass 1, which is what rests the days after it (scheduled 0); those
+        // keep a streak through isFullyDone like any rest day, so this list
+        // only ever speaks for days the record still has as due, and the
+        // half days themselves, never fully done, break it.
         final credit = weeklyHabitCreditFor(
           completions: window.where((i) => isGreen(i, id)).length,
           target: target,

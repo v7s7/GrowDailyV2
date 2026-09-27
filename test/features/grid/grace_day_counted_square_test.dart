@@ -125,17 +125,26 @@ void main() {
       describe: 'the grid to finish its initial load',
     );
     // On a Saturday, yesterday closed the previous week.
+    //
+    // Waited out until that week has LOADED, not only until its day list
+    // holds yesterday: previousWeek() sets the new days at once and starts
+    // the read, so the old wait returned with the read still in flight. It
+    // then never landed inside the widget test's fake clock, the board sat
+    // on its loading shimmer (pumpAndSettle timing out underneath), no
+    // square was drawn, and both tests failed every Saturday, all day
+    // (2026-09-26).
     if (!h.container
         .read(weeklyGridProvider)
         .days
         .any((d) => d.isSameDayAs(yesterday))) {
       h.container.read(weeklyGridProvider.notifier).previousWeek();
       await waitUntil(
-        () => h.container
-            .read(weeklyGridProvider)
-            .days
-            .any((d) => d.isSameDayAs(yesterday)),
-        describe: 'the week holding yesterday',
+        () {
+          final grid = h.container.read(weeklyGridProvider);
+          return !grid.isLoading &&
+              grid.days.any((d) => d.isSameDayAs(yesterday));
+        },
+        describe: 'the week holding yesterday, loaded',
       );
     }
   }

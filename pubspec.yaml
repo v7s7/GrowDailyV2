@@ -281,6 +281,12 @@ dependencies:
   # versions for a long time, unlike some of the pins above that needed an
   # exact older version to match this project's installed SDK.
   url_launcher: ^6.3.2
+  # The system's own rating prompt (StoreKit's requestReview on iPhone, Play
+  # In-App Review on Android), asked only after a streak milestone; see
+  # rating_prompt.dart. The OS decides whether it actually shows (Apple
+  # caps it at three times a year), which is why nothing here tracks a
+  # rating, only when it last asked.
+  in_app_review: ^2.0.12
 
 dev_dependencies:
   flutter_test:

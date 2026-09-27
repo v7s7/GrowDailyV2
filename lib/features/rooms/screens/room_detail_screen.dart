@@ -48,8 +48,11 @@ import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, canAddHabits, pausedHabitsProvider;
 import '../models/room_day_breakdown.dart';
+import '../models/room_habit_strip.dart';
 import '../models/room_model.dart';
+import '../models/room_plan_tiles.dart';
 import '../models/room_strip_day.dart';
+import '../notifiers/room_habit_filter.dart';
 import '../notifiers/room_moderation.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/pick_own_habit_sheet.dart';

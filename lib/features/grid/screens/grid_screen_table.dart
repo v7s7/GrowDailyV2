@@ -297,12 +297,18 @@ class _GridTableState extends ConsumerState<_GridTable> {
     // Day by day, by the schedule the habit had ON that day (see
     // quotaDemandForRow): a week it changed in is part quota, part not, and
     // a past week keeps the target it was set against.
+    //
+    // A جزئي holds one of the week's places at half credit (Aziz,
+    // 2026-09-26), so the rest days after two halves are the days the room
+    // rests too, not the ones a blank week would have.
     final demand = quotaDemandForRow(
       habit: habit,
       days: days,
       isGreenAt: (i) => widget.state.squareFor(habit.id, days[i]).isGreen,
       isUnmarkedAt: (i) =>
           widget.state.squareFor(habit.id, days[i]) == SquareState.none,
+      isHalfAt: (i) =>
+          widget.state.squareFor(habit.id, days[i]) == SquareState.partial,
     );
 
     // The row that was JUST created announces itself — see
@@ -1455,6 +1461,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
       isGreenAt: (i) => state.squareFor(habit.id, days[i]).isGreen,
       isUnmarkedAt: (i) =>
           state.squareFor(habit.id, days[i]) == SquareState.none,
+      isHalfAt: (i) =>
+          state.squareFor(habit.id, days[i]) == SquareState.partial,
     );
     final confirmed = await _confirmRestDay(
       context,
@@ -1498,12 +1506,14 @@ class _GridTableState extends ConsumerState<_GridTable> {
     };
     final after = tap.weekAfter;
     final target = tap.weekTarget;
-    final what = after != null && target != null
-        ? after > target
-            ? s.restDayExtra
-            : s.restDayQuotaCounts(after, target)
-        : tap.covers != null
-            ? s.restDayCovers(dayName(tap.covers!, midSentence: true))
+    // The day it stands in for first: a specific-days habit's planned day, or
+    // the جزئي a whole session would push out of a quota's week (it counts
+    // for the week, in that half's place). Then a quota's count, and an
+    // extra past its target.
+    final what = tap.covers != null
+        ? s.restDayCovers(dayName(tap.covers!, midSentence: true))
+        : after != null && target != null && after <= target
+            ? s.restDayQuotaCounts(after, target)
             : s.restDayExtra;
     HapticFeedback.selectionClick();
     final result = await showDialog<bool>(

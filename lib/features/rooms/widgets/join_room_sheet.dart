@@ -5,21 +5,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/habit_limit_gate.dart';
+import '../../../shared/widgets/room_limit_gate.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
 import '../notifiers/habit_name_match.dart';
+import '../notifiers/room_limit.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../screens/room_detail_screen.dart';
 
 /// Opens the Join Room sheet and resolves to the room's code once actually
 /// joined, or null if dismissed/cancelled - same "let the caller navigate"
 /// contract as [showCreateRoomSheet]. [initialCode] pre-fills the code
-/// field and searches immediately - used when a `growdaily://join/CODE`
-/// deep link (see main.dart) opens this sheet, so tapping a friend's
-/// invite lands here with everything already filled in instead of asking
-/// the joiner to type the code they just tapped.
+/// field and searches immediately - used when a room invite link opens
+/// Rooms (see RoomsHubScreen.initialJoinCode, which opens this sheet over
+/// the hub), so tapping a friend's invite lands here with everything
+/// already filled in instead of asking the joiner to type the code they
+/// just tapped.
 Future<String?> showJoinRoomSheet(
   BuildContext context,
   WidgetRef ref, {
@@ -71,10 +74,10 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
       _codeCtrl.text = code.toUpperCase();
       // Deferred a frame - _search's setState (and its FocusScope.unfocus
       // call, which needs an attached tree) shouldn't run before this
-      // sheet has finished its first build. This is what turns a
-      // growdaily://join/CODE deep link (see main.dart) into "already
-      // searched, just tap Join" instead of a blank field the joiner still
-      // has to type into.
+      // sheet has finished its first build. This is what turns an invite
+      // link (see RoomsHubScreen.initialJoinCode) into "already searched,
+      // just tap Join" instead of a blank field the joiner still has to
+      // type into.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _search();
       });
@@ -186,13 +189,26 @@ class _JoinRoomSheetState extends ConsumerState<JoinRoomSheet> {
   Future<void> _join() async {
     final room = _foundRoom;
     if (room == null || !_canJoin) return;
+    // The free room limit first: past it the room cannot be joined whatever
+    // the habits say. Asked on Join rather than when the sheet opens, so a
+    // code or an invite link still shows which room it is for. _isJoining
+    // holds the button (spinner and all) while the rooms are counted, so a
+    // second tap cannot start a second join. See canTakeAnotherRoom.
+    setState(() => _isJoining = true);
+    final mayJoin = await canTakeAnotherRoom(ref);
+    if (!mounted) return;
+    if (!mayJoin) {
+      setState(() => _isJoining = false);
+      showRoomLimitGate(context, ref);
+      return;
+    }
     if (room.habitMode == RoomHabitMode.shared &&
         _newHabitCount > 0 &&
         !canAddHabits(ref, additionalCount: _newHabitCount)) {
+      setState(() => _isJoining = false);
       showHabitLimitGate(context, ref);
       return;
     }
-    setState(() => _isJoining = true);
     HapticFeedback.mediumImpact();
     final habits = ref.read(habitListProvider);
     // Filters and maps from the same resolved list (rather than mapping

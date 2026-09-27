@@ -332,11 +332,16 @@ void main() {
           (4, 0.75, false));
     });
 
-    test('a closed جزئي adds its half on top, never a whole session owed', () {
-      // Three times a week, Saturday the 5th done. Counted as a finished
-      // session, a closed جزئي Sunday made the week owe one session more for
-      // half a session's credit: 75% on Monday, beside 100% for a blank
-      // Sunday, so marking half of Sunday read worse than leaving it empty.
+    test('a closed جزئي is a session its week owes, at half', () {
+      // Three times a week, Saturday the 5th done. A جزئي is a session that
+      // holds one of the week's places at half credit (Aziz, 2026-09-26: "0.5
+      // is a day count, unless it's overwritten with a full day"), so once
+      // Sunday closes the week has had two sessions and owes both: 75% on
+      // Monday, the rooms' number too. A blank Sunday still owes nothing yet,
+      // so on Monday the half reads below it; it never reads below it once
+      // the week has closed, and finishing a later day never lowers either.
+      // The half used to sit on top of what was owed instead, which read
+      // 100% on Monday and then fell when a whole session took its place.
       final threeAWeek =
           habit('three', type: HabitFrequencyType.weekly, target: 3);
       (int, double, String) at(Map<String, SquareState> marks, DateTime now) {
@@ -360,8 +365,8 @@ void main() {
       expect(at(blank, monday), (1, 1.0, '100%'));
       expect(
         at(half, monday),
-        (1, 1.5, '100%'),
-        reason: 'Monday to Friday can still hold the other two sessions',
+        (2, 1.5, '75%'),
+        reason: 'two sessions so far, one of them half',
       );
       final friday = sepAt(11, 11);
       expect(at(blank, friday), (2, 1.0, '50%'));
@@ -500,14 +505,17 @@ void main() {
     // is minute t of the 5th plus c.
     //  P1: once the window's last day has closed, the numbers equal the
     //      no-clock reading.
-    //  P2: a habit that is not a flexible quota is never credited past what
-    //      it owes. A quota week is credited past it only by its settled
-    //      جزئي halves, which sit on top, or once its target was beaten.
+    //  P2: no habit is credited past what it owes, except a quota week
+    //      that beat its target in whole sessions. A settled جزئي is a
+    //      session its week owes (2026-09-26), no longer credit on top.
     //  P3: what is owed never shrinks as the clock moves on.
     //  P4: finishing an open blank or جزئي day never lowers the rate.
     //  P5: a better mark on a day that has closed never lowers the rate: a
     //      جزئي reads at least what a blank or a فشل reads, and done at
-    //      least what a جزئي reads.
+    //      least what a جزئي reads. One exception, a quota's جزئي while its
+    //      window is still open: the half is a session the week owes, and a
+    //      blank day there is one the week has not asked for yet. Once the
+    //      window has closed it holds for quotas too.
     //  P6: the quota number agrees with a second spelling of its formula.
     final cut = kDayCutoffHour * 60;
     DateTime dayAt(int i) => DateTime(2026, 9, 5 + i);
@@ -608,8 +616,7 @@ void main() {
               }
               final target = min(h.frequencyTarget, alive);
 
-              final creditCap = quota ? s.expected + 0.5 * halves : s.expected;
-              if (s.creditedUnits > creditCap + 1e-9 &&
+              if (s.creditedUnits > s.expected + 1e-9 &&
                   !(quota && greens > target)) {
                 failures.add('P2 $label: ${s.creditedUnits} of ${s.expected}');
               }
@@ -636,9 +643,12 @@ void main() {
               }
 
               if (quota) {
+                // Sessions: every green (none is ahead of the clock here, and
+                // a green answers its day) and every settled جزئي.
+                final sessions = greens + halves;
                 final alt = min(
                   target,
-                  greens + max(0, target - greens - stillOpen),
+                  sessions + max(0, target - sessions - stillOpen),
                 );
                 if (alt != s.expected) {
                   failures.add('P6 $label: ${s.expected} against $alt');
@@ -658,10 +668,18 @@ void main() {
             for (var i = 0; i < n; i++, place *= alphabet.length) {
               final closed = c > i + 1 || (c == i + 1 && t >= cut);
               if (!closed || p[i] == SquareState.skipped) continue;
+              final windowClosed =
+                  c > n || (c == n && t >= cut);
               for (var u = 0; u < alphabet.length; u++) {
                 final better = alphabet[u];
                 if (better == SquareState.skipped ||
                     markCredit(better) <= markCredit(p[i])) {
+                  continue;
+                }
+                // The one exception, see P5 above.
+                if (!missIsAttributable(h) &&
+                    better == SquareState.partial &&
+                    !windowClosed) {
                   continue;
                 }
                 final marked = code + (u - alphabet.indexOf(p[i])) * place;

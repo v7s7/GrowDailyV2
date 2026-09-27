@@ -30,7 +30,7 @@ const PAGE_STYLES = `
        are built into the page when the server starts, the script is read
        from disk on every load, so a server left running across an update
        serves the new script with the old styles. */
-    --wording-styles: 2;
+    --wording-styles: 3;
   }
 
 
@@ -288,6 +288,7 @@ ${PAGE_STYLES}</style>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><div class="banner danger">This page needs JavaScript.</div></noscript>
   <script src="/wording/rules.js"></script>
+  <script src="/wording/content_rules.js"></script>
   <script src="/wording/app.js"></script>
   <script src="/static/shell.js"></script>
 </body>

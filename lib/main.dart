@@ -48,6 +48,7 @@ import 'core/services/push_notification_service.dart';
 import 'shared/widgets/app_logo.dart';
 import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
+import 'core/services/rating_prompt.dart';
 import 'core/theme/game_theme.dart';
 import 'core/theme/theme_preset.dart' show ThemePresets;
 import 'core/services/habit_mirror.dart';
@@ -70,6 +71,7 @@ import 'features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitCatalog, IslamicHabitTemplate;
 import 'features/habits/models/habit_cue.dart';
 import 'features/habits/models/habit_day_demand.dart';
+import 'features/habits/models/habit_schedule.dart' show quotaReminderWeekDays;
 import 'features/habits/notifiers/catalog_overrides_notifier.dart'
     show catalogOverridesProvider;
 import 'features/habits/notifiers/habit_order_notifier.dart'
@@ -133,7 +135,6 @@ import 'features/rooms/notifiers/rooms_notifier.dart'
 import 'features/rooms/screens/room_detail_screen.dart';
 import 'features/rooms/screens/rooms_hub_screen.dart';
 import 'features/rooms/widgets/room_finale_announcer.dart';
-import 'features/rooms/widgets/join_room_sheet.dart' show showJoinRoomSheet;
 import 'features/settings/models/notification_settings.dart';
 import 'shared/widgets/home_shell.dart';
 import 'features/settings/notifiers/notification_settings_notifier.dart'
@@ -467,6 +468,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   ProviderSubscription<Locale>? _localeSub;
   ProviderSubscription<String>? _widgetThemeSub;
   Timer? _widgetThemeDebounce;
+  ProviderSubscription<({bool loading, int streak})>? _ratingStreakSub;
+  Timer? _ratingDelay;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
   ProviderSubscription<bool>? _habitsLoadedSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitMirrorSub;
@@ -856,6 +859,25 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         });
       },
       fireImmediately: true,
+    );
+
+    // The rating question (rating_prompt.dart): a few seconds after the
+    // streak steps onto 7, 30 or 100 days while the app is in use. Only
+    // between two settled states: a load or a refresh moves the number
+    // from 0 to wherever it was, and that is nobody reaching a milestone.
+    RatingPrompt.noteFirstSeen().ignore();
+    _ratingStreakSub = ref.listenManual(
+      dashboardProvider.select((d) => (loading: d.isLoading, streak: d.streak)),
+      (previous, next) {
+        if (previous == null || previous.loading || next.loading) return;
+        final from = previous.streak;
+        final to = next.streak;
+        if (!streakEarnsRatingAsk(from: from, to: to)) return;
+        _ratingDelay?.cancel();
+        _ratingDelay = Timer(kRatingAskDelay, () {
+          RatingPrompt.maybeAskAfterStreak(from: from, to: to).ignore();
+        });
+      },
     );
 
     // Resolve every habit's cue (fixed clock time or a prayer) into a real
@@ -1576,13 +1598,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // uses (grid_screen_table's isFlexibleQuota): "Specific Days" is
         // also stored as weekly, told apart only by scheduledWeekdays.
         weekTarget: isFlexibleQuota ? habit.frequencyTarget : null,
+        // A جزئي is a day trained, and «هدف الأسبوع تم» is said of whole
+        // sessions only: see quotaReminderWeekDays.
         weekDoneDays:
             !isFlexibleQuota || !grid.isCurrentWeek || grid.isLoading
                 ? null
-                : {
-                    for (var i = 0; i < grid.days.length; i++)
-                      if (grid.squareFor(habit.id, grid.days[i]).isGreen) i,
-                  },
+                : quotaReminderWeekDays(
+                    whole: {
+                      for (var i = 0; i < grid.days.length; i++)
+                        if (grid.squareFor(habit.id, grid.days[i]).isGreen) i,
+                    },
+                    half: {
+                      for (var i = 0; i < grid.days.length; i++)
+                        if (grid.squareFor(habit.id, grid.days[i]) ==
+                            SquareState.partial)
+                          i,
+                    },
+                    target: habit.frequencyTarget,
+                  ),
       ));
     }
     // Read from the Grid's current week once it has loaded, and remembered
@@ -2335,6 +2368,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   void _handleDeepLink(Uri uri) {
     final code = parseRoomJoinLink(uri);
     if (code != null) {
+      // The second copy of a launch link (see isRepeatOpenLink): an invite
+      // that cold-starts the app arrives twice, and each copy used to push
+      // Rooms, so a signed-in person got two Join sheets stacked over two
+      // Rooms pages, and the funnel below counted two opens (seen on the
+      // simulator, 2026-09-27).
+      final now = DateTime.now();
+      final link = uri.toString();
+      if (isRepeatOpenLink(
+        link: link,
+        now: now,
+        lastLink: _lastOpenLink,
+        lastAt: _lastOpenLinkAt,
+      )) {
+        return;
+      }
+      _lastOpenLink = link;
+      _lastOpenLinkAt = now;
       // The middle of the invite funnel: shared, then opened, then joined.
       // Fired here rather than in the join sheet because this is the only
       // point that knows the person arrived from a link at all, and most
@@ -2379,7 +2429,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     }
   }
 
-  /// The last "open this page" link acted on, and when. See
+  /// The last "open this page" link or room invite acted on, and when. See
   /// [isRepeatOpenLink] for the second copy of a launch link.
   String? _lastOpenLink;
   DateTime? _lastOpenLinkAt;
@@ -2887,6 +2937,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _habitMirrorDebounce?.cancel();
     _widgetThemeDebounce?.cancel();
     _widgetThemeSub?.close();
+    _ratingDelay?.cancel();
+    _ratingStreakSub?.close();
     _widgetSub?.close();
     _notificationSettingsSub?.close();
     _gridSub?.close();
@@ -3149,8 +3201,9 @@ class _OnboardingOrGrid extends ConsumerWidget {
     // firstRunOfferProvider for why only the ASKING is persisted and never the
     // answer.
     final offerAsked = ref.watch(firstRunOfferAskedProvider);
-    // A growdaily://join/CODE link (see main.dart's AppLinks wiring above)
-    // may have arrived before this widget ever existed - cold start, or
+    // A room invite link (growdaily://join/CODE, or the https /join/CODE
+    // one invites go out as; see main.dart's AppLinks wiring above) may
+    // have arrived before this widget ever existed - cold start, or
     // while the language/auth/onboarding gates above this one were still
     // showing. This is the first point it's safe to act on it: every gate
     // is behind the user, and there's a real BuildContext to navigate from.
@@ -3159,25 +3212,23 @@ class _OnboardingOrGrid extends ConsumerWidget {
     ref.listen(pendingJoinCodeProvider, (previous, code) {
       if (code == null) return;
       ref.read(pendingJoinCodeProvider.notifier).state = null;
-      final isGuest = ref.read(guestModeProvider);
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
-        // Guests can't join a room (Rooms needs an account - see
-        // RoomsHubScreen's own guest gate); land them on that same
-        // explanation screen instead of a Join sheet whose Join button
-        // would just fail silently with nobody signed in.
-        await Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const RoomsHubScreen()),
+        // Rooms, with the Join sheet open over it and filled in: the hub
+        // opens the sheet itself once it has landed, and the room after a
+        // join (see RoomsHubScreen.initialJoinCode). A guest gets the
+        // hub's own sign-in explanation and no sheet, since Rooms need an
+        // account and its Join would only fail.
+        //
+        // Not awaited. push's Future completes when the pushed route is
+        // POPPED; this used to await it before showing the sheet, so an
+        // invite opened plain Rooms and the sheet only came up once the
+        // person backed out of it (fixed 2026-09-27).
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => RoomsHubScreen(initialJoinCode: code),
+          ),
         );
-        if (isGuest || !context.mounted) return;
-        final joinedCode =
-            await showJoinRoomSheet(context, ref, initialCode: code);
-        if (joinedCode != null && context.mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-                builder: (_) => RoomDetailScreen(code: joinedCode)),
-          );
-        }
       });
     });
 
