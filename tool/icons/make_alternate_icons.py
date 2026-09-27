@@ -9,11 +9,13 @@ Needs Pillow (`pip3 install Pillow`), nothing else: no numpy on this Mac.
 
 The Home Screen icon is a plant shape in a colour (see
 lib/features/app_icon/app_icon_catalog.dart): four shapes that grow with
-someone's full days, times sixteen colours, the Night family Aziz picked on
-2026-09-25. One of the 64 is the shipped icon itself (the sprout in the
-original colours), which stays AppIcon and is never touched here. The other
-63 are written as single-size 1024 sets under
-ios/Runner/Assets.xcassets/AlternateIcons/, one folder per icon, named
+someone's full days, times twenty-four colours: the Night family Aziz picked
+on 2026-09-25, then black with a white plant and seven light colours with a
+dark one (white, vanilla, matcha, lavender on 2026-09-26; beige, mist blue,
+mint on 2026-09-27). One of the 96 is the shipped icon itself (the sprout in
+the original colours), which stays AppIcon and is never touched here. The
+other 95 are written as single-size 1024 sets
+under ios/Runner/Assets.xcassets/AlternateIcons/, one folder per icon, named
 AppIcon-<shape>-<colour>. The seasonal icons (Ramadan) come after them, one
 set each, named AppIcon-<id>: a shape in colours of their own with one mark
 on top (the crescent). The Runner target's
@@ -77,13 +79,19 @@ def polygons(d):
 
 
 def render(shape, colour, flower_lift, mark=None):
-    """One icon. [mark] is a seasonal icon's own (path, colour), drawn last."""
+    """One icon. [mark] is a seasonal icon's own (path, colour), drawn last.
+
+    A colour's own "flowerLift" wins over [flower_lift]: the light colours
+    set 0, so the bloom's flower is the plant's own dark ink with the ground
+    showing through its eye. Lifted toward white it would go grey on them.
+    """
     n = SIZE * SUPER
     k = n / 1024
     img = Image.new("RGB", (n, n), rgb(colour["ground"]))
     layers = [(shape["sprout"], rgb(colour["sprout"]))]
     if "flower" in shape:
-        layers.append(([shape["flower"]], lift(colour["sprout"], flower_lift)))
+        t = colour.get("flowerLift", flower_lift)
+        layers.append(([shape["flower"]], lift(colour["sprout"], t)))
         layers.append(([shape["eye"]], rgb(colour["ground"])))
     if mark is not None:
         layers.append(([mark[0]], rgb(mark[1])))
@@ -121,13 +129,15 @@ def write_dart(art):
     lines += [
         "};",
         "",
-        "/// Ground and sprout for every colour, as 0xAARRGGBB.",
-        "const Map<String, ({int ground, int sprout})> _kColourArt = {",
+        "/// Ground and sprout for every colour, as 0xAARRGGBB, and how far the",
+        "/// bloom's flower is lifted from the sprout toward white.",
+        "const Map<String, ({int ground, int sprout, double flowerLift})> _kColourArt = {",
     ]
     for c in art["colours"]:
         g = "0xFF" + c["ground"].lstrip("#").upper()
         s = "0xFF" + c["sprout"].lstrip("#").upper()
-        lines.append(f"  '{c['id']}': (ground: {g}, sprout: {s}),")
+        f = c.get("flowerLift", art["flowerLift"])
+        lines.append(f"  '{c['id']}': (ground: {g}, sprout: {s}, flowerLift: {float(f)}),")
     lines += [
         "};",
         "",

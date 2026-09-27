@@ -20,7 +20,7 @@ import '../../../core/theme/game_theme.dart';
 /// preset-driven [GameColors.gold] accent. Same argument the medal tiers
 /// already make (see `tierGold`'s comment): "gold" is the name of an
 /// accent *role* in ThemePreset, and it resolves to teal on Ocean, rose on
-/// Rose & Ink, violet on Nour Violet. A currency the user is meant to read
+/// Burgundy, violet on Nour Violet. A currency the user is meant to read
 /// as treasure cannot be teal on nine presets out of eleven. The rest of
 /// the closet still follows the active preset; only the metal is pinned.
 ///

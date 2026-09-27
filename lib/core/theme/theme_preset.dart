@@ -34,7 +34,7 @@ import 'color_math.dart';
 /// color from the accent, just tuned so it doesn't blend into gold/xpBlue/
 /// streakOrange (see e.g. Sage's and Teal's doc comments below). A few
 /// presets instead let `emerald` be a punchier, more saturated expression
-/// of the *same* hue as their own `gold` — Ocean, Rose & Ink, Nour Violet,
+/// of the *same* hue as their own `gold` — Ocean, Burgundy, Nour Violet,
 /// Baby Blue, Baby Pink, and Navy — so completing a habit colors the grid
 /// in that preset's own signature color rather than a green that would
 /// clash with (or just feel disconnected from) the rest of the theme. Any
@@ -182,7 +182,8 @@ class ThemePreset {
   /// default preset's accent measures 7.00:1 on its dark surfaces, so dark
   /// looked fine and was left alone at first. It is the SIGNATURE-colour
   /// presets that fail — Navy's accent is 3.16:1 on its own dark card,
-  /// Rose & Ink's 3.99, Amber Dusk's 4.35 — and the grid colour is worse
+  /// Amber Dusk's 4.35 (Rose & Ink's was 3.99, before Burgundy replaced
+  /// it) — and the grid colour is worse
   /// still, down to 1.76:1 on Nour Violet. For every preset that already
   /// clears the bar the lift is a no-op and the colour is handed back
   /// untouched, so only the presets that were actually broken change.
@@ -335,7 +336,7 @@ const _emeraldGold = ThemePreset(
 const _ocean = ThemePreset(
   id: 'ocean',
   nameEn: 'Ocean',
-  nameAr: 'المحيط',
+  nameAr: 'فيروزي',
   isPremium: true,
   gold: Color(0xFF2FA8A0),
   goldDim: Color(0xFF1F7973),
@@ -365,45 +366,27 @@ const _ocean = ThemePreset(
   darkTextTertiary: Color(0xFF6F7A7A),
 );
 
-/// Warm rose accent on a cool near-white base — the biggest structural
-/// departure from the default's cream warmth, for anyone who wants light
-/// mode to actually feel bright and crisp rather than warm and muted. Dark
-/// mode picks up a plum-black undertone instead of forest. Signature-color
-/// preset (see the class doc comment): the grid's "complete" color is a
-/// deeper, more magenta-leaning rose than the accent — distinct enough
-/// from the fixed error-red at a glance, and from the softer accent gold —
-/// rather than a separate green.
-const _roseInk = ThemePreset(
-  id: 'rose_ink',
-  nameEn: 'Rose & Ink',
-  nameAr: 'وردي وحبر',
-  isPremium: true,
-  gold: Color(0xFFE0637E),
-  goldDim: Color(0xFFA83F55),
-  xpBlue: Color(0xFFDF2A51),
-  xpBlueDim: Color(0xFF8C283E),
-  streakOrange: Color(0xFFDD7D92),
-  streakOrangeDim: Color(0xFFAA4258),
-  emerald: Color(0xFFCF2E8C),
-  emeraldDim: Color(0xFF8A185A),
-  lightBg: Color(0xFFFDFAFB),
-  lightSurface: Colors.white,
-  lightSurfaceHigh: Colors.white,
-  lightSurfaceHL: Color(0xFFF7E9ED),
-  lightBorder: Color(0xFFEBDBDF),
-  lightDivider: Color(0xFFF1E4E7),
-  lightTextPrimary: Color(0xFF211419),
-  lightTextSecondary: Color(0xFF6E5A61),
-  lightTextTertiary: Color(0xFFA6979C),
-  darkBg: Color(0xFF07100B),
-  darkSurface: Color(0xFF101B15),
-  darkSurfaceElevated: Color(0xFF17251E),
-  darkSurfaceHighlight: Color(0xFF20332A),
-  darkBorder: Color(0xFF2D4037),
-  darkDivider: Color(0xFF22352C),
-  darkTextPrimary: Color(0xFFF7E8EB),
-  darkTextSecondary: Color(0xFFBCA8AC),
-  darkTextTertiary: Color(0xFF7A6F71),
+/// Burgundy, the iPhone 18 Pro's new colour (Apple, 2026-09-09), in the
+/// place Rose & Ink held until 2026-09-27: Aziz asked for it and retired
+/// Rose & Ink because the two sat too close (a saved `rose_ink` opens here,
+/// see [ThemePresets.canonicalId]).
+///
+/// Built with [ThemePreset.custom] from its two decisions rather than by
+/// hand, so every neutral is derived exactly as a custom theme's are and
+/// keeps the default preset's lightness, which is what guarantees contrast:
+/// dark mode turns wine-black, light mode blush. The accent is a dusty
+/// wine-rose, not burgundy itself, because it is the fill behind every
+/// FilledButton and a true burgundy (luminance about 0.05) would erase its
+/// own dark label; at 0.265 it clears 4.5:1. The grid carries the deep wine
+/// instead. Signature-colour preset (see the class doc comment): the grid
+/// is the accent's own hue made deeper, and it stays clear of the fixed
+/// error red (0xFFFF5A52), which is both brighter and warmer.
+final _burgundy = ThemePreset.custom(
+  id: 'burgundy',
+  nameEn: 'Burgundy',
+  nameAr: 'برقندي',
+  accent: const Color(0xFFD46D81),
+  grid: const Color(0xFFB0284F),
 );
 
 /// Charcoal + gold only — the most muted preset in the set. Every
@@ -413,7 +396,7 @@ const _roseInk = ThemePreset(
 const _monochrome = ThemePreset(
   id: 'monochrome',
   nameEn: 'Monochrome',
-  nameAr: 'أحادي اللون',
+  nameAr: 'ذهبي',
   isPremium: true,
   gold: Color(0xFFC9A24A),
   goldDim: Color(0xFF8C7134),
@@ -449,7 +432,7 @@ const _monochrome = ThemePreset(
 const _amberDusk = ThemePreset(
   id: 'amber_dusk',
   nameEn: 'Amber Dusk',
-  nameAr: 'غسق العنبر',
+  nameAr: 'كراميل',
   isPremium: true,
   gold: Color(0xFFD97A3A),
   goldDim: Color(0xFF8D542E),
@@ -487,7 +470,7 @@ const _amberDusk = ThemePreset(
 const _nourViolet = ThemePreset(
   id: 'nour_violet',
   nameEn: 'Nour Violet',
-  nameAr: 'نور بنفسجي',
+  nameAr: 'بنفسجي',
   isPremium: true,
   gold: Color(0xFFA38BDA),
   goldDim: Color(0xFF664AA9),
@@ -524,7 +507,7 @@ const _nourViolet = ThemePreset(
 const _sage = ThemePreset(
   id: 'sage',
   nameEn: 'Sage',
-  nameAr: 'المريمية',
+  nameAr: 'ميرمية',
   isPremium: true,
   gold: Color(0xFF9CB65D),
   goldDim: Color(0xFF687843),
@@ -642,7 +625,7 @@ const _babyPink = ThemePreset(
 const _teal = ThemePreset(
   id: 'teal',
   nameEn: 'Teal',
-  nameAr: 'أزرق مخضر',
+  nameAr: 'زمردي',
   isPremium: true,
   gold: Color(0xFF1FBDAD),
   goldDim: Color(0xFF1F776E),
@@ -1088,10 +1071,10 @@ abstract final class ThemePresets {
         grid: customGrid,
       );
 
-  static const List<ThemePreset> all = [
+  static final List<ThemePreset> all = [
     _emeraldGold,
     _ocean,
-    _roseInk,
+    _burgundy,
     _monochrome,
     _amberDusk,
     _nourViolet,
@@ -1115,12 +1098,29 @@ abstract final class ThemePresets {
   static List<ThemePreset> get premium =>
       all.where((p) => p.isPremium).toList();
 
-  static ThemePreset byId(String? id) => id == customId
-      ? custom
-      : all.firstWhere((p) => p.id == id, orElse: () => _emeraldGold);
+  /// Presets that were retired, each mapped to the one that took its place.
+  ///
+  /// Rose & Ink left on 2026-09-27 when Burgundy replaced it. Its id can
+  /// still arrive from this device's settings box or from an account's
+  /// `themePreset` field written before the swap, and someone who chose it
+  /// should open on the colour that replaced it, not fall back to the free
+  /// default.
+  static const Map<String, String> _retired = {'rose_ink': 'burgundy'};
+
+  /// [id] with a retired preset's id swapped for its replacement.
+  static String? canonicalId(String? id) => _retired[id] ?? id;
+
+  static ThemePreset byId(String? id) {
+    final key = canonicalId(id);
+    return key == customId
+        ? custom
+        : all.firstWhere((p) => p.id == key, orElse: () => _emeraldGold);
+  }
 
   /// Whether [id] names a preset this build knows how to render — used by the
   /// account sync, which must not apply an id written by a newer version.
-  static bool isKnown(String? id) =>
-      id == customId || all.any((p) => p.id == id);
+  static bool isKnown(String? id) {
+    final key = canonicalId(id);
+    return key == customId || all.any((p) => p.id == key);
+  }
 }

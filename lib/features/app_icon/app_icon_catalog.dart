@@ -84,24 +84,55 @@ class IconColour {
         return s.appIconColourBrown;
       case 'grey':
         return s.appIconColourGrey;
+      case 'black':
+        return s.appIconColourBlack;
+      case 'white':
+        return s.appIconColourWhite;
+      case 'vanilla':
+        return s.appIconColourVanilla;
+      case 'matcha':
+        return s.appIconColourMatcha;
+      case 'lavender':
+        return s.appIconColourLavender;
+      case 'beige':
+        return s.appIconColourBeige;
+      case 'mist_blue':
+        return s.appIconColourMistBlue;
+      case 'mint':
+        return s.appIconColourMint;
     }
     final preset = ThemePresets.byId(id);
     return s.isAr ? preset.nameAr : preset.nameEn;
   }
 }
 
-/// The five colours no theme has, so every custom theme lands somewhere
-/// close. Premium, like the custom theme itself.
+/// The colours no theme has, in rows of five in the picker. The first row,
+/// red to grey, is there so every custom theme lands somewhere close. The
+/// rest are only ever picked by hand. The second row (Aziz, 2026-09-26):
+/// black with a white plant, then four light colours with a dark one, from
+/// 2026's colour trends: white (Pantone's Cloud Dancer), vanilla (the
+/// season's butter yellow; Aziz chose the name), matcha and lavender. The
+/// third (2026-09-27), in the same light style: beige, mist blue (the
+/// iPhone 17's own colour) and mint; Aziz dropped peach and powder pink.
+/// Premium, like the custom theme itself.
 const List<String> kExtraIconColourIds = [
   'red',
   'yellow',
   'green',
   'brown',
   'grey',
+  'black',
+  'white',
+  'vanilla',
+  'matcha',
+  'lavender',
+  'beige',
+  'mist_blue',
+  'mint',
 ];
 
-/// All sixteen, in picker order: the free themes' colours, the Premium
-/// themes', then the extra five. Built from [ThemePresets] so a preset's
+/// All twenty-four, in picker order: the free themes' colours, the Premium
+/// themes', then the extra thirteen. Built from [ThemePresets] so a preset's
 /// free/Premium flag is the one place that decides its icon's price.
 final List<IconColour> kIconColours = [
   for (final p in ThemePresets.free) IconColour._(p.id, IconColourTier.free),
@@ -138,7 +169,7 @@ class AppIconChoice {
   bool get isRamadan => colourId == kRamadanIconId;
 
   /// The colour, for a shape-and-colour icon. Never read it for [ramadan],
-  /// which has no entry among the sixteen: ask [needsPremium] and
+  /// which has no entry among the twenty-four: ask [needsPremium] and
   /// [colourName] instead, which know about it.
   IconColour get colour => iconColourById(colourId);
 
@@ -201,18 +232,21 @@ class AppIconChoice {
 /// the accent is what paints the buttons and highlights, the colour people
 /// think of as "my theme".
 String iconColourForTheme(String presetId, Color customAccent) {
-  if (presetId == ThemePresets.customId) return nearestIconColour(customAccent);
-  return kIconColours.any((c) => c.id == presetId) ? presetId : 'emerald_gold';
+  final id = ThemePresets.canonicalId(presetId)!;
+  if (id == ThemePresets.customId) return nearestIconColour(customAccent);
+  return kIconColours.any((c) => c.id == id) ? id : 'emerald_gold';
 }
 
 /// The icons a custom accent can land on, each keyed by the hue it was drawn
-/// from: a theme's accent, or the sprout of one of the extra five.
+/// from: a theme's accent, or the sprout of one of the extra colours.
 ///
 /// Three theme colours are left out on purpose, because their icons are two
 /// colours rather than one and a custom theme would read them as someone
-/// else's: Rose & Ink (rose on ink), Monochrome (gold on charcoal) and Teal
+/// else's: Burgundy (rose on wine), Monochrome (gold on charcoal) and Teal
 /// (a green sprout on teal; a custom teal lands on Ocean, which is teal all
 /// through). Grey and brown are caught before the hue is looked at, below.
+/// Black and the light colours are never landed on: they are only ever
+/// picked.
 const List<String> _kMatchableIds = [
   'emerald_gold',
   'baby_pink',
@@ -234,7 +268,7 @@ double _keyHue(String id) {
   return HSLColor.fromColor(source).hue;
 }
 
-/// Nearest of the sixteen to [accent], by hue.
+/// Nearest icon colour to [accent], by hue.
 ///
 /// Two cases come first because hue alone gets them wrong. A colour with
 /// almost no saturation has a hue that means nothing (a grey's reported hue

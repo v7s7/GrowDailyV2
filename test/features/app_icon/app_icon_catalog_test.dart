@@ -12,8 +12,9 @@ import 'package:grow_daily_v2/features/app_icon/app_icon_catalog.dart';
 
 void main() {
   group('colours', () {
-    test('sixteen: the free themes, the Premium themes, then five more', () {
-      expect(kIconColours, hasLength(16));
+    test('twenty-four: the free themes, the Premium themes, then 13 more',
+        () {
+      expect(kIconColours, hasLength(24));
       expect(
         kIconColours
             .where((c) => c.tier == IconColourTier.free)
@@ -30,7 +31,7 @@ void main() {
             .map((c) => c.id),
         kExtraIconColourIds,
       );
-      expect(kIconColours.map((c) => c.id).toSet(), hasLength(16));
+      expect(kIconColours.map((c) => c.id).toSet(), hasLength(24));
     });
 
     test('a colour costs what its theme costs', () {
@@ -61,7 +62,7 @@ void main() {
       );
     });
 
-    test('every one of the 64 reads back as itself', () {
+    test('every one of the 96 reads back as itself', () {
       for (final shape in PlantShape.values) {
         for (final colour in kIconColours) {
           final choice = AppIconChoice(shape, colour.id);
@@ -106,6 +107,11 @@ void main() {
       }
     });
 
+    test('a theme saved before it was retired takes its replacement', () {
+      // Rose & Ink gave way to Burgundy on 2026-09-27.
+      expect(iconColourForTheme('rose_ink', Colors.red), 'burgundy');
+    });
+
     test('the custom theme takes the nearest to its accent', () {
       expect(
         iconColourForTheme(ThemePresets.customId, const Color(0xFF3894EF)),
@@ -142,6 +148,37 @@ void main() {
     test('a grey accent is grey, whatever hue it reports', () {
       expect(nearestIconColour(const Color(0xFF9AA0A6)), 'grey');
       expect(nearestIconColour(const Color(0xFFA7A29B)), 'grey');
+    });
+
+    // The picker's second and third rows of extra colours (black, and the
+    // seven light ones) are picked by hand, never handed to a custom theme:
+    // not for black or white, not for any hue at any tone.
+    test('no accent lands on the second or third row', () {
+      const pickedOnly = {
+        'black',
+        'white',
+        'vanilla',
+        'matcha',
+        'lavender',
+        'beige',
+        'mist_blue',
+        'mint',
+      };
+      expect(kExtraIconColourIds.skip(5), pickedOnly);
+      expect(nearestIconColour(Colors.black), 'grey');
+      expect(nearestIconColour(Colors.white), 'grey');
+      for (var hue = 0.0; hue < 360; hue += 5) {
+        for (final s in [0.1, 0.4, 0.9]) {
+          for (final l in [0.1, 0.5, 0.9]) {
+            final accent = HSLColor.fromAHSL(1, hue, s, l).toColor();
+            expect(
+              pickedOnly.contains(nearestIconColour(accent)),
+              isFalse,
+              reason: '$accent',
+            );
+          }
+        }
+      }
     });
   });
 

@@ -51,9 +51,9 @@
       "sprout": "#5AD8D0"
     },
     {
-      "id": "rose_ink",
-      "ground": "#2B171E",
-      "sprout": "#E26580"
+      "id": "burgundy",
+      "ground": "#4A0F20",
+      "sprout": "#E07A92"
     },
     {
       "id": "monochrome",
@@ -114,6 +114,53 @@
       "id": "grey",
       "ground": "#2C302E",
       "sprout": "#C4CAC7"
+    },
+    {
+      "id": "black",
+      "ground": "#000000",
+      "sprout": "#FFFFFF"
+    },
+    {
+      "id": "white",
+      "ground": "#F0EEE9",
+      "sprout": "#1A1A1A",
+      "flowerLift": 0
+    },
+    {
+      "id": "vanilla",
+      "ground": "#FAE199",
+      "sprout": "#6B4F12",
+      "flowerLift": 0
+    },
+    {
+      "id": "matcha",
+      "ground": "#C5D6A0",
+      "sprout": "#33502A",
+      "flowerLift": 0
+    },
+    {
+      "id": "lavender",
+      "ground": "#D7CBF2",
+      "sprout": "#463A87",
+      "flowerLift": 0
+    },
+    {
+      "id": "beige",
+      "ground": "#E8DCC8",
+      "sprout": "#5C4632",
+      "flowerLift": 0
+    },
+    {
+      "id": "mist_blue",
+      "ground": "#C9D8E6",
+      "sprout": "#2E4A66",
+      "flowerLift": 0
+    },
+    {
+      "id": "mint",
+      "ground": "#CDEBDD",
+      "sprout": "#1F5C47",
+      "flowerLift": 0
     }
   ],
   "seasonal": {

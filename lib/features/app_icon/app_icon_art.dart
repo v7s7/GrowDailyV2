@@ -21,7 +21,7 @@ Color appIconSprout(String colourId) => Color(
     );
 
 /// A seasonal icon's own mark colour (Ramadan's crescent), null for the
-/// sixteen colours, which have none.
+/// twenty-four colours, which have none.
 Color? appIconMarkColour(String colourId) {
   final season = _kSeasonalArt[colourId];
   return season == null ? null : Color(season.markColour);
@@ -30,13 +30,17 @@ Color? appIconMarkColour(String colourId) {
 /// The shape a seasonal icon's art is drawn on, as the generator drew it.
 String? appIconSeasonalShape(String colourId) => _kSeasonalArt[colourId]?.shape;
 
-/// The bloom's flower: the sprout colour moved toward white, so one rule
-/// works in all sixteen colours. The same sum the icon generator uses.
+/// The bloom's flower: the sprout colour moved toward white by the colour's
+/// own lift. The Night colours lift it 0.62, a paler flower on a light
+/// plant; the light colours lift it 0, so the flower is the plant's own dark
+/// ink (lifted, it would go grey on them). The same sum the icon generator
+/// uses.
 Color appIconFlower(String colourId) {
   final c = appIconSprout(colourId);
+  final t = _kColourArt[colourId]?.flowerLift ?? _kFlowerLift;
   int lift(double v) {
     final byte = (v * 255).round();
-    return (byte + (255 - byte) * _kFlowerLift).round();
+    return (byte + (255 - byte) * t).round();
   }
 
   return Color.fromARGB(255, lift(c.r), lift(c.g), lift(c.b));

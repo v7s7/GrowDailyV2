@@ -90,7 +90,7 @@ Future<ThemeMode?> loadPersistedThemeMode() async {
       orElse: () => ThemeMode.light);
 }
 
-// ─── Theme preset (app-wide color template, e.g. Ocean, Rose & Ink) ───────
+// ─── Theme preset (app-wide color template, e.g. Ocean, Burgundy) ─────────
 
 const _kThemePresetKey = 'theme_preset_v1';
 // The custom preset's two colours, stored as ARGB ints beside the id. Kept
@@ -204,7 +204,8 @@ class ThemePresetNotifier extends StateNotifier<String> {
       final snap =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
       final data = snap.data();
-      final saved = data?['themePreset'] as String?;
+      // A retired preset's id (Rose & Ink) comes back as its replacement.
+      final saved = ThemePresets.canonicalId(data?['themePreset'] as String?);
       if (saved == null) return;
       if (!ThemePresets.isKnown(saved)) return;
       // The two colours have to land before the apply, and they are pulled
@@ -255,7 +256,8 @@ final themePresetProvider =
 /// default colors and then swapping.
 Future<String?> loadPersistedThemePreset() async {
   final box = await LocalStoreService.settingsBox();
-  final id = box.get(_kThemePresetKey) as String?;
+  // A retired preset's id (Rose & Ink) comes back as its replacement.
+  final id = ThemePresets.canonicalId(box.get(_kThemePresetKey) as String?);
   // Restored before the apply below, since ThemePresets.custom reads them.
   final accent = box.get(_kCustomAccentKey) as int?;
   final grid = box.get(_kCustomGridKey) as int?;

@@ -100,9 +100,9 @@ void main() {
           (seen[fill.value] ??= []).add(p.id);
         }
         // Deliberately NOT "all twelve differ". Some presets genuinely share a
-        // surface tone in the palette table (ocean and rose_ink are both
-        // #FFFFFF in light; rose_ink, sage and baby_blue are all #17251E in
-        // dark), and that is a question about the palette, not about this
+        // surface tone in the palette table (several are #FFFFFF in light;
+        // sage and baby_blue are both #17251E in dark), and that is a
+        // question about the palette, not about this
         // widget. What this widget owes is that the bar follows whatever the
         // palette says, which a single shared value across the WHOLE set
         // would disprove.

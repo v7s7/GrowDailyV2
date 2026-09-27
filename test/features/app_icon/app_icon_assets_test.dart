@@ -45,7 +45,7 @@ void main() {
       final image = (contents['images'] as List).single as Map;
       expect(image['filename'], 'icon.png');
     }
-    expect(expected, hasLength(64), reason: '63 shape-and-colour, 1 Ramadan');
+    expect(expected, hasLength(96), reason: '95 shape-and-colour, 1 Ramadan');
     final onDisk = Directory(_sets)
         .listSync()
         .whereType<Directory>()
@@ -66,11 +66,33 @@ void main() {
       reason: 'the JSON and the catalogue list different colours',
     );
     Color hex(String h) => Color(int.parse('FF${h.substring(1)}', radix: 16));
+    // The bloom's flower: the sprout lifted toward white by the colour's own
+    // lift, or the file's. Rounded half up, as the generator rounds.
+    Color flower(String sprout, num t) {
+      final s = hex(sprout);
+      int lift(double v) {
+        final byte = (v * 255).round();
+        return (byte + (255 - byte) * t + 0.5).floor();
+      }
+
+      return Color.fromARGB(255, lift(s.r), lift(s.g), lift(s.b));
+    }
+
     for (final c in colours) {
       final id = c['id'] as String;
       expect(appIconGround(id), hex(c['ground'] as String), reason: id);
       expect(appIconSprout(id), hex(c['sprout'] as String), reason: id);
+      expect(
+        appIconFlower(id),
+        flower(
+          c['sprout'] as String,
+          (c['flowerLift'] ?? art['flowerLift']) as num,
+        ),
+        reason: '$id flower',
+      );
     }
+    // The light colours' flower is the plant's own ink.
+    expect(appIconFlower('lavender'), appIconSprout('lavender'));
     expect(
       (art['shapes'] as Map).keys,
       PlantShape.values.map((s) => s.name).toList(),

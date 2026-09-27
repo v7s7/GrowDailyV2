@@ -61,7 +61,7 @@ abstract final class GameColors {
   /// bright enough for black to always win here, so this used to just be
   /// `Colors.black` outright; the signature-color presets (see
   /// ThemePreset's doc comment) include some genuinely dark, moody hues —
-  /// Rose & Ink, Nour Violet, and Navy all fall low enough on luminance
+  /// Burgundy, Nour Violet, and Navy all fall low enough on luminance
   /// that black text on them would be hard to read, so this now actually
   /// picks per preset instead of assuming. 0.1791 is the luminance where
   /// black and white give exactly equal WCAG contrast — above it black
@@ -73,7 +73,7 @@ abstract final class GameColors {
   /// fill instead — e.g. Grid's Add Habit FAB, once it switched from a
   /// neutral surface fill with a gold icon to a solid gold fill needing its
   /// own icon contrast. Gold swings even wider across presets than emerald
-  /// does (a warm amber default vs. Ocean's teal vs. Rose & Ink's rose), so
+  /// does (a warm amber default vs. Ocean's teal vs. Burgundy's rose), so
   /// this can't be assumed constant either.
   static Color get onGold =>
       gold.computeLuminance() > 0.1791 ? Colors.black : Colors.white;
@@ -242,7 +242,7 @@ abstract final class GameColors {
   // [gold] accent, on the reasoning that a Gold medal should match the
   // app's own gold. That only holds for the two warm presets. "Gold" is
   // the *accent role* name in ThemePreset, not a hue promise: it resolves
-  // to teal on Ocean and Teal & Slate, rose on Rose & Ink, violet on Nour
+  // to teal on Ocean and Teal & Slate, rose on Burgundy, violet on Nour
   // Violet, sky blue on Sky. So on 9 of the 11 presets the Gold tier
   // rendered in a color that isn't gold, under a label reading
   // "ذهبية"/"Gold", with a hardcoded warm-cream `tierGoldShine` highlight
@@ -700,8 +700,9 @@ abstract final class GameTheme {
         style: OutlinedButton.styleFrom(
           // Dark needed this after all: the accent is 7.00:1 on the
           // default preset's surfaces, but only 3.16:1 on Navy's and
-          // 3.99 on Rose & Ink's. For every preset that already cleared
-          // the bar these hand back the raw accent untouched.
+          // 3.99 on Rose & Ink's (since replaced by Burgundy). For every
+          // preset that already cleared the bar these hand back the raw
+          // accent untouched.
           foregroundColor: GameColors.goldInkDark,
           side: BorderSide(color: GameColors.goldEdgeDark),
           minimumSize: const Size(double.infinity, 52),

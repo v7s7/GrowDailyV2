@@ -192,9 +192,9 @@ void main() {
     testWidgets('Premium colours carry a lock and open the paywall',
         (tester) async {
       await open(tester);
-      // 9 theme colours and 5 more; the two shapes still ahead and the
+      // 9 theme colours and 13 more; the two shapes still ahead and the
       // Ramadan icon (September) are the other locks on the page.
-      expect(find.byIcon(Icons.lock_rounded), findsNWidgets(14 + 2 + 1));
+      expect(find.byIcon(Icons.lock_rounded), findsNWidgets(22 + 2 + 1));
       await tester.tap(find.text('Ocean'));
       await h.settle(tester);
       expect(find.byType(PremiumScreen), findsOneWidget);

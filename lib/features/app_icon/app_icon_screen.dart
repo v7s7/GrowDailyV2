@@ -23,7 +23,7 @@ import 'app_icon_providers.dart';
 /// tap applied as they happen would raise two.
 ///
 /// «مع المظهر» makes the icon take each theme's colour as it is picked (the
-/// custom theme takes the nearest of the sixteen). It is off unless turned
+/// custom theme takes the nearest colour). It is off unless turned
 /// on, and picking a colour by hand turns it off again: the two are one
 /// choice, made either way.
 ///
