@@ -12,6 +12,8 @@ import '../../achievements/widgets/tier_palette.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/rank_up_celebration.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../mascot/sprout.dart';
+import '../../mascot/sprout_signals.dart';
 import '../notifiers/dashboard_notifier.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
@@ -34,6 +36,8 @@ void registerDashboardReactions(
     }
     if (next.perfectDayCelebration && !prev.perfectDayCelebration) {
       HapticFeedback.heavyImpact();
+      // The day card's sprout jumps with this moment (see DayCardSprout).
+      ref.read(sproutStreakPointProvider.notifier).state++;
       // Small beat after the completing square's own confetti so the two
       // moments read as separate: "that square" ... "and that's the whole
       // day". If a level-up/achievement also lands this tick, those still
@@ -290,43 +294,44 @@ class MilestoneCelebration extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: GameColors.iconStreak.withOpacity(0.16),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: GameColors.iconStreak.withOpacity(0.35),
-                      blurRadius: 50,
-                      spreadRadius: 8,
+              // The sprout hugging a heart, where a 120pt flame used to glow:
+              // a streak step is the one moment in the app big enough for the
+              // whole character. It pops in and celebrates, and the confetti
+              // fires from its own centre. The flame stays, small, beside the
+              // label below: it is still the streak's mark.
+              const VictoryBurstOnMount(
+                child: Sprout(
+                  pose: SproutPose.loveHeart,
+                  height: 190,
+                  entrance: SproutEntrance.popAndCelebrate,
+                  idleBreaths: 2,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.local_fire_department_rounded,
+                    size: 16,
+                    color: context.gp.iconStreak,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    s.streakMilestoneLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: context.gp.iconStreak,
+                      // Wide/negative letter-spacing is a Latin-typography
+                      // trick (all-caps eyebrow labels, tight display
+                      // numerals) — on Arabic's cursive, joined script it
+                      // forces gaps between letters that should connect,
+                      // reading as a broken font. Zero it out for Arabic.
+                      letterSpacing: s.isAr ? 0 : 3,
                     ),
-                  ],
-                ),
-                child: Icon(Icons.local_fire_department_rounded,
-                    size: 56, color: context.gp.iconStreak),
-              )
-                  .animate()
-                  .scale(
-                      begin: const Offset(0.3, 0.3),
-                      curve: Curves.elasticOut,
-                      duration: 800.ms)
-                  .fadeIn(duration: 300.ms),
-              const SizedBox(height: 28),
-              Text(
-                s.streakMilestoneLabel,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: context.gp.iconStreak,
-                  // Wide/negative letter-spacing is a Latin-typography trick
-                  // (all-caps eyebrow labels, tight display numerals) — on
-                  // Arabic's cursive, joined script it forces gaps between
-                  // letters that should connect, reading as a broken font.
-                  // Zero it out for Arabic instead.
-                  letterSpacing: s.isAr ? 0 : 3,
-                ),
+                  ),
+                ],
               ).animate(delay: 250.ms).fadeIn(),
               const SizedBox(height: 10),
               Text(

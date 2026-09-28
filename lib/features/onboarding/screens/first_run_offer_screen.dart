@@ -8,6 +8,7 @@ import '../../../core/providers/first_run_offer_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
+import '../../mascot/sprout_turnaround.dart';
 import '../notifiers/guide_steps_provider.dart';
 import 'app_guide_screen.dart' show startGuideLesson;
 
@@ -135,14 +136,16 @@ class _FirstRunOfferScreenState extends ConsumerState<FirstRunOfferScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             children: [
-              // 5 above, 4 below. This screen carries no art, so the text
-              // block is the only object on it: sitting it at a third of the
-              // way down (the ratio the onboarding slides use, where a 250pt
-              // illustration fills the space above) left a third of the screen
-              // empty above AND a third empty between the body and the
-              // buttons. Slightly past the optical centre reads as composed
-              // rather than stranded.
-              const Spacer(flex: 5),
+              // The sprout, turning to face whoever just arrived and waving.
+              // Until it came this screen carried no art and sat its text
+              // block slightly past the optical centre with 5 above and 4
+              // below, so it would read as composed rather than stranded. With
+              // a 160pt figure on top the whole group is the object, and it
+              // takes the onboarding slides' ratio instead: art above, text
+              // under it, the pair a little above centre.
+              const Spacer(flex: 3),
+              const SproutTurnaround(height: 160),
+              const SizedBox(height: 26),
               const _StepRail()
                   .animate(delay: 120.ms)
                   .fadeIn(duration: 400.ms),

@@ -1,0 +1,20 @@
+[
+  {"name": "mascot_front_wave", "row": 1, "shows": "front, waving"},
+  {"name": "mascot_three_quarter_wave", "row": 1, "shows": "three-quarter front, waving"},
+  {"name": "mascot_side_right", "row": 1, "shows": "profile facing right, leaves bent back"},
+  {"name": "mascot_back", "row": 1, "shows": "from behind"},
+  {"name": "mascot_back_three_quarter", "row": 1, "shows": "from behind, turned, one arm out"},
+  {"name": "mascot_side_right_leaf_up", "row": 1, "shows": "profile facing right, one leaf straight up"},
+  {"name": "mascot_happy_sparkles", "row": 2, "shows": "arms up, two gold sparkles"},
+  {"name": "mascot_laugh", "row": 2, "shows": "laughing, eyes shut, gold laugh lines"},
+  {"name": "mascot_love_heart", "row": 2, "shows": "hugging a big heart, two small hearts"},
+  {"name": "mascot_wink", "row": 2, "shows": "winking, waving, one gold sparkle"},
+  {"name": "mascot_confused", "row": 2, "shows": "hand at the chin, green question mark"},
+  {"name": "mascot_determined", "row": 2, "shows": "frowning, fists up, motion lines"},
+  {"name": "mascot_walk_backpack", "row": 3, "shows": "walking with a backpack"},
+  {"name": "mascot_laptop", "row": 3, "shows": "sitting with a laptop"},
+  {"name": "mascot_reading", "row": 3, "shows": "sitting with an open book"},
+  {"name": "mascot_pencil", "row": 3, "shows": "winking, holding a pencil, gold ! lines"},
+  {"name": "mascot_checklist", "row": 3, "shows": "holding a clipboard with three ticks"},
+  {"name": "mascot_sleeping", "row": 3, "shows": "lying asleep, zZ"}
+]

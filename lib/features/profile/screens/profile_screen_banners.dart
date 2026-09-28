@@ -273,15 +273,10 @@ class _StreakAtRiskBanner extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.local_fire_department_rounded,
-                    color: context.gp.iconStreak, size: 26)
-                .animate(onPlay: (c) => c.repeat(reverse: true))
-                .scaleXY(
-                  begin: 0.88,
-                  end: 1.05,
-                  duration: 900.ms,
-                  curve: Curves.easeInOut,
-                ),
+            // The sprout, winking: an evening that is still open, said
+            // warmly. It replaced a flame that breathed on a loop for as long
+            // as the card was up; this breathes a few times and rests.
+            const Sprout(pose: SproutPose.wink, height: 60),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

@@ -1424,6 +1424,17 @@ const List<String> kEditableWordingKeys = [
   'gridJournalSearchThisMonth',
   'gridJournalSearchProgress',
   'gridJournalSearchBackToMonth',
+  'sproutName',
+  'sproutMorning',
+  'sproutHello',
+  'sproutFirstDone',
+  'sproutProgress',
+  'sproutFullDay',
+  'sproutPerfectDay',
+  'sproutGoodNight',
+  'sproutLateNight',
+  'sproutRestDay',
+  'sproutTickle',
 ];
 
 /// Every other S string. Each picks between several wordings in code (a
@@ -8697,4 +8708,53 @@ class _EditedS extends S {
 
   @override
   String get gridJournalSearchBackToMonth => plainWording(_edits['gridJournalSearchBackToMonth']) ?? super.gridJournalSearchBackToMonth;
+
+  @override
+  String get sproutName => plainWording(_edits['sproutName']) ?? super.sproutName;
+
+  @override
+  String get sproutMorning => plainWording(_edits['sproutMorning']) ?? super.sproutMorning;
+
+  @override
+  String get sproutHello => plainWording(_edits['sproutHello']) ?? super.sproutHello;
+
+  @override
+  String get sproutFirstDone => plainWording(_edits['sproutFirstDone']) ?? super.sproutFirstDone;
+
+  @override
+  String sproutProgress(int done, int owed) {
+    final wordingEdit = _edits['sproutProgress'];
+    if (wordingEdit == null) return super.sproutProgress(done, owed);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                }
+              : <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                },
+        ) ??
+        super.sproutProgress(done, owed);
+  }
+
+  @override
+  String get sproutFullDay => plainWording(_edits['sproutFullDay']) ?? super.sproutFullDay;
+
+  @override
+  String get sproutPerfectDay => plainWording(_edits['sproutPerfectDay']) ?? super.sproutPerfectDay;
+
+  @override
+  String get sproutGoodNight => plainWording(_edits['sproutGoodNight']) ?? super.sproutGoodNight;
+
+  @override
+  String get sproutLateNight => plainWording(_edits['sproutLateNight']) ?? super.sproutLateNight;
+
+  @override
+  String get sproutRestDay => plainWording(_edits['sproutRestDay']) ?? super.sproutRestDay;
+
+  @override
+  String get sproutTickle => plainWording(_edits['sproutTickle']) ?? super.sproutTickle;
 }

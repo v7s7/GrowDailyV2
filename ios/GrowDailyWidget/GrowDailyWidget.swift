@@ -115,21 +115,35 @@ struct GrowDailyProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<GrowDailyEntry>) -> Void) {
-        let entry = loadEntry()
+        let now = Date()
         // Widgets don't get live pushes — this just tells iOS "check back
         // in an hour." The real refresh trigger is HomeWidgetService calling
         // updateWidget() from Flutter every time these numbers change, plus
         // the one guaranteed reload iOS gives a widget right after its own
         // AppIntent button finishes — this timeline is only the fallback
         // for while the app isn't open and nothing's been tapped.
-        let next = Calendar.current.date(byAdding: .hour, value: 1, to: Date())!
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        let next = Calendar.current.date(byAdding: .hour, value: 1, to: now)!
+        // The sprout's bedtime and wake-up (see WidgetSprout) fall between
+        // those hourly reloads, so each gets an entry of its own when it is
+        // inside this hour: a finished day's sprout falls asleep at 21:00,
+        // not up to an hour later.
+        var entries = [loadEntry(at: now)]
+        for hour in [kWidgetSproutBedtimeHour, kWidgetSproutWakeHour] {
+            if let t = Calendar.current.nextDate(after: now,
+                                                 matching: DateComponents(hour: hour, minute: 0),
+                                                 matchingPolicy: .nextTime),
+               t < next {
+                entries.append(loadEntry(at: t))
+            }
+        }
+        entries.sort { $0.date < $1.date }
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 
-    private func loadEntry() -> GrowDailyEntry {
+    private func loadEntry(at date: Date = Date()) -> GrowDailyEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
         return GrowDailyEntry(
-            date: Date(),
+            date: date,
             copy: WidgetCopy.fromDefaults(),
             streak: defaults?.integer(forKey: "streak") ?? 0,
             completedToday: defaults?.integer(forKey: "completedToday") ?? 0,
@@ -766,6 +780,42 @@ struct HabitStatusLine: View {
     }
 }
 
+/// The hours the widget's sprout goes to sleep and wakes on a finished day,
+/// the app's own (kSproutBedtimeHour / kSproutWakeHour in sprout_mood.dart).
+let kWidgetSproutBedtimeHour = 21
+let kWidgetSproutWakeHour = 4
+
+/// Whether the widget's sprout is asleep at [date]: from bedtime to waking.
+func widgetSproutSleeps(at date: Date) -> Bool {
+    let hour = Calendar.current.component(.hour, from: date)
+    return hour >= kWidgetSproutBedtimeHour || hour < kWidgetSproutWakeHour
+}
+
+/// The app's mascot on the Habits widget, only where the face has nothing
+/// left to list: happy with a finished day, asleep once it is late or when
+/// the day asks for nothing at all. It never appears beside open habits,
+/// which keep all the room (Aziz, 2026-09-24: the widget is for a quick,
+/// useful flow), and it is never sad: an unfinished day shows the habits,
+/// not a mascot about them.
+///
+/// The two PNGs come from tool/mascot at one shared character scale
+/// (SproutHappy 240px tall, SproutSleeping 204px), so drawing them at
+/// [height] and height x 204/240 keeps the character one size between them.
+struct WidgetSprout: View {
+    let entry: GrowDailyEntry
+    let height: CGFloat
+
+    var body: some View {
+        let asleep = entry.totalToday == 0 || widgetSproutSleeps(at: entry.date)
+        Image(asleep ? "SproutSleeping" : "SproutHappy")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(height: asleep ? height * 204 / 240 : height)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Small: today's count («4 من 9») and the streak on one line, then the
 /// next three open habits, each one tap from done.
 ///
@@ -790,10 +840,11 @@ struct GrowDailySmallView: View {
             if open.isEmpty {
                 Spacer(minLength: 0)
                 // Nothing left: the line above already says so in words;
-                // this is the one mark that says it at a glance.
-                Image(systemName: entry.totalToday > 0 ? "checkmark.seal.fill" : "leaf")
-                    .font(.system(size: 34))
-                    .foregroundColor(entry.totalToday > 0 ? .themeGreen : .parchmentSecondary)
+                // this is the one mark that says it at a glance. The sprout,
+                // where a green seal (or a leaf, on a day asking nothing)
+                // used to be: the only place on this face with room to
+                // spare, so it costs the habit rows nothing.
+                WidgetSprout(entry: entry, height: 70)
                     .frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
@@ -844,12 +895,10 @@ struct GrowDailyMediumView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if open.isEmpty {
                     Spacer(minLength: 0)
-                    HStack(spacing: 6) {
-                        if entry.totalToday > 0 {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(.themeGreen)
-                        }
+                    HStack(spacing: 8) {
+                        // The sprout, where the seal was: happy with a done
+                        // day, asleep late or on a day that asks nothing.
+                        WidgetSprout(entry: entry, height: 54)
                         Text(entry.totalToday > 0
                              ? entry.copy.allDoneToday
                              : entry.copy.noHabitsToday)

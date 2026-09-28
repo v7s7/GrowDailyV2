@@ -174,19 +174,11 @@ class _GridEmptyState extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: GameColors.emerald.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.grid_view_rounded,
-                  size: 36, color: context.gp.emeraldInk),
-            )
-                .animate()
-                .scale(curve: Curves.elasticOut, duration: 700.ms)
-                .fadeIn(duration: 300.ms),
+            // The sprout with its pencil, where an icon in a circle used to
+            // be. This is the first real screen a brand-new account lands
+            // on, which makes it the one place a character earns the most.
+            // Decorative to screen readers: the title below says it all.
+            const Sprout(pose: SproutPose.pencil, height: 170),
             const SizedBox(height: 20),
             Text(
               s.gridEmptyTitle,

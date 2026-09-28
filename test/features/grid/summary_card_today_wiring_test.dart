@@ -21,6 +21,7 @@ import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
+import 'package:grow_daily_v2/features/mascot/day_card_sprout.dart';
 
 import '../../helpers/landing_harness.dart';
 
@@ -50,6 +51,11 @@ void main() {
   Finder bigNumber(String value) => find.byWidgetPredicate(
       (w) => w is Text && w.data == value && w.style?.fontSize == 34);
 
+  /// The ring's own finished-day mark. Keyed because the board's squares
+  /// draw Icons.check_rounded too; it replaced a gold cup when the sprout
+  /// beside the ring took over the celebration (see DayCardSprout).
+  final perfectCheck = find.byKey(const ValueKey('dayCardPerfectCheck'));
+
   /// Puts [quota] into a rest day (spare or earned) for TODAY, whatever the
   /// real weekday happens to be — see weekly_quota_plan.dart's day-local
   /// arithmetic. Early in the week (today's index < 4) zero sessions is
@@ -70,7 +76,7 @@ void main() {
     await h.settle(tester);
   }
 
-  /// [LandingHarness.settle], plus enough extra time for the trophy's own
+  /// [LandingHarness.settle], plus enough extra time for the ring's own
   /// shimmer (~1.7s) to finish. Without this, a perfect day's celebration
   /// animation is still mid-flight when the test ends: its Timer trips
   /// flutter_test's "no pending timers" teardown check, and the stale
@@ -82,7 +88,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
   }
 
-  testWidgets('a plain daily habit, done: 1 of 1, perfect day, trophy',
+  testWidgets('a plain daily habit, done: 1 of 1, perfect day, the ring check',
       (tester) async {
     await h.pumpApp(tester);
     await restQuotaToday(tester);
@@ -96,7 +102,10 @@ void main() {
     expect(find.text(s.gridOfHabitsToday(1)), findsOneWidget,
         reason: 'the resting quota habit must not inflate the denominator');
     expect(find.text(s.gridPerfectDay), findsOneWidget);
-    expect(find.byIcon(Icons.emoji_events_rounded), findsOneWidget);
+    expect(perfectCheck, findsOneWidget);
+    // The sprout replaced the ring's gold cup as the day's celebration; the
+    // card must still carry it on a finished day.
+    expect(find.byType(DayCardSprout), findsOneWidget);
   });
 
   testWidgets(
@@ -115,7 +124,7 @@ void main() {
     expect(ringPercent('50'), findsOneWidget,
         reason: 'the ring reads the flat half a hand-marked جزئي gets');
     expect(find.text(s.gridPerfectDay), findsNothing);
-    expect(find.byIcon(Icons.emoji_events_rounded), findsNothing);
+    expect(perfectCheck, findsNothing);
   });
 
   testWidgets('a تخطّي leaves the day entirely, not just scores zero in it',
@@ -135,8 +144,9 @@ void main() {
         reason: 'owedTodayCount is 0, so the label must not claim "of 0"');
     expect(find.text(s.gridPerfectDay), findsNothing,
         reason: 'nothing was owed, so nothing was achieved either');
-    expect(find.byIcon(Icons.emoji_events_rounded), findsNothing,
-        reason: 'the bug this file exists for: a skipped day is not a trophy');
+    expect(perfectCheck, findsNothing,
+        reason: 'the bug this file exists for: a skipped day is not a '
+            'finished one');
   });
 
   // A رست quota habit's own جزئي: not owed today, so it can never bank a
@@ -183,7 +193,7 @@ void main() {
       expect(find.text(s.gridPerfectDay), findsOneWidget,
           reason: 'every REQUIRED habit is done; a bonus half-effort on '
               'something never asked for must not cost the trophy');
-      expect(find.byIcon(Icons.emoji_events_rounded), findsOneWidget);
+      expect(perfectCheck, findsOneWidget);
       expect(ringPercent('75'), findsNothing,
           reason: 'the resting جزئي must never be allowed to pull the day down');
     });

@@ -308,6 +308,23 @@ flutter:
     - assets/images/
     - assets/images/character/
     - assets/images/accessories/
+    # The sprout mascot (see lib/features/mascot/sprout.dart and
+    # design/mascot/README.md). Listed file by file, not as the folder: the
+    # folder holds all 18 poses the art came with, and only these are drawn
+    # anywhere, so the other six stay out of the app until something uses
+    # them. sprout_assets_test fails if a pose in SproutPose is missing here.
+    - assets/images/mascot/mascot_front_wave.webp
+    - assets/images/mascot/mascot_three_quarter_wave.webp
+    - assets/images/mascot/mascot_side_right_leaf_up.webp
+    - assets/images/mascot/mascot_happy_sparkles.webp
+    - assets/images/mascot/mascot_laugh.webp
+    - assets/images/mascot/mascot_love_heart.webp
+    - assets/images/mascot/mascot_wink.webp
+    - assets/images/mascot/mascot_confused.webp
+    - assets/images/mascot/mascot_walk_backpack.webp
+    - assets/images/mascot/mascot_pencil.webp
+    - assets/images/mascot/mascot_checklist.webp
+    - assets/images/mascot/mascot_sleeping.webp
     - assets/icons/
     - assets/prayer/
     # Bundled copies of the two GoogleFonts families the themes use, in the

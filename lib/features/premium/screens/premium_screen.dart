@@ -23,6 +23,7 @@ import '../offers/offers_store.dart';
 import '../offers/paywall_offer.dart';
 import '../premium_benefits.dart';
 import '../widgets/offer_strip.dart';
+import '../../mascot/sprout.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Which plan card is selected — monthly (auto-renewing subscription) or
@@ -827,8 +828,15 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.verified_rounded,
-                          color: context.gp.emeraldInk),
+                      // The sprout hugging a heart, where a verified tick
+                      // was: the line beside it is a thank-you. A plain pop,
+                      // not a celebration, because this card is here on
+                      // every visit, not only the one after buying.
+                      const Sprout(
+                        pose: SproutPose.loveHeart,
+                        height: 56,
+                        idleBreaths: 2,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(

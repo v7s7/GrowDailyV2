@@ -1520,6 +1520,13 @@ class _GridTableState extends ConsumerState<_GridTable> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: gp.surfaceHigh,
+        // The sprout asleep: a day off, drawn as rest rather than as a gap.
+        // No entrance of its own, the dialog already arrives with one.
+        icon: const Sprout(
+          pose: SproutPose.sleeping,
+          height: 96,
+          entrance: SproutEntrance.none,
+        ),
         title: Text(
           s.restDayTitle,
           style: TextStyle(

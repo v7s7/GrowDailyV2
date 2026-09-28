@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/dashboard/notifiers/dashboard_notifier.dart';
+import '../../features/mascot/sprout.dart';
 
 /// The "you're back" moment: shown once after a gap, offering either a
 /// streak restore (if a freeze is banked) or a clean restart, and making the
@@ -138,7 +139,8 @@ class ComebackCard extends ConsumerWidget {
   }
 }
 
-/// Sunrise mark, name, and the one reassurance the card exists to give.
+/// The sprout walking in, name, and the one reassurance the card exists to
+/// give.
 class _Header extends StatelessWidget {
   /// Null for a guest, or an account with no email — the greeting drops the
   /// name rather than inventing one.
@@ -153,38 +155,16 @@ class _Header extends StatelessWidget {
     final who = name;
     return Row(
       children: [
-        // The halo breathes rather than shimmers: a shimmer sweep on a
-        // circle this small reads as a loading skeleton, which is the one
-        // impression a welcome card must not give.
-        Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: GameColors.iconXp.withOpacity(0.16),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: GameColors.iconXp.withOpacity(0.28),
-                blurRadius: 16,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: Icon(Icons.wb_twilight_rounded,
-              color: context.gp.iconXp, size: 23),
-        )
-            .animate()
-            .scaleXY(
-                begin: 0.4, end: 1, duration: 620.ms, curve: Curves.elasticOut)
-            .fadeIn(duration: 260.ms)
-            // No delay on this one: inside a repeat, a delay is replayed at
-            // the top of every cycle, so the breath would hitch each time
-            // instead of running continuously. It composes harmlessly with
-            // the elastic entrance above, which is scaling the same widget
-            // for the first 620ms.
-            .animate(onPlay: (c) => c.repeat(reverse: true))
-            .scaleXY(
-                begin: 1, end: 1.06, duration: 1600.ms, curve: Curves.easeInOut),
+        // The sprout coming back with its backpack, where a twilight icon in
+        // a halo used to breathe forever. It walks in from its own side of
+        // the card toward the words, facing the way the reading goes, then
+        // breathes a few times and stands still: a welcome, not a spinner.
+        Sprout(
+          pose: SproutPose.walkBackpack,
+          height: 72,
+          entrance: SproutEntrance.walkIn,
+          mirror: Directionality.of(context) == TextDirection.rtl,
+        ),
         const SizedBox(width: 14),
         Expanded(
           child: Column(

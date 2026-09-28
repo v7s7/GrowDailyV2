@@ -41,6 +41,7 @@ import '../../../features/grid/screens/monthly_heatmap_screen.dart'
     show watchHeatmapInputs;
 import '../../../features/grid/widgets/weekly_recap_card.dart';
 import '../../../features/habits/models/habit_day_demand.dart' show boardHabitsOn;
+import '../../../features/mascot/sprout.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';

@@ -15,6 +15,7 @@ import '../../../core/providers/weekly_note_offer_provider.dart';
 import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
+import '../../mascot/sprout.dart';
 import '../models/covered_day.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/models/habit_day_demand.dart'
@@ -588,14 +589,58 @@ class WeeklyRecapCard extends ConsumerWidget {
         ),
       ),
     );
-    if (!offerNote) return card;
+    // The sprout with its checklist peeks over the card's top edge, as if it
+    // had just brought the week in (the recap artboard of the design canvas
+    // Aziz approved). It stands in from the end corner, clear of the fold
+    // arrow and the folded card's number, and IgnorePointer hands a tap on
+    // its feet to the header row under them, which is the fold control. The
+    // card moves down by exactly the part of it that shows above the edge.
+    final sprout = Sprout.sizeOf(SproutPose.checklist, _kRecapSproutHeight);
+    final withSprout = Stack(
+      children: [
+        Padding(
+          padding: EdgeInsets.only(
+            top: _kRecapSproutGap + sprout.height - _kRecapSproutFeetIn - 14,
+          ),
+          child: card,
+        ),
+        const PositionedDirectional(
+          top: _kRecapSproutGap,
+          end: 16 + _kRecapSproutInset,
+          child: IgnorePointer(
+            child: Sprout(
+              pose: SproutPose.checklist,
+              height: _kRecapSproutHeight,
+              idleBreaths: 2,
+            ),
+          ),
+        ),
+      ],
+    );
+    if (!offerNote) return withSprout;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [card, const WeeklyNoteOffer()],
+      children: [withSprout, const WeeklyNoteOffer()],
     );
   }
 }
+
+/// The recap sprout's size (see Sprout.sizeOf: the front pose's height, so
+/// the character matches every other sprout at this height).
+const double _kRecapSproutHeight = 72;
+
+/// How far the sprout's feet reach into the card, over the header row's
+/// empty middle. The rest of it stands above the card's top edge.
+const double _kRecapSproutFeetIn = 16;
+
+/// Between the sprout's leaves and whatever sits above the card on Profile
+/// (the evening card, the night review prompt).
+const double _kRecapSproutGap = 8;
+
+/// From the card's end edge to the sprout: clear of the fold arrow (22) and,
+/// folded, the week's number beside it, inside the card's 14pt padding.
+const double _kRecapSproutInset = 76;
 
 /// Whether the recap card carries [WeeklyNoteOffer] under it: only while the
 /// Saturday note is off and the question unanswered, and never with every

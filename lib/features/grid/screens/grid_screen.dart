@@ -41,6 +41,8 @@ import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../palette_lock.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
+import '../../mascot/day_card_sprout.dart';
+import '../../mascot/sprout.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/widgets/habit_actions_sheet.dart';

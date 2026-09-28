@@ -16,6 +16,7 @@ import '../notifiers/room_limit.dart';
 import '../notifiers/rooms_notifier.dart';
 import '../widgets/create_room_sheet.dart';
 import '../widgets/join_room_sheet.dart';
+import '../../mascot/sprout.dart';
 import 'room_detail_screen.dart';
 
 /// Entry point pushed from Profile's "Rooms" row - lists every room this
@@ -337,7 +338,9 @@ class _EmptyRooms extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.groups_rounded, size: 48, color: gp.textTert),
+            // The sprout waving, where a grey people icon used to sit: an
+            // empty list of rooms is an invitation, and a wave says so.
+            const Sprout(pose: SproutPose.frontWave, height: 120),
             const SizedBox(height: 14),
             Text(
               s.roomsEmptyTitle,

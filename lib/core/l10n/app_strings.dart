@@ -5928,4 +5928,50 @@ class S {
   /// Leaves the all-months results and goes back to the browsed month.
   String get gridJournalSearchBackToMonth =>
       isAr ? 'رجّعنا لهذا الشهر' : 'Back to this month';
+
+  // ── The sprout (the mascot) ──────────────────────────────────────────────
+  // What the sprout on the Grid's day card says, in a bubble that shows for a
+  // moment and fades (see DayCardSprout). Short, spoken, and where it asks
+  // anything it asks in «نـ» forms (نبدأ، نكمل): a companion's "we", which
+  // also keeps every line clear of a gendered imperative. It never names the
+  // reader anything and it is never sad at them (see sprout_mood.dart).
+  // Drafted 2026-09-27 for Aziz to reword.
+
+  /// What screen readers call the sprout.
+  String get sproutName => isAr ? 'نبتة' : 'Sprout';
+
+  /// Nothing done yet, before noon.
+  String get sproutMorning =>
+      isAr ? 'صباح الخير! نبدأ؟' : 'Good morning! Shall we start?';
+
+  /// Nothing done yet, from noon on, when «صباح الخير» would be wrong.
+  String get sproutHello => isAr ? 'هلا! نبدأ؟' : 'Hi! Shall we start?';
+
+  /// The day's first green square.
+  String get sproutFirstDone => isAr ? 'بداية حلوة!' : 'A sweet start!';
+
+  /// Where the day stands, the same two numbers the card prints.
+  String sproutProgress(int done, int owed) =>
+      isAr ? '$done من $owed خلصت' : '$done of $owed done';
+
+  /// Said on the tap that earns the day's streak point, 80% of its habits,
+  /// the same moment and the same words as the pop-up (perfectDayMsg):
+  /// «يوم كامل» is the app's word for that day.
+  String get sproutFullDay => isAr ? 'يوم كامل!' : 'A full day!';
+
+  /// Every square the day asks for is green: the card's own «يوم مثالي»
+  /// (gridPerfectDay), not «يوم كامل», which means the 80% day.
+  String get sproutPerfectDay => isAr ? 'يوم مثالي!' : 'A perfect day!';
+
+  /// A full day, after 9pm: the sprout goes to sleep.
+  String get sproutGoodNight => isAr ? 'نكمل باجر' : 'More tomorrow';
+
+  /// After midnight on a new day with nothing done yet.
+  String get sproutLateNight => isAr ? 'نكمل الصبح' : 'More in the morning';
+
+  /// Today asks for no habit at all.
+  String get sproutRestDay => isAr ? 'يوم راحة' : 'A rest day';
+
+  /// Tapping the sprout.
+  String get sproutTickle => isAr ? 'هههه، يدغدغ!' : 'Hehe, that tickles!';
 }

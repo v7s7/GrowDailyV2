@@ -898,6 +898,12 @@ class _SummaryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 // The week, and the one celebration this card is allowed.
+                // Two lines, not one: the sprout's reserve (see
+                // _kDayCardSproutReserve) narrows this column, and on a 375pt
+                // phone «يوم مثالي: كل مربّعات اليوم ملوّنة!» no longer fits
+                // one line. The ring holds the card at 90pt tall and the
+                // column's two rows use about 55 of it, so the wrap costs no
+                // height.
                 AnimatedSwitcher(
                   duration: GameMotion.relaxed,
                   child: Text(
@@ -905,7 +911,7 @@ class _SummaryCard extends StatelessWidget {
                         ? s.gridPerfectDay
                         : s.gridGreenSquaresThisWeek(greens),
                     key: ValueKey('$perfectDay-$greens'),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
@@ -918,6 +924,10 @@ class _SummaryCard extends StatelessWidget {
               ],
             ),
           ),
+          // Where the sprout stands. It is positioned over the card rather
+          // than laid out in this Row (see the Stack below), so this only
+          // keeps the text column from running under it.
+          const SizedBox(width: _kDayCardSproutReserve),
         ],
       ),
     )
@@ -947,9 +957,50 @@ class _SummaryCard extends StatelessWidget {
     // board. It now lives once, as the icon in this screen's header: two
     // doors to the same screen a few hundred pixels apart made the map
     // look like two different things.
-    return card;
+    //
+    // The sprout's home (see DayCardSprout). It stands on the card's floor
+    // at the end side and leans [_kDayCardSproutOverhang] past the edge into
+    // the screen margin, which is what lets the Row give up only
+    // [_kDayCardSproutReserve] for it. Outside the shimmer on purpose: the
+    // card's sweep is the card celebrating, and the sprout does its own.
+    // Clip.none lets its bubble float above the card for the three seconds
+    // it shows; the card's height stays exactly what the board below was
+    // measured against (see grid_square_alignment_test).
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        card,
+        PositionedDirectional(
+          end: -_kDayCardSproutOverhang,
+          bottom: 6,
+          child: DayCardSprout(
+            greens: greensToday,
+            owed: owedTodayCount,
+            ratio: ratio,
+            perfectDay: perfectDay,
+            // Today's week, loaded: a rise the sprout may react to. Not while
+            // the week loads at launch, nor while another week is on screen.
+            live: !state.isLoading && state.days.any((d) => d.isSameDayAs(today)),
+            height: _kDayCardSproutHeight,
+          ),
+        ),
+      ],
+    );
   }
 }
+
+/// The day card sprout's size: about the ring's height, so the two read as
+/// a pair. Every pose is drawn at this one scale (see SproutPose).
+const double _kDayCardSproutHeight = 86;
+
+/// How far the sprout leans past the card's end edge. The card sits 16pt
+/// from the screen edge, so 12 keeps a hair of margin on the widest pose.
+const double _kDayCardSproutOverhang = 12;
+
+/// What the text column gives up so it never runs under the sprout: the
+/// widest pose the card can show (sleeping, 95pt at this height) less the
+/// overhang and the card's own 18pt padding, rounded up.
+const double _kDayCardSproutReserve = 66;
 
 class _RingStat extends StatelessWidget {
   final double ratio;
@@ -1014,13 +1065,17 @@ class _RingStat extends StatelessWidget {
                   // one of each, in the place the eye already goes, and the
                   // number counts up with the arc rather than snapping.
                   //
-                  // A finished day gets the cup instead: "100%" next to a
-                  // full ring says nothing the ring has not already said.
+                  // A finished day gets a check instead: "100%" next to a
+                  // full ring says nothing the ring has not already said. It
+                  // used to be a gold cup; the sprout beside the ring now
+                  // carries the celebration (see DayCardSprout), and a cup
+                  // there too made two trophies for one day.
                   if (perfectDay)
                     Icon(
-                      Icons.emoji_events_rounded,
-                      color: GameColors.gold,
-                      size: 46,
+                      Icons.check_rounded,
+                      key: const ValueKey('dayCardPerfectCheck'),
+                      color: gp.emeraldInk,
+                      size: 44,
                     )
                         .animate()
                         .scaleXY(

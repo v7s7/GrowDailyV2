@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../shared/widgets/victory_burst.dart';
+import '../../mascot/sprout.dart';
 import '../models/room_model.dart';
 import '../notifiers/room_plan_notices.dart';
 import '../notifiers/rooms_notifier.dart';
@@ -172,7 +174,18 @@ Future<bool?> _showFinaleDialog(BuildContext context, RoomModel room) {
     context: context,
     builder: (ctx) => AlertDialog(
       backgroundColor: gp.surfaceHigh,
-      icon: Icon(Icons.emoji_events_rounded, color: context.gp.goldInk, size: 32),
+      // The sprout hugging a heart, where a small gold cup used to sit. A
+      // room that finished is something done together, whatever the
+      // standing, and a cup reads as first place to everyone who was not.
+      // It pops in and celebrates, the confetti from its own centre.
+      icon: const VictoryBurstOnMount(
+        child: Sprout(
+          pose: SproutPose.loveHeart,
+          height: 120,
+          entrance: SproutEntrance.popAndCelebrate,
+          idleBreaths: 2,
+        ),
+      ),
       title: Text(
         s.roomEndedTitle,
         textAlign: TextAlign.center,
