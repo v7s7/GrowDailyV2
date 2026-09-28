@@ -221,7 +221,14 @@ class _RoomBody extends ConsumerWidget {
                 // A competitive room's "who finished today", answered by
                 // faces rather than by reading each row's strip. The team
                 // room has this inside its own hero card already.
+                //
+                // Not once the room has ended: there is no today left to
+                // finish, and the card read the room's last day under the
+                // word «اليوم» (ZCNGFT, 46 days after its end, 2026-09-27).
+                // The finale above is the answer then. The team card drops
+                // its own today line the same way.
                 if (!room.isLobby &&
+                    !room.isEnded &&
                     participants.length > 1 &&
                     room.competeMode == RoomCompeteMode.competitive) ...[
                   const SizedBox(height: 14),

@@ -273,7 +273,10 @@ DayDemand? roomStripQuotaDemandOn(
             (participant.dailyPartialCount[present[i]] ?? 0) > 0)
           i,
     },
-    target: rule.frequencyTarget,
+    // The week's own target, a short week's share at a room's start or end,
+    // as the grader asks it (RoomParticipant.quotaWeekTargetFor).
+    target:
+        participant.quotaWeekTargetFor(habit, rule.frequencyTarget, room, day),
   );
   return demand[at];
 }

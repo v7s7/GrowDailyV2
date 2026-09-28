@@ -6,6 +6,7 @@ import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../habits/models/habit_model.dart';
 import '../../habits/models/weekly_quota_plan.dart';
+import 'room_quota_share.dart';
 
 enum RoomHabitMode {
   shared, // leader picks a plan (1+ habits) that gets cloned to every joiner
@@ -1765,13 +1766,61 @@ class RoomParticipant {
   /// percentage identical on the first launch after this ships: only a slot
   /// the room itself recorded as joining late can be excluded by it.
   bool slotOpenBy(String habitId, String dateKey) {
+    final from = _ruleFloorKey(habitId);
+    if (from == null) return true;
+    return from.compareTo(dateKey) <= 0;
+  }
+
+  /// The earliest `from` among [habitId]'s recorded rules: the day its slot
+  /// joined this member's plan. Null when no rule is recorded.
+  String? _ruleFloorKey(String habitId) {
     final rules = habitRules[habitId];
-    if (rules == null || rules.isEmpty) return true;
+    if (rules == null || rules.isEmpty) return null;
     var from = rules.first.from;
     for (final r in rules) {
       if (r.from.compareTo(from) < 0) from = r.from;
     }
-    return from.compareTo(dateKey) <= 0;
+    return from;
+  }
+
+  /// What a weekly [target] asks of this member for [habitId] in the Grid
+  /// week holding [day] (roomQuotaWeekTarget): the whole of it, or a short
+  /// week's share, counted from [countedStartIn], or the day the habit joined
+  /// their plan if that is later ([slotOpenBy]'s floor), through [room]'s end.
+  ///
+  /// The same span syncLinkedHabitsProgress grades the week with: its
+  /// planFloorKeyById is the floor this reads back from the written rules. So
+  /// every surface that draws a quota week (the plan card, both strips,
+  /// [quotaWeekIsLost]) asks the week for what the grader does.
+  int quotaWeekTargetFor(
+    String habitId,
+    int target,
+    RoomModel room,
+    DateTime day,
+  ) {
+    var first = countedStartIn(room);
+    final floor = _ruleFloorKey(habitId);
+    // Not for the habit holding the earliest floor of all: the sync asks it
+    // from the member's first day (askFirstDay, after joinedPlanBy), a member
+    // who declined every original slot and took a late addition alone. The
+    // rules it writes are every rule it held, so the earliest is read here
+    // over all of them.
+    String? earliest;
+    for (final id in habitRules.keys) {
+      final f = _ruleFloorKey(id);
+      if (f != null && (earliest == null || f.compareTo(earliest) < 0)) {
+        earliest = f;
+      }
+    }
+    final floorDay =
+        floor == null || floor == earliest ? null : DateTime.tryParse(floor);
+    if (floorDay != null && floorDay.isAfter(first)) first = floorDay;
+    return roomQuotaWeekTarget(
+      target: target,
+      day: day,
+      firstDay: first,
+      lastDay: room.endDate,
+    );
   }
 
   /// [countedHabitCount] as it stood on [dateKey] - the slots that had
@@ -2050,7 +2099,12 @@ class RoomParticipant {
           reachable++;
         }
       }
-      if (reachable < rule.frequencyTarget) return true;
+      // Against the week's own target: a short week at a room's start or end
+      // asks its share (quotaWeekTargetFor), and a 4x week of three days,
+      // which asks 2, is not lost on its first day for having only three.
+      if (reachable < quotaWeekTargetFor(id, rule.frequencyTarget, room, day)) {
+        return true;
+      }
     }
     return false;
   }
@@ -2412,6 +2466,15 @@ class RoomParticipant {
 
       final rest = <String, int>{};
       for (final target in targets) {
+        // The whole target, even in a week the room only partly covers,
+        // where the phone asks its share (roomQuotaWeekTarget). That share
+        // counts from the member's first day on the phone's own clock, which
+        // this cannot know, and a later reading is a smaller share that rests
+        // more. The whole target is never below the phone's, so it rests only
+        // days the phone rests too, the direction everything here leans (see
+        // "Which clock"). It can only happen in a room's first week, or the
+        // week a member joined: a week a room's end cuts short is never read
+        // here, since an ended room is left as recorded.
         final effective = target.clamp(1, present.length);
         if (allDone.length >= effective) {
           provable = false;

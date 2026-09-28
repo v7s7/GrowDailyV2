@@ -23,6 +23,7 @@ import '../../habits/models/habit_model.dart';
 import '../../habits/models/weekly_quota_plan.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../models/room_model.dart';
+import '../models/room_quota_share.dart';
 import '../models/room_strip_day.dart';
 import 'habit_name_match.dart' show bestHabitMatch;
 import 'room_day_reads.dart';
@@ -382,9 +383,18 @@ String roomRaceStripFor(
 /// strip and the widget push always agree on exactly the same mapping
 /// without one depending on the other - same reasoning as
 /// [suggestExistingMatch]/[nextLeaderAfter] elsewhere in this file.
+///
+/// The darkest tier is a COMPLETE day and nothing else, the way the Grid's
+/// own heatmap keeps it (heatLevel: level 4 only at 100%). Rounding up used
+/// to carry every day past three quarters into it, so a 2.5 of 3 or a 6 of 7
+/// was drawn exactly like a finished day, beside a day card that said
+/// «أُنجز جزئيًا» about the same square (ELQVF8 17 Sep, PBYAS5 25 Sep,
+/// 2026-09-27). A part day tops out one tier lighter. The tolerance is for a
+/// credit built from weighted sums that land a hair under 1.
 int heatmapLevelFor(double credit) {
   if (credit <= 0) return 0;
-  return (credit * 4).ceil().clamp(1, 4);
+  if (credit >= 1 - 1e-9) return 4;
+  return (credit * 4).ceil().clamp(1, 3);
 }
 
 /// Everything the widget's Room Race face needs for the one room
@@ -1055,8 +1065,11 @@ WeeklyHabitCredit weeklyHabitCreditFor({
 ///    weekly_quota_plan_test.dart), so scores and percentages are identical;
 ///    only the placement moved, onto the days the person actually saw break.
 ///
-/// [target] is capped at [presentDays].length so a room's short first or last
-/// week can't demand more days than it contains.
+/// [target] is the week's own target: a room week the room only partly covers
+/// asks its share of the habit's (roomQuotaWeekTarget, which the sync passes
+/// in). It is still capped at [presentDays].length, so a week can't demand
+/// more days than it holds, and a week in progress, graded over the days so
+/// far, asks every one of them until its target is met.
 List<int> weeklyQuotaScheduledDays({
   required List<int> presentDays,
   required Set<int> doneDays,
@@ -1146,10 +1159,11 @@ const bool kWeeklyShareEnabled = false;
 /// protect ("4x a week, done faithfully four times, scored 4/7 = 57% forever
 /// while the identical commitment written as named weekdays scored 100%").
 ///
-/// [target] is clamped into the week's length the same way, so a room's short
-/// first or last week cannot demand more days than it contains, and sessions
-/// above the target bank nothing: an extra session is not a surplus to be
-/// spent on the days that went unused.
+/// [target] is the week's own (a short week's share, as the sync passes it)
+/// and is clamped into the week's length the same way, so a week cannot
+/// demand more days than it contains, and sessions above the target bank
+/// nothing: an extra session is not a surplus to be spent on the days that
+/// went unused.
 ///
 /// A plain top-level function for the same unit-testability reasons as
 /// [roomRuleAt] - and because the inline version of this was unreachable by
@@ -4537,13 +4551,14 @@ class RoomsController {
     // RoomParticipant.quotaOkWeeks. Filled in pass 2.
     final okWeeks = <String>{};
 
-    // Every calendar week (Monday start, matching DateTimeGameExt.
-    // startOfGridWeek - SATURDAY, the same week boundary the Grid screen
-    // itself draws) this room's day range touches, oldest first, each mapped
-    // to which of `days` fall in it. A room that starts mid-week just gets a
-    // shorter-than-7-day first bucket (still checked against the habit's full
-    // weekly target, not a prorated one; a known, deliberately simple edge
-    // case that only ever affects a room's first partial week).
+    // Every calendar week (startOfGridWeek: SATURDAY, the same week boundary
+    // the Grid screen itself draws) this room's day range touches, oldest
+    // first, each mapped to which of `days` fall in it. A room that starts
+    // mid-week gets a shorter-than-7-day first bucket, and one that ends
+    // mid-week a shorter last one. Such a week asks the whole target, only
+    // capped at its length (F8HQKE's last week: 3 of its 3 days), until the
+    // share is switched on: from kRoomQuotaShareFromWeekKey it asks its share
+    // (roomQuotaWeekTarget over askFirstDay below).
     //
     // Saturday, not DateTimeGameExt.startOfWeek's Monday, on purpose: this
     // used to bucket by Monday while the Grid showed Saturday-to-Friday
@@ -4553,6 +4568,30 @@ class RoomsController {
     final weeks = <DateTime, List<int>>{};
     for (var i = 0; i < days.length; i++) {
       weeks.putIfAbsent(startOfGridWeek(days[i]), () => []).add(i);
+    }
+
+    // The first day the room asks habit [id] of this member: their first
+    // counted day, or the day its slot joined their plan if that is later.
+    // With the room's end, the span a week's share is taken over
+    // (roomQuotaWeekTarget). The floor is planFloorKeyById, the value
+    // RoomParticipant.quotaWeekTargetFor reads back from the written rules,
+    // so every screen asks a week for what this grades it by. Not the days
+    // present: a week in progress holds only the days so far, and a pause or
+    // a removal shortens a week by the member's or the leader's doing, not
+    // the room's calendar; both keep the cap on present days they always had.
+    //
+    // A habit holding earliestPlanFloor is asked from the member's first day,
+    // as joinedPlanBy grades it: before that floor every habit counts. That
+    // is only ever a member who declined every original slot and took a late
+    // addition alone; floored at the addition, their week took a share of
+    // four days while it counted all seven, and two sessions from before the
+    // addition met it.
+    DateTime askFirstDay(String id) {
+      final start = mineNow.countedStartIn(room);
+      final floor = planFloorKeyById[id];
+      if (floor == null || floor == earliestPlanFloor) return start;
+      final floorDay = DateTime.tryParse(floor);
+      return floorDay != null && floorDay.isAfter(start) ? floorDay : start;
     }
 
     // ── Pass 1: the day counts. ──────────────────────────────────────────
@@ -4680,11 +4719,19 @@ class RoomsController {
             roomEnded: room.isEndedAt(_clock()),
             now: now,
           );
+          // The week's own target: the whole of it, or the share a week the
+          // room only partly covers asks (roomQuotaWeekTarget).
+          final weekTarget = roomQuotaWeekTarget(
+            target: weekRule.frequencyTarget,
+            day: days[dayIndices.first],
+            firstDay: askFirstDay(id),
+            lastDay: room.endDate,
+          );
           final answerable = weeklyQuotaScheduledDays(
             presentDays: present,
             doneDays: done,
             halfDays: half,
-            target: weekRule.frequencyTarget,
+            target: weekTarget,
             isWeekClosed: isClosed,
           );
           for (final i in answerable) {
@@ -4730,10 +4777,10 @@ class RoomsController {
                 for (var p = 0; p < present.length; p++)
                   if (half.contains(present[p])) p,
               },
-              target: weekRule.frequencyTarget,
+              target: weekTarget,
             );
             final share = weeklyShareFor(
-              target: weekRule.frequencyTarget,
+              target: weekTarget,
               presentDays: present.length,
               sessions: sessions,
             );
@@ -4978,7 +5025,19 @@ class RoomsController {
             .where((i) => habit == null || countedOn(habit, days[i]));
         final window =
             alive.where((i) => slotGradesOn(id, days[i])).toList();
-        if (window.isEmpty) continue;
+        // From the first week with a share (roomQuotaWeekHasShare), only the
+        // days pass 1 grades the habit on count here: its `present`, which
+        // also leaves out the days before the slot joined the plan
+        // (joinedPlanBy; slotGradesOn does not, RoomHabitTemplate.liveOn says
+        // nothing about when a slot joined). A habit added on Tuesday asks 2
+        // of its four days, and the Saturday and Sunday sessions the member
+        // did before it was added must not meet those 2 here while pass 1
+        // grades the week short. A week before the slot joined is not its
+        // week at all. Earlier weeks keep the window they were judged by.
+        final counted = roomQuotaWeekHasShare(days[dayIndices.first])
+            ? window.where((i) => joinedPlanBy(id, days[i])).toList()
+            : window;
+        if (counted.isEmpty) continue;
         sawWeeklyHabit = true;
         // A week a plan edit or a change of the slot's habit cut short asks
         // for what it could still fit, the same clamp pass 1 applies
@@ -4987,13 +5046,21 @@ class RoomsController {
         // Sunday is met on the two days it had, and pass 1 credits them,
         // while this one reads 2 of 4 and drops the week from quotaOkWeeks,
         // breaking a streak the percentage says held. ONLY where the slot
-        // itself cut the week, so every week shortened by anything else (a
-        // pause, a late addition, a room's first or last week) is judged
-        // exactly as it is today.
+        // itself cut the week; a pause is judged by the week's target as it
+        // stands.
+        //
+        // That target is pass 1's: a week the room only partly covers (its
+        // first or last, a late join, a late addition) asks its share
+        // (roomQuotaWeekTarget), so a three-day last week met by two sessions
+        // holds here too, and the rest day pass 1 gave it keeps the streak.
+        final share = roomQuotaWeekTarget(
+          target: rule.frequencyTarget,
+          day: days[dayIndices.first],
+          firstDay: askFirstDay(id),
+          lastDay: room.endDate,
+        );
         final cutByPlan = window.length < alive.length;
-        final target = cutByPlan
-            ? rule.frequencyTarget.clamp(1, window.length)
-            : rule.frequencyTarget;
+        final target = cutByPlan ? share.clamp(1, counted.length) : share;
         // Whole sessions only: a week is HELD once its target was met in
         // full, and four halves are 2 of 4. A جزئي still holds its place in
         // pass 1, which is what rests the days after it (scheduled 0); those
@@ -5001,7 +5068,7 @@ class RoomsController {
         // only ever speaks for days the record still has as due, and the
         // half days themselves, never fully done, break it.
         final credit = weeklyHabitCreditFor(
-          completions: window.where((i) => isGreen(i, id)).length,
+          completions: counted.where((i) => isGreen(i, id)).length,
           target: target,
           isWeekClosed: isQuotaWeekClosed(
             weekStart: entry.key,

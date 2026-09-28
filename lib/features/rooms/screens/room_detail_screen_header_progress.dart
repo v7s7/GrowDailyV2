@@ -1298,8 +1298,15 @@ typedef _QuotaStanding = ({
 /// whenever the Grid is showing some other week than the current one: the
 /// numbers would silently describe whichever week the person last browsed
 /// to, and no line at all beats a plausible wrong one.
+///
+/// Only over the days the room grades the habit (roomQuotaWeekStanding), not
+/// the Grid's whole week: a room that started on Sunday does not count
+/// Saturday's session, and one that ends on Wednesday asks nothing of
+/// Thursday. Nothing at all for a week the room does not reach, which is
+/// every week of a room that has ended.
 List<_QuotaStanding> _quotaWeekStandings(
   WidgetRef ref,
+  RoomModel room,
   RoomParticipant mine,
   List<IslamicHabitTemplate> myHabits,
 ) {
@@ -1319,35 +1326,23 @@ List<_QuotaStanding> _quotaWeekStandings(
     if (type != HabitFrequencyType.weekly || weekdays.isNotEmpty) continue;
     final target = rule?.frequencyTarget ?? habit.frequencyTarget;
 
-    final days = grid.days;
-    final doneIdx = {
-      for (var i = 0; i < days.length; i++)
-        if (grid.squareFor(id, days[i]).isGreen) i,
-    };
-    final halfIdx = {
-      for (var i = 0; i < days.length; i++)
-        if (!doneIdx.contains(i) &&
-            grid.squareFor(id, days[i]) == SquareState.partial)
-          i,
-    };
-    final demand = weeklyQuotaDemand(
-      dayCount: days.length,
-      doneDays: doneIdx,
-      halfDays: halfIdx,
+    final standing = roomQuotaWeekStanding(
+      room: room,
+      participant: mine,
+      slot: mine.linkedHabitIds.indexOf(id),
+      weekDays: grid.days,
+      isDone: (d) => grid.squareFor(id, d).isGreen,
+      isHalf: (d) => grid.squareFor(id, d) == SquareState.partial,
       target: target,
+      today: today,
     );
-    final todayIdx = days.indexWhere((d) => d.isSameDayAs(today));
+    if (standing == null) continue;
     out.add(
       (
         name: habit.localName(S.of(ref.context).isAr),
-        done: quotaWeekCredit(
-          dayCount: days.length,
-          doneDays: doneIdx,
-          halfDays: halfIdx,
-          target: target,
-        ),
-        target: target.clamp(1, days.length),
-        neededToday: todayIdx >= 0 && demand[todayIdx] == DayDemand.owed,
+        done: standing.done,
+        target: standing.target,
+        neededToday: standing.neededToday,
       ),
     );
   }
@@ -1376,9 +1371,16 @@ class _MyPlanCard extends ConsumerWidget {
     // deliberately does not have: isFullyDone is false on such a day, which
     // would otherwise land it on the "not done yet today" headline and put
     // the card in direct contradiction with the paused hint underneath it.
-    final stoodDownToday = mine.isStoodDownOn(today);
-    final doneToday = mine.isFullyDone(today);
-    final partialToday = todayCount > 0 && !doneToday && !stoodDownToday;
+    //
+    // An ENDED room asks nothing of today at all, so the headline says it
+    // ended instead: a room over since 12 August read «لم يُنجز بعد اليوم»
+    // under its own finale (ZCNGFT, 2026-09-27), about a day it will never
+    // count. The team card drops its today line the same way.
+    final ended = room.isEnded;
+    final stoodDownToday = !ended && mine.isStoodDownOn(today);
+    final doneToday = !ended && mine.isFullyDone(today);
+    final partialToday =
+        !ended && todayCount > 0 && !doneToday && !stoodDownToday;
     final names =
         mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
     // A linked habit id that's no longer on this account's own board means
@@ -1414,7 +1416,7 @@ class _MyPlanCard extends ConsumerWidget {
     final ruleMismatches = roomRuleMismatches(mine, myHabits, today);
     // One colour, decided once, so the icon and the words can never disagree
     // about what today looks like.
-    final statusColor = stoodDownToday
+    final statusColor = ended || stoodDownToday
         ? gp.textTert
         : doneToday
             ? GameColors.success
@@ -1457,24 +1459,28 @@ class _MyPlanCard extends ConsumerWidget {
                 HalfFullMark(size: 18, color: statusColor)
               else
                 Icon(
-                  stoodDownToday
-                      ? Icons.pause_circle_outline_rounded
-                      : doneToday
-                          ? Icons.check_circle_rounded
-                          : Icons.radio_button_unchecked_rounded,
+                  ended
+                      ? Icons.flag_rounded
+                      : stoodDownToday
+                          ? Icons.pause_circle_outline_rounded
+                          : doneToday
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
                   size: 18,
                   color: statusColor,
                 ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  stoodDownToday
-                      ? s.roomStoodDownToday
-                      : doneToday
-                          ? s.roomMarkedToday
-                          : partialToday
-                              ? s.roomPartialToday(todayCount, totalCount)
-                              : s.roomNotDoneToday,
+                  ended
+                      ? s.roomEnded
+                      : stoodDownToday
+                          ? s.roomStoodDownToday
+                          : doneToday
+                              ? s.roomMarkedToday
+                              : partialToday
+                                  ? s.roomPartialToday(todayCount, totalCount)
+                                  : s.roomNotDoneToday,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1562,9 +1568,11 @@ class _MyPlanCard extends ConsumerWidget {
           // into the quota am I, and is today one of the days I can't
           // afford to skip?) previously lived nowhere on this screen. The
           // "needed today" tail comes from the same day-local verdict the
-          // Grid's red squares use (weeklyQuotaDemand), so this line and
-          // the Grid can never tell two different stories.
-          for (final q in _quotaWeekStandings(ref, mine, myHabits)) ...[
+          // Grid's red squares use (weeklyQuotaDemand), over the days the
+          // room grades: in a week the room covers whole the two agree, and
+          // in its first or last week this line answers for the room's days
+          // alone, which are the only ones it counts (see room_quota_week).
+          for (final q in _quotaWeekStandings(ref, room, mine, myHabits)) ...[
             const SizedBox(height: 8),
             Row(
               children: [

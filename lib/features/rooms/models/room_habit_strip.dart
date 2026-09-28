@@ -200,7 +200,14 @@ bool _slotMissIsFinal(
   final demand = weeklyQuotaDemand(
     dayCount: present.length,
     doneDays: done,
-    target: rule.frequencyTarget,
+    // The week's own target, a short week's share at a room's start or end,
+    // as the grader asks it (RoomParticipant.quotaWeekTargetFor).
+    target: participant.quotaWeekTargetFor(
+      habitId,
+      rule.frequencyTarget,
+      room,
+      day,
+    ),
   );
   return demand[at] == DayDemand.owed;
 }
