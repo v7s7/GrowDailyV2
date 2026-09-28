@@ -78,14 +78,14 @@ void main() {
       );
       expect(find.text('أيقونتك الحين'), findsOneWidget);
       expect(find.text('هذه أيقونتك الحين'), findsOneWidget);
-      // The two shapes still ahead say how many full days off they are.
-      expect(find.text('باقي 18 يومًا كاملًا'), findsOneWidget);
-      expect(find.text('باقي 78 يومًا كاملًا'), findsOneWidget);
+      // The two shapes still ahead say how many streak days off they are.
+      expect(find.text('باقي 18 يومًا محسوبًا'), findsOneWidget);
+      expect(find.text('باقي 78 يومًا محسوبًا'), findsOneWidget);
       expect(
-        find.text('عندك 12 يومًا كاملًا. النبتة الكبيرة بعد 18 يومًا كاملًا.'),
+        find.text('عندك 12 يومًا محسوبًا. النبتة الكبيرة بعد 18 يومًا محسوبًا.'),
         findsOneWidget,
       );
-      expect(find.textContaining('اليوم الكامل: تنجز فيه 80%'), findsOneWidget);
+      expect(find.textContaining('اليوم المحسوب: تنجز فيه 80%'), findsOneWidget);
       // The Ramadan icon, at the end, locked, saying when it opens.
       expect(find.text('موسمية'), findsOneWidget);
       expect(find.text('تفتح في رمضان'), findsOneWidget);
@@ -170,9 +170,9 @@ void main() {
 
     testWidgets('every shape is open and says so', (tester) async {
       await open(tester);
-      expect(find.textContaining('full days to go'), findsNothing);
+      expect(find.textContaining('streak days to go'), findsNothing);
       expect(
-        find.text('140 full days so far. Every shape is yours.'),
+        find.text('140 streak days so far. Every shape is yours.'),
         findsOneWidget,
       );
       await tester.tap(find.text('In bloom'));

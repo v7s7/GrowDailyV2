@@ -1010,9 +1010,12 @@ class S {
   // See stat_info_sheet.dart's showStatInfoSheet, the one sheet all five
   // reuse.
   String get statInfoStreakTitle => isAr ? 'السلسلة' : 'Streak';
+  // The streak counts days that reached 80% of their habits (the streak
+  // pass, kStreakDayCompletionThreshold); every habit done is the perfect
+  // day, and a person who gets there is told so (Aziz, 2026-09-28).
   String get statInfoStreakDesc => isAr
-      ? 'عدد الأيام المتتالية التي أنجزت فيها كل عاداتك لهذا اليوم. تفويت يوم كامل يُصفّرها - إلا إذا حماك تجميد السلسلة.'
-      : "Consecutive days you've completed every habit on your board. Miss a full day and it resets, unless a streak freeze covers you.";
+      ? 'عدد الأيام المتتالية اللي أنجزت فيها 80% أو أكثر من عادات يومك. يوم ينزل تحت 80% يصفّرها، إلا إذا حماك تجميد السلسلة. وإذا أنجزت كل عادات اليوم، يكون يومك مثالي.'
+      : "Consecutive days you've finished at least 80% of the day's habits. A day below 80% resets it, unless a streak freeze covers you. Finish every habit of the day and it's a perfect day.";
   String get statInfoBestTitle => isAr ? 'أفضل سلسلة' : 'Best Streak';
   String get statInfoBestDesc => isAr
       ? 'أطول سلسلة حققتها على الإطلاق. بمجرد تجاوزها، يرتفع هذا الرقم ويبقى كما هو.'
@@ -1440,6 +1443,24 @@ class S {
       isAr ? 'اسمح به على أي حال' : 'Allow anyway';
   String get quietHoursRespectAction =>
       isAr ? 'احترم ساعات الهدوء' : 'Respect quiet hours';
+
+  // Asked on saving a habit whose reminder falls inside quiet hours while
+  // they are on (quiet_hours_conflict_dialog.dart). DRAFT WORDING, Aziz
+  // picks the final Arabic.
+  String get quietConflictTitle =>
+      isAr ? 'التذكير في ساعات الهدوء' : 'This reminder is in quiet hours';
+  /// [times] one moment or several joined («11:00 م و12:00 ص»), [start] and
+  /// [end] the window, all in the app's own clock format.
+  String quietConflictBody(String times, String start, String end) => isAr
+      ? 'الساعة $times ضمن ساعات الهدوء (من $start إلى $end)، فما بيوصلك التذكير وقتها.'
+      : "Your quiet hours ($start to $end) cover $times, so the reminder won't reach you then.";
+  String get quietConflictQuestion =>
+      isAr ? 'تبي توقف ساعات الهدوء؟' : 'Turn quiet hours off?';
+  String get quietConflictTurnOff =>
+      isAr ? 'إيه، وقّفها' : 'Yes, turn them off';
+  String get quietConflictAllowThis =>
+      isAr ? 'خلّ هذا التذكير يوصل' : 'Let just this reminder through';
+  String get quietConflictKeep => isAr ? 'لا، خلّها' : 'No, keep them';
 
   // Small live preview under the offset picker (_reminderOffsetSection in
   // add_habit_sheet.dart) — [time] is the already-localized clock string
@@ -2269,19 +2290,42 @@ class S {
   String get appIconColourBeige => isAr ? 'بيج' : 'Beige';
   String get appIconColourMistBlue => isAr ? 'أزرق ضبابي' : 'Mist Blue';
   String get appIconColourMint => isAr ? 'نعناعي' : 'Mint';
-  // The plant grows with FULL days: days that reached 80% of their habits,
-  // the streak's own bar, counted over all time and never needing to be in
-  // a row (Aziz, 2026-09-25). «يوم كامل» is the app's word for that day
-  // already (perfectDayMsg), so the count reads «18 يومًا كاملًا».
+  // The plant grows with the days that reached 80% of their habits, the
+  // streak's own bar, counted over all time and never needing to be in a row
+  // (Aziz, 2026-09-25). They are days that COUNTED («يوم محسوب», "streak
+  // day"), never «يوم كامل»: 80% is a streak pass, and a full day is every
+  // habit the day asked for (Aziz, 2026-09-28). The code still says
+  // fullDays for them; the words are what changed.
+  //
+  // The words sit in the five getters below so the admin wording page can
+  // change each of them (Aziz, 2026-09-28: "all in app admin can change
+  // it"); this only picks which one a count takes.
   String fullDaysInSentence(int n) {
-    if (!isAr) return n == 1 ? '1 full day' : '$n full days';
-    if (n == 1) return 'يوم كامل';
-    if (n == 2) return 'يومين كاملين';
+    if (n == 1) return streakDaysOne;
+    if (n == 2) return streakDaysTwo;
     final mod100 = n % 100;
-    if (mod100 >= 3 && mod100 <= 10) return '$n أيام كاملة';
-    if (mod100 >= 11 && mod100 <= 99) return '$n يومًا كاملًا';
-    return '$n يوم كامل';
+    if (mod100 >= 3 && mod100 <= 10) return streakDaysFew(n);
+    if (mod100 >= 11 && mod100 <= 99) return streakDaysMany(n);
+    return streakDaysHundreds(n);
   }
+
+  /// One day that counted for the streak, as the plant counts it.
+  String get streakDaysOne => isAr ? 'يوم محسوب' : '1 streak day';
+
+  /// Two of them (Arabic has its own form for two).
+  String get streakDaysTwo => isAr ? 'يومين محسوبين' : '2 streak days';
+
+  /// 3 to 10 of them, and 103 to 110 and so on.
+  String streakDaysFew(int n) =>
+      isAr ? '$n أيام محسوبة' : '$n streak days';
+
+  /// 11 to 99 of them, and 111 to 199 and so on.
+  String streakDaysMany(int n) =>
+      isAr ? '$n يومًا محسوبًا' : '$n streak days';
+
+  /// 100, 200 and the like.
+  String streakDaysHundreds(int n) =>
+      isAr ? '$n يوم محسوب' : '$n streak days';
 
   // Under a shape that is still ahead.
   String appIconFullDaysLeft(int n) => isAr
@@ -2291,8 +2335,8 @@ class S {
   String appIconFullDaysSoFar(int n) {
     if (n == 0) {
       return isAr
-          ? 'النبتة تكبر مع أيامك الكاملة.'
-          : 'Your plant grows with your full days.';
+          ? 'النبتة تكبر مع كل يوم ينحسب في سلسلتك.'
+          : 'Your plant grows with every day that counts toward your streak.';
     }
     return isAr
         ? 'عندك ${fullDaysInSentence(n)}.'
@@ -2301,13 +2345,13 @@ class S {
 
   String appIconNextShape(String shape, int n) => isAr
       ? '$shape بعد ${fullDaysInSentence(n)}.'
-      : '$shape after ${n == 1 ? '1 more full day' : '$n more full days'}.';
+      : '$shape after ${n == 1 ? '1 more streak day' : '$n more streak days'}.';
   String get appIconAllShapes =>
       isAr ? 'كل الأشكال صارت لك.' : 'Every shape is yours.';
-  // What a full day is, under the line above.
+  // What a day that counts is, under the line above.
   String get appIconFullDayRule => isAr
-      ? 'اليوم الكامل: تنجز فيه 80% من عاداته أو أكثر. مو لازم تكون الأيام ورا بعض.'
-      : 'A full day is one where you finish 80% or more of its habits. They don\'t have to be in a row.';
+      ? 'اليوم المحسوب: تنجز فيه 80% من عاداته أو أكثر، فينحسب في سلسلتك. مو لازم تكون الأيام ورا بعض.'
+      : 'A streak day is one where you finish 80% or more of its habits. They don\'t have to be in a row.';
   // The Ramadan icon: shown all year, open to everyone only in Ramadan.
   String get appIconSeasonSection => isAr ? 'موسمية' : 'Seasonal';
   String get appIconRamadan => isAr ? 'رمضان' : 'Ramadan';
@@ -2822,11 +2866,12 @@ class S {
   // The day's own pop-up. It fires on the tap that earns the day's streak
   // point, which is 80% of the day's habits (kStreakDayCompletionThreshold),
   // so with five habits it lands on the fourth and «كل عاداتك» was untrue;
-  // it named green too. «يوم كامل» is the app's word for that 80% day (see
-  // fullDaysInSentence), and the streak point is what the tap just earned.
+  // it named green too. It says what the tap earned, the streak point, and
+  // never «يوم كامل»: 80% is a streak pass, and a full day is every habit the
+  // day asked for (Aziz, 2026-09-28).
   String get perfectDayMsg => isAr
-      ? 'يوم كامل! يومك انحسب في سلسلتك.'
-      : 'Full day! Today counts toward your streak.';
+      ? 'يومك انحسب في سلسلتك.'
+      : 'Today counts toward your streak.';
   // ── Weekly recap (Saturday card on Profile) ───────────────────────────────
   // The card shows once its week has sealed, Saturday from 10:00 (see
   // recapWeekStartAt), so the week it counts is the one that has just ended,
@@ -5334,8 +5379,51 @@ class S {
     int achievements,
   ) =>
       isAr
-          ? 'قصتي على Grow Daily، $month\n\nمربعات خضراء: $greenSquares\nأيام مثالية: $perfectDays\nترقيات مستوى: $levelUps\nإنجازات مفتوحة: $achievements\n\nأبني عادات أفضل، يومًا بعد يوم.'
-          : 'My Grow Daily Story, $month\n\nGreen squares: $greenSquares\nPerfect days: $perfectDays\nLevel-ups: $levelUps\nAchievements unlocked: $achievements\n\nBuilding better habits, one day at a time.';
+          ? 'قصتي على Grow Daily، $month\n\nمربعات خضراء: $greenSquares\nأيام محسوبة: $perfectDays\nترقيات مستوى: $levelUps\nإنجازات مفتوحة: $achievements\n\nأبني عادات أفضل، يومًا بعد يوم.'
+          : 'My Grow Daily Story, $month\n\nGreen squares: $greenSquares\nStreak days: $perfectDays\nLevel-ups: $levelUps\nAchievements unlocked: $achievements\n\nBuilding better habits, one day at a time.';
+
+  // ── Journey: what each moment is called ────────────────────────────────
+  // The Journey page, the monthly story and the Legacy Shelf name each
+  // moment with these (MilestoneType.localizedName and milestoneHeadline in
+  // milestone_event.dart), in S so the admin wording page can change every
+  // one of them (Aziz, 2026-09-28: "all in app admin can change it"). The
+  // streak day and week fire at the streak's 80% bar, so they are days that
+  // COUNTED, never perfect ones: a perfect day is every habit the day asked
+  // for.
+
+  /// A moment's kind on its own, where only the kind matters (a tally row).
+  String get milestoneNameJoined => isAr ? 'انضممت' : 'Joined Grow Daily';
+  String get milestoneNameLevelUp => isAr ? 'ارتقاء مستوى' : 'Level Up';
+  String get milestoneNameStreak =>
+      isAr ? 'إنجاز سلسلة' : 'Streak Milestone';
+  String get milestoneNameStreakDay => isAr ? 'يوم محسوب' : 'Streak Day';
+  String get milestoneNameStreakWeek => isAr ? 'أسبوع محسوب' : 'Streak Week';
+  String get milestoneNameAchievement =>
+      isAr ? 'إنجاز مفتوح' : 'Achievement Unlocked';
+  String get milestoneNameRoomChallenge =>
+      isAr ? 'تحدي غرفة مكتمل' : 'Room Challenge Complete';
+
+  /// The sentence a moment reads as on the Journey page.
+  String get milestoneLineJoined =>
+      isAr ? 'بدأت رحلتك مع Grow Daily' : 'Started your Grow Daily journey';
+  String milestoneLineLevelUp(int level) =>
+      isAr ? 'وصلت للمستوى $level' : 'Reached Level $level';
+
+  /// Counted the way Arabic counts days («سلسلة 7 أيام», «سلسلة 14 يومًا»);
+  /// it read «سلسلة 7 يومًا» before.
+  String milestoneLineStreak(int days) =>
+      isAr ? 'سلسلة ${daysInSentence(days)}' : '$days-day streak';
+  String get milestoneLineStreakDay =>
+      isAr ? 'يومك انحسب في سلسلتك' : 'Your day counted toward your streak';
+  String get milestoneLineStreakWeek => isAr
+      ? '7 أيام ورا بعض انحسبت في سلسلتك'
+      : '7 days in a row counted toward your streak';
+  String milestoneLineAchievement(String name) =>
+      isAr ? 'فتحت إنجاز "$name"' : 'Unlocked "$name"';
+  String get milestoneLineRoomChallenge =>
+      isAr ? 'أكملت تحدي غرفة' : 'Completed a room challenge';
+  String milestoneLineRoomChallengeNamed(String name) =>
+      isAr ? 'أكملت تحدي "$name"' : 'Completed "$name" challenge';
 
   // ── Year Record (per-habit yearly strips) ──────────────────────────────
 
@@ -5934,36 +6022,57 @@ class S {
   // moment and fades (see DayCardSprout). Short, spoken, and where it asks
   // anything it asks in «نـ» forms (نبدأ، نكمل): a companion's "we", which
   // also keeps every line clear of a gendered imperative. It never names the
-  // reader anything and it is never sad at them (see sprout_mood.dart).
+  // reader anything and it is never sad at them (see sprout_mood.dart). No
+  // exclamation marks anywhere in what it says (Aziz, 2026-09-28: they read
+  // as machine-written); sprout_praise_test fails on one.
   // Drafted 2026-09-27 for Aziz to reword.
 
-  /// What screen readers call the sprout.
-  String get sproutName => isAr ? 'نبتة' : 'Sprout';
+  /// The sprout's name, and what screen readers call it: «دوم», Bahraini
+  /// for "always" (Aziz, 2026-09-28, "for now choose Doum"; he may pick
+  /// another). A boy's name, so everything that speaks OF him says ـه:
+  /// «ترجعه»، «أخفيه»، «خلّه» (see gridSproutHide*).
+  String get sproutName => isAr ? 'دوم' : 'Doum';
 
   /// Nothing done yet, before noon.
   String get sproutMorning =>
-      isAr ? 'صباح الخير! نبدأ؟' : 'Good morning! Shall we start?';
+      isAr ? 'صباح الخير، نبدأ؟' : 'Good morning, shall we start?';
 
   /// Nothing done yet, from noon on, when «صباح الخير» would be wrong.
-  String get sproutHello => isAr ? 'هلا! نبدأ؟' : 'Hi! Shall we start?';
+  String get sproutHello => isAr ? 'هلا، نبدأ؟' : 'Hi, shall we start?';
 
   /// The day's first green square.
-  String get sproutFirstDone => isAr ? 'بداية حلوة!' : 'A sweet start!';
+  String get sproutFirstDone => isAr ? 'بداية حلوة' : 'A sweet start';
 
-  /// Where the day stands, the same two numbers the card prints.
+  /// Where the day stands, the same two numbers the card prints. The Arabic
+  /// word comes first (Aziz, 2026-09-28: «خلصت 5 من 10»), so the line is
+  /// Arabic from its first letter and its numbers can never be laid out in
+  /// the wrong order. Spoken to the reader, so it has a woman's form, and a
+  /// "we" form (the sprout's own voice, «نبدأ؟») for when the app does not
+  /// know which to use (see sproutAddressProvider).
   String sproutProgress(int done, int owed) =>
-      isAr ? '$done من $owed خلصت' : '$done of $owed done';
+      isAr ? 'خلصت $done من $owed' : '$done of $owed done';
+  String sproutProgressF(int done, int owed) =>
+      isAr ? 'خلصتي $done من $owed' : '$done of $owed done';
+  String sproutProgressWe(int done, int owed) =>
+      isAr ? 'خلصنا $done من $owed' : '$done of $owed done';
 
   /// Said on the tap that earns the day's streak point, 80% of its habits,
-  /// the same moment and the same words as the pop-up (perfectDayMsg):
-  /// «يوم كامل» is the app's word for that day.
-  String get sproutFullDay => isAr ? 'يوم كامل!' : 'A full day!';
+  /// with the pop-up on the same tap (perfectDayMsg). A streak pass, never
+  /// «يوم كامل»: a full day is every habit the day asked for (Aziz,
+  /// 2026-09-28).
+  String get sproutStreakPoint => isAr ? 'سلسلتك زادت' : 'Your streak grew';
 
-  /// Every square the day asks for is green: the card's own «يوم مثالي»
-  /// (gridPerfectDay), not «يوم كامل», which means the 80% day.
-  String get sproutPerfectDay => isAr ? 'يوم مثالي!' : 'A perfect day!';
+  /// Every habit the day asked for is done: the perfect day, the card's own
+  /// word for it (gridPerfectDay), and what someone who gets there is told
+  /// (Aziz, 2026-09-28).
+  String get sproutPerfectDay => isAr ? 'يوم مثالي' : 'A perfect day';
 
-  /// A full day, after 9pm: the sprout goes to sleep.
+  /// Said under «يوم مثالي» when every habit the day asked for is done, the
+  /// same words every time: Aziz's line for that moment (2026-09-28).
+  String get sproutPerfectDayBlessing =>
+      isAr ? 'ما شاء الله تبارك الله' : 'MashaAllah, TabarakAllah';
+
+  /// A perfect day, after 9pm: the sprout goes to sleep.
   String get sproutGoodNight => isAr ? 'نكمل باجر' : 'More tomorrow';
 
   /// After midnight on a new day with nothing done yet.
@@ -5973,5 +6082,161 @@ class S {
   String get sproutRestDay => isAr ? 'يوم راحة' : 'A rest day';
 
   /// Tapping the sprout.
-  String get sproutTickle => isAr ? 'هههه، يدغدغ!' : 'Hehe, that tickles!';
+  String get sproutTickle => isAr ? 'هههه' : 'Hehe';
+
+  // ── The sprout's praise ─────────────────────────────────────────────
+  // What the sprout says when a square turns green, fitted to the habit's
+  // category (Aziz, 2026-09-28: faith praise for faith, sport praise for
+  // sport, a list for men and one for women in each, and a general list for
+  // any habit). ONE LINE PER ROW: each getter is a whole list, edited as one
+  // field on the admin wording page. The F list goes to a woman, the plain
+  // one to a man; when the app does not know which (see
+  // sproutAddressProvider), the sprout says ONLY the lines written the same
+  // in both lists, so it is never wrong about who it is talking to. Every
+  // list therefore keeps some lines that fit anyone. English has one form,
+  // so both lists carry the same English. Never «يوم كامل» or «يوم مثالي» in
+  // any of them: these also play at the 80% streak point. Worship lines are
+  // prayers for the reader, or carry «إن شاء الله»: the sprout never declares
+  // a fast, a sadaqah or a prayer accepted, and never quotes the Quran
+  // (Aziz, 2026-09-28). See sprout_praise.dart for how a line is picked.
+
+  /// Any habit, a habit with no category of its own (custom), a quit habit kept clean, and every group once its own lines have all been said lately.
+  String get sproutPraiseGeneral => isAr
+      ? 'كفو عليك\nفخور فيك\nالله يوفقك\nما شاء الله عليك\nزين سويت\nيعطيك العافية\nالله يسعدك\nخطوة حلوة\nما شاء الله\nتبارك الرحمن\nعمل طيب'
+      : 'Well done\nProud of you\nMay Allah grant you success\nMashaAllah, look at you\nNicely done\nMore power to you\nMay Allah make you happy\nA good step\nMashaAllah\nTabarakAllah\nGood work';
+  String get sproutPraiseGeneralF => isAr
+      ? 'كفو عليج\nفخور فيج\nالله يوفقج\nما شاء الله عليج\nزين سويتي\nيعطيج العافية\nالله يسعدج\nخطوة حلوة\nما شاء الله\nتبارك الرحمن\nعمل طيب'
+      : 'Well done\nProud of you\nMay Allah grant you success\nMashaAllah, look at you\nNicely done\nMore power to you\nMay Allah make you happy\nA good step\nMashaAllah\nTabarakAllah\nGood work';
+
+  /// Prayer and worship (faith), and what Quran, athkar, fasting and sadaqah also draw on.
+  String get sproutPraiseFaith => isAr
+      ? 'الله يتقبل منك\nجعلها الله في ميزان حسناتك\nالله يثبتك\nالله يجزاك خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله'
+      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah';
+  String get sproutPraiseFaithF => isAr
+      ? 'الله يتقبل منج\nجعلها الله في ميزان حسناتج\nالله يثبتج\nالله يجزاج خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله'
+      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah';
+
+  /// Reading, memorising or listening to the Quran.
+  String get sproutPraiseQuran => isAr
+      ? 'الله ينور قلبك\nجعله الله ربيع قلبك\nالله يرفع قدرك بالقرآن\nكل آية نور\nالقرآن ربيع القلوب'
+      : 'May Allah light up your heart\nMay it be the spring of your heart\nMay the Quran raise you\nEvery verse is light\nThe Quran is the spring of hearts';
+  String get sproutPraiseQuranF => isAr
+      ? 'الله ينور قلبج\nجعله الله ربيع قلبج\nالله يرفع قدرج بالقرآن\nكل آية نور\nالقرآن ربيع القلوب'
+      : 'May Allah light up your heart\nMay it be the spring of your heart\nMay the Quran raise you\nEvery verse is light\nThe Quran is the spring of hearts';
+
+  /// Morning and evening athkar, and any dhikr: nothing about the day or the night, the same words fit both.
+  String get sproutPraiseAthkar => isAr
+      ? 'الله يحفظك\nالله يجعلنا من الذاكرين\nفي حفظ الله\nذكر الله راحة'
+      : 'May Allah protect you\nMay Allah make us of those who remember Him\nIn Allah\'s care\nRemembering Allah is rest';
+  String get sproutPraiseAthkarF => isAr
+      ? 'الله يحفظج\nالله يجعلنا من الذاكرين\nفي حفظ الله\nذكر الله راحة'
+      : 'May Allah protect you\nMay Allah make us of those who remember Him\nIn Allah\'s care\nRemembering Allah is rest';
+
+  /// A day of fasting, often marked at dawn: prayers for it, not claims about it.
+  String get sproutPraiseFasting => isAr
+      ? 'الله يتقبل صيامك\nالله يعطيك أجر الصايم\nصيام مقبول إن شاء الله\nاللهم تقبّل'
+      : 'May Allah accept your fast\nMay Allah give you the reward of the fasting\nAn accepted fast, InshaAllah\nO Allah, accept it';
+  String get sproutPraiseFastingF => isAr
+      ? 'الله يتقبل صيامج\nالله يعطيج أجر الصايمة\nصيام مقبول إن شاء الله\nاللهم تقبّل'
+      : 'May Allah accept your fast\nMay Allah give you the reward of the fasting\nAn accepted fast, InshaAllah\nO Allah, accept it';
+
+  /// Giving sadaqah.
+  String get sproutPraiseSadaqah => isAr
+      ? 'الله يخلف عليك\nالله يبارك في مالك\nصدقة مقبولة إن شاء الله\nالصدقة بركة'
+      : 'May Allah repay you\nMay Allah bless your wealth\nAn accepted charity, InshaAllah\nCharity brings blessing';
+  String get sproutPraiseSadaqahF => isAr
+      ? 'الله يخلف عليج\nالله يبارك في مالج\nصدقة مقبولة إن شاء الله\nالصدقة بركة'
+      : 'May Allah repay you\nMay Allah bless your wealth\nAn accepted charity, InshaAllah\nCharity brings blessing';
+
+  /// A workout, a walk, any sport (fitness); also draws on health.
+  String get sproutPraiseSport => isAr
+      ? 'يعطيك العافية\nجسمك يشكرك\nصحتك أهم شي\nتعبت احين؟ بترتاح بعدين\nكل حركة تفرق\nالحركة بركة'
+      : 'More power to you\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
+  String get sproutPraiseSportF => isAr
+      ? 'يعطيج العافية\nجسمج يشكرج\nصحتج أهم شي\nتعبتي احين؟ بترتاحين بعدين\nكل حركة تفرق\nالحركة بركة'
+      : 'More power to you\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
+
+  /// Water, vitamins, eating well: health that is not a workout.
+  String get sproutPraiseHealth => isAr
+      ? 'الله يديم عليك الصحة\nصحتك تستاهل\nالله يعافيك\nالصحة تاج'
+      : 'May Allah keep you healthy\nYour health is worth it\nMay Allah keep you well\nHealth is a crown';
+  String get sproutPraiseHealthF => isAr
+      ? 'الله يديم عليج الصحة\nصحتج تستاهل\nالله يعافيج\nالصحة تاج'
+      : 'May Allah keep you healthy\nYour health is worth it\nMay Allah keep you well\nHealth is a crown';
+
+  /// Reading, a course, anything learned.
+  String get sproutPraiseLearning => isAr
+      ? 'زادك الله علم\nمعلومة تضيف لك\nكل يوم شي جديد\nالعلم نور'
+      : 'May Allah increase your knowledge\nKnowledge that adds up\nSomething new every day\nKnowledge is light';
+  String get sproutPraiseLearningF => isAr
+      ? 'زادج الله علم\nمعلومة تضيف لج\nكل يوم شي جديد\nالعلم نور'
+      : 'May Allah increase your knowledge\nKnowledge that adds up\nSomething new every day\nKnowledge is light';
+
+  /// Deep work, study, a task finished with focus.
+  String get sproutPraiseFocus => isAr
+      ? 'ركزت وخلّصت\nذهنك صافي\nشغل مرتب\nتركيز عالي'
+      : 'Focused and done\nClear mind\nTidy work\nSharp focus';
+  String get sproutPraiseFocusF => isAr
+      ? 'ركزتي وخلّصتي\nذهنج صافي\nشغل مرتب\nتركيز عالي'
+      : 'Focused and done\nClear mind\nTidy work\nSharp focus';
+
+  /// Sleeping on time; often marked the next morning, so nothing about tonight and no claim about a habit formed.
+  String get sproutPraiseSleep => isAr
+      ? 'راحتك مهمة\nالله يريّحك\nنوم على وقته\nالنوم راحة'
+      : 'Rest matters\nMay Allah give you rest\nSleep on time\nGood rest, good day';
+  String get sproutPraiseSleepF => isAr
+      ? 'راحتج مهمة\nالله يريّحج\nنوم على وقته\nالنوم راحة'
+      : 'Rest matters\nMay Allah give you rest\nSleep on time\nGood rest, good day';
+
+  /// Saving, a budget, a debt paid: nothing that only fits one of them («يكبر» is wrong for a debt).
+  String get sproutPraiseMoney => isAr
+      ? 'الله يبارك في رزقك\nخطوة لمستقبلك\nتدبير زين\nالبركة في التدبير'
+      : 'May Allah bless your provision\nA step for your future\nWell managed\nGood planning brings blessing';
+  String get sproutPraiseMoneyF => isAr
+      ? 'الله يبارك في رزقج\nخطوة لمستقبلج\nتدبير زين\nالبركة في التدبير'
+      : 'May Allah bless your provision\nA step for your future\nWell managed\nGood planning brings blessing';
+
+  /// Journaling, reflection, a calm mind.
+  String get sproutPraiseMind => isAr
+      ? 'الله يريّح بالك\nصفّيت ذهنك\nراحة بال\nهدوء يستاهل'
+      : 'May Allah ease your mind\nA clearer head\nPeace of mind\nCalm is worth it';
+  String get sproutPraiseMindF => isAr
+      ? 'الله يريّح بالج\nصفّيتي ذهنج\nراحة بال\nهدوء يستاهل'
+      : 'May Allah ease your mind\nA clearer head\nPeace of mind\nCalm is worth it';
+
+  /// Family, friends, visiting, calling someone: «تواصل», not «صلة», which reads as family only.
+  String get sproutPraiseSocial => isAr
+      ? 'الله يجزاك خير\nالله يديم المحبة\nتواصل يفرح القلب\nالله يديم الود'
+      : 'May Allah reward you\nMay Allah keep the love\nTies that warm the heart\nMay Allah keep the bond';
+  String get sproutPraiseSocialF => isAr
+      ? 'الله يجزاج خير\nالله يديم المحبة\nتواصل يفرح القلب\nالله يديم الود'
+      : 'May Allah reward you\nMay Allah keep the love\nTies that warm the heart\nMay Allah keep the bond';
+
+  // ── The sprout on the board's edge ──────────────────────────────────
+  // Since 2026-09-28 the sprout peeks over the habit board's top edge (see
+  // SproutLedge). Pulling it down behind the board asks this, and the
+  // Settings switch is the way back. Drafted for Aziz to reword; no «!»
+  // (his rule for copy he did not write). He is called by his name, never
+  // «النبتة» (Aziz, 2026-09-28), and the words that point at him follow
+  // his name's gender: a boy's name (see sproutName) takes ـه, «أخفيه»
+  // where a girl's would take «أخفيها», his own spelling for that form.
+
+  /// The question after the sprout is pulled down behind the board.
+  String get gridSproutHideTitle =>
+      isAr ? 'تخفي دوم؟' : 'Hide Doum?';
+
+  /// Under it: the way back, named where it is.
+  String get gridSproutHideBody => isAr
+      ? 'تقدر ترجعه متى ما تبي من الإعدادات، في التخصيص.'
+      : 'You can bring him back any time in Settings, under Personalization.';
+
+  /// Hides him. Also the screen reader's action on the sprout.
+  String get gridSproutHideYes => isAr ? 'أخفيه' : 'Hide him';
+
+  /// Keeps him: he climbs back up.
+  String get gridSproutHideNo => isAr ? 'خلّه' : 'Keep him';
+
+  /// The switch in Settings › التخصيص.
+  String get gridSproutSetting =>
+      isAr ? 'دوم في صفحة العادات' : 'Doum on the Habits page';
 }

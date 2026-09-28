@@ -90,7 +90,9 @@ const {
 // creditFor and its denominator, ported from room_model.dart. See
 // lib/day_rules.js for why this tool now has one copy of the app's rules
 // instead of a fresh guess per surface.
-const { roomDayCounts, isOpenDayAt, localNowMs } = require('./lib/day_rules');
+const {
+  roomDayCounts, roomDayVerdict, isOpenDayAt, localNowMs,
+} = require('./lib/day_rules');
 
 // The room's days are keyed on Asia/Bahrain, +180 with no daylight saving,
 // the basis check_rooms.js uses, never on this machine's own timezone: the
@@ -279,9 +281,15 @@ function weekStartKey(key) {
                       `${habits[h.habitId] ? `  (${habits[h.habitId].name})` : ''}`);
         }
       }
-      if (!isDeclined && !removed) {
+      // A slot the leader removed still counts through its last day
+      // (RoomHabitTemplate.stopsOn), so its column stays, reading "removed"
+      // from that day on. Dropping it made PBYAS5's 2026-09-24 print 6/7
+      // over five columns, the two habits behind the gap nowhere on the page.
+      const stops = removed && typeof slot.stopsOn === 'string' ?
+        slot.stopsOn : null;
+      if (!isDeclined && (!removed || stops)) {
         if (floor) console.log(`          counts from: ${floor}`);
-        counting.push({ id, label, floor, slot: i });
+        counting.push({ id, label, floor, slot: i, stops });
       }
     });
     if (counting.length === 0) {
@@ -289,9 +297,24 @@ function weekStartKey(key) {
       continue;
     }
 
+    // Their own days: from the later of the room's start and the day THEY
+    // joined, RoomParticipant.countedStartIn. The app never grades a day
+    // before it, and this report did, from the room's first day: ZCNGFT's
+    // Aziz joined on 07-16 of a room begun on 07-14 and read 12 of 30 here,
+    // 10 of 28 on the board. The undercount check reads the same days, so a
+    // square from before someone joined can never earn a repair command.
+    const joinKey = storedDateKey(p.joinedAt, ROOM_OFFSET_MINUTES);
+    const fromKey = joinKey && KEY_RE.test(joinKey) && joinKey > startKey ?
+      joinKey : startKey;
+    const mdays = days.filter((dk) => dk >= fromKey);
+    if (fromKey !== startKey) {
+      console.log(`  joined ${fromKey}: their days start there, not on the ` +
+          `room's ${startKey}`);
+    }
+
     // Raw square state per room day, per counting habit.
     const dailySnaps = await Promise.all(
-      days.map((dk) => db.collection('users').doc(uid)
+      mdays.map((dk) => db.collection('users').doc(uid)
           .collection('daily').doc(dk).get()),
     );
 
@@ -305,8 +328,8 @@ function weekStartKey(key) {
     const createdByDay = {};
     // 1.5 stays 1.5, 2 prints as 2 rather than 2.0. Latin digits, always.
     const num = (v) => String(Math.round(v * 100) / 100);
-    for (let i = 0; i < days.length; i++) {
-      const dk = days[i];
+    for (let i = 0; i < mdays.length; i++) {
+      const dk = mdays[i];
       const data = dailySnaps[i].exists ? (dailySnaps[i].data() || {}) : {};
       const raw = data.squareStates || {};
       // A slot the room had not asked for on this day is drawn as "n/a", so
@@ -321,12 +344,14 @@ function weekStartKey(key) {
       const cells = counting.map((c) => {
         const d = onDay(c);
         if (d.floor && dk < d.floor) return 'n/a'.padEnd(16);
+        if (c.stops && dk >= c.stops) return 'removed'.padEnd(16);
         const st = raw[d.id] === undefined ? '-' : String(raw[d.id]);
         return ((GREEN.has(st) ? `${st} OK` : st) + (d.earlier ? '*' : '')).padEnd(16);
       });
       const nGreen = counting.filter((c) => {
         const d = onDay(c);
-        return (!d.floor || dk >= d.floor) && GREEN.has(String(raw[d.id]));
+        return (!d.floor || dk >= d.floor) && !(c.stops && dk >= c.stops) &&
+            GREEN.has(String(raw[d.id]));
       }).length;
       if (nGreen > 0) greenDays++;
       squaresByDay[dk] = raw;
@@ -358,10 +383,12 @@ function weekStartKey(key) {
         countsCell = `${num(credited)}/${stored.scheduled}  still open`;
       } else if (stored.stoodDown) {
         countsCell = 'stood down, not graded';
-      } else if (stored.isRest) {
-        countsCell = 'rest, full credit';
-        storedTotal += 1;
-        gradedDays++;
+      } else if (!roomDayVerdict(stored).counts) {
+        // A rest day: nothing was asked, and the room leaves it out of both
+        // sides of the fraction (roomDayVerdict). It printed "rest, full
+        // credit" and added a whole day to both, the model from before
+        // 2026-09-09, which put YW68B9's Aziz at 58% on a board saying 39%.
+        countsCell = 'rest, left out of the score';
       } else {
         countsCell = `${num(credited)}/${stored.scheduled}` +
             (stored.partial > 0 ? `  (${stored.partial} جزئي)` : '');
@@ -426,7 +453,7 @@ function weekStartKey(key) {
             '<< NO DATE: charged from the room\'s first day'}`);
       });
     }
-    console.log(`\n  Days with a GREEN square   : ${greenDays} of ${days.length}`);
+    console.log(`\n  Days with a GREEN square   : ${greenDays} of ${mdays.length}`);
     // The member's OWN stored fraction, summed from creditFor day by day.
     //
     // It used to divide every day by ALL counting slots and score a جزئي as
@@ -434,12 +461,12 @@ function weekStartKey(key) {
     // asked for yet still sat in the denominator, and half a habit counted
     // as none. Paused and stood-down days now leave both sides, the way
     // daysCompleted and daysElapsedIn skip them, instead of being scored as
-    // zero-credit days.
+    // zero-credit days, and so do rest days (roomDayVerdict).
     console.log(`  Own days, from stored      : ` +
         `${Math.round(storedTotal * 100) / 100} of ${gradedDays} graded` +
         `${gradedDays ? `  = ${Math.round(storedTotal / gradedDays * 100)}%` : ''}` +
-        `${gradedDays === days.length ? '' :
-            `   (${days.length - gradedDays} day(s) not graded: still open, ` +
+        `${gradedDays === mdays.length ? '' :
+            `   (${mdays.length - gradedDays} day(s) not graded: still open, ` +
             'paused, or stood down)'}`);
     // Said plainly, because the number above is the closest this script gets
     // and is still not the one on the board. The room score grades every day
@@ -458,7 +485,7 @@ function weekStartKey(key) {
     // exactly right. A red MISMATCH on correct data is worse than no check,
     // because the next step is a set_room_day.js write that breaks it.
     const short = undercountedDays({
-      days,
+      days: mdays,
       // The sweep's own set (room_health.js), so the three tools agree:
       // every habit graded on some day, a relinked slot's earlier ones too.
       countingIds: countingHabitIds(room, p),

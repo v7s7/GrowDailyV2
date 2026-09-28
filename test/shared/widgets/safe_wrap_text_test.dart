@@ -12,6 +12,7 @@
 // those helpers report and what SafeWrapText.build actually does with it.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/shared/widgets/safe_wrap_text.dart';
 
 void main() {
@@ -29,9 +30,11 @@ void main() {
     required double width,
     bool tapToReveal = false,
     int maxLines = 2,
+    ThemeData? theme,
   }) {
     return tester.pumpWidget(
       MaterialApp(
+        theme: theme,
         home: Scaffold(
           body: Align(
             alignment: Alignment.topLeft,
@@ -112,6 +115,34 @@ void main() {
       final tooltipFinder = find.byType(Tooltip);
       expect(tooltipFinder, findsOneWidget);
       expect(tester.widget<Tooltip>(tooltipFinder).message, oneGiantWord);
+    });
+
+    // A Tooltip's textStyle replaces the theme's text style rather than
+    // merging with it, so the bubble has to name the app's typeface itself.
+    // Until 2026-09-28 it did not, and the revealed name drew in the phone's
+    // own font. The bubble's text is the only copy with no line cap: the
+    // row's own label is capped at maxLines.
+    testWidgets('the revealed name is drawn in the app\'s typeface',
+        (tester) async {
+      await pump(
+        tester,
+        text: longText,
+        width: 60,
+        tapToReveal: true,
+        theme: GameTheme.dark,
+      );
+      await tester.tap(find.byType(Tooltip));
+      await tester.pump(const Duration(milliseconds: 50));
+      final bubble = tester.widget<RichText>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is RichText &&
+              w.text.toPlainText() == longText &&
+              w.maxLines == null,
+        ),
+      );
+      expect(bubble.text.style!.fontFamily, GameTextStyles.fontFamily);
+      expect(bubble.text.style!.fontSize, 12.5);
     });
   });
 }

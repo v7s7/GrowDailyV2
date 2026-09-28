@@ -6,10 +6,12 @@
  * (served as /creators/rules.js), both plain files for the reason
  * wording_page.js gives.
  *
- * The layout follows the approved design (paywall-sale/Creators): four
- * tiles, then the creators table and how paying works on the left, and the
- * Add a creator form with its money preview, share link and the two-step
- * Apple code on the right.
+ * The simple layout Aziz approved on 2026-09-27: three numbers (owed now,
+ * code sales, Apple codes used), one list of creators with Copy link, Pay
+ * and a menu on each row, and Add creator as three short steps in a
+ * dialog (name and code, the deal, the Apple code), ending on the two
+ * links to send. Pay, Change share, their page link, details and Stop
+ * open as small dialogs built by the script into #dlg.
  */
 
 const { BASE_STYLES } = require('./render');
@@ -17,6 +19,7 @@ const { THEME_STYLES, SHELL_STYLES, SHELL_HEAD, sidebar, topBar, icon } = requir
 const { OFFERS_STYLES } = require('./offers_styles');
 
 function renderCreatorsPage({ projectId = '' } = {}) {
+  const add = `<button type="button" class="btn primary lg" id="addBtn" disabled>${icon('plus', 16)}Add creator</button>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,156 +39,189 @@ ${OFFERS_STYLES}</style>
 <div class="app">
   ${sidebar({ active: 'creators', projectId })}
   <div class="app-main">
-    ${topBar({ title: 'Creators', sub: 'One Apple offer code per creator, and what each has earned', live: false })}
-    <div class="app-content offers-content">
-      <p class="intro">Each creator gets their own code. Their followers pay less for Lifetime, and the creator earns a share of what Apple sends you for every sale made with it, after Apple's cut and VAT, minus refunds.</p>
+    ${topBar({ title: 'Creators', sub: 'A code for each creator, and what they have earned', live: false, actions: add })}
+    <div class="app-content">
+      <div class="simple">
+        <div id="banners"></div>
 
-      <div id="banners"></div>
-
-      <div class="page-body">
-        <div class="tiles" id="tiles">
+        <div class="tiles3">
           <div class="tile">
-            <span class="k">Apple offers in use</span>
-            <span class="v"><span id="tOffers">&hellip;</span> <span class="of">of <span id="tOffersMax">10</span></span></span>
-            <div class="bar-mini"><i id="tOffersBar" style="width:0%"></i></div>
-            <span class="s" id="tOffersSub">One per creator. Apple allows 10 per app.</span>
+            <span class="k">Owed now</span>
+            <span class="v good" id="tOwed">&hellip;</span>
+            <span class="s" id="tOwedSub"></span>
           </div>
           <div class="tile">
-            <span class="k">Code sales, last 30 days</span>
+            <span class="k">Code sales, 30 days</span>
             <span class="v" id="tSales">&hellip;</span>
             <span class="s" id="tSalesSub"></span>
           </div>
           <div class="tile">
-            <span class="k">Owed now</span>
-            <span class="v good" id="tOwed">&hellip;</span>
-            <span class="s">Sales older than 60 days, minus what you paid</span>
-          </div>
-          <div class="tile">
-            <span class="k">Waiting</span>
-            <span class="v" id="tWaiting">&hellip;</span>
-            <span class="s">Payable after the 60-day wait</span>
+            <span class="k">Apple codes used</span>
+            <span class="v"><span id="tOffers">&hellip;</span> <span class="of">of <span id="tOffersMax">10</span></span></span>
+            <span class="s" id="tOffersSub"></span>
           </div>
         </div>
 
-        <div class="cols wide-left">
-          <div class="col">
-            <section class="card flush" aria-labelledby="listTitle">
-              <div class="card-head bar">
-                <h2 id="listTitle">Creators</h2>
-                <span class="sub">Shares are worked out on each real sale, from RevenueCat's tax and Apple-cut figures. Production sales only.</span>
-              </div>
-              <div class="table-wrap">
-                <table class="dtable tight">
-                  <thead>
-                    <tr>
-                      <th scope="col">Creator</th>
-                      <th scope="col">Deal</th>
-                      <th scope="col" class="num">Sales</th>
-                      <th scope="col" class="num">Earned</th>
-                      <th scope="col" class="num">Paid</th>
-                      <th scope="col" class="num">Waiting</th>
-                      <th scope="col" class="num">Owed</th>
-                      <th scope="col">Code ends</th>
-                      <th scope="col"><span class="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody id="creatorRows"><tr class="empty-row"><td colspan="9">Loading the creators&hellip;</td></tr></tbody>
-                  <tfoot id="creatorFoot"></tfoot>
-                </table>
-              </div>
-            </section>
-            <div id="ledgerNotes"></div>
-            <div class="banner info">
-              ${icon('info', 16)}
-              <div class="grow"><b>How paying works.</b> A sale counts as Owed once it is 60 days old, so most refunds have already happened. You pay by bank transfer, then press Mark paid. A refund that comes after a payment is taken off the next one. The shares come from RevenueCat's estimates; Apple's own proceeds report stays the record before money moves.</div>
-            </div>
-          </div>
-
-          <div class="col">
-            <section class="card" aria-labelledby="addTitle">
-              <h2 id="addTitle">Add a creator</h2>
-              <div class="fgrid">
-                <div class="fld span2">
-                  <label for="cName">Creator name</label>
-                  <input type="text" id="cName" maxlength="80" placeholder="The name you pay them under" autocomplete="off">
-                </div>
-                <div class="fld">
-                  <label for="cCode">Code</label>
-                  <input type="text" id="cCode" class="mono" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="characters">
-                  <span class="hint">Latin letters and digits. Short is easier to type.</span>
-                </div>
-                <div class="fld">
-                  <label for="cOff">Buyer discount, %</label>
-                  <input type="number" id="cOff" min="1" max="90" step="1" value="20" inputmode="numeric">
-                </div>
-                <div class="fld">
-                  <label for="cBase">Discount off</label>
-                  <select id="cBase">
-                    <option value="growdaily_lifetime">Lifetime, $29.99</option>
-                    <option value="growdaily_lifetime_offer">Lifetime offer product, $29.99 (not approved yet)</option>
-                  </select>
-                </div>
-                <div class="fld">
-                  <label for="cShare">Creator share, %</label>
-                  <input type="number" id="cShare" min="0" max="100" step="0.5" value="25" inputmode="decimal">
-                  <span class="hint">Of what Apple sends you. 25 by default.</span>
-                </div>
-                <div class="fld">
-                  <label for="cUntil">Code ends on</label>
-                  <input type="date" id="cUntil">
-                  <span class="hint" id="cUntilHint">Apple allows 6 months, then renew it. It stops at 00:00 Pacific time that day.</span>
-                </div>
-                <div class="fld">
-                  <label for="cUses">Uses allowed</label>
-                  <input type="number" id="cUses" min="1" max="25000" step="1" value="1000" inputmode="numeric">
-                  <span class="hint">Up to 25,000 at a time.</span>
-                </div>
-                <div class="fld span2">
-                  <label for="cRate">Apple's cut, for this preview</label>
-                  <select id="cRate">
-                    <option value="0.70">30%, what Apple takes today</option>
-                    <option value="0.85">15%, once the Small Business Program starts</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="money" aria-live="polite">
-                <span class="head">One sale with this code, US buyer</span>
-                <div class="line"><span>Buyer pays</span><b id="mBuyer"></b></div>
-                <div class="line"><span>Apple sends you</span><b id="mApple"></b></div>
-                <div class="line"><span>Creator gets <span id="mShareLabel"></span></span><b class="accent" id="mCreator"></b></div>
-                <div class="line total"><span>You keep</span><b id="mKeep"></b></div>
-                <span class="fine" id="mPlainNote"></span>
-              </div>
-
-              <div class="fld">
-                <span class="label">Link the creator shares</span>
-                <div class="linkbox">
-                  <code id="cLink"></code>
-                  <button type="button" class="icon-btn" id="copyLink" aria-label="Copy the link" title="Copy the link">${icon('copy', 14)}</button>
-                </div>
-                <span class="hint">Opens the App Store with the code filled in, and installs the app first if needed.</span>
-              </div>
-
-              <ul class="checks" id="formErrors" aria-live="polite"></ul>
-              <div id="ascNote"></div>
-              <div class="btn-row">
-                <button type="button" class="btn primary big" id="previewBtn">Preview the Apple code</button>
-                <button type="button" class="btn ghost" id="saveOnlyBtn">Save without the Apple code</button>
-              </div>
-              <p class="fine" id="createNote"></p>
-            </section>
-
-            <div id="previewBox"></div>
-          </div>
-        </div>
+        <section class="panel flush" aria-label="Creators">
+          <table class="t">
+            <thead>
+              <tr>
+                <th scope="col">Creator</th>
+                <th scope="col">Deal</th>
+                <th scope="col" class="num">Sales</th>
+                <th scope="col" class="num">Earned</th>
+                <th scope="col" class="num">Owed</th>
+                <th scope="col">Code ends</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="creatorRows"><tr class="empty"><td colspan="7">Loading&hellip;</td></tr></tbody>
+          </table>
+        </section>
+        <p class="muted small">Money is Owed 60 days after a sale. Pay by bank, then press Pay. <button type="button" class="link-btn" id="howBtn">How it works</button></p>
       </div>
     </div>
   </div>
 </div>
 
+<div class="menu" id="rowMenu" role="menu" hidden></div>
+
+<dialog class="dlg" id="addDialog" aria-labelledby="addTitle">
+  <div class="dlg-body">
+    <div class="dlg-head">
+      <h2 id="addTitle">Add creator</h2>
+      <button type="button" class="icon-btn" id="addClose" aria-label="Close">${icon('x', 16)}</button>
+    </div>
+    <ol class="steps" id="addSteps" aria-label="Steps">
+      <li><span class="n">1</span><span>Name and code</span></li>
+      <li><span class="n">2</span><span>The deal</span></li>
+      <li><span class="n">3</span><span>Apple code</span></li>
+    </ol>
+
+    <div id="addPane1">
+      <div class="grid2">
+        <div class="fld">
+          <label for="cName">Creator name</label>
+          <input type="text" class="in" id="cName" maxlength="80" placeholder="The name you pay them under" autocomplete="off">
+        </div>
+        <div class="fld">
+          <label for="cCode">Code</label>
+          <input type="text" class="in mono" id="cCode" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="SARA">
+          <span class="hint">Latin letters and digits.</span>
+        </div>
+      </div>
+      <p class="muted small" style="margin-top: 14px;">Their link: <span id="codeLink" class="faint"></span></p>
+    </div>
+
+    <div id="addPane2" hidden>
+      <div class="grid2">
+        <div class="fld">
+          <label for="cOff">Discount for their followers</label>
+          <div class="unit-row"><input type="number" class="in num" id="cOff" min="1" max="90" step="1" value="20" inputmode="numeric"><span class="muted">% off Lifetime</span></div>
+        </div>
+        <div class="fld">
+          <label for="cShare">Their share of each sale</label>
+          <div class="unit-row"><input type="number" class="in num" id="cShare" min="0" max="100" step="0.5" value="25" inputmode="decimal"><span class="muted">% of what Apple sends you</span></div>
+        </div>
+        <div class="fld">
+          <label for="cUntil">Code ends on</label>
+          <input type="date" class="in" id="cUntil">
+          <span class="hint">6 months at most.</span>
+        </div>
+        <div class="fld">
+          <label for="cUses">Uses allowed</label>
+          <input type="number" class="in" id="cUses" min="1" max="25000" step="1" value="1000" inputmode="numeric">
+        </div>
+      </div>
+      <details class="more" style="margin-top: 14px;">
+        <summary>More options</summary>
+        <div class="grid2">
+          <div class="fld">
+            <label for="cBase">Discount off</label>
+            <select class="in" id="cBase">
+              <option value="growdaily_lifetime">Lifetime</option>
+              <option value="growdaily_lifetime_offer">Lifetime offer product</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label for="cRate">Apple's cut, for these numbers</label>
+            <select class="in" id="cRate">
+              <option value="0.70">30%, today</option>
+              <option value="0.85">15%, with the Small Business Program</option>
+            </select>
+          </div>
+        </div>
+      </details>
+      <div class="money4" aria-live="polite" style="margin-top: 14px;">
+        <div><span class="k">Buyer pays</span><span class="v" id="mBuyer"></span></div>
+        <div><span class="k">Apple sends you</span><span class="v" id="mApple"></span></div>
+        <div><span class="k">They get <span id="mShareLabel"></span></span><span class="v accent" id="mCreator"></span></div>
+        <div><span class="k">You keep</span><span class="v good" id="mKeep"></span></div>
+      </div>
+    </div>
+
+    <div id="addPane3" hidden>
+      <div class="preview-lines" id="previewBox" aria-live="polite"></div>
+    </div>
+
+    <div id="addDone" hidden>
+      <div class="done-head">
+        <span class="done-mark">${icon('check', 22)}</span>
+        <div class="grow">
+          <h2 id="doneTitle" style="font-size: 21px;"></h2>
+          <p class="muted" id="doneSub"></p>
+        </div>
+      </div>
+      <div id="doneLinks">
+      <p style="font-weight: 650; margin: 16px 0 8px;">Send them these two links</p>
+      <div class="fld">
+        <span class="label">1. The link their followers tap</span>
+        <div class="linkbox"><code id="doneLink"></code><button type="button" class="btn sm primary" id="doneCopy">Copy</button></div>
+      </div>
+      <div class="fld" style="margin-top: 12px;">
+        <span class="label">2. Their private earnings page</span>
+        <div class="linkbox" id="donePageBox" hidden><code id="donePageLink"></code><button type="button" class="btn sm primary" id="donePageCopy">Copy</button></div>
+        <div><button type="button" class="btn sm" id="donePageBtn">Make their page link</button></div>
+        <span class="hint">Shown once. Lost it? Make a new one from their row.</span>
+      </div>
+      </div>
+    </div>
+
+    <ul class="checks" id="formErrors" aria-live="polite"></ul>
+    <div class="dlg-foot">
+      <button type="button" class="btn ghost lg" id="addBack">Back</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn lg" id="addSaveOnly" hidden>Save without the Apple code</button>
+      <button type="button" class="btn primary lg" id="addNext">Next</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog class="dlg narrow" id="dlg" aria-labelledby="dlgTitle">
+  <div class="dlg-body" id="dlgBody"></div>
+</dialog>
+
+<dialog class="dlg" id="howDialog" aria-labelledby="howTitle">
+  <div class="dlg-body">
+    <div class="dlg-head">
+      <h2 id="howTitle">How creator codes work</h2>
+      <button type="button" class="icon-btn" id="howClose" aria-label="Close">${icon('x', 16)}</button>
+    </div>
+    <ol class="how">
+      <li><div><b>Add creator: a name and a code</b><span>Letters and digits, like SARA.</span></div></li>
+      <li><div><b>The deal</b><span>Their followers get a discount. They get a share of what Apple sends you, after Apple's cut and VAT.</span></div></li>
+      <li><div><b>Make the Apple code</b><span>One press. It uses 1 of your 10 Apple codes.</span></div></li>
+      <li><div><b>Send them two links</b><span>The code link their followers tap to buy, and their private earnings page.</span></div></li>
+      <li><div><b>Sales count themselves</b><span>Every purchase with the code lands on their row. Refunds come off.</span></div></li>
+      <li><div><b>Pay after 60 days</b><span>Money shows as Owed. Pay by bank transfer, then press Pay.</span></div></li>
+      <li><div><b>Stop a code</b><span>The menu on their row, then Stop. It is switched off at Apple too.</span></div></li>
+    </ol>
+    <p class="muted small">Creator codes work on iPhone. Google Play has no discount codes for a one-time purchase.</p>
+  </div>
+</dialog>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <noscript><div class="banner danger">This page needs JavaScript.</div></noscript>
+  <noscript><div class="notice danger">This page needs JavaScript.</div></noscript>
   <script src="/creators/rules.js"></script>
   <script src="/creators/app.js"></script>
   <script src="/static/shell.js"></script>

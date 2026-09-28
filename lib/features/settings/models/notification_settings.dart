@@ -174,11 +174,33 @@ class NotificationSettings {
   // removed on 2026-09-24 (Aziz): nobody had it on, and it was the one push
   // still wording the reader as the one behind. A stored value is ignored.
 
+  /// Whether the person's own reminders go quiet between [quietHoursStart]
+  /// and [quietHoursEnd]. Off until they turn it on (Aziz, 2026-09-28).
+  ///
+  /// It was on for everyone from the start, 22:00 to 07:00, and it silenced
+  /// times people had picked themselves: a habit reminder at 23:00, and the
+  /// evening note at «10:00 PM», one of the three ready times the daily
+  /// reminder pop-up offers, which then never came at all. Every reminder
+  /// the app sends now is at a time somebody chose, so a window nobody chose
+  /// only ever took something away.
+  ///
+  /// Its own key, 'quietHoursOn'. The old key, 'quietHoursEnabled', was
+  /// written true into every saved copy, so on its own it says nothing about
+  /// a choice. A copy saved before this key existed reads as on only when
+  /// the person had visibly changed quiet hours: a start or end other than
+  /// 22:00 and 07:00, or [quietHoursAppliesToPrayer] turned on. See
+  /// [quietHoursChosenBefore].
+  ///
+  /// Only the person's own reminders follow this switch. A room push or a
+  /// message from the admin, someone else's timing, waits out the night
+  /// whether it is on or not (functions/push_policy.js), so toMap keeps
+  /// writing the old key as true for the server and for builds that only
+  /// know that key.
   final bool quietHoursEnabled;
   final TimeOfDay quietHoursStart;
   final TimeOfDay quietHoursEnd;
 
-  /// Quiet hours suppress the evening note by default, but a prayer-linked
+  /// Quiet hours, once on, suppress the evening note, but a prayer-linked
   /// habit reminder is exempt unless
   /// this is explicitly turned on — because the entire point of "remind me
   /// after Fajr" is to be reminded near Fajr, which for most of the world
@@ -230,7 +252,7 @@ class NotificationSettings {
     this.bundleEnabled = true,
     this.weeklyNoteOn = false,
     this.roomActivityEnabled = true,
-    this.quietHoursEnabled = true,
+    this.quietHoursEnabled = false,
     this.quietHoursStart = const TimeOfDay(hour: 22, minute: 0),
     this.quietHoursEnd = const TimeOfDay(hour: 7, minute: 0),
     this.quietHoursAppliesToPrayer = false,
@@ -301,7 +323,11 @@ class NotificationSettings {
         // The old key, for builds that read only it: see [weeklyNoteOn].
         'weeklyDigestEnabled': weeklyNoteOn,
         'roomActivityEnabled': roomActivityEnabled,
-        'quietHoursEnabled': quietHoursEnabled,
+        'quietHoursOn': quietHoursEnabled,
+        // Always true: what the server reads, and what builds before
+        // 'quietHoursOn' read as the switch. A push from someone else waits
+        // out the night either way; see [quietHoursEnabled].
+        'quietHoursEnabled': true,
         'quietHoursStart': _timeToMap(quietHoursStart),
         'quietHoursEnd': _timeToMap(quietHoursEnd),
         'quietHoursAppliesToPrayer': quietHoursAppliesToPrayer,
@@ -328,8 +354,11 @@ class NotificationSettings {
       weeklyNoteOn: map['weeklyNoteOn'] as bool? ?? defaults.weeklyNoteOn,
       roomActivityEnabled:
           map['roomActivityEnabled'] as bool? ?? defaults.roomActivityEnabled,
-      quietHoursEnabled:
-          map['quietHoursEnabled'] as bool? ?? defaults.quietHoursEnabled,
+      // Never 'quietHoursEnabled' on its own: see [quietHoursEnabled].
+      quietHoursEnabled: switch (map['quietHoursOn']) {
+        final bool on => on,
+        _ => quietHoursChosenBefore(map),
+      },
       quietHoursStart:
           _timeFromMap(map['quietHoursStart'], defaults.quietHoursStart),
       quietHoursEnd: _timeFromMap(map['quietHoursEnd'], defaults.quietHoursEnd),
@@ -344,5 +373,32 @@ class NotificationSettings {
       location: NotificationLocation.fromMap(map['location']),
       resolvedCountryCode: map['resolvedCountryCode'] as String?,
     );
+  }
+
+  /// Whether a copy saved before 'quietHoursOn' existed shows the person
+  /// choosing quiet hours, in which case they stay on.
+  ///
+  /// Quiet hours were on by default and 'quietHoursEnabled' went into every
+  /// saved copy, so that key cannot tell a choice from the default. What
+  /// only a person could have done is move the start or the end away from
+  /// 22:00 and 07:00, or turn on «تطبيقها على تذكيرات الصلاة أيضًا». Either
+  /// one, with the switch still on, keeps it on. Everything else, the
+  /// untouched default included, reads as off (Aziz, 2026-09-28: off unless
+  /// they changed it), and a switch somebody had turned off stays off.
+  static bool quietHoursChosenBefore(Map<String, dynamic> map) {
+    // Read the way the old fromMap read it: a missing key was the old
+    // default, on.
+    final wasOn = switch (map['quietHoursEnabled']) {
+      final bool on => on,
+      _ => true,
+    };
+    if (!wasOn) return false;
+    const defaults = NotificationSettings();
+    final start =
+        _timeFromMap(map['quietHoursStart'], defaults.quietHoursStart);
+    final end = _timeFromMap(map['quietHoursEnd'], defaults.quietHoursEnd);
+    return start != defaults.quietHoursStart ||
+        end != defaults.quietHoursEnd ||
+        map['quietHoursAppliesToPrayer'] == true;
   }
 }

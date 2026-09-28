@@ -102,6 +102,14 @@ function parseCatalogDart(source) {
         })
         .filter((n) => Number.isInteger(n) && n >= 1 && n <= 7);
     };
+    // A template's own reminder stack. None sets one today; read anyway, so
+    // a preset that gains one shows it here without a change to this file.
+    const intList = (key) => {
+      const m = chunk.match(new RegExp(`^\\s*${key}:\\s*\\[([^\\]]*)\\]`, 'm'));
+      if (!m) return [];
+      return m[1].split(',').map((s) => s.trim()).filter(Boolean)
+        .map(Number).filter((n) => Number.isInteger(n));
+    };
 
     const id = str('id');
     const name = str('name');
@@ -126,6 +134,9 @@ function parseCatalogDart(source) {
       xpReward: int('xpReward') || 0,
       goldReward: int('goldReward') || 0,
       reminderOffsetMinutes: int('reminderOffsetMinutes') || 0,
+      extraReminderOffsets: intList('extraReminderOffsets'),
+      ignoreQuietHours: bool('ignoreQuietHours') === true,
+      alarm: bool('alarm') === true,
       suggestedStepGoal: int('suggestedStepGoal'),
     });
   }
@@ -276,7 +287,18 @@ function catalogHabitDocs(profile) {
     };
     if (Array.isArray(o.scheduleHistory)) data.scheduleHistory = o.scheduleHistory;
     if (typeof o.stepGoal === 'number') data.stepGoal = o.stepGoal;
-    if (o.alarm === true) data.alarm = true;
+    // The reminder choices, override over template, as applyTo lays them.
+    // An EMPTY stored stack is a real override ("cleared"), so only a
+    // missing one falls back; a bool of false is an answer too.
+    const extras = Array.isArray(o.extraReminderOffsets)
+      ? [...new Set(o.extraReminderOffsets.filter((n) => typeof n === 'number' && Number.isFinite(n))
+        .map(Math.trunc))].sort((a, b) => a - b)
+      : (t.extraReminderOffsets || []);
+    if (extras.length) data.extraReminderOffsets = extras;
+    if (typeof o.ignoreQuietHours === 'boolean' ? o.ignoreQuietHours : t.ignoreQuietHours) {
+      data.ignoreQuietHours = true;
+    }
+    if (typeof o.alarm === 'boolean' ? o.alarm : t.alarm) data.alarm = true;
     if (windows.length > 1) data.stints = windows;
 
     // A fresh copy per call, as a Firestore snapshot's data() is, so a caller

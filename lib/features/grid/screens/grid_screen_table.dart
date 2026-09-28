@@ -1,5 +1,43 @@
 part of 'grid_screen.dart';
 
+/// Where TODAY's column sits on a board [outerWidth] wide, border and
+/// padding included, as the distance from the board's start edge to the
+/// middle of today's square.
+///
+/// The sprout on the board's edge stands here until it is first moved (see
+/// SproutLedge.todayFromStart), so this is [_GridTableState.build]'s own
+/// arithmetic, step for step: the 12pt padding and 0.5 border inside the
+/// board, the habit column at 21% floored 68 and capped at [_habitCol], and
+/// whole-point squares. Each day is a gap then a square with the gap on the
+/// PHYSICAL left (EdgeInsets.only(left: _gap)), so in a right-to-left row
+/// the square is on the start side of its slot and in a left-to-right row
+/// after the gap. Today is the real calendar day, the one the header's
+/// circle marks (isRealToday), in the Saturday week that holds it.
+///
+/// Null when the squares would fall under 30pt and the board scrolls
+/// sideways instead: a column there has no fixed place on screen.
+double? todayColumnFromStart(
+  double outerWidth, {
+  required bool rtl,
+  DateTime? now,
+}) {
+  const inset = 12.0 + 0.5;
+  final avail = outerWidth - 2 * inset;
+  final habitCol =
+      (avail * 0.21).clamp(68.0, _GridTableState._habitCol).toDouble();
+  const gap = _GridTableState._gap;
+  final raw = (avail - habitCol - 7 * gap) / 7;
+  if (raw < 30) return null;
+  final cell = raw.clamp(30.0, 60.0).floorToDouble();
+  final today = now ?? DateTime.now();
+  final weekStart = startOfGridWeek(today);
+  final day = DateTime(today.year, today.month, today.day);
+  // Hours over 24, rounded: a week holding a clock change has a 23 or 25
+  // hour day in it.
+  final index = (day.difference(weekStart).inHours / 24).round().clamp(0, 6);
+  return inset + habitCol + index * (gap + cell) + (rtl ? 0 : gap) + cell / 2;
+}
+
 // ─── The grid table itself ────────────────────────────────────────────────────
 
 class _GridTable extends ConsumerStatefulWidget {
@@ -2385,10 +2423,11 @@ class _SquareCell extends StatelessWidget {
             : () {
               // Confetti fires from the cell itself the instant the tap
               // will turn it green — the market-standard completion moment.
+              // Its size is the admin's «دوم» page's (PetSettings).
               if (_tapFinishesDay) {
                 final box = context.findRenderObject() as RenderBox?;
                 if (box != null && box.attached) {
-                  showVictoryBurst(
+                  PetSettings.current.squareBurst.fire(
                     context,
                     box.localToGlobal(box.size.center(Offset.zero)),
                   );

@@ -110,6 +110,9 @@ function shapeCreator(id, data) {
     // never leaves the server.
     statementKeyAtMs: str(d.statementKeyHash) ? msOf(d.statementKeyAt) : null,
     hasStatementLink: !!str(d.statementKeyHash),
+    // When Stop switched the code off (stopCreator); null for a creator only
+    // ever marked inactive here, whose Apple code may still sell.
+    stoppedAtMs: msOf(d.stoppedAt),
     createdAtMs: msOf(d.createdAt),
     updatedAtMs: msOf(d.updatedAt),
   };
@@ -332,6 +335,65 @@ async function setActive(db, deps, { code, active }) {
   const id = codeParam(code);
   if (typeof active !== 'boolean') throw new CreatorsInputError('Say whether the creator is active.');
   return updateCreator(db, deps, id, { active });
+}
+
+/**
+ * Stops a creator's code: switches their offer off in App Store Connect
+ * (Creators.buildOfferActiveRequest), then marks them inactive here. Apple
+ * first, so this tool never says "stopped" about a code Apple still sells;
+ * a refusal from Apple changes nothing here. setActive alone only ever
+ * flagged the creator, and the code went on selling until it ended.
+ *
+ * A creator with no Apple offer yet has nothing to stop at Apple and is
+ * only marked. Sales already made keep their share either way.
+ */
+async function stopCreator(db, deps, asc, { code }) {
+  const id = codeParam(code);
+  const ref = db.doc(CREATORS + '/' + id);
+  const snap = await ref.get();
+  if (!snap.exists) throw new CreatorsInputError('There is no creator with the code ' + id + '.', 404);
+  const c = shapeCreator(id, snap.data());
+  // Once is enough: a second press must not ask Apple to switch off an offer
+  // that is already off.
+  if (c.stoppedAtMs !== null) return { changed: false, apple: 'already' };
+  let apple = 'none';
+  if (c.appleOfferCodeId) {
+    const cfg = asc.config();
+    if (!cfg.ok) {
+      throw new CreatorsInputError('App Store Connect is not connected, so the code cannot be stopped at Apple from here. ' +
+        cfg.missing.join('. ') + '.', 400, { ascMissing: cfg.missing });
+    }
+    const req = Creators.buildOfferActiveRequest({ offerCodeId: c.appleOfferCodeId, active: false });
+    await asc.patch(req.path, req.body);
+    apple = 'stopped';
+  }
+  await ref.update({
+    active: false,
+    stoppedAt: deps.FieldValue.serverTimestamp(),
+    updatedAt: deps.FieldValue.serverTimestamp(),
+  });
+  return { changed: true, apple };
+}
+
+/**
+ * Both Lifetime products as App Store Connect has them today: review state
+ * and US price in cents (null when unknown). What the Sale page shows
+ * instead of the plan's prices, and what decides whether a sale can show
+ * on phones at all: only when the offer product is approved and priced
+ * below Lifetime. Read-only.
+ */
+async function readLifetimeStore(asc, nowMs) {
+  const prices = await readUsPrices(asc, nowMs);
+  const out = {};
+  for (const product of Object.values(Creators.PRODUCTS)) {
+    const iap = await asc.get('/v2/inAppPurchases/' + product.iapId);
+    out[product.productId] = {
+      productId: product.productId,
+      state: iap && iap.data && iap.data.attributes ? iap.data.attributes.state : null,
+      usCents: prices[product.productId] === undefined ? null : prices[product.productId],
+    };
+  }
+  return out;
 }
 
 /**
@@ -698,6 +760,8 @@ module.exports = {
   addCreator,
   setShare,
   setActive,
+  stopCreator,
+  readLifetimeStore,
   recordPayout,
   makeStatementLink,
   previewAppleCode,

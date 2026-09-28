@@ -1,8 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../../core/l10n/app_strings.dart';
+import '../../../core/l10n/wording_edits.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../achievements/models/achievement_model.dart';
+
+/// The strings with the admin's wording edits laid over them, for the two
+/// functions below, which are handed a language rather than a BuildContext.
+S _strings(bool isAr) =>
+    S.edited(Locale(isAr ? 'ar' : 'en'), WordingEditsStore.current);
 
 /// What kind of meaningful moment a [MilestoneEvent] records — deliberately
 /// coarse (see [MilestoneEvent]'s own doc comment) so this enum only ever
@@ -66,25 +73,22 @@ enum MilestoneType {
   /// data-filled sentence actually shown in the UI (e.g. "Reached Level
   /// 12" rather than just "Level Up"); this is the fallback for anywhere
   /// only the category itself matters (e.g. a Legacy Shelf tally row).
-  String localizedName(bool isAr) => isAr
-      ? switch (this) {
-          joined => 'انضممت',
-          levelUp => 'ارتقاء مستوى',
-          streakMilestone => 'إنجاز سلسلة',
-          perfectDay => 'يوم مثالي',
-          perfectWeek => 'أسبوع مثالي',
-          achievementUnlocked => 'إنجاز مفتوح',
-          roomChallengeComplete => 'تحدي غرفة مكتمل',
-        }
-      : switch (this) {
-          joined => 'Joined Grow Daily',
-          levelUp => 'Level Up',
-          streakMilestone => 'Streak Milestone',
-          perfectDay => 'Perfect Day',
-          perfectWeek => 'Perfect Week',
-          achievementUnlocked => 'Achievement Unlocked',
-          roomChallengeComplete => 'Room Challenge Complete',
-        };
+  String localizedName(bool isAr) {
+    // In S, so the admin wording page can change them (Aziz, 2026-09-28).
+    final s = _strings(isAr);
+    return switch (this) {
+      joined => s.milestoneNameJoined,
+      levelUp => s.milestoneNameLevelUp,
+      streakMilestone => s.milestoneNameStreak,
+      // Both fire at the streak's 80% bar (allHabitsDoneAfter), so they are
+      // days that COUNTED, never perfect ones. The stored type names stay,
+      // for the records already written.
+      perfectDay => s.milestoneNameStreakDay,
+      perfectWeek => s.milestoneNameStreakWeek,
+      achievementUnlocked => s.milestoneNameAchievement,
+      roomChallengeComplete => s.milestoneNameRoomChallenge,
+    };
+  }
 }
 
 /// One meaningful, dated moment in a user's GrowDaily history — the single
@@ -166,21 +170,22 @@ class MilestoneEvent {
 /// missing its expected data key (defensive against a future type added
 /// here without its own case yet).
 String milestoneHeadline(MilestoneEvent e, bool isAr) {
+  final s = _strings(isAr);
   switch (e.type) {
     case MilestoneType.joined:
-      return isAr ? 'بدأت رحلتك مع Grow Daily' : 'Started your Grow Daily journey';
+      return s.milestoneLineJoined;
     case MilestoneType.levelUp:
       final lvl = e.level;
       if (lvl == null) return e.type.localizedName(isAr);
-      return isAr ? 'وصلت للمستوى $lvl' : 'Reached Level $lvl';
+      return s.milestoneLineLevelUp(lvl);
     case MilestoneType.streakMilestone:
       final days = e.streakDays;
       if (days == null) return e.type.localizedName(isAr);
-      return isAr ? 'سلسلة $days يومًا' : '$days-day streak';
+      return s.milestoneLineStreak(days);
     case MilestoneType.perfectDay:
-      return isAr ? 'يوم مثالي، أنجزت كل عاداتك' : 'Perfect day, every habit done';
+      return s.milestoneLineStreakDay;
     case MilestoneType.perfectWeek:
-      return isAr ? 'أسبوع مثالي بالكامل' : 'A full perfect week';
+      return s.milestoneLineStreakWeek;
     case MilestoneType.achievementUnlocked:
       // e.achievementId is stored on every real write (see
       // DashboardNotifierCompleteHabit.completeHabit's milestone-log
@@ -192,15 +197,11 @@ String milestoneHeadline(MilestoneEvent e, bool isAr) {
       // matches anything in the catalog (a retired/renamed achievement).
       final achievement = AchievementCatalog.findById(e.achievementId ?? '');
       if (achievement == null) return e.type.localizedName(isAr);
-      return isAr
-          ? 'فتحت إنجاز "${achievement.localName(true)}"'
-          : 'Unlocked "${achievement.localName(false)}"';
+      return s.milestoneLineAchievement(achievement.localName(isAr));
     case MilestoneType.roomChallengeComplete:
       final name = e.roomName;
-      return isAr
-          ? (name == null ? 'أكملت تحدي غرفة' : 'أكملت تحدي "$name"')
-          : (name == null
-              ? 'Completed a room challenge'
-              : 'Completed "$name" challenge');
+      return name == null
+          ? s.milestoneLineRoomChallenge
+          : s.milestoneLineRoomChallengeNamed(name);
   }
 }

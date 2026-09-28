@@ -56,8 +56,9 @@ void main() {
           const DayCardMood(SproutPose.threeQuarterWave, DayCardLine.progress));
     });
 
-    test('80% is still progress on the card: «يوم كامل» is only said on the '
-        'tap that earns it, never as the standing mood', () {
+    test('80% is still progress on the card: the streak point is only said '
+        'on the tap that earns it, never as the standing mood, and it is '
+        'never a perfect day', () {
       expect(mood(4, 5, 15).line, DayCardLine.progress);
     });
 
@@ -67,7 +68,7 @@ void main() {
     });
   });
 
-  group('every square green', () {
+  group('every habit the day asked for done: the perfect day', () {
     test('delighted by day, «يوم مثالي»', () {
       expect(mood(5, 5, 14),
           const DayCardMood(SproutPose.happySparkles, DayCardLine.perfectDay));

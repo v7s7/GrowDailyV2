@@ -19,6 +19,8 @@
 
 const DayRules = require('./day_rules');
 const { catalogTemplate } = require('./habit_catalog');
+// Only the task reader: lib/reminders.js requires this file back, lazily.
+const { taskReminderTimes } = require('./reminders');
 
 // Friendlier section titles for the subcollections known to exist today
 // (see firestore.rules' top-of-file doc comment for the canonical map).
@@ -1256,6 +1258,17 @@ function renderHabitDetail(data, ctx) {
   `;
 }
 
+// A task's reminders, every one, read the way the app reads the list, plus
+// how they ring when they ring as an alarm. The Reminders tab says which
+// are still ahead.
+function reminderRow(data) {
+  const times = taskReminderTimes(data);
+  if (!times.length) return '';
+  return detailRow(times.length === 1 ? 'Reminder' : 'Reminders',
+    times.map((ms) => escapeHtml(fmtDate(new Date(ms), true))).join('<br>'))
+    + (data.alarm === true ? detailRow('Rings as', 'Alarm') : '');
+}
+
 // Curated view of one matrix_tasks/{id} doc - mirrors MatrixTask.toFirestore
 // (matrix_task.dart). Quadrant renders as the same colored badge the app's
 // own Matrix board uses (see QUADRANT_META), not the raw 'doFirst' wire
@@ -1272,7 +1285,9 @@ function renderTaskDetail(data) {
     // matrix_task.dart's isFav doc comment); this reads the raw doc
     // directly, so it has to match the actual stored key.
     data.isToday ? detailRow('Favorited', '★ Yes') : '',
-    data.reminderAt ? detailRow('Reminder', fmtDate(data.reminderAt, true)) : '',
+    // Every moment, not the old single `reminderAt`, which the app keeps
+    // only as a mirror of the first: a task with three showed one here.
+    reminderRow(data),
     voiceCount ? detailRow('Voice notes', `${voiceCount} recorded`) : '',
     detailRow('Created', fmtDate(data.createdAt, true) || '<span class="muted">not recorded</span>'),
     data.completedAt ? detailRow('Completed', fmtDate(data.completedAt, true)) : '',
@@ -1973,7 +1988,7 @@ function renderDayCard({
   const roomsHtml = rooms.length
     ? '<div class="today-rooms">' + rooms.map((r) => `
         <div class="today-room${(r.stored ? r.full : r.allDone) ? ' done' : ''}">
-          <span>${r.stored ? (r.full ? '✅' : '⬜') : (r.known === false ? '·' : r.allDone ? '✅' : '⬜')}</span>
+          <span>${r.stored ? (r.full ? '✅' : r.outside ? '–' : '⬜') : (r.known === false ? '·' : r.allDone ? '✅' : '⬜')}</span>
           <span class="today-room-name">${escapeHtml(r.name)}</span>
           ${r.code ? `<span class="rm-code">${escapeHtml(r.code)}</span>` : ''}
           <span class="rm-note${r.stored ? '' : (r.known === false ? '' : ' stale')}" style="margin-inline-start:auto;">${
@@ -2050,7 +2065,9 @@ function buildReportBody({ uid, authRecord, profileData, sections, place }) {
   // every later switch; this is the first paint.
   const nav = sections.map((s) => {
     const isDay = s.id === 'today';
-    const cls = `tab-count${isDay && s.disagree ? ' gap' : ''}`;
+    // Any other tab can ask for the same amber through `alert` (the
+    // Reminders tab does when a switch in the app stops them ringing).
+    const cls = `tab-count${(isDay && s.disagree) || s.alert ? ' gap' : ''}`;
     const count = s.count !== undefined
       ? ` <span class="${cls}"${isDay ? ' id="dayTabCount"' : ''}>${s.count}</span>` : '';
     return `<button type="button" class="tab-btn" data-target="${escapeHtml(s.id)}">${escapeHtml(s.label)}${count}</button>`;
@@ -2663,6 +2680,30 @@ const BASE_STYLES = `
   .offsched b { color: var(--text-sec); font-weight: 600; }
   .offsched ul { margin: var(--s1) 0 0; padding-inline-start: var(--s5); }
   .offsched li { unicode-bidi: isolate; }
+
+  /* The Reminders tab (lib/reminders_page.js), on the ledger's own table.
+     A habit with a stack of three reminders is one row with three lines in
+     each of its reminder columns, so the lines pair up across the row. */
+  .rem-line { line-height: 1.75; white-space: nowrap; }
+  .rem-when { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .rem-why { font-size: var(--t-1); color: var(--text-tert); }
+  .rem-none { color: var(--text-tert); }
+  .rem-bad { color: var(--warn); font-weight: 600; }
+  .rem-past { color: var(--text-tert); font-variant-numeric: tabular-nums; }
+  .rem-as { font-size: var(--t-2); color: var(--text-sec); }
+  .rem-as.alarm { color: var(--accent); font-weight: 650; }
+  .rem-ico { margin-inline-end: var(--s1); }
+  table.ledger tbody .lg-row.rem-dead th.lg-habit { border-inline-start-color: var(--warn); }
+  .rem-warn {
+    padding: var(--s3) var(--s4); margin-bottom: var(--s3);
+    border: 1px solid var(--warn-line); border-radius: var(--r-md);
+    background: var(--warn-soft); color: var(--warn);
+    font-size: var(--t-3); line-height: 1.5;
+  }
+  .rem-warn.calm { border-color: var(--border); background: var(--surface); color: var(--text-sec); }
+  .rem .tally { margin-bottom: var(--s5); }
+  .rem-settings td { line-height: 1.5; }
+  .rem-settings .rem-why { margin-inline-start: var(--s1); }
 
   /* Rooms on this day: the same table shape as the ledger, because the room
      is the fourth column of the same comparison. */

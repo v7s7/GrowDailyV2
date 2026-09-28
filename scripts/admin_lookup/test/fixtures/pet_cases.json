@@ -1,0 +1,313 @@
+{
+  "about": "Doum's settings, confetti included: what the admin's «دوم» page writes to wording/live.pet, and what is in force once the app lays it over its built-in values. Run by test/pet.test.js here (wording/pet_rules.js resolve) and by test/features/mascot/pet_settings_test.dart in the app (PetSettings.from), so the page shows before Save what phones do after it. `expect` lists only the values a case is about; the first case lists every one, the built-in values themselves.",
+  "cases": [
+    {
+      "name": "nothing edited: the built-in values",
+      "edits": null,
+      "expect": {
+        "praiseEverySeconds": 20,
+        "bubbleSeconds": 3,
+        "rememberLines": 30,
+        "morningUntilHour": 12,
+        "bedtimeHour": 21,
+        "wakeHour": 4,
+        "squareConfettiPieces": 16,
+        "squareConfettiSpread": 72,
+        "squareConfettiMs": 650,
+        "streakConfettiPieces": 16,
+        "streakConfettiSpread": 72,
+        "streakConfettiMs": 650,
+        "fullDayConfettiPieces": 30,
+        "fullDayConfettiSpread": 130,
+        "fullDayConfettiMs": 1000,
+        "fullDaySecondConfettiPieces": 22,
+        "fullDaySecondConfettiSpread": 170,
+        "fullDaySecondConfettiMs": 1100,
+        "presets": {
+          "tahajjud": "faith"
+        },
+        "categories": {
+          "faith": "faith",
+          "quran": "quran",
+          "athkar": "athkar",
+          "fasting": "fasting",
+          "sadaqah": "sadaqah",
+          "fitness": "sport",
+          "health": "health",
+          "learning": "learning",
+          "focus": "focus",
+          "sleep": "sleep",
+          "money": "money",
+          "mind": "mind",
+          "social": "social",
+          "custom": "general"
+        },
+        "alsoHears": {
+          "quran": "faith",
+          "athkar": "faith",
+          "fasting": "faith",
+          "sadaqah": "faith",
+          "sport": "health"
+        },
+        "quit": "general"
+      }
+    },
+    {
+      "name": "each number inside its range",
+      "edits": {
+        "praiseEverySeconds": 5,
+        "bubbleSeconds": 6,
+        "rememberLines": 0,
+        "morningUntilHour": 11,
+        "bedtimeHour": 22,
+        "wakeHour": 5
+      },
+      "expect": {
+        "praiseEverySeconds": 5,
+        "bubbleSeconds": 6,
+        "rememberLines": 0,
+        "morningUntilHour": 11,
+        "bedtimeHour": 22,
+        "wakeHour": 5
+      }
+    },
+    {
+      "name": "the ends of each range are allowed",
+      "edits": {
+        "praiseEverySeconds": 300,
+        "bubbleSeconds": 1,
+        "rememberLines": 100,
+        "morningUntilHour": 23,
+        "bedtimeHour": 12,
+        "wakeHour": 0
+      },
+      "expect": {
+        "praiseEverySeconds": 300,
+        "bubbleSeconds": 1,
+        "rememberLines": 100,
+        "morningUntilHour": 23,
+        "bedtimeHour": 12,
+        "wakeHour": 0
+      }
+    },
+    {
+      "name": "a number outside its range keeps the built-in value",
+      "edits": {
+        "praiseEverySeconds": 301,
+        "bubbleSeconds": 0,
+        "rememberLines": -1,
+        "morningUntilHour": 24,
+        "bedtimeHour": 11,
+        "wakeHour": 12
+      },
+      "expect": {
+        "praiseEverySeconds": 20,
+        "bubbleSeconds": 3,
+        "rememberLines": 30,
+        "morningUntilHour": 12,
+        "bedtimeHour": 21,
+        "wakeHour": 4
+      }
+    },
+    {
+      "name": "a number that is not whole, or not a number, keeps the built-in value",
+      "edits": {
+        "praiseEverySeconds": "5",
+        "bubbleSeconds": 2.5,
+        "rememberLines": null,
+        "wakeHour": true
+      },
+      "expect": {
+        "praiseEverySeconds": 20,
+        "bubbleSeconds": 3,
+        "rememberLines": 30,
+        "wakeHour": 4
+      }
+    },
+    {
+      "name": "confetti inside its ranges, and a moment with none",
+      "edits": {
+        "streakConfettiPieces": 0,
+        "fullDayConfettiPieces": 80,
+        "squareConfettiSpread": 300,
+        "fullDaySecondConfettiMs": 200
+      },
+      "expect": {
+        "streakConfettiPieces": 0,
+        "fullDayConfettiPieces": 80,
+        "squareConfettiSpread": 300,
+        "fullDaySecondConfettiMs": 200
+      }
+    },
+    {
+      "name": "confetti outside its ranges keeps the built-in size",
+      "edits": {
+        "streakConfettiPieces": 81,
+        "squareConfettiSpread": 19,
+        "fullDayConfettiMs": 3001,
+        "fullDaySecondConfettiPieces": -1
+      },
+      "expect": {
+        "streakConfettiPieces": 16,
+        "squareConfettiSpread": 72,
+        "fullDayConfettiMs": 1000,
+        "fullDaySecondConfettiPieces": 22
+      }
+    },
+    {
+      "name": "a ready-made habit's own list, a category's, and the quit list",
+      "edits": {
+        "presets": {
+          "marriage_dua": "faith",
+          "cold_shower": "health"
+        },
+        "categories": {
+          "fitness": "health",
+          "custom": "focus"
+        },
+        "quit": "social"
+      },
+      "expect": {
+        "presets": {
+          "tahajjud": "faith",
+          "marriage_dua": "faith",
+          "cold_shower": "health"
+        },
+        "categories": {
+          "faith": "faith",
+          "quran": "quran",
+          "athkar": "athkar",
+          "fasting": "fasting",
+          "sadaqah": "sadaqah",
+          "fitness": "health",
+          "health": "health",
+          "learning": "learning",
+          "focus": "focus",
+          "sleep": "sleep",
+          "money": "money",
+          "mind": "mind",
+          "social": "social",
+          "custom": "focus"
+        },
+        "quit": "social"
+      }
+    },
+    {
+      "name": "a built-in habit list moved to another list",
+      "edits": {
+        "presets": {
+          "tahajjud": "athkar"
+        }
+      },
+      "expect": {
+        "presets": {
+          "tahajjud": "athkar"
+        }
+      }
+    },
+    {
+      "name": "an empty habit list sends that habit back to its category's",
+      "edits": {
+        "presets": {
+          "tahajjud": ""
+        }
+      },
+      "expect": {
+        "presets": {}
+      }
+    },
+    {
+      "name": "a name this build does not know is dropped for the built-in value",
+      "edits": {
+        "presets": {
+          "marriage_dua": "nope",
+          "": "faith"
+        },
+        "categories": {
+          "nope": "faith",
+          "faith": "nope"
+        },
+        "alsoHears": {
+          "nope": "faith",
+          "quran": "nope"
+        },
+        "quit": "nope"
+      },
+      "expect": {
+        "presets": {
+          "tahajjud": "faith"
+        },
+        "categories": {
+          "faith": "faith",
+          "quran": "quran",
+          "athkar": "athkar",
+          "fasting": "fasting",
+          "sadaqah": "sadaqah",
+          "fitness": "sport",
+          "health": "health",
+          "learning": "learning",
+          "focus": "focus",
+          "sleep": "sleep",
+          "money": "money",
+          "mind": "mind",
+          "social": "social",
+          "custom": "general"
+        },
+        "alsoHears": {
+          "quran": "faith",
+          "athkar": "faith",
+          "fasting": "faith",
+          "sadaqah": "faith",
+          "sport": "health"
+        },
+        "quit": "general"
+      }
+    },
+    {
+      "name": "a list can draw on another, stop drawing, never on itself, and general never draws",
+      "edits": {
+        "alsoHears": {
+          "learning": "focus",
+          "quran": "",
+          "sport": "sport",
+          "general": "faith"
+        }
+      },
+      "expect": {
+        "alsoHears": {
+          "athkar": "faith",
+          "fasting": "faith",
+          "sadaqah": "faith",
+          "sport": "health",
+          "learning": "focus"
+        }
+      }
+    },
+    {
+      "name": "a field of the wrong shape costs that field and nothing else",
+      "edits": {
+        "presets": "faith",
+        "categories": [
+          "faith"
+        ],
+        "alsoHears": 5,
+        "quit": 7,
+        "bubbleSeconds": 4
+      },
+      "expect": {
+        "bubbleSeconds": 4,
+        "presets": {
+          "tahajjud": "faith"
+        },
+        "alsoHears": {
+          "quran": "faith",
+          "athkar": "faith",
+          "fasting": "faith",
+          "sadaqah": "faith",
+          "sport": "health"
+        },
+        "quit": "general"
+      }
+    }
+  ]
+}

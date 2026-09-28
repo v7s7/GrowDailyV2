@@ -1806,6 +1806,67 @@ app.post('/api/wording/premium', localWriteOnly, wordingJson, async (req, res) =
   }
 });
 
+// ---- Doum: the mascot's timing, hours and praise lists ----
+//
+// Everything about Doum that is not a sentence (his words are on /wording).
+// Stored in wording/live under `pet`, beside the string edits, so it shares
+// their rule and reaches phones the same way, with no deploy. The page is
+// lib/pet_page.js and pet/app.js; the checks both it and the server run are
+// wording/pet_rules.js; the built-in values are read out of the app's
+// pet_settings.dart (lib/pet_admin.js). Every write goes through
+// localWriteOnly.
+const petAdmin = require('./lib/pet_admin');
+const { renderPetPage } = require('./lib/pet_page');
+
+function petError(res, e) {
+  if (e instanceof petAdmin.PetInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[pet] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+app.get('/pet', (req, res) => {
+  res.type('html').send(renderPetPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/pet/app.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'pet', 'app.js'));
+});
+
+app.get('/wording/pet_rules.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'pet_rules.js'));
+});
+
+app.get('/api/pet', async (req, res) => {
+  try {
+    const [pet, phones] = await Promise.all([
+      petAdmin.readPet(admin.firestore()),
+      phonesCanReadCached(),
+    ]);
+    res.json({ ...pet, phones });
+  } catch (e) {
+    petError(res, e);
+  }
+});
+
+app.post('/api/pet', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const body = req.body || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    const result = await petAdmin.savePet(db, admin.firestore.FieldValue, {
+      draft: body.draft,
+      // What the page was built from: the stored settings it loaded (null
+      // for none). A page older than the stored settings is refused.
+      base: has('base') ? body.base : undefined,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, pet: await petAdmin.readPet(db) });
+  } catch (e) {
+    petError(res, e);
+  }
+});
+
 // ---- Achievements: every medal's name and description, edited without a
 // release. Same shape as Wording just above (write route behind
 // localWriteOnly, whole-document replace inside a transaction), sized for

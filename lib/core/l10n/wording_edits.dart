@@ -18,6 +18,7 @@
 ///   quotes    [{ar, en}, ...]                     the whole daily rotation, or absent
 ///   faq       {order?, hidden?, text?, groups?}   the FAQ's edits, or absent
 ///   benefits  {order?, hidden?, icons?, added?}   the paywall list's edits, or absent
+///   pet       {praiseEverySeconds?, presets?, ...}  Doum's settings, or absent
 ///   version   int                                 bumped by every save
 ///
 /// The two lists (the FAQ and the paywall's benefits) are edited per item
@@ -60,8 +61,10 @@ import 'package:hive/hive.dart';
 import '../services/local_store_service.dart';
 import 'content_edits.dart';
 import 'daily_quotes.dart';
+import 'pet_edits.dart';
 
 export 'content_edits.dart';
+export 'pet_edits.dart';
 
 /// The one document the admin tool writes and every device reads.
 const String kWordingDocPath = 'wording/live';
@@ -76,6 +79,7 @@ class WordingEdits {
     this.quotes,
     this.faq,
     this.benefits,
+    this.pet,
     this.version = 0,
   });
 
@@ -101,6 +105,10 @@ class WordingEdits {
   /// edited in [ar] and [en] like any other.
   final BenefitEdits? benefits;
 
+  /// Doum's behaviour as edited on the admin's «دوم» page, null for the
+  /// app's own (see pet_edits.dart and pet_settings.dart).
+  final PetEdits? pet;
+
   /// The admin tool's save counter. Informational only; nothing orders
   /// snapshots by it, because Firestore already delivers them in order.
   final int version;
@@ -115,7 +123,8 @@ class WordingEdits {
       en.isEmpty &&
       quotes == null &&
       faq == null &&
-      benefits == null;
+      benefits == null &&
+      pet == null;
 
   /// The document as Firestore (or this device's cached copy) holds it.
   ///
@@ -133,6 +142,7 @@ class WordingEdits {
       quotes: _quoteList(data['quotes']),
       faq: FaqEdits.fromData(data['faq']),
       benefits: BenefitEdits.fromData(data['benefits']),
+      pet: PetEdits.fromData(data['pet']),
       version: version is num ? version.toInt() : 0,
     );
   }
@@ -174,6 +184,7 @@ class WordingEdits {
           ],
         if (faq != null) 'faq': faq!.toJson(),
         if (benefits != null) 'benefits': benefits!.toJson(),
+        if (pet != null) 'pet': pet!.toJson(),
         'version': version,
       };
 }

@@ -163,8 +163,24 @@ test('house style warns on the Arabic side without blocking the save', () => {
   assert.match(said('هذي العادة'), /هذه/);
   assert.doesNotMatch(said('هذه العادة'), /هذه, not/);
   assert.match(said('بعد ٣ أيام'), /Latin digits/);
+  assert.match(said('تبي تطفي ساعات الهدوء؟'), /Banned word: «تطفي»/);
+  assert.doesNotMatch(said('تبي توقف ساعات الهدوء؟'), /Banned word/);
+  assert.match(said('كذا الشغل'), /Banned word: «كذا»/);
+  assert.doesNotMatch(said('هكذا يراك أعضاء غرفك'), /Banned word/, 'هكذا is another word');
   assert.strictEqual(Rules.checkStringEdit(signIn, 'ar', 'باچر').ok, true);
   assert.deepStrictEqual(Rules.checkStringEdit(signIn, 'en', 'lissa').warnings, []);
+});
+
+test('the sprout says nothing with an exclamation mark, in either language', () => {
+  const sprout = {
+    key: 'sproutPraiseGeneral', editable: true, ar: 'كفو عليك', en: 'Well done', tokensAr: [], tokensEn: [],
+  };
+  const warned = (entry, lang, text) => Rules.checkStringEdit(entry, lang, text).warnings.join(' | ');
+  assert.match(warned(sprout, 'ar', 'كفو عليك!\nفخور فيك'), /No exclamation marks/);
+  assert.match(warned(sprout, 'en', 'Well done!'), /No exclamation marks/);
+  assert.doesNotMatch(warned(sprout, 'ar', 'كفو عليك\nفخور فيك'), /No exclamation marks/);
+  assert.strictEqual(Rules.checkStringEdit(sprout, 'ar', 'كفو عليك!').ok, true, 'a warning, not a block');
+  assert.doesNotMatch(warned(signIn, 'en', 'Sign in!'), /No exclamation marks/, 'only the sprout');
 });
 
 test('a rotation needs at least one line, both languages on every line', () => {

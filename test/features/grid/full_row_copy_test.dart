@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
+import 'package:grow_daily_v2/features/mascot/sprout_praise.dart';
 
 void main() {
   const ar = S(Locale('ar'));
@@ -46,10 +47,37 @@ void main() {
     }
   });
 
-  test('the full-day line does not claim every habit', () {
-    // It fires at 80% of the day's habits (kStreakDayCompletionThreshold),
-    // so with five habits it lands with one still open.
-    expect(ar.perfectDayMsg, isNot(contains('كل عاداتك')));
-    expect(en.perfectDayMsg, isNot(contains('Every habit')));
+  test('the streak-point lines claim neither every habit nor a full day', () {
+    // They fire at 80% of the day's habits (kStreakDayCompletionThreshold),
+    // so with five habits they land with one still open. 80% is a streak
+    // pass; a full day is every habit the day asked for (Aziz, 2026-09-28).
+    // The sprout's praise plays at 80% too (every group, both forms).
+    List<String> praise(S s) => [
+          for (final group in PraiseGroup.values)
+            for (final form in PraiseForm.values)
+              ...praiseLines(s, group, form: form),
+        ];
+    for (final line in [ar.perfectDayMsg, ar.sproutStreakPoint, ...praise(ar)]) {
+      expect(line, isNot(contains('كل عاداتك')), reason: line);
+      expect(line, isNot(contains('كامل')), reason: line);
+      expect(line, isNot(contains('مثالي')), reason: line);
+    }
+    for (final line in [en.perfectDayMsg, en.sproutStreakPoint, ...praise(en)]) {
+      expect(line.toLowerCase(), isNot(contains('every habit')), reason: line);
+      expect(line.toLowerCase(), isNot(contains('full day')), reason: line);
+      expect(line.toLowerCase(), isNot(contains('perfect')), reason: line);
+    }
+  });
+
+  test('every habit done is told it is a perfect day', () {
+    // Aziz, 2026-09-28: "if user did them all he must get that he did a
+    // perfect day". The card and the sprout say it on that tap, and the
+    // streak's own explainer says where 80% ends and a perfect day begins.
+    expect(ar.gridPerfectDay, contains('يوم مثالي'));
+    expect(ar.sproutPerfectDay, contains('يوم مثالي'));
+    expect(ar.statInfoStreakDesc, contains('80%'));
+    expect(ar.statInfoStreakDesc, contains('مثالي'));
+    expect(en.statInfoStreakDesc, contains('80%'));
+    expect(en.statInfoStreakDesc, contains('perfect day'));
   });
 }

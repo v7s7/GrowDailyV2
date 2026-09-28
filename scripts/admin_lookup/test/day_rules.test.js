@@ -574,3 +574,28 @@ test('a relinked slot counts each habit only on the days it filled the slot', ()
   assert.equal(counts('m-duha', '2026-07-11'), true);
   assert.equal(counts('m-q', '2026-07-06'), true, 'other slots untouched');
 });
+
+test('a rest day is OUT of the score, though creditForStored says 1.0', () => {
+  // Aziz, 2026-09-21: a spare day of a met quota week in A8GEL7 and YW68B9.
+  // The day card printed ✅ "counts in full" beside it, and diagnose_room.js
+  // paid it a whole day in its own-days line (58% where the app said 39%).
+  const rest = { done: 0, partial: 0, scheduled: 0, stoodDown: false, running: true, isRest: true, credit: 1 };
+  assert.equal(R.creditForStored({ done: 0, partial: 0, scheduled: 0 }), 1,
+      'the per-day credit keeps its 1.0: the Grid paints the day calm');
+  assert.deepStrictEqual(R.roomDayVerdict(rest), { counts: false, why: 'rest', credit: 0 });
+
+  const stood = { ...rest, isRest: false, stoodDown: true, credit: 0 };
+  assert.equal(R.roomDayVerdict(stood).counts, false);
+  const idle = { ...rest, isRest: false, running: false };
+  assert.equal(R.roomDayVerdict(idle).counts, false);
+
+  const graded = { done: 2, partial: 1, scheduled: 3, stoodDown: false, running: true, isRest: false, credit: 2.5 / 3 };
+  assert.deepStrictEqual(R.roomDayVerdict(graded), { counts: true, why: null, credit: 2.5 / 3 });
+
+  // And the app still leaves it out of both sides.
+  const dart = DART('features', 'rooms', 'models', 'room_model.dart');
+  assert.match(dart, /if \(!room\.isPausedOn\(key\) && !isStoodDownOn\(key\) && !isRestDay\(key\)\) \{\n\s+total \+= creditFor\(key\);/,
+      'daysCompleted: a rest day adds nothing to the numerator');
+  assert.match(dart, /final resting = isRestDay\(key\);[\s\S]{0,200}resting \|\|/,
+      '_liveDaysIn: and nothing to the denominator');
+});

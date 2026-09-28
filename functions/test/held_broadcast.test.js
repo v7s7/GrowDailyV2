@@ -235,6 +235,12 @@ test("at 07:02 each gets it in their own language, and it is counted",
       await fns.deliverHeldBroadcast.run({data: {v: 1, id: ID, uid: "sleeperEn"}});
       assert.deepStrictEqual(sent.map((m) => [m.token, m.notification.title]),
           [["tokAr", "تحديث جديد"], ["tokEn", "New update"]]);
+      // Sent at 23:30 in Bahrain, delivered at 07:02 (Aziz, 2026-09-28).
+      assert.deepStrictEqual(sent.map((m) => m.notification.body), [
+        "صار عندك تذكير لكل صلاة.\nأرسلناها أمس الساعة ١١:٣٠ بالليل.",
+        "Every prayer can have its own reminder now.\n" +
+          "Sent yesterday at 11:30 pm.",
+      ], "the admin's words untouched, and under them when they were sent");
       assert.deepStrictEqual(sent[0].data, {type: "broadcast", id: ID});
       assert.strictEqual(sent[0].android.ttl, 12 * 60 * 60 * 1000);
       assert.strictEqual(sent[0].apns.headers["apns-expiration"],
@@ -270,4 +276,57 @@ test("decided afresh when it lands: switched off, still quiet, or too late",
       await fns.deliverHeldBroadcast.run({data: {v: 1, id: ID, uid: "sleeperEn"}});
       assert.strictEqual(sent.length, 0, "never after the next message could go");
       assert.strictEqual(row().heldDropped, 3);
+    });
+
+// ── A room push held for the night says when it happened (2026-09-28) ─────
+//
+// The same real index.js, end to end: notifyRoomFinish holds the push for a
+// reader inside the night and the task carries the moment of the finish;
+// deliverDeferredRoomPush words it at 07:02 with that moment on the
+// reader's clock.
+
+test("a room push held for the night lands at 07:02 saying the real time",
+    async () => {
+      reset();
+      const day = "2026-09-25";
+      NOW = Date.UTC(2026, 8, 25, 1, 30); // 04:30 in Bahrain
+      store.set("rooms/R1", {name: "نادي الفجر"});
+      store.set("rooms/R1/participants/early",
+          {displayName: "نورة", allDoneToday: true, allDoneDate: day});
+      store.set("rooms/R1/participants/sleeperAr", {allDoneToday: false});
+
+      await fns.notifyRoomFinish.run(
+          {auth: {uid: "early"}, data: {roomCode: "R1"}});
+      assert.strictEqual(sent.length, 0, "nobody is woken at 04:30");
+      const held =
+        enqueued.filter((e) => e.name === "deliverDeferredRoomPush");
+      assert.strictEqual(held.length, 1);
+      assert.strictEqual(held[0].data.event, "lastOne");
+      assert.strictEqual(held[0].data.atMs, NOW,
+          "the finish itself, carried for the words");
+
+      NOW = QUIET_END;
+      await fns.deliverDeferredRoomPush.run({data: held[0].data});
+      assert.deepStrictEqual(sent.map((m) => m.token), ["tokAr"]);
+      assert.strictEqual(sent[0].notification.title, "نادي الفجر");
+      assert.strictEqual(sent[0].notification.body,
+          "عند نورة كل شي خلص الساعة ٤:٣٠ الفجر. سوي عادتك الحين ويصير " +
+          "يومكم كامل 🤝");
+    });
+
+test("a task queued before the time was carried lands in its plain words",
+    async () => {
+      reset();
+      const day = "2026-09-25";
+      NOW = QUIET_END;
+      store.set("rooms/R1", {name: "نادي الفجر"});
+      store.set("rooms/R1/participants/early",
+          {displayName: "نورة", allDoneToday: true, allDoneDate: day});
+      store.set("rooms/R1/participants/sleeperAr", {allDoneToday: false});
+      await fns.deliverDeferredRoomPush.run({data: {
+        v: 2, otherUid: "sleeperAr", roomCode: "R1", event: "lastOne",
+        dayKey: day, finisherUid: "early", habitName: null, slotIndex: null,
+      }});
+      assert.strictEqual(sent[0].notification.body,
+          "عند نورة كل شي خلص. سوي عادتك الحين ويصير يومكم كامل 🤝");
     });

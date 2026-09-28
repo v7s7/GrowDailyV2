@@ -240,12 +240,12 @@ void main() {
           await host(tester, maybeShowIconCard);
           expect(find.text('Your plant grew'), findsOneWidget);
           expect(
-            find.text('You have 35 full days now, and a new icon shape is '
+            find.text('You have 35 streak days now, and a new icon shape is '
                 'yours.'),
             findsOneWidget,
           );
           expect(
-            find.text('The bloom after 55 more full days.'),
+            find.text('The bloom after 55 more streak days.'),
             findsOneWidget,
           );
           await tester.tap(find.text('Use it'));

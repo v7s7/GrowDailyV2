@@ -194,6 +194,51 @@ void main() {
     expect(_days(roomSlotWeekDays(room, _member(), 0, _week)), [26, 27, 28]);
   });
 
+  group('a slot relinked on Wednesday 30 September', () {
+    // «مشي» was linked to the «تمرين» slot by mistake and changed on
+    // Wednesday (RoomsController.relinkPlanHabit): it keeps the days through
+    // Tuesday, and the sync grades «تمرين» from Wednesday (slotGradesOn).
+    final room = _room(start: DateTime(2026, 9, 1));
+    final member = _member().copyWith(
+      slotHabitHistory: const {
+        0: [(habitId: 'walk', until: '2026-09-29')],
+      },
+    );
+
+    test('grades Wednesday to Friday, never the old habit\'s days', () {
+      expect(_days(roomSlotWeekDays(room, member, 0, _week)), [30, 1, 2]);
+    });
+
+    test('Saturday\'s and Monday\'s sessions are not the room\'s: 0 of 3', () {
+      // Done on the Grid while «مشي» held the slot. Counted, the line read
+      // 2 of 4 with a day to spare; the room asks three in three days.
+      final s = _standing(
+        room,
+        member: member,
+        done: const {26, 28},
+        today: DateTime(2026, 9, 30),
+      )!;
+      expect(s.done, 0);
+      expect(s.target, 3);
+      expect(s.neededToday, isTrue);
+    });
+  });
+
+  test('a stretch the slot spent declined is no habit\'s to count', () {
+    // Declined on Saturday and filled again on Monday (resolvePlanHabit
+    // closes the window): the sync grades nothing in the slot across it.
+    final room = _room(start: DateTime(2026, 9, 1));
+    final member = _member().copyWith(
+      slotDeclinedSpans: const {
+        0: [(from: '2026-09-26', to: '2026-09-27')],
+      },
+    );
+    expect(
+      _days(roomSlotWeekDays(room, member, 0, _week)),
+      [28, 29, 30, 1, 2],
+    );
+  });
+
   test('a member who joined on Monday counts from Monday', () {
     final room = _room(start: DateTime(2026, 9, 1));
     expect(

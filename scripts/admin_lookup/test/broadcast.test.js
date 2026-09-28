@@ -338,15 +338,17 @@ test('everyone: the app switch and quiet hours are respected, people with no pho
   assert.strictEqual(noon.counts.ar, 3);
 
   const late = Broadcast.planRecipients(accounts, { nowMs: LATE_BAHRAIN, totalAccounts });
-  assert.deepStrictEqual(late.devices.map((d) => d.token).sort(), ['d1', 'e1'],
-    'only quiet hours switched off, or no clock to judge by, go through at 23:30');
-  assert.strictEqual(late.counts.quiet, 2);
-  assert.strictEqual(late.counts.quietPhones, 3);
+  assert.deepStrictEqual(late.devices.map((d) => d.token).sort(), ['e1'],
+    'only an account with no clock to judge by goes through at 23:30: quiet '
+    + 'hours switched off still wait out the night (Aziz, 2026-09-28)');
+  assert.strictEqual(late.counts.quiet, 3);
+  assert.strictEqual(late.counts.quietPhones, 4);
   // Held, not skipped (page item 6): each until 07:02 the next morning.
   const sevenOhTwo = Date.UTC(2026, 8, 23, 4, 2);
   assert.deepStrictEqual(late.held, [
     { uid: uid(1), atMs: sevenOhTwo },
     { uid: uid(2), atMs: sevenOhTwo },
+    { uid: uid(4), atMs: sevenOhTwo },
   ]);
   assert.deepStrictEqual(noon.held, []);
 });
@@ -461,7 +463,13 @@ test('one notification to everyone per 24 hours, whatever it says; a test is not
 test('people in quiet hours are held: listed on the row, then queued by holdBroadcast', async () => {
   const db = fakeDb();
   seedAccount(db, uid(1), { locale: 'ar', tz: 180, tokens: ['a1'] });
-  seedAccount(db, uid(2), { locale: 'ar', tz: 180, settings: { quietHoursEnabled: false }, tokens: ['b1'] });
+  // Their own quiet hours on, midnight to 06:00: 23:30 is outside them.
+  seedAccount(db, uid(2), {
+    locale: 'ar',
+    tz: 180,
+    settings: { quietHoursOn: true, quietHoursEnabled: true, quietHoursStart: '0:0', quietHoursEnd: '6:0' },
+    tokens: ['b1'],
+  });
   const messaging = fakeMessaging();
   const asked = [];
   const result = await Broadcast.sendNotification(db, messaging, {
@@ -474,7 +482,7 @@ test('people in quiet hours are held: listed on the row, then queued by holdBroa
       return { queued: 1, failed: 0 };
     },
   });
-  assert.strictEqual(result.sent, 1, 'the one without quiet hours, now');
+  assert.strictEqual(result.sent, 1, 'the one whose own quiet hours start later, now');
   assert.deepStrictEqual(asked.map((a) => a.id), [result.id]);
   assert.deepStrictEqual(asked[0].row.held, [{ uid: uid(1), atMs: Date.UTC(2026, 8, 23, 4, 2) }]);
   assert.strictEqual(asked[0].row.sending, false);

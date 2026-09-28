@@ -195,6 +195,30 @@ class _SettingsSection extends ConsumerWidget {
                     Navigator.pushNamed(context, '/app-icon');
                   },
                 ),
+              // The sprout on the Grid's board (SproutLedge). Pulling it down
+              // behind the board hides it after a question that names this
+              // row, so this is the way back; it also hides it without the
+              // gesture. A switch row, shaped like Dark Mode's above.
+              _SettingsRow(
+                icon: Icons.eco_rounded,
+                label: s.gridSproutSetting,
+                trailing: Switch.adaptive(
+                  value: ref.watch(gridSproutShownProvider),
+                  activeTrackColor: GameColors.emerald,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  onChanged: (shown) {
+                    HapticFeedback.selectionClick();
+                    ref.read(gridSproutShownProvider.notifier).set(shown);
+                  },
+                ),
+                showChevron: false,
+                verticalPadding: 3,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  final notifier = ref.read(gridSproutShownProvider.notifier);
+                  notifier.set(!ref.read(gridSproutShownProvider));
+                },
+              ),
               _SettingsRow(
                 icon: Icons.text_fields_rounded,
                 label: s.appFont,

@@ -141,7 +141,7 @@ the mood rules in `sprout_mood.dart`).
 
 | Where | Pose | What it does |
 | --- | --- | --- |
-| Grid day card, beside the ring | wave, three-quarter, happy, laugh, sleeping | Greets once per launch; hops when the day's numbers rise; celebrates at the streak point (80%, «يوم كامل!») and again at every square green («يوم مثالي!»); laughs when tapped; asleep after 21:00 on a finished day. The ring's gold cup became a check. |
+| Grid day card, beside the ring | wave, three-quarter, happy, laugh, sleeping | Greets once per launch; hops when the day's numbers rise, with praise that fits the habit just done (sprout_praise.dart: a list per category, male and female forms, a general list, no repeats); celebrates at the streak point (80%, «سلسلتك زادت!»: a streak pass, never «يوم كامل») and again at the perfect day, every habit the day asked for («يوم مثالي!» with praise under it); «عليج»، «فيج» forms when the character worn is a woman; laughs when tapped; asleep after 21:00 on a finished day. The ring's gold cup became a check. |
 | Empty Grid | pencil | Replaces the icon in a circle. |
 | Streak milestone | love heart | Pops in and celebrates with confetti; the flame is now a small mark by the label. |
 | Saturday recap (Profile) | checklist | Peeks over the card's top edge, in from the end corner so it never covers the fold arrow or the folded number; taps on its feet reach the fold row. |

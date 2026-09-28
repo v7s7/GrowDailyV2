@@ -13,6 +13,7 @@ import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/grid/screens/grid_screen.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart';
+import 'package:grow_daily_v2/features/mascot/sprout_praise.dart';
 import 'package:grow_daily_v2/features/night_review/screens/night_review_screen.dart';
 import 'package:grow_daily_v2/features/premium/screens/premium_screen.dart';
 import 'package:grow_daily_v2/features/settings/screens/nav_bar_settings_screen.dart';
@@ -55,6 +56,23 @@ class LandingHarness {
     // never reach the network; make the fetch a no-op so the theme falls
     // back to a local font instead of throwing.
     GoogleFonts.config.allowRuntimeFetching = false;
+    // The sprout's praise remembers what it said in the settings box, and a
+    // square turning green in a test would leave that write in flight inside
+    // the fake-async zone, which hangs the next test's box (see the golden
+    // rule above). Keep the memory in memory.
+    PraisePicker.persist = false;
+    // A taller surface than flutter_test's 800x600, at the same width, so
+    // every horizontal measurement stays what it was. The Grid stacks a lot
+    // above its board (header, week row, the day's line, the summary card
+    // and, since 2026-09-28, the sprout's lane), and at 600 the board began
+    // a few points under the bottom edge. Finders skip what is off screen,
+    // so every test that reached for a square failed for a reason that had
+    // nothing to do with what it tests. A test that needs a phone sets its
+    // own size after this: a group's setUp runs after the one that calls
+    // prepare(), and a test body after both. Reset in [dispose].
+    final view =
+        TestWidgetsFlutterBinding.instance.platformDispatcher.implicitView!;
+    view.physicalSize = surface * view.devicePixelRatio;
     tmp = await Directory.systemTemp.createTemp('landing_test_');
     Hive.init(tmp.path);
     final settings = await Hive.openBox<dynamic>('box_settings');
@@ -77,7 +95,12 @@ class LandingHarness {
   /// test file runs in its own process anyway — the temp dir is disposable.
   void dispose() {
     container.dispose();
+    TestWidgetsFlutterBinding.instance.platformDispatcher.implicitView!
+        .resetPhysicalSize();
   }
+
+  /// The logical surface [prepare] sets (see there).
+  static const Size surface = Size(800, 1000);
 
   /// [home] defaults to [GridScreen] on its own, which is what the landing
   /// flows below actually exercise. Pass [HomeShell] instead for anything

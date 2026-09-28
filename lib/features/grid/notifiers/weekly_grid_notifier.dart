@@ -10,6 +10,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show allHabitsEverProvider, habitListProvider;
 import '../../habits/models/habit_day_demand.dart';
+import '../../mascot/sprout_signals.dart';
 import '../../milestones/reports/habit_day_marks.dart';
 import '../../premium/notifiers/premium_notifier.dart'
     show canBrowseHistoryMonth, kFreeHistoryMonths;
@@ -572,6 +573,18 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     _persistSquare(habitId, day, value, previous: old, source: source);
 
     final greenDelta = (value.isGreen ? 1 : 0) - (old.isGreen ? 1 : 0);
+
+    // Which habit the day card's sprout praises when the day's numbers rise,
+    // a prayer getting faith praise and a workout sport praise (see
+    // sproutDoneProvider). Only the id: the sprout looks the habit up itself,
+    // on the Grid where the habit list is already loaded, so this path never
+    // loads it (a test tearing Hive down under that load fails on its lock).
+    // Today only: the card shows today's numbers, and yesterday's square
+    // (still open until 10:00) raises nothing there.
+    if (greenDelta > 0 && day.isToday) {
+      _ref.read(sproutDoneProvider.notifier).state =
+          SproutDone(habitId, DateTime.now());
+    }
 
     // Anti-backdating: a square for any day other than today still colors
     // and saves normally, and now also correctly updates the heatmap's day

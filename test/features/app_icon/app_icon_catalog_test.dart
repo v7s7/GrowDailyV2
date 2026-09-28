@@ -225,17 +225,31 @@ void main() {
       expect(nextShapeFor(90), isNull);
     });
 
-    test('full days read right in Arabic, whatever the number', () {
+    test('the days that grow it read right in Arabic, whatever the number, '
+        'and are never called full days: 80% is a streak pass', () {
       const ar = S(Locale('ar'));
-      expect(ar.fullDaysInSentence(1), 'يوم كامل');
-      expect(ar.fullDaysInSentence(2), 'يومين كاملين');
-      expect(ar.fullDaysInSentence(5), '5 أيام كاملة');
-      expect(ar.fullDaysInSentence(18), '18 يومًا كاملًا');
-      expect(ar.fullDaysInSentence(100), '100 يوم كامل');
-      expect(ar.fullDaysInSentence(105), '105 أيام كاملة');
+      expect(ar.fullDaysInSentence(1), 'يوم محسوب');
+      expect(ar.fullDaysInSentence(2), 'يومين محسوبين');
+      expect(ar.fullDaysInSentence(5), '5 أيام محسوبة');
+      expect(ar.fullDaysInSentence(18), '18 يومًا محسوبًا');
+      expect(ar.fullDaysInSentence(100), '100 يوم محسوب');
+      expect(ar.fullDaysInSentence(105), '105 أيام محسوبة');
       const en = S(Locale('en'));
-      expect(en.fullDaysInSentence(1), '1 full day');
-      expect(en.fullDaysInSentence(18), '18 full days');
+      expect(en.fullDaysInSentence(1), '1 streak day');
+      expect(en.fullDaysInSentence(18), '18 streak days');
+      for (final s in [ar, en]) {
+        for (final line in [
+          s.fullDaysInSentence(18),
+          s.appIconFullDaysSoFar(0),
+          s.appIconFullDaysSoFar(12),
+          s.appIconFullDaysLeft(18),
+          s.appIconNextShape('x', 18),
+          s.appIconFullDayRule,
+        ]) {
+          expect(line, isNot(contains('كامل')), reason: line);
+          expect(line.toLowerCase(), isNot(contains('full day')), reason: line);
+        }
+      }
     });
   });
 

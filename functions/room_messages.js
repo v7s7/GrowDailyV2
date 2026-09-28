@@ -29,6 +29,52 @@ function arabicDigits(n) {
 }
 
 /**
+ * When something happened, on the reader's own clock, for a push that
+ * waited out their night and lands later (Aziz, 2026-09-28: it arrives in
+ * the morning but says the real time). «الساعة ٤:٣٠ الفجر», or «أمس الساعة
+ * ١١ بالليل» once the reader's day has moved on; "at 4:30 am", "yesterday at
+ * 11 pm". A whole hour drops its minutes, the way the time is said.
+ *
+ * Null when the moment or the reader's clock is unknown: the push then goes
+ * out in its plain words, never with a guessed time.
+ * @param {object} p
+ * @param {number|null|undefined} p.atMs When it happened, epoch ms.
+ * @param {number|undefined} p.tzOffsetMinutes The reader's UTC offset.
+ * @param {number} p.nowMs When the push is being sent.
+ * @param {string} p.locale "ar" or "en" (anything else reads as "en").
+ * @return {string|null}
+ */
+function whenPhrase({atMs, tzOffsetMinutes, nowMs, locale}) {
+  if (typeof atMs !== "number" || typeof tzOffsetMinutes !== "number" ||
+      !Number.isFinite(atMs)) {
+    return null;
+  }
+  const local = (ms) => new Date(ms + tzOffsetMinutes * 60 * 1000);
+  const at = local(atMs);
+  const dayOf = (d) => d.toISOString().slice(0, 10);
+  const yesterday = dayOf(at) < dayOf(local(nowMs));
+  const hour = at.getUTCHours();
+  const minute = at.getUTCMinutes();
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  if (locale === "ar") {
+    const clock = minute === 0 ?
+      arabicDigits(hour12) :
+      `${arabicDigits(hour12)}:${arabicDigits(minute).padStart(2, "٠")}`;
+    // The part of the day, as it is said: بالليل from 6 in the evening to
+    // 3 in the morning, then الفجر, الصبح, الظهر and العصر.
+    const part = hour < 3 ? "بالليل" :
+      hour < 6 ? "الفجر" :
+      hour < 12 ? "الصبح" :
+      hour < 15 ? "الظهر" :
+      hour < 18 ? "العصر" : "بالليل";
+    return `${yesterday ? "أمس " : ""}الساعة ${clock} ${part}`;
+  }
+  const clock = minute === 0 ?
+    `${hour12}` : `${hour12}:${String(minute).padStart(2, "0")}`;
+  return `${yesterday ? "yesterday " : ""}at ${clock} ${hour < 12 ? "am" : "pm"}`;
+}
+
+/**
  * Names the app writes when it has no real one: index.js's own "Someone"
  * for a doc with no name, and the "Warrior" placeholder
  * (RoomsController._profileFields) for an empty or screened one.
@@ -170,19 +216,22 @@ function habitsLeftFor(room, part, todayKey) {
  * because «الكل» would take in the members left out.
  * @param {number} args.readerHabits How many habits the reader still has to
  * do today, from habitsLeftFor.
+ * @param {string|null} [args.when] whenPhrase of the finish, for a push that
+ * waited out the reader's night; absent for one sent as it happened.
  * @return {{title: string, body: string}}
  */
 function lastOneMessage(
     {locale, roomName, finisherName, members, finished, excluded = 0,
-      readerHabits}) {
+      readerHabits, when = null}) {
   const name = usableName(finisherName);
   const pair = members <= 2 && (name !== null || !excluded);
   const hasName = typeof roomName === "string" && roomName.trim() !== "";
   if (locale === "ar") {
     const title = hasName ? roomName : "غرفتك";
     const ask = readerHabits > 1 ? "سوي عاداتك الحين" : "سوي عادتك الحين";
+    const at = when ? ` ${when}` : "";
     if (pair) {
-      const opener = name ? `عند ${name} كل شي خلص.` : "الكل خلّص.";
+      const opener = name ? `عند ${name} كل شي خلص${at}.` : `الكل خلّص${at}.`;
       return {title, body: `${opener} ${ask} ويصير يومكم كامل 🤝`};
     }
     // The verb follows the number: «١ من ٢ خلّص اليوم.» for one, and the
@@ -191,12 +240,16 @@ function lastOneMessage(
     return {
       title,
       body: `${arabicDigits(finished)} من ${arabicDigits(members)} ${verb} ` +
-        `اليوم. ${ask} ويصير يوم الغرفة كامل 🤝`,
+        `اليوم${when ? `، آخر واحد ${when}` : ""}. ${ask} ` +
+        "ويصير يوم الغرفة كامل 🤝",
     };
   }
   const title = hasName ? roomName : "Your room";
   if (pair) {
-    const opener = name ? `${name} is all done.` : "Everyone else is done.";
+    const opener = when ?
+      (name ? `${name} was all done ${when}.` :
+        `Everyone else was done ${when}.`) :
+      (name ? `${name} is all done.` : "Everyone else is done.");
     return {
       title,
       body: `${opener} Do yours now and your day together is complete 🤝`,
@@ -205,7 +258,8 @@ function lastOneMessage(
   const verb = finished === 1 ? "has" : "have";
   return {
     title,
-    body: `${finished} of ${members} ${verb} finished today. Do yours now ` +
+    body: `${finished} of ${members} ${verb} finished today` +
+      `${when ? `, the last ${when}` : ""}. Do yours now ` +
       "and the room's day is complete 🤝",
   };
 }
@@ -225,10 +279,11 @@ function lastOneMessage(
  * From lastOneCounts.
  * @param {object} args.reader The reader's participant doc's data.
  * @param {string} args.todayKey The finisher's app day, "YYYY-MM-DD".
+ * @param {string|null} [args.when] See lastOneMessage.
  * @return {{title: string, body: string}}
  */
 function lastOneMessageFor(
-    {locale, room, finisher, counts, reader, todayKey}) {
+    {locale, room, finisher, counts, reader, todayKey, when = null}) {
   return lastOneMessage({
     locale,
     roomName: (room || {}).name,
@@ -237,6 +292,7 @@ function lastOneMessageFor(
     finished: counts.finished,
     excluded: counts.excluded,
     readerHabits: habitsLeftFor(room, reader || {}, todayKey),
+    when,
   });
 }
 
@@ -276,36 +332,38 @@ function roomTitleName(room, locale) {
 /**
  * Someone opened the day (index.js's event A). `gender` is the FINISHER's:
  * the sentence is about them. Only ever sent on the day it is about, see
- * push_policy.js roomPushPlan.
+ * push_policy.js roomPushPlan. `when` (whenPhrase) is set for a push that
+ * waited out the reader's night: «أول واحد يخلّص اليوم، الساعة ٤:٣٠ الفجر.»
  */
 const FIRST_TODAY_MESSAGES = {
-  en: (finisherName, roomName) => ({
+  en: (finisherName, roomName, gender, when) => ({
     title: `${finisherName} is first to finish in "${roomName}"`,
-    body: "First one done today. Your turn.",
+    body: `First one done today${when ? `, ${when}` : ""}. Your turn.`,
   }),
-  ar: (finisherName, roomName, gender) => ({
+  ar: (finisherName, roomName, gender, when) => ({
     title: isFem(gender) ?
       `${finisherName} أول من أنهت في "${roomName}"` :
       `${finisherName} أول من أنهى في "${roomName}"`,
     body: isFem(gender) ?
-      "أول وحدة تخلّص اليوم. دورك." :
-      "أول واحد يخلّص اليوم. دورك.",
+      `أول وحدة تخلّص اليوم${when ? `، ${when}` : ""}. دورك.` :
+      `أول واحد يخلّص اليوم${when ? `، ${when}` : ""}. دورك.`,
   }),
 };
 
 /**
  * Every member finished (event C). Nobody in particular is the subject, so
  * no gender is needed. Only ever sent on the day it celebrates: the next
- * morning it would tell the reader nothing (push_policy.js rule 3).
+ * morning it would tell the reader nothing (push_policy.js rule 3). Held
+ * past the reader's night, it says when the last one finished.
  */
 const ROOM_PERFECT_MESSAGES = {
-  en: (roomName) => ({
+  en: (roomName, when) => ({
     title: `Perfect day in "${roomName}" 🎉`,
-    body: "Everyone finished today.",
+    body: `Everyone finished today${when ? `, the last ${when}` : ""}.`,
   }),
-  ar: (roomName) => ({
+  ar: (roomName, when) => ({
     title: `يوم كامل في "${roomName}" 🎉`,
-    body: "الكل خلّص عاداته اليوم.",
+    body: `الكل خلّص عاداته اليوم${when ? `، آخر واحد ${when}` : ""}.`,
   }),
 };
 
@@ -322,17 +380,27 @@ const ROOM_PERFECT_MESSAGES = {
  * nothing has to guess a gender.
  *
  * DRAFT WORDING, Aziz picks the final Arabic.
+ *
+ * The one push that can land the morning after (push_policy.js rule 3), so
+ * held past the reader's night it says when, «أمس الساعة ١١ بالليل», and
+ * drops «من اليوم», which by then would name the wrong day.
  */
 const HABIT_ADDED_MESSAGES = {
-  en: (habitName, roomName) => ({
+  en: (habitName, roomName, when) => ({
     title: `New habit in "${roomName}"`,
-    body: `"${habitName}" was added to the plan and counts for everyone ` +
-      "from today. Link it on your side \u{1F331}",
+    body: when ?
+      `"${habitName}" was added to the plan ${when} and counts for ` +
+        "everyone. Link it on your side \u{1F331}" :
+      `"${habitName}" was added to the plan and counts for everyone ` +
+        "from today. Link it on your side \u{1F331}",
   }),
-  ar: (habitName, roomName) => ({
+  ar: (habitName, roomName, when) => ({
     title: `عادة جديدة في "${roomName}"`,
-    body: `انضافت «${habitName}» للخطة وصارت تنحسب للكل من اليوم. ` +
-      "اربطها من عندك \u{1F331}",
+    body: when ?
+      `انضافت «${habitName}» للخطة ${when}، وصارت تنحسب للكل. ` +
+        "اربطها من عندك \u{1F331}" :
+      `انضافت «${habitName}» للخطة وصارت تنحسب للكل من اليوم. ` +
+        "اربطها من عندك \u{1F331}",
   }),
 };
 
@@ -351,36 +419,59 @@ const HABIT_ADDED_MESSAGES = {
  * lastOne only, from lastOneCounts.
  * @param {string} [args.todayKey] The day the push is about.
  * @param {string} [args.habitName] habitAdded only.
+ * @param {{atMs: number, tzOffsetMinutes: number, nowMs: number}} [args.heldAt]
+ * For a push that waited out the reader's night: when the event happened,
+ * the reader's clock, and the delivery moment, so the words can say the
+ * real time (whenPhrase). Absent for a push sent as it happened.
  * @return {{title: string, body: string}}
  */
 function roomPushMessage(
-    {event, locale, room, finisher, reader, counts, todayKey, habitName}) {
+    {event, locale, room, finisher, reader, counts, todayKey, habitName,
+      heldAt}) {
   const lang = locale === "ar" ? "ar" : "en";
   const roomName = roomTitleName(room, lang);
+  const when = heldAt ? whenPhrase({...heldAt, locale: lang}) : null;
   switch (event) {
     case "lastOne":
       return lastOneMessageFor(
-          {locale: lang, room, finisher, counts, reader, todayKey});
+          {locale: lang, room, finisher, counts, reader, todayKey, when});
     case "perfect":
-      return ROOM_PERFECT_MESSAGES[lang](roomName);
+      return ROOM_PERFECT_MESSAGES[lang](roomName, when);
     case "habitAdded":
-      return HABIT_ADDED_MESSAGES[lang](habitName, roomName);
+      return HABIT_ADDED_MESSAGES[lang](habitName, roomName, when);
     default: {
       const f = finisher || {};
       return FIRST_TODAY_MESSAGES[lang](
-          f.displayName || "Someone", roomName, f.gender);
+          f.displayName || "Someone", roomName, f.gender, when);
     }
   }
+}
+
+/**
+ * The line a message from the admin gains when it waited out the reader's
+ * night (index.js deliverHeldBroadcast): the real time it was sent, under the
+ * admin's own words, which are never touched. «أرسلناها أمس الساعة ١١
+ * بالليل.» / "Sent yesterday at 11 pm." Null when the time cannot be said.
+ * DRAFT WORDING, Aziz picks the final Arabic.
+ * @param {object} p See whenPhrase.
+ * @return {string|null}
+ */
+function heldBroadcastLine(p) {
+  const when = whenPhrase(p);
+  if (!when) return null;
+  return p.locale === "ar" ? `أرسلناها ${when}.` : `Sent ${when}.`;
 }
 
 module.exports = {
   arabicDigits,
   habitCountFor,
   habitsLeftFor,
+  heldBroadcastLine,
   isFem,
   lastOneCounts,
   lastOneMessage,
   lastOneMessageFor,
   roomPushMessage,
   usableName,
+  whenPhrase,
 };

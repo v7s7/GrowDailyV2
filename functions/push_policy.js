@@ -11,17 +11,21 @@
  *
  * ── No spam, as two rules ────────────────────────────────────────────────
  *
- *  1. Quiet hours apply to EVERYONE, defaulting to the app's own default
- *     window (22:00 to 07:00) when an account has never mirrored its
- *     settings. Before this, a member whose settings had never been written
- *     (every account that had not opened notification settings on the
- *     current build) was read as "no quiet hours at all", so a Fajr habit
- *     finished at 04:30 pushed "first to finish, your turn" to their whole
- *     room at 04:30. A window can only be checked against a clock, so a
- *     member whose device has never reported its UTC offset is still sent
- *     to: the app mirrors the offset on every sign-in and resume, so this
- *     is rare and short-lived, and refusing to send at all would silence
- *     them for a guess.
+ *  1. A push from someone else never lands in anyone's night. It waits out
+ *     the person's own quiet hours when they have them on, and the night,
+ *     22:00 to 07:00, when they do not (Aziz, 2026-09-28: with quiet hours
+ *     off, a room push still arrives in the morning, and says the real time
+ *     it happened; see room_messages.js whenPhrase). Since that day their
+ *     own quiet hours stay off until they turn them on, and only their own
+ *     reminders follow that switch; here it only picks which window.
+ *     Before any of this, a member whose settings had never been written
+ *     was read as "no quiet hours at all", so a Fajr habit finished at 04:30
+ *     pushed "first to finish, your turn" to their whole room at 04:30. A
+ *     window can only be checked against a clock, so a member whose device
+ *     has never reported its UTC offset is still sent to: the app mirrors
+ *     the offset on every sign-in and resume, so this is rare and
+ *     short-lived, and refusing to send at all would silence them for a
+ *     guess.
  *
  *  2. At most one HEADS-UP, one NUDGE and one CELEBRATION per person per
  *     day. The three pushes fall into those three kinds: "first to finish"
@@ -65,7 +69,11 @@
  *     something: linking the habit.
  */
 
-/** The app's own default quiet window (NotificationSettings' defaults). */
+/**
+ * The night a push from someone else waits out when the person's own quiet
+ * hours are off, which is also the window the app offers when they are
+ * turned on (NotificationSettings' defaults).
+ */
 const DEFAULT_QUIET_SETTINGS = Object.freeze({
   quietHoursEnabled: true,
   quietHoursStart: "22:0",
@@ -100,20 +108,45 @@ function localMinutes(tzOffsetMinutes, nowMs) {
 }
 
 /**
- * Whether [settings] put [localMin] inside a quiet window.
+ * Whether the person's own quiet hours are switched on, the switch their
+ * reminders follow.
  *
- * Missing settings mean the app's defaults, not "no window": see rule 1
- * above. A window whose start equals its end is zero-width and never
- * suppresses anything, matching the app's own isMinuteWithinQuietHours.
+ * Since 2026-09-28 the app writes it as `quietHoursOn`, and keeps writing
+ * the old key, `quietHoursEnabled`, as true for older readers. An account a
+ * newer build never wrote has only the old key, which was that build's
+ * switch.
  * @param {object|undefined} settings The mirrored notificationSettings.
- * @param {number} localMin Minutes since the recipient's local midnight.
- * @return {boolean} Whether this minute is quiet for them.
+ * @return {boolean}
  */
-function isQuietAtLocalMinute(settings, localMin) {
-  const s = settings || DEFAULT_QUIET_SETTINGS;
-  if (s.quietHoursEnabled !== true) return false;
-  const startMin = toMinutes(s.quietHoursStart);
-  const endMin = toMinutes(s.quietHoursEnd);
+function ownQuietHoursOn(settings) {
+  if (!settings) return false;
+  if (typeof settings.quietHoursOn === "boolean") return settings.quietHoursOn;
+  return settings.quietHoursEnabled === true;
+}
+
+/**
+ * The window a push from someone else waits out for this person: their own
+ * quiet hours when on, the night (DEFAULT_QUIET_SETTINGS) when not. Rule 1.
+ * @param {object|undefined} settings The mirrored notificationSettings.
+ * @return {object} Settings carrying quietHoursStart and quietHoursEnd.
+ */
+function holdWindow(settings) {
+  return ownQuietHoursOn(settings) ? settings : DEFAULT_QUIET_SETTINGS;
+}
+
+/**
+ * Whether [localMin] falls inside the window from [start] to [end], stored
+ * as "H:M". A window whose start equals its end is zero-width and never
+ * covers anything, and one that cannot be read covers nothing either,
+ * matching the app's own isMinuteWithinQuietHours.
+ * @param {*} start The stored start, e.g. "22:0".
+ * @param {*} end The stored end, e.g. "7:0".
+ * @param {number} localMin Minutes since local midnight.
+ * @return {boolean}
+ */
+function isMinuteInWindow(start, end, localMin) {
+  const startMin = toMinutes(start);
+  const endMin = toMinutes(end);
   if (startMin === null || endMin === null || startMin === endMin) {
     return false;
   }
@@ -125,7 +158,21 @@ function isQuietAtLocalMinute(settings, localMin) {
 }
 
 /**
- * Whether it is quiet hours for this person right now.
+ * Whether a push from someone else would land in this person's quiet time
+ * at [localMin]: their own quiet hours when on, the night when not (rule 1).
+ * Missing settings mean the night too, never "no window".
+ * @param {object|undefined} settings The mirrored notificationSettings.
+ * @param {number} localMin Minutes since the recipient's local midnight.
+ * @return {boolean} Whether this minute is quiet for them.
+ */
+function isQuietAtLocalMinute(settings, localMin) {
+  const w = holdWindow(settings);
+  return isMinuteInWindow(w.quietHoursStart, w.quietHoursEnd, localMin);
+}
+
+/**
+ * Whether a push from someone else would land in this person's quiet time
+ * right now: their own quiet hours when on, the night when not (rule 1).
  * @param {object|undefined} settings Their mirrored notificationSettings,
  *     or undefined for an account that never wrote them.
  * @param {number|undefined} tzOffsetMinutes Their device's UTC offset, or
@@ -153,8 +200,8 @@ function isQuietHoursNow(settings, tzOffsetMinutes, nowMs = Date.now()) {
  * once.
  *
  * Only meaningful to call on someone who is CURRENTLY quiet (see
- * isQuietHoursNow) — a caller that got here anyway (window disabled, or
- * malformed start/end) gets a full day back rather than zero or a negative
+ * isQuietHoursNow) — a caller that got here anyway (a zero-width or
+ * malformed window) gets a full day back rather than zero or a negative
  * number, so nothing is ever scheduled in the past or for right now.
  * @param {object|undefined} settings Their mirrored notificationSettings.
  * @param {number} tzOffsetMinutes Their device's UTC offset.
@@ -162,8 +209,9 @@ function isQuietHoursNow(settings, tzOffsetMinutes, nowMs = Date.now()) {
  * @return {number} Milliseconds until quiet hours end, 60000..86400000.
  */
 function msUntilQuietHoursEnd(settings, tzOffsetMinutes, nowMs = Date.now()) {
-  const s = settings || DEFAULT_QUIET_SETTINGS;
-  const endMin = toMinutes(s.quietHoursEnd);
+  // The same window isQuietAtLocalMinute judged by, or a push held for the
+  // night would be timed by a window nobody is inside.
+  const endMin = toMinutes(holdWindow(settings).quietHoursEnd);
   const DAY_MS = 24 * 60 * 60 * 1000;
   if (endMin === null) return DAY_MS;
   const nowLocalMin = localMinutes(tzOffsetMinutes, nowMs);
@@ -392,12 +440,15 @@ module.exports = {
   claimQuota,
   heldBroadcastPlan,
   heldUntilMs,
+  holdWindow,
+  isMinuteInWindow,
   isQuietAtLocalMinute,
   isQuietHoursNow,
   liveTokens,
   localDayKey,
   localMinutes,
   msUntilQuietHoursEnd,
+  ownQuietHoursOn,
   pushKindFor,
   roomPushPlan,
   shiftDay,

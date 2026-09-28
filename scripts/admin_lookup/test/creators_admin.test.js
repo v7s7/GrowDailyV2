@@ -53,8 +53,9 @@ const POINTS = {
   ISL: [],
 };
 
-function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {}, postAnswers = [], configOk = true, usPrices = {} } = {}) {
+function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {}, postAnswers = [], configOk = true, usPrices = {}, patchError = null } = {}) {
   const posts = [];
+  const patches = [];
   const gets = [];
   const iapOf = (productId) => C.PRODUCTS[productId].iapId;
   const byIap = {};
@@ -133,6 +134,7 @@ function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {},
   }
   return {
     posts,
+    patches,
     gets,
     iapOf,
     config: () => (configOk ? { ok: true, missing: [] } : { ok: false, missing: ['ASC_ISSUER_ID is not set'] }),
@@ -147,6 +149,11 @@ function fakeAsc({ states = {}, offers = {}, offerPrices = {}, customCodes = {},
       if (!next) throw new Error('fake asc: unexpected POST ' + path);
       if (next.error) throw new AscApiError(next.error, next.status || 409);
       return { data: { id: next.id } };
+    },
+    patch: async (path, body) => {
+      patches.push({ path, body });
+      if (patchError) throw new AscApiError(patchError, 409);
+      return { data: { id: path.split('/').pop() } };
     },
   };
 }
@@ -493,4 +500,89 @@ test('a real statement key is 43 base64url characters and never repeats', () => 
     seen.add(k);
   }
   assert.strictEqual(seen.size, 200);
+});
+
+// ---- Stop -------------------------------------------------------------------------
+
+/** Sara, saved, with the offer and code Apple made for her. */
+async function saraWithCode(db) {
+  await Admin.addCreator(db, deps, sara, NOW);
+  await db.doc('creators/SARA').update({ appleOfferCodeId: 'OFFER-1', appleCustomCodeId: 'CODE-1' });
+}
+
+test('the Stop request is the one Apple documents: PATCH the offer, active false', () => {
+  assert.deepStrictEqual(C.buildOfferActiveRequest({ offerCodeId: 'OFFER-1', active: false }), {
+    method: 'PATCH',
+    path: '/v1/inAppPurchaseOfferCodes/OFFER-1',
+    body: { data: { type: 'inAppPurchaseOfferCodes', id: 'OFFER-1', attributes: { active: false } } },
+  });
+});
+
+test('Stop switches the offer off at Apple first, then marks the creator stopped, once', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  await saraWithCode(db);
+  const asc = fakeAsc();
+  assert.deepStrictEqual(await Admin.stopCreator(db, deps, asc, { code: 'sara' }), { changed: true, apple: 'stopped' });
+  assert.deepStrictEqual(asc.patches, [{
+    path: '/v1/inAppPurchaseOfferCodes/OFFER-1',
+    body: { data: { type: 'inAppPurchaseOfferCodes', id: 'OFFER-1', attributes: { active: false } } },
+  }]);
+  const doc = creatorDoc(db, 'SARA');
+  assert.strictEqual(doc.active, false);
+  assert.ok(doc.stoppedAt, 'the stop is stamped');
+  assert.ok(Admin.shapeCreator('SARA', doc).stoppedAtMs, 'and reads back as stopped');
+  // A second press asks Apple nothing.
+  assert.deepStrictEqual(await Admin.stopCreator(db, deps, asc, { code: 'SARA' }), { changed: false, apple: 'already' });
+  assert.strictEqual(asc.patches.length, 1);
+  assert.strictEqual(asc.posts.length, 0);
+});
+
+test('when Apple refuses to switch the offer off, the creator is not marked stopped', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  await saraWithCode(db);
+  const asc = fakeAsc({ patchError: 'App Store Connect answered 409: ENTITY_ERROR' });
+  await assert.rejects(() => Admin.stopCreator(db, deps, asc, { code: 'SARA' }), AscApiError);
+  const doc = creatorDoc(db, 'SARA');
+  assert.strictEqual(doc.active, true);
+  assert.ok(!doc.stoppedAt);
+});
+
+test('without App Store Connect, a creator with an Apple offer is not stopped here alone', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  await saraWithCode(db);
+  const asc = fakeAsc({ configOk: false });
+  await assert.rejects(() => Admin.stopCreator(db, deps, asc, { code: 'SARA' }), (e) => {
+    assert.match(e.message, /not connected/);
+    assert.deepStrictEqual(e.ascMissing, ['ASC_ISSUER_ID is not set']);
+    return true;
+  });
+  assert.strictEqual(asc.patches.length, 0);
+  assert.strictEqual(creatorDoc(db, 'SARA').active, true);
+});
+
+test('a creator with no Apple offer yet is only marked stopped here; an unknown one is a 404', async () => {
+  const db = fakeDb({ nowMs: NOW });
+  await Admin.addCreator(db, deps, sara, NOW);
+  const asc = fakeAsc({ configOk: false });
+  assert.deepStrictEqual(await Admin.stopCreator(db, deps, asc, { code: 'SARA' }), { changed: true, apple: 'none' });
+  assert.strictEqual(asc.patches.length, 0);
+  assert.strictEqual(creatorDoc(db, 'SARA').active, false);
+  await assert.rejects(() => Admin.stopCreator(db, deps, asc, { code: 'NOBODY' }), (e) => e.status === 404);
+});
+
+// ---- What the Sale page reads from Apple ---------------------------------------------
+
+test('the Sale page reads both Lifetime products as Apple has them today, and changes nothing', async () => {
+  const asc = fakeAsc({
+    states: { growdaily_lifetime_offer: 'MISSING_METADATA' },
+    usPrices: { growdaily_lifetime: 2999, growdaily_lifetime_offer: 2999 },
+  });
+  const store = await Admin.readLifetimeStore(asc, NOW);
+  assert.deepStrictEqual(store, {
+    growdaily_lifetime: { productId: 'growdaily_lifetime', state: 'APPROVED', usCents: 2999 },
+    growdaily_lifetime_offer: { productId: 'growdaily_lifetime_offer', state: 'MISSING_METADATA', usCents: 2999 },
+  });
+  assert.strictEqual(asc.posts.length + asc.patches.length, 0);
+  const unpriced = await Admin.readLifetimeStore(fakeAsc({ usPrices: { growdaily_lifetime_offer: null } }), NOW);
+  assert.strictEqual(unpriced.growdaily_lifetime_offer.usCents, null, 'no price is unknown, never zero');
 });

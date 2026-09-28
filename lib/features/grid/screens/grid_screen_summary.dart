@@ -670,11 +670,18 @@ class _SummaryCard extends StatelessWidget {
   /// filled, not empty.
   final Map<String, int> todayCounts;
 
+  /// Whether the board under this card is split into headed sections
+  /// (build / quit / paused). A heading, not the board's edge, then comes
+  /// right under the sprout's lane, so the lane draws its own line to stand
+  /// behind (see SproutLedge.drawLine).
+  final bool boardHasSections;
+
   const _SummaryCard({
     required this.habits,
     required this.state,
     required this.stepsToday,
     required this.todayCounts,
+    this.boardHasSections = false,
   });
 
   /// Part-done credit for walking habits linked to the step count: the real
@@ -814,6 +821,17 @@ class _SummaryCard extends StatelessWidget {
             .length;
     final perfectDay = owedTodayCount > 0 && greensToday >= owedTodayCount;
 
+    // The card's quieter words, lifted just far enough to read on it (4.5:1,
+    // what text this small needs) and handed back untouched where they
+    // already do. The week line's textTert measured 3.6:1 on this card in
+    // dark mode and 2.4:1 in light. Solved against this card's own colour,
+    // not the palette's worst case (gp.ink): in light mode that one lands
+    // darker than textSec, and the quiet line would outshout the label.
+    final surfaceLuminance = gp.surface.computeLuminance();
+    Color readable(Color c) => gp.dark
+        ? lightenToContrast(c, surfaceLuminance, 4.5)
+        : darkenToContrast(c, surfaceLuminance, 4.5);
+
     final card = Container(
       // Tighter vertically than horizontally on purpose: the ring grew to
       // 106 and the card's height is what pushes the board down the screen.
@@ -821,21 +839,28 @@ class _SummaryCard extends StatelessWidget {
       // entirely, which grid_square_alignment_test caught by finding no
       // squares at all. 12 buys that height back and leaves the ring big.
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+      // Dressed exactly like the board under it, so the ring is the only
+      // colour on the card (Aziz picked this, "cleaner", 2026-09-28). It was
+      // a wash from the grid colour to the surface, and because that ran
+      // from a see-through colour to an opaque one, Flutter blended it
+      // unpremultiplied and the middle went a muddy olive, brighter than
+      // either end.
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            GameColors.emerald.withOpacity(gp.dark ? 0.14 : 0.10),
-            gp.surface,
-          ],
-        ),
+        color: gp.surface,
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(
-          color: GameColors.emerald.withOpacity(perfectDay ? 0.6 : 0.28),
-          width: perfectDay ? 1.2 : 0.8,
-        ),
+        border: Border.all(color: gp.border, width: 0.5),
       ),
+      // A perfect day lights the edge in the grid colour. Drawn in front
+      // rather than as the decoration's border, because a Container pads its
+      // child by that border's width: a thicker one would have grown the
+      // card by a point the moment the day closed, and nudged the board, and
+      // the sprout standing on it, down with it.
+      foregroundDecoration: perfectDay
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
+              border: Border.all(color: gp.emeraldEdge.withOpacity(0.55)),
+            )
+          : null,
       child: Row(
         children: [
           _RingStat(ratio: ratio, perfectDay: perfectDay),
@@ -889,7 +914,7 @@ class _SummaryCard extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w700,
-                            color: gp.textSec,
+                            color: readable(gp.textSec),
                           ),
                         ),
                       ),
@@ -898,11 +923,10 @@ class _SummaryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 5),
                 // The week, and the one celebration this card is allowed.
-                // Two lines, not one: the sprout's reserve (see
-                // _kDayCardSproutReserve) narrows this column, and on a 375pt
-                // phone «يوم مثالي: كل مربّعات اليوم ملوّنة!» no longer fits
-                // one line. The ring holds the card at 90pt tall and the
-                // column's two rows use about 55 of it, so the wrap costs no
+                // Two lines allowed, not one: at 1.4x text on a 375pt phone
+                // «يوم مثالي: كل مربّعات اليوم ملوّنة!» does not fit one
+                // line. The ring holds the card at 90pt tall and the
+                // column's two rows use about 55 of it, so a wrap costs no
                 // height.
                 AnimatedSwitcher(
                   duration: GameMotion.relaxed,
@@ -915,7 +939,9 @@ class _SummaryCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: perfectDay ? context.gp.emeraldInk : gp.textTert,
+                      color: perfectDay
+                          ? context.gp.emeraldInk
+                          : readable(gp.textTert),
                       fontWeight:
                           perfectDay ? FontWeight.w700 : FontWeight.w400,
                     ),
@@ -924,10 +950,6 @@ class _SummaryCard extends StatelessWidget {
               ],
             ),
           ),
-          // Where the sprout stands. It is positioned over the card rather
-          // than laid out in this Row (see the Stack below), so this only
-          // keeps the text column from running under it.
-          const SizedBox(width: _kDayCardSproutReserve),
         ],
       ),
     )
@@ -958,49 +980,46 @@ class _SummaryCard extends StatelessWidget {
     // doors to the same screen a few hundred pixels apart made the map
     // look like two different things.
     //
-    // The sprout's home (see DayCardSprout). It stands on the card's floor
-    // at the end side and leans [_kDayCardSproutOverhang] past the edge into
-    // the screen margin, which is what lets the Row give up only
-    // [_kDayCardSproutReserve] for it. Outside the shimmer on purpose: the
-    // card's sweep is the card celebrating, and the sprout does its own.
-    // Clip.none lets its bubble float above the card for the three seconds
-    // it shows; the card's height stays exactly what the board below was
-    // measured against (see grid_square_alignment_test).
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        card,
-        PositionedDirectional(
-          end: -_kDayCardSproutOverhang,
-          bottom: 6,
-          child: DayCardSprout(
+    // The sprout's home (see SproutLedge): the lane right under this card,
+    // standing behind the board's top edge. It used to stand on this card's
+    // floor, leaning 12pt past the card's end edge, taking 66pt from the
+    // words and pulling against the ring from the other end (Aziz picked the
+    // board's edge on 2026-09-28). The lane's bottom IS the board's top edge:
+    // the board below is laid out with no gap (see GridScreen), so the
+    // sprout stays on that line on every phone. The card keeps its height;
+    // the lane is what moved the board down, by the difference between the
+    // lane and the 14pt gap it replaces.
+    //
+    // Today's week, loaded: a rise the sprout may react to, and a perfect
+    // day the card may celebrate. Not while the week loads at launch, nor
+    // while another week is on screen.
+    final live =
+        !state.isLoading && state.days.any((d) => d.isSameDayAs(today));
+    return PerfectDayMoment(
+      perfectDay: perfectDay,
+      live: live,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          card,
+          SproutLedge(
             greens: greensToday,
             owed: owedTodayCount,
             ratio: ratio,
             perfectDay: perfectDay,
-            // Today's week, loaded: a rise the sprout may react to. Not while
-            // the week loads at launch, nor while another week is on screen.
-            live: !state.isLoading && state.days.any((d) => d.isSameDayAs(today)),
-            height: _kDayCardSproutHeight,
+            live: live,
+            todayFromStart: (width) => todayColumnFromStart(
+              width,
+              rtl: Directionality.of(context) == ui.TextDirection.rtl,
+            ),
+            drawLine: boardHasSections,
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
-
-/// The day card sprout's size: about the ring's height, so the two read as
-/// a pair. Every pose is drawn at this one scale (see SproutPose).
-const double _kDayCardSproutHeight = 86;
-
-/// How far the sprout leans past the card's end edge. The card sits 16pt
-/// from the screen edge, so 12 keeps a hair of margin on the widest pose.
-const double _kDayCardSproutOverhang = 12;
-
-/// What the text column gives up so it never runs under the sprout: the
-/// widest pose the card can show (sleeping, 95pt at this height) less the
-/// overhang and the card's own 18pt padding, rounded up.
-const double _kDayCardSproutReserve = 66;
 
 class _RingStat extends StatelessWidget {
   final double ratio;
@@ -1046,16 +1065,19 @@ class _RingStat extends StatelessWidget {
                     child: CircularProgressIndicator(
                       value: v,
                       // Thin band, wide well: the ring is a frame for the
-                      // number, not the subject. At 6 on a 110pt circle the
-                      // well is 98pt across, so the percentage can be big and
-                      // still sit nowhere near the arc.
-                      strokeWidth: 6,
-                      // The unfilled part has to be visible or the ring
-                      // stops reading as a ring: surfaceHL is a dark-grey
-                      // token that all but disappears on this card's green
-                      // wash, leaving a bare arc floating in space.
-                      backgroundColor: GameColors.emerald.withOpacity(0.18),
-                      valueColor: AlwaysStoppedAnimation(GameColors.emerald),
+                      // number, not the subject. 7 rather than 6 since the
+                      // card went plain and the ring became its only colour;
+                      // the well is still 76pt across, clear of "99%".
+                      strokeWidth: 7,
+                      // The unfilled part is an empty square's grey (dark
+                      // mode's neutral, light mode's cream), so the ring and
+                      // the board below say "not yet" in the same colour and
+                      // "done" in the same colour too.
+                      backgroundColor: SquareState.none.fill(gp.dark),
+                      // The grid colour as a line (3:1). The raw colour was
+                      // down to 1.8:1 on some themes' dark cards and all but
+                      // vanished on light mode's cream.
+                      valueColor: AlwaysStoppedAnimation(gp.emeraldEdge),
                       strokeCap: StrokeCap.round,
                     ),
                   ),
@@ -1067,9 +1089,10 @@ class _RingStat extends StatelessWidget {
                   //
                   // A finished day gets a check instead: "100%" next to a
                   // full ring says nothing the ring has not already said. It
-                  // used to be a gold cup; the sprout beside the ring now
-                  // carries the celebration (see DayCardSprout), and a cup
-                  // there too made two trophies for one day.
+                  // used to be a gold cup; the sprout (now on the board's
+                  // edge under this card, see SproutLedge) carries the
+                  // celebration, and a cup there too made two trophies for
+                  // one day.
                   if (perfectDay)
                     Icon(
                       Icons.check_rounded,
@@ -1146,12 +1169,17 @@ class _RingStat extends StatelessWidget {
     // library for one card. Deliberately NOT looping: a permanent animation
     // on the home screen stops reading as a reward and starts reading as a
     // spinner.
+    //
+    // The glow is the ring's own colour, not the accent: the day being
+    // celebrated is the coloured board (see showPerfectDaySnackBar), and on
+    // a theme whose accent is red, a perfect day glowed red. The sweep is a
+    // plain white glint for the same reason.
     return Container(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
-            color: GameColors.gold.withOpacity(0.32),
+            color: gp.emeraldEdge.withOpacity(0.30),
             blurRadius: 26,
             spreadRadius: 1,
           ),
@@ -1168,7 +1196,12 @@ class _RingStat extends StatelessWidget {
         )
         .shimmer(
           duration: 1200.ms,
-          color: GameColors.gold.withOpacity(0.55),
+          color: Colors.white.withOpacity(0.5),
+          // flutter_animate pads a shimmer's child by 0.5 on every side by
+          // default. Here that grew the ring's slot to 91 the moment the day
+          // closed, the card with it, and pushed the board and the sprout's
+          // line down a point.
+          padding: 0,
         );
   }
 }

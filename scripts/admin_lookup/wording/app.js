@@ -38,7 +38,9 @@
     pickAnchor: null,
     // Earlier orders of draft, newest last, for Undo and Cmd+Z.
     undo: [],
-    query: '',
+    // A link can open the page already searching (the Doum page links to
+    // /wording?q=sprout#text for his words).
+    query: new URLSearchParams(location.search).get('q') || '',
     filter: 'all',
     // The string whose editor is open, and the text in its two boxes.
     open: null,
@@ -1375,6 +1377,7 @@
       autocomplete: 'off',
       spellcheck: 'false',
     });
+    search.value = state.query;
     search.addEventListener('input', debounce(() => {
       state.query = search.value;
       state.limit = PAGE_SIZE;

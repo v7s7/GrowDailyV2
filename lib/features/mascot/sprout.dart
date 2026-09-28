@@ -466,10 +466,16 @@ class SproutBubble extends StatelessWidget {
     super.key,
     required this.text,
     this.maxWidth = 170,
+    this.tailAtStart = false,
   });
 
   final String text;
   final double maxWidth;
+
+  /// Which bottom corner is the tail, the one that points at the sprout:
+  /// the end corner when the bubble grows toward the start (the day card),
+  /// the start corner when it sits the other way round.
+  final bool tailAtStart;
 
   @override
   Widget build(BuildContext context) {
@@ -485,11 +491,11 @@ class SproutBubble extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: bg,
-          borderRadius: const BorderRadiusDirectional.only(
-            topStart: Radius.circular(14),
-            topEnd: Radius.circular(14),
-            bottomStart: Radius.circular(14),
-            bottomEnd: Radius.circular(4),
+          borderRadius: BorderRadiusDirectional.only(
+            topStart: const Radius.circular(14),
+            topEnd: const Radius.circular(14),
+            bottomStart: Radius.circular(tailAtStart ? 4 : 14),
+            bottomEnd: Radius.circular(tailAtStart ? 14 : 4),
           ),
           boxShadow: [
             BoxShadow(
@@ -503,6 +509,9 @@ class SproutBubble extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
           child: Text(
             text,
+            // Centred for the two-line bubbles («يوم مثالي!» over its
+            // praise); a one-line bubble shrink-wraps, so it is unchanged.
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13.5,
               height: 1.3,

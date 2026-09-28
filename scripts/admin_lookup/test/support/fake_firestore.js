@@ -137,6 +137,7 @@ function fakeDb({ nowMs = Date.UTC(2026, 8, 22, 9, 0) } = {}) {
           }
           return snapOf(target.path);
         },
+        getAll: async (...refs) => refs.map((ref) => snapOf(ref.path)),
         set: (ref, data) => { writes.push(['set', ref.path, data]); },
         update: (ref, patch) => { writes.push(['update', ref.path, patch]); },
         create: (ref, data) => { writes.push(['create', ref.path, data]); },

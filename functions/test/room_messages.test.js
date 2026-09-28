@@ -639,3 +639,177 @@ test("the counts read a member whose phone moved past the day", () => {
   assert.deepStrictEqual(lastOneCounts(others, DAY, room),
       {members: 3, finished: 2, excluded: 0});
 });
+
+// ── Held past the reader's night (Aziz, 2026-09-28) ────────────────────────
+//
+// A room push that comes at night waits for the morning, with quiet hours on
+// or off, and says the real time it happened when it lands.
+
+const {heldBroadcastLine, whenPhrase} = require("../room_messages");
+
+/** Bahrain's offset, minutes east of UTC. */
+const BH = 180;
+
+/**
+ * Epoch ms of [h]:[m] in Bahrain on [day].
+ * @param {string} day "YYYY-MM-DD".
+ * @param {number} h Hour.
+ * @param {number} [m] Minute.
+ * @return {number}
+ */
+const bh = (day, h, m = 0) => Date.parse(
+    `${day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}` +
+    ":00+03:00");
+
+test("the real time reads the way it is said, on the reader's clock", () => {
+  const at = (h, m, locale = "ar") => whenPhrase({
+    atMs: bh(DAY, h, m), tzOffsetMinutes: BH, nowMs: bh(DAY, 18), locale,
+  });
+  assert.strictEqual(at(4, 30), "الساعة ٤:٣٠ الفجر");
+  assert.strictEqual(at(4, 5), "الساعة ٤:٠٥ الفجر");
+  assert.strictEqual(at(1, 0), "الساعة ١ بالليل",
+      "a whole hour drops its minutes");
+  assert.strictEqual(at(0, 20), "الساعة ١٢:٢٠ بالليل");
+  assert.strictEqual(at(6, 45), "الساعة ٦:٤٥ الصبح");
+  assert.strictEqual(at(12, 0), "الساعة ١٢ الظهر");
+  assert.strictEqual(at(16, 10), "الساعة ٤:١٠ العصر");
+  assert.strictEqual(at(4, 30, "en"), "at 4:30 am");
+  assert.strictEqual(at(0, 20, "en"), "at 12:20 am");
+  assert.strictEqual(at(12, 0, "en"), "at 12 pm");
+  assert.strictEqual(at(13, 5, "en"), "at 1:05 pm");
+});
+
+test("a moment on the reader's day before says so", () => {
+  const p = {atMs: bh("2026-09-10", 23), tzOffsetMinutes: BH,
+    nowMs: bh(DAY, 7, 2)};
+  assert.strictEqual(whenPhrase({...p, locale: "ar"}),
+      "أمس الساعة ١١ بالليل");
+  assert.strictEqual(whenPhrase({...p, locale: "en"}), "yesterday at 11 pm");
+});
+
+test("the reader's own clock, never Bahrain's or the server's", () => {
+  // 01:00 UTC is 04:00 in Bahrain and 18:00 the day before in Los Angeles,
+  // where it is still that day an hour later.
+  const t = Date.UTC(2026, 8, 11, 1, 0);
+  assert.strictEqual(whenPhrase({atMs: t, tzOffsetMinutes: -420,
+    nowMs: t + 60 * 60 * 1000, locale: "en"}), "at 6 pm");
+});
+
+test("no moment or no clock: no time at all, never a guessed one", () => {
+  const nowMs = bh(DAY, 7, 2);
+  assert.strictEqual(whenPhrase({atMs: null, tzOffsetMinutes: BH, nowMs,
+    locale: "ar"}), null);
+  assert.strictEqual(whenPhrase({atMs: bh(DAY, 4), tzOffsetMinutes: undefined,
+    nowMs, locale: "ar"}), null);
+  const room = {name: ROOM};
+  assert.deepStrictEqual(
+      roomPushMessage({event: "perfect", locale: "ar", room,
+        heldAt: {atMs: null, tzOffsetMinutes: BH, nowMs}}),
+      roomPushMessage({event: "perfect", locale: "ar", room}),
+      "the plain words, as if it had not waited");
+});
+
+test("each room push, held past the night, says when it happened", () => {
+  const room = {name: ROOM, habitMode: "shared", sharedHabits: [{name: "a"}]};
+  const heldAt = {atMs: bh(DAY, 4, 30), tzOffsetMinutes: BH,
+    nowMs: bh(DAY, 7, 2)};
+  const body = (event, locale, extra = {}) => roomPushMessage({
+    event, locale, room, reader: {linkedHabitIds: ["h1"]}, todayKey: DAY,
+    finisher: {displayName: "نورة", gender: "female"},
+    counts: {members: 2, finished: 1, excluded: 0}, habitName: "صدقة",
+    heldAt, ...extra,
+  }).body;
+  assert.strictEqual(body("firstToday", "ar"),
+      "أول وحدة تخلّص اليوم، الساعة ٤:٣٠ الفجر. دورك.");
+  assert.strictEqual(body("firstToday", "ar",
+      {finisher: {displayName: "علي"}}),
+  "أول واحد يخلّص اليوم، الساعة ٤:٣٠ الفجر. دورك.");
+  assert.strictEqual(body("firstToday", "en"),
+      "First one done today, at 4:30 am. Your turn.");
+  assert.strictEqual(body("lastOne", "ar"),
+      "عند نورة كل شي خلص الساعة ٤:٣٠ الفجر. سوي عادتك الحين ويصير يومكم " +
+      "كامل 🤝");
+  assert.strictEqual(body("lastOne", "en"),
+      "نورة was all done at 4:30 am. Do yours now and your day together is " +
+      "complete 🤝");
+  assert.strictEqual(body("lastOne", "ar",
+      {counts: {members: 5, finished: 4, excluded: 0}}),
+  "٤ من ٥ خلّصوا اليوم، آخر واحد الساعة ٤:٣٠ الفجر. سوي عادتك الحين ويصير " +
+      "يوم الغرفة كامل 🤝");
+  assert.strictEqual(body("lastOne", "en",
+      {counts: {members: 5, finished: 4, excluded: 0}}),
+  "4 of 5 have finished today, the last at 4:30 am. Do yours now and the " +
+      "room's day is complete 🤝");
+  assert.strictEqual(body("lastOne", "ar",
+      {finisher: {displayName: "Someone"}, counts: {members: 2, finished: 1,
+        excluded: 0}}),
+  "الكل خلّص الساعة ٤:٣٠ الفجر. سوي عادتك الحين ويصير يومكم كامل 🤝");
+  assert.strictEqual(body("perfect", "ar"),
+      "الكل خلّص عاداته اليوم، آخر واحد الساعة ٤:٣٠ الفجر.");
+  assert.strictEqual(body("perfect", "en"),
+      "Everyone finished today, the last at 4:30 am.");
+});
+
+test("a new habit held overnight says yesterday, and no longer «من اليوم»",
+    () => {
+      const heldAt = {atMs: bh("2026-09-10", 23), tzOffsetMinutes: BH,
+        nowMs: bh(DAY, 7, 2)};
+      const room = {name: ROOM};
+      const ar = roomPushMessage({event: "habitAdded", locale: "ar", room,
+        habitName: "صدقة", heldAt});
+      assert.strictEqual(ar.title, `عادة جديدة في "${ROOM}"`);
+      assert.strictEqual(ar.body,
+          "انضافت «صدقة» للخطة أمس الساعة ١١ بالليل، وصارت تنحسب للكل. " +
+          "اربطها من عندك \u{1F331}");
+      const en = roomPushMessage({event: "habitAdded", locale: "en", room,
+        habitName: "Charity", heldAt});
+      assert.strictEqual(en.body,
+          "\"Charity\" was added to the plan yesterday at 11 pm and counts " +
+          "for everyone. Link it on your side \u{1F331}");
+    });
+
+test("a push sent as it happens keeps its words exactly", () => {
+  const room = {name: ROOM};
+  assert.strictEqual(
+      roomPushMessage({event: "perfect", locale: "ar", room}).body,
+      "الكل خلّص عاداته اليوم.");
+  assert.strictEqual(
+      roomPushMessage({event: "firstToday", locale: "en", room,
+        finisher: {displayName: "Ali"}}).body,
+      "First one done today. Your turn.");
+});
+
+test("no held push carries a word of blame either", () => {
+  const room = {name: ROOM, habitMode: "shared",
+    sharedHabits: [{name: "a"}, {name: "b"}]};
+  const heldAt = {atMs: bh("2026-09-10", 23, 40), tzOffsetMinutes: BH,
+    nowMs: bh(DAY, 7, 2)};
+  for (const locale of ["ar", "en"]) {
+    for (const event of ["firstToday", "lastOne", "perfect", "habitAdded"]) {
+      const m = roomPushMessage({event, locale, room, heldAt,
+        finisher: {displayName: "نور", gender: "female"},
+        reader: {linkedHabitIds: ["h1", "h2"]},
+        counts: {members: 3, finished: 2, excluded: 0}, todayKey: DAY,
+        habitName: "صدقة"});
+      const text = m.title + " " + m.body;
+      for (const word of BANNED) {
+        assert.ok(!says(text, word), `${locale} ${event}: «${word}» in ` +
+            `«${text}»`);
+      }
+    }
+  }
+});
+
+test("a held message from the admin gains one line: when it was sent", () => {
+  const p = {atMs: bh("2026-09-10", 23, 10), tzOffsetMinutes: BH,
+    nowMs: bh(DAY, 7, 2)};
+  assert.strictEqual(heldBroadcastLine({...p, locale: "ar"}),
+      "أرسلناها أمس الساعة ١١:١٠ بالليل.");
+  assert.strictEqual(heldBroadcastLine({...p, locale: "en"}),
+      "Sent yesterday at 11:10 pm.");
+  assert.strictEqual(heldBroadcastLine({...p, atMs: null, locale: "ar"}),
+      null);
+  for (const word of BANNED) {
+    assert.ok(!says(heldBroadcastLine({...p, locale: "ar"}), word), word);
+  }
+});

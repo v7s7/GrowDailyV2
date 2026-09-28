@@ -65,7 +65,11 @@ const {
   roomEventFor,
   slotPendingFor,
 } = require("./room_events");
-const {lastOneCounts, roomPushMessage} = require("./room_messages");
+const {
+  heldBroadcastLine,
+  lastOneCounts,
+  roomPushMessage,
+} = require("./room_messages");
 const {
   claimQuota,
   heldBroadcastPlan,
@@ -407,6 +411,9 @@ function sendToTokens(uid, tokenDocs, {title, body, data, ttlMs}) {
  * @param {string} [p.finisherUid] Room-finish events: whose finish it was.
  * @param {string} [p.habitName] habitAdded: the slot's name.
  * @param {number} [p.slotIndex] habitAdded: the slot's index.
+ * @param {number} [p.atMs] When the event happened, so the push can say the
+ *     real time when it lands (room_messages.js whenPhrase). A task queued
+ *     before this was carried has none, and lands in its plain words.
  * @return {Promise<void>}
  */
 async function deferRoomPush(p) {
@@ -422,6 +429,7 @@ async function deferRoomPush(p) {
           finisherUid: p.finisherUid || null,
           habitName: p.habitName || null,
           slotIndex: typeof p.slotIndex === "number" ? p.slotIndex : null,
+          atMs: typeof p.atMs === "number" ? p.atMs : null,
         },
         {
           scheduleDelaySeconds:
@@ -488,6 +496,14 @@ exports.deliverDeferredRoomPush = onTaskDispatched(
       const elig = await isEligible(otherUid, reader);
       if (!elig.eligible) return drop(elig.reason);
       const readerToday = localDayKey(elig.tzOffsetMinutes);
+      // When it happened, on the reader's clock, so a push that waited out
+      // their night says the real time instead of reading as now (Aziz,
+      // 2026-09-28). A task queued before atMs was carried has none.
+      const heldAt = typeof task.atMs === "number" ? {
+        atMs: task.atMs,
+        tzOffsetMinutes: elig.tzOffsetMinutes,
+        nowMs: Date.now(),
+      } : undefined;
 
       let message;
       let data;
@@ -507,6 +523,7 @@ exports.deliverDeferredRoomPush = onTaskDispatched(
           }
           message = roomPushMessage({
             event, locale: elig.locale, room, habitName: task.habitName,
+            heldAt,
           });
           data = {roomCode, type: "roomHabitAdded"};
         } else {
@@ -532,6 +549,7 @@ exports.deliverDeferredRoomPush = onTaskDispatched(
             counts: event === "lastOne" ?
               lastOneCounts(others, task.dayKey, room) : null,
             todayKey: task.dayKey,
+            heldAt,
           });
           data = {roomCode, type: "roomFinish", event};
         }
@@ -655,9 +673,19 @@ exports.deliverHeldBroadcast = onTaskDispatched(
       // The admin tool's own rule (lib/broadcast.js languageFor): English
       // only for an English phone when there is an English version.
       const en = user.locale === "en" && row.bodyEn;
+      // The admin's words as they were written, and under them the real
+      // time they were sent, since this copy waited out the reader's night
+      // (Aziz, 2026-09-28).
+      const sentAt = heldBroadcastLine({
+        atMs: millisOf(row.at),
+        tzOffsetMinutes: user.tzOffsetMinutes,
+        nowMs: Date.now(),
+        locale: en ? "en" : "ar",
+      });
       await Promise.all(sendToTokens(uid, tokens, {
         title: en ? row.titleEn : row.titleAr,
-        body: en ? row.bodyEn : row.bodyAr,
+        body: [en ? row.bodyEn : row.bodyAr, sentAt].filter(Boolean)
+            .join("\n"),
         data: {type: "broadcast", id},
         ttlMs: HELD_BROADCAST_TTL_MS,
       }));
@@ -820,7 +848,7 @@ exports.notifyRoomFinish = onCall(async (request) => {
     if (plan.action === "hold") {
       await deferRoomPush({
         otherUid: doc.id, roomCode, event, dayKey: todayKey,
-        finisherUid: uid, deliverAtMs,
+        finisherUid: uid, deliverAtMs, atMs: Date.now(),
       });
       skipped.deferred++;
       continue;
@@ -955,6 +983,7 @@ exports.notifyRoomHabitAdded = onCall(async (request) => {
         otherUid: doc.id, roomCode, event: "habitAdded", dayKey: readerToday,
         habitName, slotIndex,
         deliverAtMs: heldUntilMs(elig.settings, elig.tzOffsetMinutes),
+        atMs: Date.now(),
       });
       skipped.deferred++;
       continue;

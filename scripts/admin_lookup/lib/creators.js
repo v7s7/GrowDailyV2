@@ -517,6 +517,27 @@
   }
 
   /**
+   * PATCH /v1/inAppPurchaseOfferCodes/{id}: switches a creator's offer on
+   * or off in App Store Connect. Off, no code under it can be redeemed any
+   * more, which is what Stop on the Creators page means. Apple's update
+   * request takes one attribute, active (read from Apple's API reference,
+   * InAppPurchaseOfferCodeUpdateRequest, 2026-09-27).
+   */
+  function buildOfferActiveRequest({ offerCodeId, active }) {
+    return {
+      method: 'PATCH',
+      path: '/v1/inAppPurchaseOfferCodes/' + encodeURIComponent(String(offerCodeId)),
+      body: {
+        data: {
+          type: 'inAppPurchaseOfferCodes',
+          id: String(offerCodeId),
+          attributes: { active: !!active },
+        },
+      },
+    };
+  }
+
+  /**
    * What Apple charges in the US on [todayKey], in cents, from a price
    * schedule's manual prices (GET /v1/inAppPurchasePriceSchedules/{id}/
    * manualPrices, with the price points and territories included), or null
@@ -700,6 +721,7 @@
     priceLocalId,
     buildOfferCodeRequest,
     buildCustomCodeRequest,
+    buildOfferActiveRequest,
     currentUsPriceCents,
     pickUsPricePoint,
     pricesInForce,

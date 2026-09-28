@@ -461,19 +461,21 @@ test("a Fajr finish wakes nobody with default settings: held to 07:02",
       const world = makeWorld();
       const members = uids(5);
       members.forEach((u) => addUser(world, u));
-      // One member has switched quiet hours off in the app.
+      // One member has switched quiet hours off in the app. Since
+      // 2026-09-28 that no longer lets a room push in at night (Aziz: it
+      // arrives in the morning), so they wait with everyone else.
       world.users.get("u4").settings = {quietHoursEnabled: false};
       addRoom(world, "R", members);
 
       const r = finish(world, "R", "u0", bahrain(4, 30));
       assert.equal(r.event, "firstToday");
-      assert.deepEqual(r.sent, ["u4"]);
-      assert.deepEqual(r.held.sort(), ["u1", "u2", "u3"],
+      assert.deepEqual(r.sent, []);
+      assert.deepEqual(r.held.sort(), ["u1", "u2", "u3", "u4"],
           "still the same day when their quiet hours end, so it waits");
       // 07:02: the day is still the one the heads-up is about, and none of
-      // the three has finished, so each hears it then.
+      // the four has finished, so each hears it then.
       const morning = deliverHeld(world, bahrain(7, 2));
-      assert.deepEqual(morning.map((h) => h.sent), [true, true, true]);
+      assert.deepEqual(morning.map((h) => h.sent), [true, true, true, true]);
 
       // A second finisher at 08:00 does not re-fire the heads-up for the
       // three who slept through it: the event was claimed.
@@ -600,9 +602,13 @@ test("23 Sep in PBYAS5: no stale morning push, and today's slot stays free",
           "held to 07:02 it would be about yesterday, so it is not held");
       assert.equal(world.held.length, 0);
 
+      // Aziz had quiet hours off, which since 2026-09-28 still keeps a room
+      // push out of the night; held to 07:02 the perfect day would be about
+      // yesterday, so it is not held either.
       const r2 = finish(world, "PBYAS5", "noor", bahrain(23, 47));
       assert.equal(r2.event, "perfect");
-      assert.deepEqual(r2.sent, ["aziz"]);
+      assert.deepEqual(r2.sent, []);
+      assert.equal(r2.skipped.pastDay, 1);
 
       // The next morning brings her nothing. It used to bring «سوي عادتك
       // الحين» at 07:02 about the day she had finished at 23:47.

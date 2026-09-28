@@ -211,11 +211,16 @@ class _SafeWrapTextState extends State<SafeWrapText> {
           // matching WCAG 1.4.13's "don't rely on a too-short timer"
           // guidance for hover/tap-revealed content.
             showDuration: const Duration(seconds: 3),
+            // The typeface spelled out: a Tooltip's textStyle replaces the
+            // theme's text style instead of merging with it, so without a
+            // family the bubble drew in the phone's own font.
             textStyle: TextStyle(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
               color: gp.textPrimary,
               height: 1.3,
+              fontFamily: GameTextStyles.fontFamily,
+              fontFamilyFallback: GameTextStyles.fontFallback,
             ),
             decoration: BoxDecoration(
               color: gp.surfaceHigh,

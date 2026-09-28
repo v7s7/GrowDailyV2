@@ -501,6 +501,22 @@ class _RoomStripScrollerState extends State<_RoomStripScroller> {
 /// opens on the newest month (see [_RoomStripScroller]). Public so the
 /// layout can be pumped in a test with a real room and participant; the
 /// leaderboard row is its only caller in the app.
+///
+/// THE WEEKDAY RULE, for every room (Aziz, 2026-09-28). Seven rows, always,
+/// from a room's first day: Saturday at the top, Friday at the bottom. Each
+/// day is drawn on its own weekday's row, and a slot of the week that falls
+/// outside the room stays empty. So a room's first column leaves empty
+/// exactly the days from Saturday up to its first day:
+///
+///     starts on     Sat  Sun  Mon  Tue  Wed  Thu  Fri
+///     empty slots    0    1    2    3    4    5    6
+///
+/// and its last column leaves empty the days after its end. A member who
+/// joined late starts on their own first day by the same rule, one habit's
+/// strip (the habit filter) on that habit's first day, and a week split by
+/// a month break keeps every day on its row on both sides (roomStripColumns).
+/// So today is on the same row in every room on the screen. Pinned, for all
+/// seven start days, by room_strip_weekday_rows_test.dart.
 class RoomStrip extends StatelessWidget {
   final RoomModel room;
   final RoomParticipant participant;
@@ -743,27 +759,24 @@ class RoomStrip extends StatelessWidget {
     final columns = roomStripColumns(lead, days);
     final columnCount = columns.length;
 
-    // Weekday rows that no day of this room actually lands on are not drawn.
+    // All seven Sat–Fri rows, always, from a room's first day.
     //
-    // The grid reserves all seven Sat–Fri rows so a horizontal slice means
-    // "every Saturday", which is right for a room of any length — except a
-    // very short one, where it is mostly emptiness. A room that began on a
-    // Friday and is four days old fills exactly four cells: one alone on the
-    // bottom row of the first column, three at the top of the second, and
-    // three entirely blank rows between them. The squares read as scattered
-    // debris and the البداية marker, pinned to that lone first cell, floated
-    // far below everything with nothing beside it.
+    // Rows no day had reached yet used to be dropped, so a young room's
+    // squares sat higher than their weekdays: F8HQKE «بزنس مِن», which began
+    // on Sunday 27 September, drew that Sunday on the top row, the
+    // Saturday row, while every other room on the screen had Saturday at
+    // the top of the same week and today on the Monday row. Aziz,
+    // 2026-09-28: "it should think where it will be ... skip 1 square only".
+    // A day sits where its weekday puts it however young the room is, the
+    // slots before the room began stay empty (one for a Sunday start, three
+    // for a Tuesday one, as A8GEL7 and ELQVF8 draw theirs), and every member's
+    // strip on the board is the same seven rows, a late joiner's included.
     //
-    // Dropping the unused rows collapses that gap without touching the
-    // meaning of the ones that remain: each is still one weekday, columns
-    // are still weeks, and every day the room has drawn stays exactly where
-    // its weekday puts it. For any room two weeks or longer every row is
-    // used, so this changes nothing at all there. The empty rows a split
-    // column leaves are not "unused": the other month's column fills them.
-    final usedRows = <int>[
-      for (var r = 0; r < 7; r++)
-        if (columns.any((c) => c.dayIndex[r] >= 0)) r,
-    ];
+    // The trade that collapse was made for: a room only days old is mostly
+    // empty space, most visibly one that began on a Friday (its first square
+    // alone on the bottom row). That is the calendar's true shape, and the
+    // cells before and after the window are invisible placeholders
+    // (_cellFor), so nothing but the gap is drawn.
 
     final gp = context.gp;
     final s = S.of(context);
@@ -935,10 +948,10 @@ class RoomStrip extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 3),
-                            for (var ri = 0; ri < usedRows.length; ri++) ...[
-                              if (ri > 0) const SizedBox(height: _gap),
+                            for (var r = 0; r < 7; r++) ...[
+                              if (r > 0) const SizedBox(height: _gap),
                               _cellFor(
-                                columns[c].dayIndex[usedRows[ri]],
+                                columns[c].dayIndex[r],
                                 days,
                                 dark,
                                 s,

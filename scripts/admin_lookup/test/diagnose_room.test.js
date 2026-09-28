@@ -57,3 +57,36 @@ test('diagnose_room.js checks each day against the habits in the plan that ' +
       'each day would have been handed a repair command');
   assert.deepStrictEqual(undercountedDays({ ...args, room }), []);
 });
+
+test('diagnose_room.js leaves a rest day out of the own-days line', () => {
+  // It printed "rest, full credit" and added a whole day to both sides, the
+  // model from before 2026-09-09: YW68B9's Aziz read 58% beside a board of
+  // 39%. The line now asks the same verdict the admin day card asks.
+  assert.match(SOURCE, /roomDayVerdict/);
+  assert.doesNotMatch(SOURCE, /rest, full credit/);
+  const restBranch = SOURCE.match(
+      /else if \(!roomDayVerdict\(stored\)\.counts\) \{([\s\S]*?)\} else \{/);
+  assert.ok(restBranch, 'the rest branch is still there');
+  assert.doesNotMatch(restBranch[1], /storedTotal|gradedDays/,
+      'and adds to neither side');
+});
+
+test('diagnose_room.js keeps a removed slot\'s column through its last day', () => {
+  // PBYAS5 2026-09-24 printed 6/7 over five columns: the two habits the
+  // leader removed on the 26th counted until then, and were not on the page.
+  assert.match(SOURCE, /if \(!isDeclined && \(!removed \|\| stops\)\)/);
+  assert.match(SOURCE, /if \(c\.stops && dk >= c\.stops\) return 'removed'/);
+});
+
+test('diagnose_room.js grades a member from the day they joined', () => {
+  // RoomParticipant.countedStartIn: the later of the room's start and the
+  // join day. ZCNGFT's Aziz joined on 07-16 of a room begun on 07-14 and
+  // read 12 of 30 here against 10 of 28 on the board, and the undercount
+  // check could have printed a repair for a day before he was in the room.
+  assert.match(SOURCE, /const joinKey = storedDateKey\(p\.joinedAt, ROOM_OFFSET_MINUTES\);/);
+  assert.match(SOURCE, /const mdays = days\.filter\(\(dk\) => dk >= fromKey\);/);
+  const check = SOURCE.match(/undercountedDays\(\{([\s\S]*?)\}\);/);
+  assert.match(check[1], /days: mdays,/, 'the undercount check reads their days');
+  const table = SOURCE.match(/for \(let i = 0; i < (\w+)\.length; i\+\+\) \{\n\s+const dk = \1\[i\];/);
+  assert.equal(table && table[1], 'mdays', 'and so does the day table');
+});

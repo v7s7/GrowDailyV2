@@ -32,6 +32,9 @@
  *   POST /api/creators/statement-link creators/{CODE}.statementKeyHash (the
  *                                     creator's own page link; the link
  *                                     itself is answered once, never kept)
+ *   POST /api/creators/stop           App Store Connect (the creator's offer
+ *                                     switched off), then creators/{CODE}
+ *                                     (active false, stoppedAt)
  *   POST /api/creators/apple/create   App Store Connect (an offer code and a
  *                                     custom code), then creators/{CODE}
  *                                     (and the Apple ids it returned)
@@ -108,6 +111,20 @@ function mountOffers(app, { admin, projectId, localWriteOnly, asc = createAscCli
   }, now()));
   saleWrite('/api/sale/end', (b) => Sale.endSale(db(), deps(), { id: b.id }, now()));
 
+  // Both Lifetime products as Apple has them today, for the Sale page's
+  // prices and for whether a sale can show on phones at all. Read-only; the
+  // page works without it, on the plan's prices, when App Store Connect is
+  // not set up.
+  app.get('/api/sale/store', async (req, res) => {
+    try {
+      const cfg = asc.config();
+      if (!cfg.ok) return res.json({ ok: true, store: null, ascMissing: cfg.missing });
+      res.json({ ok: true, store: await CreatorsAdmin.readLifetimeStore(asc, now()) });
+    } catch (e) {
+      fail(res, e, 'sale');
+    }
+  });
+
   // ---- Creators --------------------------------------------------------------
   const creatorsState = () => CreatorsAdmin.readCreatorsState(db(), { nowMs: now(), ascConfig: asc.config() });
 
@@ -153,6 +170,7 @@ function mountOffers(app, { admin, projectId, localWriteOnly, asc = createAscCli
   creatorWrite('/api/creators/active', (b) => CreatorsAdmin.setActive(db(), deps(), { code: b.code, active: b.active }));
   creatorWrite('/api/creators/payout', (b) => CreatorsAdmin.recordPayout(db(), deps(), { code: b.code, amountUsd: b.amountUsd, note: b.note }, now()));
   creatorWrite('/api/creators/statement-link', (b) => CreatorsAdmin.makeStatementLink(db(), deps(), { code: b.code }));
+  creatorWrite('/api/creators/stop', (b) => CreatorsAdmin.stopCreator(db(), deps(), asc, { code: b.code }));
 
   // Step one: build and show the exact requests. Reads from Apple, writes nothing.
   app.post('/api/creators/apple/preview', localWriteOnly, json, async (req, res) => {

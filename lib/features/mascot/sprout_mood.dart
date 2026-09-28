@@ -1,3 +1,4 @@
+import 'pet_settings.dart';
 import 'sprout.dart';
 
 /// What the day card's sprout says. The words live in S (sprout*), so the
@@ -12,18 +13,18 @@ enum DayCardLine {
   /// The first square of the day.
   firstDone,
 
-  /// Two or more done, not all: «٣ من ٥ خلصت».
+  /// Two or more done, not all: «خلصت 3 من 5».
   progress,
 
   /// The day just earned its streak point: 80% of its habits (see
-  /// kStreakDayCompletionThreshold). «يوم كامل» is the app's word for that
-  /// day, the same words as the pop-up that fires on the same tap
-  /// (S.perfectDayMsg), so this is only ever said at that moment, never as
-  /// the card's standing mood.
-  fullDay,
+  /// kStreakDayCompletionThreshold), so it counts in the streak. A streak
+  /// pass, never a full or perfect day (Aziz, 2026-09-28: that is every
+  /// habit the day asked for). Said only on that tap, with the pop-up that
+  /// fires on it (S.perfectDayMsg), never as the card's standing mood.
+  streakPoint,
 
-  /// Every square the day asks for is green: «يوم مثالي», the card's own
-  /// word for 100% (S.gridPerfectDay).
+  /// Every habit the day asked for is done: «يوم مثالي», the card's own
+  /// word for it (S.gridPerfectDay).
   perfectDay,
 
   /// A perfect day, and it is late: the sprout goes to sleep.
@@ -53,14 +54,18 @@ class DayCardMood {
   String toString() => 'DayCardMood(${pose.name}, ${line.name})';
 }
 
-/// The hour the sprout goes to sleep on a full day, and the one it wakes at.
-const int kSproutBedtimeHour = 21;
-const int kSproutWakeHour = 4;
+/// The hour the sprout goes to sleep on a full day, and the one it wakes at:
+/// the built-in ones. The admin's «دوم» page can move both, and the hour
+/// «صباح الخير» turns into «هلا» (see pet_settings.dart).
+const int kSproutBedtimeHour = kPetBedtimeHour;
+const int kSproutWakeHour = kPetWakeHour;
 
 /// Picks the day card's mood from the day alone, the same numbers the card
 /// prints beside it: [greens] of [owed] squares green, and [perfectDay] once
 /// every one of them is (the card's own definition, owed > 0 included).
-/// [hour] is the wall clock, 0 to 23.
+/// [hour] is the wall clock, 0 to 23. The hours it turns on are [settings]'
+/// (the ones in force when not given), so every caller agrees with the
+/// sprout it draws.
 ///
 /// ── What it will never do ────────────────────────────────────────────────
 /// Get sad, or sleep on an unfinished day. The sprout only ever reads the
@@ -81,13 +86,15 @@ DayCardMood dayCardMoodFor({
   required int owed,
   required bool perfectDay,
   required int hour,
+  PetSettings? settings,
 }) {
+  final s = settings ?? PetSettings.current;
   if (owed <= 0) {
     return const DayCardMood(SproutPose.sleeping, DayCardLine.restDay);
   }
-  final smallHours = hour < kSproutWakeHour;
+  final smallHours = hour < s.wakeHour;
   if (perfectDay) {
-    return hour >= kSproutBedtimeHour || smallHours
+    return hour >= s.bedtimeHour || smallHours
         ? const DayCardMood(SproutPose.sleeping, DayCardLine.goodNight)
         : const DayCardMood(SproutPose.happySparkles, DayCardLine.perfectDay);
   }
@@ -97,7 +104,7 @@ DayCardMood dayCardMoodFor({
     }
     return DayCardMood(
       SproutPose.frontWave,
-      hour < 12 ? DayCardLine.morning : DayCardLine.hello,
+      hour < s.morningUntilHour ? DayCardLine.morning : DayCardLine.hello,
     );
   }
   return DayCardMood(

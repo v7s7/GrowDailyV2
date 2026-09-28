@@ -1,0 +1,584 @@
+{
+ "capturedAt": "2026-09-27T23:22+03:00",
+ "how": "NotificationService.scheduleSmartReminders, the app scheduler itself, run on each case with its plugins mocked as test/core/reminder_window_ahead_test.dart mocks them (iOS, Asia/Bahrain, prayer place Manama, bundleEnabled false, alarms unsupported). appArmed is every zonedSchedule it made, as epoch ms.",
+ "cases": [
+  {
+   "id": "fajr_stack",
+   "habit": {
+    "cueAfter": "fajr",
+    "reminderOffsetMinutes": -15,
+    "extraReminderOffsets": [
+     0,
+     30
+    ]
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531014,
+   "appArmed": [
+    1790556960000,
+    1790557860000,
+    1790559660000,
+    1790643360000,
+    1790644260000,
+    1790646060000,
+    1790729820000,
+    1790730720000,
+    1790732520000,
+    1790816220000,
+    1790817120000,
+    1790818920000
+   ]
+  },
+  {
+   "id": "fajr_quiet_on_prayer",
+   "habit": {
+    "cueAfter": "fajr"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": true
+   },
+   "now": 1790540531064,
+   "appArmed": []
+  },
+  {
+   "id": "fajr_alarm_quiet_on_prayer",
+   "habit": {
+    "cueAfter": "fajr",
+    "alarm": true
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": true
+   },
+   "now": 1790540531072,
+   "appArmed": [
+    1790557860000,
+    1790644260000,
+    1790730720000,
+    1790817120000
+   ]
+  },
+  {
+   "id": "maghrib_done",
+   "habit": {
+    "cueAfter": "maghrib"
+   },
+   "completed": 1,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531081,
+   "appArmed": [
+    1790605680000,
+    1790692020000,
+    1790778360000,
+    1790864700000
+   ]
+  },
+  {
+   "id": "isha_cross_midnight_mon",
+   "habit": {
+    "cueAfter": "isha",
+    "reminderOffsetMinutes": 330,
+    "scheduledWeekdays": [
+     1
+    ]
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531093,
+   "appArmed": [
+    1790543700000,
+    1791148020000,
+    1791752400000,
+    1791838740000
+   ]
+  },
+  {
+   "id": "clock_quiet",
+   "habit": {
+    "cueAfter": "custom_time:05:00"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531103,
+   "appArmed": []
+  },
+  {
+   "id": "clock_quiet_alarm",
+   "habit": {
+    "cueAfter": "custom_time:05:00",
+    "alarm": true
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531111,
+   "appArmed": [
+    1790560800000,
+    1790647200000,
+    1790733600000,
+    1790820000000
+   ]
+  },
+  {
+   "id": "clock_quiet_allow",
+   "habit": {
+    "cueAfter": "custom_time:05:00",
+    "ignoreQuietHours": true
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531122,
+   "appArmed": [
+    1790560800000,
+    1790647200000,
+    1790733600000,
+    1790820000000
+   ]
+  },
+  {
+   "id": "multi_done1",
+   "habit": {
+    "cueAfter": "custom_time:00:06,12:00,23:36",
+    "frequencyTarget": 3,
+    "ignoreQuietHours": true
+   },
+   "completed": 1,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531132,
+   "appArmed": [
+    1790543160000,
+    1790586000000,
+    1790627760000,
+    1790629560000,
+    1790672400000,
+    1790714160000,
+    1790715960000,
+    1790758800000,
+    1790800560000,
+    1790802360000,
+    1790845200000
+   ]
+  },
+  {
+   "id": "stack_clock_done",
+   "habit": {
+    "cueAfter": "custom_time:00:06",
+    "reminderOffsetMinutes": -10,
+    "extraReminderOffsets": [
+     0,
+     30
+    ],
+    "ignoreQuietHours": true
+   },
+   "completed": 1,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531141,
+   "appArmed": [
+    1790543160000,
+    1790544960000,
+    1790628960000,
+    1790629560000,
+    1790631360000,
+    1790715360000,
+    1790715960000,
+    1790717760000,
+    1790801760000,
+    1790802360000,
+    1790804160000
+   ]
+  },
+  {
+   "id": "weekday_mon_cross",
+   "habit": {
+    "cueAfter": "custom_time:00:10",
+    "reminderOffsetMinutes": -30,
+    "scheduledWeekdays": [
+     1
+    ],
+    "ignoreQuietHours": true
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531149,
+   "appArmed": [
+    1790628000000,
+    1791232800000,
+    1791837600000,
+    1792442400000
+   ]
+  },
+  {
+   "id": "own_shifts",
+   "habit": {
+    "cueAfter": "custom_time:08:00-15,20:00+10"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531155,
+   "appArmed": [
+    1790570700000,
+    1790615400000,
+    1790657100000,
+    1790701800000,
+    1790743500000,
+    1790788200000,
+    1790829900000,
+    1790874600000
+   ]
+  },
+  {
+   "id": "legacy12",
+   "habit": {
+    "cueAfter": "7:30 PM"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531162,
+   "appArmed": [
+    1790613000000,
+    1790699400000,
+    1790785800000,
+    1790872200000
+   ]
+  },
+  {
+   "id": "legacy_lead",
+   "habit": {
+    "cueAfter": "custom_time:19:00",
+    "reminderLeadMinutes": 10
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531167,
+   "appArmed": [
+    1790610600000,
+    1790697000000,
+    1790783400000,
+    1790869800000
+   ]
+  },
+  {
+   "id": "quit_alarm",
+   "habit": {
+    "cueAfter": "custom_time:21:00",
+    "goalType": "quit",
+    "alarm": true
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531173,
+   "appArmed": [
+    1790618400000,
+    1790704800000,
+    1790791200000,
+    1790877600000
+   ]
+  },
+  {
+   "id": "quit_failed_today",
+   "habit": {
+    "cueAfter": "custom_time:00:06",
+    "goalType": "quit",
+    "ignoreQuietHours": true
+   },
+   "completed": 0,
+   "squareFailed": true,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531180,
+   "appArmed": [
+    1790543160000,
+    1790629560000,
+    1790715960000,
+    1790802360000
+   ]
+  },
+  {
+   "id": "weekdays_mwf",
+   "habit": {
+    "cueAfter": "custom_time:17:30",
+    "reminderOffsetMinutes": -15,
+    "scheduledWeekdays": [
+     1,
+     3,
+     5
+    ],
+    "frequencyType": "weekly",
+    "frequencyTarget": 3
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531185,
+   "appArmed": [
+    1790604900000,
+    1790777700000,
+    1790950500000,
+    1791209700000
+   ]
+  },
+  {
+   "id": "arabic_digits",
+   "habit": {
+    "cueAfter": "custom_time:٠٨:٣٠"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531191,
+   "appArmed": [
+    1790573400000,
+    1790659800000,
+    1790746200000,
+    1790832600000
+   ]
+  },
+  {
+   "id": "arabic_prayer_legacy",
+   "habit": {
+    "cueAfter": "العصر",
+    "reminderOffsetMinutes": 10
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531197,
+   "appArmed": [
+    1790596980000,
+    1790683380000,
+    1790769720000,
+    1790856060000
+   ]
+  },
+  {
+   "id": "quiet_off",
+   "habit": {
+    "cueAfter": "custom_time:05:00"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": false,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531202,
+   "appArmed": [
+    1790560800000,
+    1790647200000,
+    1790733600000,
+    1790820000000
+   ]
+  },
+  {
+   "id": "day_quiet_window",
+   "habit": {
+    "cueAfter": "custom_time:12:00,17:30"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "9:0",
+    "quietHoursEnd": "17:30",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531207,
+   "appArmed": [
+    1790605800000,
+    1790692200000,
+    1790778600000,
+    1790865000000
+   ]
+  },
+  {
+   "id": "damaged",
+   "habit": {
+    "cueAfter": "custom_time:99:99"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531212,
+   "appArmed": []
+  },
+  {
+   "id": "freeform",
+   "habit": {
+    "cueAfter": "after coffee"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531219,
+   "appArmed": []
+  },
+  {
+   "id": "multi_extras_ignored",
+   "habit": {
+    "cueAfter": "custom_time:07:00,19:00",
+    "reminderOffsetMinutes": 30,
+    "extraReminderOffsets": [
+     5
+    ]
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531225,
+   "appArmed": [
+    1790568000000,
+    1790611200000,
+    1790654400000,
+    1790697600000,
+    1790740800000,
+    1790784000000,
+    1790827200000,
+    1790870400000
+   ]
+  },
+  {
+   "id": "zero_width_quiet",
+   "habit": {
+    "cueAfter": "custom_time:23:00"
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "22:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790540531231,
+   "appArmed": [
+    1790625600000,
+    1790712000000,
+    1790798400000,
+    1790884800000
+   ]
+  }
+ ]
+}

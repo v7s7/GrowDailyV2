@@ -154,9 +154,12 @@ function milestoneHeadline(type, data) {
       // point (completeHabit's allHabitsDoneAfter, and
       // earnStreakFromPartialCredit). adlshwaikh's fired at 8 of 9 on both
       // 2026-09-23 and 2026-09-24, with Isha and then the Quran still open.
-      return 'Perfect day: 80% done, streak earned';
+      // So it is a streak day, never a perfect one: a perfect day is every
+      // habit the day asked for (Aziz, 2026-09-28).
+      return 'Streak day: 80% done, streak earned';
     case 'perfectWeek':
-      return 'A full perfect week';
+      // The streak landing on a multiple of 7: seven 80% days in a row.
+      return '7 streak days in a row';
     case 'achievementUnlocked':
       return d.achievementId ? `Unlocked "${d.achievementId}"` : 'Achievement unlocked';
     case 'roomChallengeComplete':

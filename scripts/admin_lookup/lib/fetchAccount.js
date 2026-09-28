@@ -40,6 +40,8 @@ const {
 const DayRules = require('./day_rules');
 const { accountHabitDocs } = require('./habit_catalog');
 const { prayerPlaceOf, profileForDisplay, PRAYER_PLACE_FIELDS } = require('./prayer_place');
+const { buildRemindersModel } = require('./reminders');
+const { renderRemindersSection } = require('./reminders_page');
 
 function db() {
   return admin.firestore();
@@ -283,13 +285,18 @@ function buildDaySection(raw, dateKey) {
       room: r.room, participant: r.participant, dayKey, offsetMinutes: tz,
     });
     const credited = c.done + c.partial * 0.5;
+    // In the score or out of it, the room's own way (DayRules.roomDayVerdict).
+    // A rest day used to read "counts in full" with a ✅ here, a day the room
+    // leaves out of both sides.
+    const verdict = DayRules.roomDayVerdict(c);
     let stored;
     if (!c.running) {
       stored = 'the room was not running on this day';
     } else if (c.stoodDown) {
       stored = 'stood down, so this day was not graded either way';
     } else if (c.isRest) {
-      stored = 'nothing was asked of them this day, so it counts in full';
+      stored = 'nothing was asked of them this day, so the room leaves it '
+        + 'out of the score';
     } else {
       stored = `the room stored ${credited} of ${c.scheduled}`
         + (c.partial > 0 ? ` (${c.partial} جزئي, worth half each)` : '');
@@ -300,7 +307,10 @@ function buildDaySection(raw, dateKey) {
       known,
       allDone: known && r.participant.allDoneToday === true,
       stored,
-      full: c.running && !c.stoodDown && c.credit >= 1,
+      full: verdict.counts && verdict.credit >= 1,
+      // Out of the score (not running, stood down, rest): a neutral mark,
+      // not the ⬜ of a day that fell short.
+      outside: !verdict.counts,
       muted: r.participant.notificationsMuted === true,
     };
   });
@@ -485,6 +495,29 @@ async function loadAccountReport(uid, authRecord, dateKey, { forFile = false } =
       { habitCtx, todayKey: day.todayKey }));
   }
   if (bySub.matrix_tasks) sections.push(docList('matrix_tasks'));
+
+  // When each reminder next rings, on their clock, and what stops one
+  // (lib/reminders.js). Always present: "they get no reminders" is itself
+  // the answer a support message is often after. Its own try/catch, like
+  // Rooms: a record shaped in a way nobody foresaw costs this tab, never the
+  // whole report.
+  try {
+    sections.push(renderRemindersSection(buildRemindersModel({
+      profile: profileData,
+      habitDocs: habitsOf(raw),
+      taskDocs: docsByCollection.matrix_tasks || [],
+      dailyDocs: docsByCollection.daily || [],
+      tokenDocs: docsByCollection.fcmTokens || [],
+      nowMs: Date.now(),
+      forFile,
+    })));
+  } catch (e) {
+    sections.push({
+      id: 'reminders',
+      label: 'Reminders',
+      html: `<p class="muted">Couldn't work out the reminders: ${escapeHtml(e.message)}</p>`,
+    });
+  }
 
   sections.push({ id: 'rooms', label: 'Rooms', html: roomsSectionHtml });
 

@@ -556,6 +556,9 @@ class _IconCardSheetState extends ConsumerState<_IconCardSheet> {
                   ),
                 ],
                 const SizedBox(height: 22),
+                // The size on the label, never as the button's textStyle:
+                // that replaces the theme's whole style, typeface included,
+                // and the label falls back to the phone's own font.
                 FilledButton(
                   onPressed: _use,
                   style: FilledButton.styleFrom(
@@ -563,12 +566,14 @@ class _IconCardSheetState extends ConsumerState<_IconCardSheet> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    textStyle: const TextStyle(
+                  ),
+                  child: Text(
+                    s.plantGrewUse,
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  child: Text(s.plantGrewUse),
                 ),
                 const SizedBox(height: 6),
                 TextButton(

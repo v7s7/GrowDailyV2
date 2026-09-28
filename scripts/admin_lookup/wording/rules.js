@@ -91,6 +91,18 @@
       say: 'House style: هذه, not هذي.',
     },
     {
+      // Aziz, 2026-09-28: "ban this word". The app says «توقف» instead.
+      test: arabicWord('تطفي'),
+      say: 'Banned word: «تطفي». Write «توقف» instead.',
+    },
+    {
+      // Aziz, 2026-09-28: "this is a banned word, ban it". «هكذا» is another
+      // word and passes: the match is for the whole word only. The app's own
+      // strings are held to it by test/core/banned_words_test.dart.
+      test: arabicWord('كذا'),
+      say: 'Banned word: «كذا».',
+    },
+    {
       test: new RegExp('[' + ch(0x0660) + '-' + ch(0x0669) + ']'),
       say: 'House style: Latin digits in the app (3, not ٣). Notifications are the one exception.',
     },
@@ -151,6 +163,13 @@
       for (const rule of ARABIC_STYLE) {
         if (rule.test.test(text)) warnings.push(rule.say);
       }
+    }
+    // What the sprout says carries no exclamation marks, in either language,
+    // and nor does the pop-up on the tap it celebrates (Aziz, 2026-09-28:
+    // "it looks ai"). The app's own lines are held to it by
+    // sprout_praise_test.dart.
+    if ((/^sprout/.test(entry.key) || entry.key === 'perfectDayMsg') && text.includes('!')) {
+      warnings.push('No exclamation marks in what the sprout says: they read as machine-written.');
     }
     return {
       ok: errors.length === 0,

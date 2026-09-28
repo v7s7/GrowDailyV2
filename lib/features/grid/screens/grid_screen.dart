@@ -25,6 +25,8 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/utils/bidi_fraction.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/theme/theme_preset.dart'
+    show darkenToContrast, lightenToContrast;
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart'
     show dayClockSourceProvider;
@@ -37,11 +39,11 @@ import '../../../shared/widgets/comeback_card.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../../../shared/widgets/safe_wrap_text.dart';
 import '../../../shared/widgets/week_picker_sheet.dart';
-import '../../../shared/widgets/victory_burst.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../palette_lock.dart';
 import '../../dashboard/widgets/reaction_overlays.dart';
-import '../../mascot/day_card_sprout.dart';
+import '../../mascot/pet_settings.dart';
+import '../../mascot/sprout_ledge.dart';
 import '../../mascot/sprout.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
@@ -972,6 +974,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                         ? ref.watch(stepsByDayProvider)[
                             DateTime.now().effectiveDay.toDateKey()]
                         : null,
+                    boardHasSections: showSplit,
                   )
                       .animate()
                       .fadeIn(duration: 400.ms)
@@ -980,7 +983,11 @@ class _GridScreenState extends ConsumerState<GridScreen> {
               ),
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                  // No top gap: the sprout's lane at the foot of the card
+                  // above (SproutLedge) is the gap, and its bottom has to be
+                  // this board's top edge, the line the sprout stands behind.
+                  // Hidden, the lane closes down to the 14pt this used to be.
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                   // Keyed on the visible week so navigating weeks slides the
                   // whole board in, rather than snapping cell colors.
                   child: AnimatedSwitcher(

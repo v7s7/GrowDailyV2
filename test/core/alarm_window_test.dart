@@ -232,8 +232,10 @@ void main() {
 
   test('quiet hours set to cover prayers still let an alarm through',
       () async {
-    // Quiet hours are on by default (22:00 to 07:00), and Fajr sits inside.
+    // Quiet hours turned on (off by default since 2026-09-28), 22:00 to
+    // 07:00, and Fajr sits inside.
     const quietForPrayers = NotificationSettings(
+      quietHoursEnabled: true,
       quietHoursAppliesToPrayer: true,
       location: _manama,
       resolvedCountryCode: 'BH',

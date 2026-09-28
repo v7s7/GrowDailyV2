@@ -938,6 +938,31 @@ function roomDayCounts({ room, participant, dayKey, offsetMinutes }) {
   };
 }
 
+/**
+ * Whether one stored room day (roomDayCounts) is IN the member's score, and
+ * at what credit.
+ *
+ * A rest day is not. creditForStored still says 1.0 for it, the way
+ * RoomParticipant.creditFor does, because the Grid paints such a day calm;
+ * but since 2026-09-09 the room's own fraction leaves it out of BOTH sides
+ * (RoomParticipant.isRestDay in daysCompleted and _liveDaysIn: "free days are
+ * not wins"). The admin day card kept reading the 1.0 and printed ✅ "counts
+ * in full" beside days the room had left out (Aziz's 2026-09-21 in A8GEL7 and
+ * YW68B9), and diagnose_room.js paid them in its own-days line, 58% for a
+ * member the app scored 39%. A day the room was not running, or the plan
+ * stood down, is out the same way.
+ *
+ * The room-wide score puts a rest day back in only while an unresolved slot
+ * is a phantom (phantomWeightOn); nothing here models phantoms, so this is
+ * the member's own fraction, which is what both callers print.
+ */
+function roomDayVerdict(c) {
+  if (!c.running) return { counts: false, why: 'not running', credit: 0 };
+  if (c.stoodDown) return { counts: false, why: 'stood down', credit: 0 };
+  if (c.isRest) return { counts: false, why: 'rest', credit: 0 };
+  return { counts: true, why: null, credit: c.credit };
+}
+
 module.exports = {
   DAY_CUTOFF_HOUR,
   DECLINED_SLOT,
@@ -983,4 +1008,5 @@ module.exports = {
   ruleForOn,
   creditForStored,
   roomDayCounts,
+  roomDayVerdict,
 };

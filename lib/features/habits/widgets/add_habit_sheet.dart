@@ -42,6 +42,7 @@ import '../notifiers/newly_added_habit_provider.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 import 'habit_offset_sheet.dart';
+import 'quiet_hours_conflict_dialog.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import '../../../shared/widgets/reminder_style_choice.dart';
@@ -309,6 +310,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// — see _quietHoursWarning. False until someone is actually warned and
   /// chooses to keep it.
   bool _ignoreQuietHours = false;
+
+  /// What quiet hours were silencing when this sheet opened, as minutes of
+  /// the day: what an edit already knew about. Saving asks about quiet hours
+  /// ([_askAboutQuietHours]) only for a moment not in here, so an edit that
+  /// leaves the reminder alone does not ask again. Empty for a new habit.
+  Set<int> _quietAtOpen = const {};
+
+  /// Set once the line under the time («اسمح به على أي حال» / «احترم ساعات
+  /// الهدوء») is tapped. That was the answer, and saving does not ask again.
+  bool _quietHoursAnswered = false;
 
   /// Notification or alarm, see IslamicHabitTemplate.alarm. Off until the
   /// person picks alarm AND the platform grants it; see [_setAlarm].
@@ -584,6 +595,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       if (_nameLooksWalkish) _stepLinkEnabled = true;
       _hasName = true;
       _didPickCategory = true;
+      // Last, once every field the reminder is worked out from is set.
+      _quietAtOpen = _silencedReminderMinutes(
+        ref.read(notificationSettingsProvider),
+      ).toSet();
     }
     // The Continue button reads the limit field (see _canProceed).
     _limitCtrl.addListener(() {
@@ -905,6 +920,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       showHabitLimitGate(context, ref);
       return;
     }
+    // A reminder inside quiet hours is asked about first, before anything
+    // irreversible too: the answer can change what is saved (this habit let
+    // through), and closing the question keeps the form open to change the
+    // time.
+    if (!await _askAboutQuietHours()) return;
     // The steps link is resolved BEFORE anything irreversible (haptic,
     // confetti, the save itself): it can show a real OS permission sheet,
     // and the answer decides whether the habit is saved linked or not.
@@ -1587,7 +1607,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // it below the fold.
     final style = TextButton.styleFrom(
       foregroundColor: gp.textSec,
-      textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
       minimumSize: const Size(0, 36),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1599,7 +1618,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         FocusScope.of(context).unfocus();
         widget.onBrowsePlans!();
       },
-      child: Text(s.readyPlansLink),
+      // The size on the label, never as the button's textStyle: that
+      // replaces the theme's whole style, typeface included, and the label
+      // falls back to the phone's own font.
+      child: Text(
+        s.readyPlansLink,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+      ),
     );
   }
 
@@ -3423,6 +3448,111 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         _ => s.offsetAfterMinutes(minutes),
       };
 
+  /// Every moment of the day this form would ring at, as minutes since
+  /// midnight: each filled time with its own shift in a multi-time form,
+  /// otherwise the one time (or today's prayer) with the main shift and
+  /// every extra one. The scheduler judges quiet hours per ring, shift by
+  /// shift, so a check that looked only at the main shift would miss «قبل
+  /// الفجر بساعة» landing in the night beside an on-time reminder that
+  /// does not.
+  List<int> _reminderFireMinutes(NotificationSettings settings) {
+    int wrap(int m) => (m % 1440 + 1440) % 1440;
+    if (_timingMode == _TimingMode.time &&
+        _isMultiTime &&
+        _multiTimeEntries.length > 1) {
+      return [
+        for (final (time, shift) in _multiTimeEntries)
+          wrap(time.hour * 60 + time.minute + shift),
+      ];
+    }
+    final shifts = [_effectiveReminderOffset, ..._effectiveExtraOffsets];
+    return [
+      for (final anchor in _reminderAnchorTimes(settings))
+        for (final shift in shifts)
+          wrap(anchor.hour * 60 + anchor.minute + shift),
+    ];
+  }
+
+  /// The moments quiet hours would silence, the per-habit «اسمح به على أي
+  /// حال» aside: none when nothing is sent anyway (notifications or habit
+  /// reminders off) or quiet hours are off, and none for a reminder the
+  /// scheduler lets through them.
+  List<int> _quietReminderMinutes(NotificationSettings settings) {
+    if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
+      return const [];
+    }
+    if (!settings.quietHoursEnabled) return const [];
+    // An alarm is the person asking to be woken, and the scheduler lets it
+    // through quiet hours (see NotificationService's exemption), so telling
+    // them it will be silenced would be untrue.
+    if (_alarm) return const [];
+    if (_timingMode == _TimingMode.prayer &&
+        !settings.quietHoursAppliesToPrayer) {
+      return const [];
+    }
+    // Every time this habit carries, not just the first. The scheduler now
+    // judges quiet hours per occurrence (a habit set for 00:00 and 12:00 keeps
+    // its noon ping and loses only midnight), so a warning that looked at one
+    // time would go quiet on exactly the schedule that needs it: the midnight
+    // half of Aziz's protein case sits second in the list.
+    return [
+      for (final m in _reminderFireMinutes(settings))
+        if (NotificationService.isMinuteWithinQuietHours(
+          m,
+          settings.quietHoursStart,
+          settings.quietHoursEnd,
+        ))
+          m,
+    ];
+  }
+
+  /// What saving now would actually leave silent: [_quietReminderMinutes],
+  /// or nothing for a habit let through quiet hours.
+  List<int> _silencedReminderMinutes(NotificationSettings settings) =>
+      _ignoreQuietHours ? const [] : _quietReminderMinutes(settings);
+
+  /// The save-time question for a reminder that would ring inside quiet
+  /// hours and so never arrive (showQuietHoursConflict). Only while quiet
+  /// hours are on, and only about a moment this sheet has not already been
+  /// through: a new habit, or an edit that moved a time into the window. An
+  /// edit that leaves the reminder as it was, or a tap on the line under the
+  /// time, is not asked again.
+  ///
+  /// True to go on saving: nothing to ask, or an answer given. False when
+  /// the card was closed without one, and the form stays as it is.
+  Future<bool> _askAboutQuietHours() async {
+    if (_quietHoursAnswered) return true;
+    final settings = ref.read(notificationSettingsProvider);
+    final silenced = _silencedReminderMinutes(settings);
+    if (silenced.every(_quietAtOpen.contains)) return true;
+    final isAr = S.of(context).isAr;
+    String clock(List<TimeOfDay> times) =>
+        HabitCue.times(times).labelForLocale(isAr);
+    final answer = await showQuietHoursConflict(
+      context,
+      times: clock([
+        for (final m in silenced) TimeOfDay(hour: m ~/ 60, minute: m % 60),
+      ]),
+      start: clock([settings.quietHoursStart]),
+      end: clock([settings.quietHoursEnd]),
+    );
+    if (!mounted || answer == null) return false;
+    switch (answer) {
+      case QuietHoursConflictAnswer.turnOff:
+        // The switch flips at once (the notifier sets its state before it
+        // writes), so the save below is not held up by the write.
+        ref
+            .read(notificationSettingsProvider.notifier)
+            .update((c) => c.copyWith(quietHoursEnabled: false))
+            .ignore();
+      case QuietHoursConflictAnswer.allowThis:
+        setState(() => _ignoreQuietHours = true);
+      case QuietHoursConflictAnswer.keep:
+        break;
+    }
+    return mounted;
+  }
+
   /// Shown only when the reminder this form would actually schedule lands
   /// inside the user's quiet-hours window and nothing else already exempts
   /// it. Previously that reminder was cancelled outright by
@@ -3437,32 +3567,9 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// so warning about it would be noise on the app's most common case.
   Widget _quietHoursWarning(S s) {
     final settings = ref.watch(notificationSettingsProvider);
-    if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
+    if (_quietReminderMinutes(settings).isEmpty) {
       return const SizedBox.shrink();
     }
-    if (!settings.quietHoursEnabled) return const SizedBox.shrink();
-    // An alarm is the person asking to be woken, and the scheduler lets it
-    // through quiet hours (see NotificationService's exemption), so telling
-    // them it will be silenced would be untrue.
-    if (_alarm) return const SizedBox.shrink();
-    if (_timingMode == _TimingMode.prayer &&
-        !settings.quietHoursAppliesToPrayer) {
-      return const SizedBox.shrink();
-    }
-    // Every time this habit carries, not just the first. The scheduler now
-    // judges quiet hours per occurrence (a habit set for 00:00 and 12:00 keeps
-    // its noon ping and loses only midnight), so a warning that looked at one
-    // time would go quiet on exactly the schedule that needs it: the midnight
-    // half of Aziz's protein case sits second in the list.
-    final moments = _reminderAnchorTimes(settings)
-        .map((a) => a.add(Duration(minutes: _effectiveReminderOffset)))
-        .where((m) => NotificationService.isMinuteWithinQuietHours(
-              m.hour * 60 + m.minute,
-              settings.quietHoursStart,
-              settings.quietHoursEnd,
-            ))
-        .toList();
-    if (moments.isEmpty) return const SizedBox.shrink();
 
     final gp = context.gp;
     return Padding(
@@ -3495,7 +3602,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                     behavior: HitTestBehavior.opaque,
                     onTap: () {
                       HapticFeedback.selectionClick();
-                      setState(() => _ignoreQuietHours = !_ignoreQuietHours);
+                      setState(() {
+                        _ignoreQuietHours = !_ignoreQuietHours;
+                        _quietHoursAnswered = true;
+                      });
                     },
                     child: Text(
                       _ignoreQuietHours

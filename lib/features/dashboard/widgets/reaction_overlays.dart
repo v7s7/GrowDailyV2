@@ -12,6 +12,7 @@ import '../../achievements/widgets/tier_palette.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/rank_up_celebration.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../mascot/pet_settings.dart';
 import '../../mascot/sprout.dart';
 import '../../mascot/sprout_signals.dart';
 import '../notifiers/dashboard_notifier.dart';
@@ -35,22 +36,9 @@ void registerDashboardReactions(
       showStreakFreezeProtectedSnackBar(context, next.streakFreezes);
     }
     if (next.perfectDayCelebration && !prev.perfectDayCelebration) {
-      HapticFeedback.heavyImpact();
+      celebrateStreakPoint(context);
       // The day card's sprout jumps with this moment (see DayCardSprout).
       ref.read(sproutStreakPointProvider.notifier).state++;
-      // Small beat after the completing square's own confetti so the two
-      // moments read as separate: "that square" ... "and that's the whole
-      // day". If a level-up/achievement also lands this tick, those still
-      // take over afterwards (the achievement sheet clears snackbars).
-      Future.delayed(const Duration(milliseconds: 250), () {
-        if (!context.mounted) return;
-        final size = MediaQuery.of(context).size;
-        showVictoryBurst(
-          context,
-          Offset(size.width / 2, size.height * 0.35),
-        );
-        showPerfectDaySnackBar(context);
-      });
     }
     if (next.didJustLevelUp) {
       // A rank crossing needs no persisted state of its own, because a tier
@@ -161,6 +149,110 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(GameSpacing.buttonRadius)),
     ),
   );
+}
+
+// ─── The day's two big moments ────────────────────────────────────────────
+//
+// Aziz, 2026-09-28: a square done is progress (its own confetti and the
+// sprout's hop), the streak point is a milestone, every habit done is the
+// achievement, and each must feel bigger than the one before. On a tap that
+// is both (four habits or fewer, or a جزئي that finishes the day) only the
+// perfect day plays, plus the streak's pop-up, which is still true. The two
+// arrive a few frames apart in either order: the streak point is counted by
+// the dashboard after its write, the perfect day read off the board once the
+// square is painted. So each remembers when it played.
+
+DateTime? _streakPointAt;
+DateTime? _perfectDayAt;
+
+bool _playedLately(DateTime? at) =>
+    at != null &&
+    DateTime.now().difference(at) < const Duration(milliseconds: 1500);
+
+/// Forgets both moments; a test's next moment starts fresh.
+@visibleForTesting
+void resetDayMoments() {
+  _streakPointAt = null;
+  _perfectDayAt = null;
+}
+
+/// The streak point (the tap that makes the day count toward the streak): a
+/// heavy buzz, a burst from the middle of the screen and the pop-up. The
+/// perfect day on the same tap is the bigger moment: then only the pop-up.
+void celebrateStreakPoint(BuildContext context) {
+  if (!_playedLately(_perfectDayAt)) HapticFeedback.heavyImpact();
+  _streakPointAt = DateTime.now();
+  // Small beat after the completing square's own confetti so the two
+  // moments read as separate: "that square" ... "and that's the whole
+  // day". If a level-up/achievement also lands this tick, those still
+  // take over afterwards (the achievement sheet clears snackbars).
+  Future.delayed(const Duration(milliseconds: 250), () {
+    if (!context.mounted) return;
+    if (!_playedLately(_perfectDayAt)) {
+      final size = MediaQuery.of(context).size;
+      PetSettings.current.streakBurst.fire(
+        context,
+        Offset(size.width / 2, size.height * 0.35),
+      );
+    }
+    showPerfectDaySnackBar(context);
+  });
+}
+
+/// Every habit the day asked for is done, the Grid's «يوم مثالي»: the
+/// biggest moment of the day. Two bursts, each bigger than the streak
+/// point's one, and a double buzz. One buzz fewer when the streak point
+/// already buzzed on this same tap. Every burst's size here and above is
+/// the admin's «دوم» page's (PetSettings, kPet*Confetti* built in).
+void celebratePerfectDay(BuildContext context) {
+  if (!_playedLately(_streakPointAt)) HapticFeedback.heavyImpact();
+  _perfectDayAt = DateTime.now();
+  final size = MediaQuery.of(context).size;
+  final center = Offset(size.width / 2, size.height * 0.35);
+  PetSettings.current.fullDayBurst.fire(context, center);
+  Future.delayed(const Duration(milliseconds: 280), () {
+    if (!context.mounted) return;
+    HapticFeedback.mediumImpact();
+    PetSettings.current.fullDaySecondBurst.fire(context, center);
+  });
+}
+
+/// Plays [celebratePerfectDay] when [perfectDay] turns true between two
+/// [live] readings of today: the rule the sprout keeps (see DayCardSprout),
+/// so a week loading at launch, or browsing back to this week, is never a
+/// moment. It sits on the Grid's summary card rather than in the sprout, so
+/// it plays with the sprout hidden too.
+class PerfectDayMoment extends StatefulWidget {
+  const PerfectDayMoment({
+    super.key,
+    required this.perfectDay,
+    required this.live,
+    required this.child,
+  });
+
+  final bool perfectDay;
+  final bool live;
+  final Widget child;
+
+  @override
+  State<PerfectDayMoment> createState() => _PerfectDayMomentState();
+}
+
+class _PerfectDayMomentState extends State<PerfectDayMoment> {
+  @override
+  void didUpdateWidget(covariant PerfectDayMoment old) {
+    super.didUpdateWidget(old);
+    if (old.live && widget.live && widget.perfectDay && !old.perfectDay) {
+      // After this frame: the bursts go into the overlay, which must not
+      // change while the board is still building.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) celebratePerfectDay(context);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// The day's own completion moment, on the tap that earns its streak point

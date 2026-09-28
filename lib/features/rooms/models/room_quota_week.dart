@@ -24,10 +24,19 @@ import 'room_model.dart';
 
 /// The days of one Grid week, [weekDays], that the room grades shared slot
 /// [slot] on for [participant]: on or after their own first day and the day
-/// the slot joined the plan, not after the room's end, and not a day the
-/// room was paused, their plan stood down, or the leader had the slot out.
-/// The same days the sync's `present` list holds for the week, and the ones
+/// the slot joined the plan, not after the room's end, not a day the room
+/// was paused, their plan stood down, or the leader had the slot out, and
+/// only the days the slot held the habit linked in it now. The same days the
+/// sync's `present` list holds for the week, and the ones
 /// [RoomParticipant.quotaWeekIsLost] counts over.
+///
+/// The habit is asked of each day the way the sync asks it (slotGradesOn,
+/// through [RoomParticipant.habitInSlotOn]): after a change of link
+/// (RoomsController.relinkPlanHabit) the days before it are the old habit's,
+/// and a stretch the slot spent declined is no habit's.
+/// Without it a slot relinked on Wednesday counted the new habit's squares
+/// from Saturday and asked 4 over seven days, while the room grades that
+/// habit Wednesday to Friday and asks 3, 4 capped at its three days.
 List<DateTime> roomSlotWeekDays(
   RoomModel room,
   RoomParticipant participant,
@@ -37,12 +46,16 @@ List<DateTime> roomSlotWeekDays(
   final first = participant.countedStartIn(room).startOfDay;
   final joinedKey = room.slotJoinedPlanKey(slot);
   final end = room.endDate?.startOfDay;
+  final linked = participant.linkedHabitIds;
+  final habit = slot >= 0 && slot < linked.length ? linked[slot] : null;
   return [
     for (final d in weekDays)
       if (!d.isBefore(first) &&
           (end == null || !d.isAfter(end)) &&
           d.toDateKey().compareTo(joinedKey) >= 0 &&
           room.slotLiveOn(slot, d.toDateKey()) &&
+          (habit == null ||
+              participant.habitInSlotOn(slot, d.toDateKey()) == habit) &&
           !room.isPausedOn(d.toDateKey()) &&
           !participant.isStoodDownOn(d.toDateKey()))
         d,

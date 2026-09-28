@@ -330,6 +330,12 @@ const List<String> kEditableWordingKeys = [
   'quietHoursOverrideOn',
   'quietHoursAllowAnywayAction',
   'quietHoursRespectAction',
+  'quietConflictTitle',
+  'quietConflictBody',
+  'quietConflictQuestion',
+  'quietConflictTurnOff',
+  'quietConflictAllowThis',
+  'quietConflictKeep',
   'remindAtTimePreview',
   'remindPreviewNeedsLocation',
   'timingToggle',
@@ -621,6 +627,11 @@ const List<String> kEditableWordingKeys = [
   'appIconColourBeige',
   'appIconColourMistBlue',
   'appIconColourMint',
+  'streakDaysOne',
+  'streakDaysTwo',
+  'streakDaysFew',
+  'streakDaysMany',
+  'streakDaysHundreds',
   'appIconFullDaysLeft',
   'appIconNextShape',
   'appIconAllShapes',
@@ -1338,6 +1349,21 @@ const List<String> kEditableWordingKeys = [
   'monthlyStoryGreenSquares',
   'monthlyStoryShareAction',
   'monthlyStoryShareText',
+  'milestoneNameJoined',
+  'milestoneNameLevelUp',
+  'milestoneNameStreak',
+  'milestoneNameStreakDay',
+  'milestoneNameStreakWeek',
+  'milestoneNameAchievement',
+  'milestoneNameRoomChallenge',
+  'milestoneLineJoined',
+  'milestoneLineLevelUp',
+  'milestoneLineStreak',
+  'milestoneLineStreakDay',
+  'milestoneLineStreakWeek',
+  'milestoneLineAchievement',
+  'milestoneLineRoomChallenge',
+  'milestoneLineRoomChallengeNamed',
   'yearRecordTitle',
   'yearRecordEmpty',
   'yearRecordDaysCount',
@@ -1429,12 +1455,48 @@ const List<String> kEditableWordingKeys = [
   'sproutHello',
   'sproutFirstDone',
   'sproutProgress',
-  'sproutFullDay',
+  'sproutProgressF',
+  'sproutProgressWe',
+  'sproutStreakPoint',
   'sproutPerfectDay',
+  'sproutPerfectDayBlessing',
   'sproutGoodNight',
   'sproutLateNight',
   'sproutRestDay',
   'sproutTickle',
+  'sproutPraiseGeneral',
+  'sproutPraiseGeneralF',
+  'sproutPraiseFaith',
+  'sproutPraiseFaithF',
+  'sproutPraiseQuran',
+  'sproutPraiseQuranF',
+  'sproutPraiseAthkar',
+  'sproutPraiseAthkarF',
+  'sproutPraiseFasting',
+  'sproutPraiseFastingF',
+  'sproutPraiseSadaqah',
+  'sproutPraiseSadaqahF',
+  'sproutPraiseSport',
+  'sproutPraiseSportF',
+  'sproutPraiseHealth',
+  'sproutPraiseHealthF',
+  'sproutPraiseLearning',
+  'sproutPraiseLearningF',
+  'sproutPraiseFocus',
+  'sproutPraiseFocusF',
+  'sproutPraiseSleep',
+  'sproutPraiseSleepF',
+  'sproutPraiseMoney',
+  'sproutPraiseMoneyF',
+  'sproutPraiseMind',
+  'sproutPraiseMindF',
+  'sproutPraiseSocial',
+  'sproutPraiseSocialF',
+  'gridSproutHideTitle',
+  'gridSproutHideBody',
+  'gridSproutHideYes',
+  'gridSproutHideNo',
+  'gridSproutSetting',
 ];
 
 /// Every other S string. Each picks between several wordings in code (a
@@ -2909,6 +2971,42 @@ class _EditedS extends S {
   String get quietHoursRespectAction => plainWording(_edits['quietHoursRespectAction']) ?? super.quietHoursRespectAction;
 
   @override
+  String get quietConflictTitle => plainWording(_edits['quietConflictTitle']) ?? super.quietConflictTitle;
+
+  @override
+  String quietConflictBody(String times, String start, String end) {
+    final wordingEdit = _edits['quietConflictBody'];
+    if (wordingEdit == null) return super.quietConflictBody(times, start, end);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'times': () => '$times',
+                  'start': () => '$start',
+                  'end': () => '$end',
+                }
+              : <String, String Function()>{
+                  'start': () => '$start',
+                  'end': () => '$end',
+                  'times': () => '$times',
+                },
+        ) ??
+        super.quietConflictBody(times, start, end);
+  }
+
+  @override
+  String get quietConflictQuestion => plainWording(_edits['quietConflictQuestion']) ?? super.quietConflictQuestion;
+
+  @override
+  String get quietConflictTurnOff => plainWording(_edits['quietConflictTurnOff']) ?? super.quietConflictTurnOff;
+
+  @override
+  String get quietConflictAllowThis => plainWording(_edits['quietConflictAllowThis']) ?? super.quietConflictAllowThis;
+
+  @override
+  String get quietConflictKeep => plainWording(_edits['quietConflictKeep']) ?? super.quietConflictKeep;
+
+  @override
   String remindAtTimePreview(String time) {
     final wordingEdit = _edits['remindAtTimePreview'];
     if (wordingEdit == null) return super.remindAtTimePreview(time);
@@ -4259,6 +4357,63 @@ class _EditedS extends S {
   String get appIconColourMint => plainWording(_edits['appIconColourMint']) ?? super.appIconColourMint;
 
   @override
+  String get streakDaysOne => plainWording(_edits['streakDaysOne']) ?? super.streakDaysOne;
+
+  @override
+  String get streakDaysTwo => plainWording(_edits['streakDaysTwo']) ?? super.streakDaysTwo;
+
+  @override
+  String streakDaysFew(int n) {
+    final wordingEdit = _edits['streakDaysFew'];
+    if (wordingEdit == null) return super.streakDaysFew(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'n': () => '$n',
+                }
+              : <String, String Function()>{
+                  'n': () => '$n',
+                },
+        ) ??
+        super.streakDaysFew(n);
+  }
+
+  @override
+  String streakDaysMany(int n) {
+    final wordingEdit = _edits['streakDaysMany'];
+    if (wordingEdit == null) return super.streakDaysMany(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'n': () => '$n',
+                }
+              : <String, String Function()>{
+                  'n': () => '$n',
+                },
+        ) ??
+        super.streakDaysMany(n);
+  }
+
+  @override
+  String streakDaysHundreds(int n) {
+    final wordingEdit = _edits['streakDaysHundreds'];
+    if (wordingEdit == null) return super.streakDaysHundreds(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'n': () => '$n',
+                }
+              : <String, String Function()>{
+                  'n': () => '$n',
+                },
+        ) ??
+        super.streakDaysHundreds(n);
+  }
+
+  @override
   String appIconFullDaysLeft(int n) {
     final wordingEdit = _edits['appIconFullDaysLeft'];
     if (wordingEdit == null) return super.appIconFullDaysLeft(n);
@@ -4288,7 +4443,7 @@ class _EditedS extends S {
                 }
               : <String, String Function()>{
                   'shape': () => '$shape',
-                  'n == 1 ? \'1 more full day\' : \'\$n more full days\'': () => '${n == 1 ? '1 more full day' : '$n more full days'}',
+                  'n == 1 ? \'1 more streak day\' : \'\$n more streak days\'': () => '${n == 1 ? '1 more streak day' : '$n more streak days'}',
                 },
         ) ??
         super.appIconNextShape(shape, n);
@@ -8224,6 +8379,107 @@ class _EditedS extends S {
   }
 
   @override
+  String get milestoneNameJoined => plainWording(_edits['milestoneNameJoined']) ?? super.milestoneNameJoined;
+
+  @override
+  String get milestoneNameLevelUp => plainWording(_edits['milestoneNameLevelUp']) ?? super.milestoneNameLevelUp;
+
+  @override
+  String get milestoneNameStreak => plainWording(_edits['milestoneNameStreak']) ?? super.milestoneNameStreak;
+
+  @override
+  String get milestoneNameStreakDay => plainWording(_edits['milestoneNameStreakDay']) ?? super.milestoneNameStreakDay;
+
+  @override
+  String get milestoneNameStreakWeek => plainWording(_edits['milestoneNameStreakWeek']) ?? super.milestoneNameStreakWeek;
+
+  @override
+  String get milestoneNameAchievement => plainWording(_edits['milestoneNameAchievement']) ?? super.milestoneNameAchievement;
+
+  @override
+  String get milestoneNameRoomChallenge => plainWording(_edits['milestoneNameRoomChallenge']) ?? super.milestoneNameRoomChallenge;
+
+  @override
+  String get milestoneLineJoined => plainWording(_edits['milestoneLineJoined']) ?? super.milestoneLineJoined;
+
+  @override
+  String milestoneLineLevelUp(int level) {
+    final wordingEdit = _edits['milestoneLineLevelUp'];
+    if (wordingEdit == null) return super.milestoneLineLevelUp(level);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'level': () => '$level',
+                }
+              : <String, String Function()>{
+                  'level': () => '$level',
+                },
+        ) ??
+        super.milestoneLineLevelUp(level);
+  }
+
+  @override
+  String milestoneLineStreak(int days) {
+    final wordingEdit = _edits['milestoneLineStreak'];
+    if (wordingEdit == null) return super.milestoneLineStreak(days);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'daysInSentence(days)': () => '${daysInSentence(days)}',
+                }
+              : <String, String Function()>{
+                  'days': () => '$days',
+                },
+        ) ??
+        super.milestoneLineStreak(days);
+  }
+
+  @override
+  String get milestoneLineStreakDay => plainWording(_edits['milestoneLineStreakDay']) ?? super.milestoneLineStreakDay;
+
+  @override
+  String get milestoneLineStreakWeek => plainWording(_edits['milestoneLineStreakWeek']) ?? super.milestoneLineStreakWeek;
+
+  @override
+  String milestoneLineAchievement(String name) {
+    final wordingEdit = _edits['milestoneLineAchievement'];
+    if (wordingEdit == null) return super.milestoneLineAchievement(name);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'name': () => '$name',
+                }
+              : <String, String Function()>{
+                  'name': () => '$name',
+                },
+        ) ??
+        super.milestoneLineAchievement(name);
+  }
+
+  @override
+  String get milestoneLineRoomChallenge => plainWording(_edits['milestoneLineRoomChallenge']) ?? super.milestoneLineRoomChallenge;
+
+  @override
+  String milestoneLineRoomChallengeNamed(String name) {
+    final wordingEdit = _edits['milestoneLineRoomChallengeNamed'];
+    if (wordingEdit == null) return super.milestoneLineRoomChallengeNamed(name);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'name': () => '$name',
+                }
+              : <String, String Function()>{
+                  'name': () => '$name',
+                },
+        ) ??
+        super.milestoneLineRoomChallengeNamed(name);
+  }
+
+  @override
   String get yearRecordTitle => plainWording(_edits['yearRecordTitle']) ?? super.yearRecordTitle;
 
   @override
@@ -8741,10 +8997,51 @@ class _EditedS extends S {
   }
 
   @override
-  String get sproutFullDay => plainWording(_edits['sproutFullDay']) ?? super.sproutFullDay;
+  String sproutProgressF(int done, int owed) {
+    final wordingEdit = _edits['sproutProgressF'];
+    if (wordingEdit == null) return super.sproutProgressF(done, owed);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                }
+              : <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                },
+        ) ??
+        super.sproutProgressF(done, owed);
+  }
+
+  @override
+  String sproutProgressWe(int done, int owed) {
+    final wordingEdit = _edits['sproutProgressWe'];
+    if (wordingEdit == null) return super.sproutProgressWe(done, owed);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                }
+              : <String, String Function()>{
+                  'done': () => '$done',
+                  'owed': () => '$owed',
+                },
+        ) ??
+        super.sproutProgressWe(done, owed);
+  }
+
+  @override
+  String get sproutStreakPoint => plainWording(_edits['sproutStreakPoint']) ?? super.sproutStreakPoint;
 
   @override
   String get sproutPerfectDay => plainWording(_edits['sproutPerfectDay']) ?? super.sproutPerfectDay;
+
+  @override
+  String get sproutPerfectDayBlessing => plainWording(_edits['sproutPerfectDayBlessing']) ?? super.sproutPerfectDayBlessing;
 
   @override
   String get sproutGoodNight => plainWording(_edits['sproutGoodNight']) ?? super.sproutGoodNight;
@@ -8757,4 +9054,103 @@ class _EditedS extends S {
 
   @override
   String get sproutTickle => plainWording(_edits['sproutTickle']) ?? super.sproutTickle;
+
+  @override
+  String get sproutPraiseGeneral => plainWording(_edits['sproutPraiseGeneral']) ?? super.sproutPraiseGeneral;
+
+  @override
+  String get sproutPraiseGeneralF => plainWording(_edits['sproutPraiseGeneralF']) ?? super.sproutPraiseGeneralF;
+
+  @override
+  String get sproutPraiseFaith => plainWording(_edits['sproutPraiseFaith']) ?? super.sproutPraiseFaith;
+
+  @override
+  String get sproutPraiseFaithF => plainWording(_edits['sproutPraiseFaithF']) ?? super.sproutPraiseFaithF;
+
+  @override
+  String get sproutPraiseQuran => plainWording(_edits['sproutPraiseQuran']) ?? super.sproutPraiseQuran;
+
+  @override
+  String get sproutPraiseQuranF => plainWording(_edits['sproutPraiseQuranF']) ?? super.sproutPraiseQuranF;
+
+  @override
+  String get sproutPraiseAthkar => plainWording(_edits['sproutPraiseAthkar']) ?? super.sproutPraiseAthkar;
+
+  @override
+  String get sproutPraiseAthkarF => plainWording(_edits['sproutPraiseAthkarF']) ?? super.sproutPraiseAthkarF;
+
+  @override
+  String get sproutPraiseFasting => plainWording(_edits['sproutPraiseFasting']) ?? super.sproutPraiseFasting;
+
+  @override
+  String get sproutPraiseFastingF => plainWording(_edits['sproutPraiseFastingF']) ?? super.sproutPraiseFastingF;
+
+  @override
+  String get sproutPraiseSadaqah => plainWording(_edits['sproutPraiseSadaqah']) ?? super.sproutPraiseSadaqah;
+
+  @override
+  String get sproutPraiseSadaqahF => plainWording(_edits['sproutPraiseSadaqahF']) ?? super.sproutPraiseSadaqahF;
+
+  @override
+  String get sproutPraiseSport => plainWording(_edits['sproutPraiseSport']) ?? super.sproutPraiseSport;
+
+  @override
+  String get sproutPraiseSportF => plainWording(_edits['sproutPraiseSportF']) ?? super.sproutPraiseSportF;
+
+  @override
+  String get sproutPraiseHealth => plainWording(_edits['sproutPraiseHealth']) ?? super.sproutPraiseHealth;
+
+  @override
+  String get sproutPraiseHealthF => plainWording(_edits['sproutPraiseHealthF']) ?? super.sproutPraiseHealthF;
+
+  @override
+  String get sproutPraiseLearning => plainWording(_edits['sproutPraiseLearning']) ?? super.sproutPraiseLearning;
+
+  @override
+  String get sproutPraiseLearningF => plainWording(_edits['sproutPraiseLearningF']) ?? super.sproutPraiseLearningF;
+
+  @override
+  String get sproutPraiseFocus => plainWording(_edits['sproutPraiseFocus']) ?? super.sproutPraiseFocus;
+
+  @override
+  String get sproutPraiseFocusF => plainWording(_edits['sproutPraiseFocusF']) ?? super.sproutPraiseFocusF;
+
+  @override
+  String get sproutPraiseSleep => plainWording(_edits['sproutPraiseSleep']) ?? super.sproutPraiseSleep;
+
+  @override
+  String get sproutPraiseSleepF => plainWording(_edits['sproutPraiseSleepF']) ?? super.sproutPraiseSleepF;
+
+  @override
+  String get sproutPraiseMoney => plainWording(_edits['sproutPraiseMoney']) ?? super.sproutPraiseMoney;
+
+  @override
+  String get sproutPraiseMoneyF => plainWording(_edits['sproutPraiseMoneyF']) ?? super.sproutPraiseMoneyF;
+
+  @override
+  String get sproutPraiseMind => plainWording(_edits['sproutPraiseMind']) ?? super.sproutPraiseMind;
+
+  @override
+  String get sproutPraiseMindF => plainWording(_edits['sproutPraiseMindF']) ?? super.sproutPraiseMindF;
+
+  @override
+  String get sproutPraiseSocial => plainWording(_edits['sproutPraiseSocial']) ?? super.sproutPraiseSocial;
+
+  @override
+  String get sproutPraiseSocialF => plainWording(_edits['sproutPraiseSocialF']) ?? super.sproutPraiseSocialF;
+
+  @override
+  String get gridSproutHideTitle => plainWording(_edits['gridSproutHideTitle']) ?? super.gridSproutHideTitle;
+
+  @override
+  String get gridSproutHideBody => plainWording(_edits['gridSproutHideBody']) ?? super.gridSproutHideBody;
+
+  @override
+  String get gridSproutHideYes => plainWording(_edits['gridSproutHideYes']) ?? super.gridSproutHideYes;
+
+  @override
+  String get gridSproutHideNo => plainWording(_edits['gridSproutHideNo']) ?? super.gridSproutHideNo;
+
+  @override
+  String get gridSproutSetting => plainWording(_edits['gridSproutSetting']) ?? super.gridSproutSetting;
 }

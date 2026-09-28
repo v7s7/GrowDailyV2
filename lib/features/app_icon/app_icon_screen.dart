@@ -754,12 +754,18 @@ class _ApplyBar extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    textStyle: const TextStyle(
+                  ),
+                  // The size on the label, never as the button's textStyle:
+                  // that replaces the theme's whole style, typeface
+                  // included, and the label falls back to the phone's own
+                  // font.
+                  child: Text(
+                    s.appIconUse,
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                  child: Text(s.appIconUse),
                 )
               : DecoratedBox(
                   decoration: BoxDecoration(

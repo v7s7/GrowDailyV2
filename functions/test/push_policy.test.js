@@ -30,8 +30,8 @@ const {
 
 const min = (h, m = 0) => h * 60 + m;
 
-test("an account that never wrote settings gets the app's default window", () => {
-  // 22:00 to 07:00, exactly what NotificationSettings defaults to.
+test("an account that never wrote settings gets the night, 22:00 to 07:00", () => {
+  // The window the app offers when quiet hours are turned on.
   assert.equal(isQuietAtLocalMinute(undefined, min(4, 30)), true,
       "a Fajr-time push used to go out to everyone with no settings");
   assert.equal(isQuietAtLocalMinute(undefined, min(23)), true);
@@ -41,9 +41,45 @@ test("an account that never wrote settings gets the app's default window", () =>
   assert.equal(isQuietAtLocalMinute(undefined, min(13)), false);
 });
 
-test("a person who switched quiet hours off is not quiet at any hour", () => {
-  const off = {quietHoursEnabled: false};
-  assert.equal(isQuietAtLocalMinute(off, min(3)), false);
+test("quiet hours off still keeps a push from someone else out of the night",
+    () => {
+      // Aziz, 2026-09-28: with quiet hours off, a room push that comes at
+      // night arrives in the morning. It used to mean "at any hour".
+      const off = {quietHoursEnabled: false};
+      assert.equal(isQuietAtLocalMinute(off, min(3)), true);
+      assert.equal(isQuietAtLocalMinute(off, min(22, 30)), true);
+      assert.equal(isQuietAtLocalMinute(off, min(7)), false);
+      assert.equal(isQuietAtLocalMinute(off, min(13)), false,
+          "the day is never held");
+    });
+
+test("the app's own switch picks the window: theirs when on, the night when off",
+    () => {
+      // Since 2026-09-28 the app writes its switch as quietHoursOn and the
+      // old key as true, so the old key alone says nothing.
+      const window = {quietHoursEnabled: true, quietHoursStart: "0:0",
+        quietHoursEnd: "5:0"};
+      const on = {...window, quietHoursOn: true};
+      assert.equal(isQuietAtLocalMinute(on, min(3)), true);
+      assert.equal(isQuietAtLocalMinute(on, min(23)), false,
+          "their own window, which leaves the late evening open");
+      const off = {...window, quietHoursOn: false};
+      assert.equal(isQuietAtLocalMinute(off, min(23)), true,
+          "off: the night, not a window they set once and switched off");
+      assert.equal(isQuietAtLocalMinute(off, min(6)), true);
+      assert.equal(isQuietAtLocalMinute(off, min(8)), false);
+      // A build before the new key: its switch is the old key.
+      assert.equal(isQuietAtLocalMinute(window, min(23)), false);
+    });
+
+test("a push held for the night is timed by the same window", () => {
+  // 23:00 in Bahrain, quiet hours off with an old 00:00 to 05:00 window
+  // still stored: held for the night, so released at 07:00, not 05:00.
+  const off = {quietHoursOn: false, quietHoursEnabled: true,
+    quietHoursStart: "0:0", quietHoursEnd: "5:0"};
+  const elevenPm = Date.UTC(2026, 8, 28, 20, 0);
+  assert.equal(isQuietHoursNow(off, 180, elevenPm), true);
+  assert.equal(msUntilQuietHoursEnd(off, 180, elevenPm), 8 * 60 * 60 * 1000);
 });
 
 test("a same-day window and a zero-width window behave like the app's", () => {

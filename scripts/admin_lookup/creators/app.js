@@ -1,16 +1,17 @@
 /**
- * The Creators page, in the browser.
+ * The Creators page, in the browser: the simple layout of 2026-09-27.
  *
- * Reads everything from /api/creators, then (when the App Store Connect
- * settings are there) what Apple says from /api/creators/apple-status. The
- * Add form's money preview runs lib/creators.js (loaded as
- * /creators/rules.js, window.CreatorRules), the same maths the server
- * checks with.
+ * Reads the creators and their money from /api/creators, and what App Store
+ * Connect says (codes in use, product states) from
+ * /api/creators/apple-status. lib/creators.js (loaded as /creators/rules.js,
+ * window.CreatorRules) checks the Add creator steps and works out the money
+ * line as Aziz types; the server checks everything again.
  *
- * Making a creator's Apple code is two presses on purpose: Preview asks the
- * server to build the exact requests (it reads from Apple, changes
- * nothing), and only "Create in App Store Connect" sends them. Every write
- * answers with the page's fresh state, read back after the write.
+ * Add creator is three steps in one dialog: name and code, the deal, then
+ * the Apple code (Preview, then Create, the same two-step request as
+ * before), ending on the two links to send. Everything else a creator needs
+ * (Pay, Change share, their page link, Details, Stop) is one small dialog
+ * from their row, built here into #dlg.
  *
  * A plain file, not a template literal: see lib/wording_page.js for why.
  */
@@ -18,11 +19,26 @@
   'use strict';
 
   const C = window.CreatorRules;
-  // statementLink: the one link just made, { code, link }. The server keeps
-  // only its hash, so this is the only time the page can show it.
-  const state = { data: null, busy: false, touched: false, apple: null, open: null, preview: null, result: null, statementLink: null };
+  const ASC_START = 'ASC_KEY_ID=8672BSV59Q ASC_ISSUER_ID=fb55eebc-827e-4fcd-a941-989b2e36807b npm start';
+  const STEP1_CODES = new Set(['name', 'name-long', 'name-dash', 'code']);
+  const state = {
+    data: null,
+    apple: null,
+    appleError: null,
+    busy: false,
+    step: 1,
+    touched: { 1: false, 2: false },
+    preview: null,
+    previewError: null,
+    previewLoading: false,
+    createError: null,
+    done: null,
+    menuFor: null,
+    existing: null,
+    previewDiscount: null,
+  };
 
-  // ---- DOM helpers ---------------------------------------------------------------
+  // ---- DOM helpers -------------------------------------------------------------
 
   function h(tag, props) {
     const el = document.createElement(tag);
@@ -40,7 +56,6 @@
     return el;
   }
 
-  /** Appends every child after [el]: nodes, text, arrays of either; null and false are skipped. */
   function append(el) {
     for (let i = 1; i < arguments.length; i++) {
       const child = arguments[i];
@@ -65,27 +80,67 @@
     el.textContent = message;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 4200);
-  }
-
-  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  function dayText(dateKey) {
-    if (!dateKey) return '';
-    const [y, m, d] = dateKey.split('-').map(Number);
-    return d + ' ' + MONTHS[m - 1] + ' ' + y;
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3600);
   }
 
   function plural(n, one, many) {
     return n + ' ' + (n === 1 ? one : many);
   }
 
+  /** '27 Mar 2027' for a date key. */
+  function dayText(dateKey) {
+    if (!dateKey) return '';
+    const d = new Date(dateKey + 'T12:00:00Z');
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+
+  function msDay(ms) {
+    return ms ? dayText(new Date(ms).toISOString().slice(0, 10)) : '';
+  }
+
   async function copy(text) {
     try {
       await navigator.clipboard.writeText(text);
-      toast('Copied.');
     } catch (e) {
-      toast('Could not copy. Select the link and copy it by hand.');
+      const area = h('textarea', { style: 'position:fixed;opacity:0' });
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try {
+        document.execCommand('copy');
+      } catch (e2) {
+        // Nothing more to try; the toast below still says what was meant.
+      }
+      area.remove();
     }
+    toast('Copied.');
+  }
+
+  function checkLine(kind, text) {
+    const mark = kind === 'good' ? '✓' : kind === 'bad' ? '✕' : '!';
+    return h('li', { class: kind }, h('span', { class: 'mk', 'aria-hidden': 'true' }, mark), h('span', null, text));
+  }
+
+  // ---- Dialogs -------------------------------------------------------------------
+
+  function openDialog(id) {
+    const d = $(id);
+    if (!d.open) d.showModal();
+  }
+
+  function closeDialog(id) {
+    const d = $(id);
+    if (d.open) d.close();
+  }
+
+  function closeOnBackdrop(id) {
+    const d = $(id);
+    d.addEventListener('click', (e) => {
+      if (e.target !== d) return;
+      const r = d.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) d.close();
+    });
   }
 
   // ---- Server ------------------------------------------------------------------------
@@ -111,271 +166,579 @@
   }
 
   function errorText(body) {
-    if (!body) return 'It did not go through.';
-    if (body.message) return body.message;
-    if (body.error) return body.error;
-    return 'It did not go through.';
+    if (!body) return 'Something went wrong.';
+    if (body.errors && body.errors.length) return body.errors.map((e) => e.message).join(' ');
+    return body.error || body.message || '';
   }
 
-  // ---- Tiles ---------------------------------------------------------------------------
+  // ---- Tiles and notices ------------------------------------------------------------------
 
   function renderTiles() {
     const d = state.data;
-    const apple = state.apple;
-    const inUse = apple ? apple.activeOffers : d.offersInUse;
+    const t = d.totals;
+    $('tOwed').textContent = C.money(t.owedCents);
+    $('tOwedSub').textContent = t.waitingCents > 0 ? C.money(t.waitingCents) + ' more once 60 days pass' : '';
+    $('tSales').textContent = String(t.sales30);
+    $('tSalesSub').textContent = t.refunds30 ? plural(t.refunds30, 'refunded', 'refunded') : 'None refunded';
+    const inUse = state.apple ? state.apple.activeOffers : d.offersInUse;
     $('tOffers').textContent = String(inUse);
     $('tOffersMax').textContent = String(d.maxOffers);
-    $('tOffersBar').style.width = Math.min(100, (inUse / d.maxOffers) * 100) + '%';
-    $('tOffersSub').textContent = apple
-      ? 'Active offers on the two Lifetime products, as App Store Connect lists them. Apple allows 10 per app.'
-      : 'One per creator, from this tool\'s records. Apple allows 10 per app.';
-    $('tSales').textContent = String(d.totals.sales30);
-    $('tSalesSub').textContent = d.totals.refunds30 ? plural(d.totals.refunds30, 'refunded', 'refunded') : 'None refunded';
-    $('tOwed').textContent = C.money(d.totals.owedCents);
-    $('tWaiting').textContent = C.money(d.totals.waitingCents);
+    $('tOffersSub').textContent = state.appleError
+      ? 'App Store Connect did not answer, so this is the tool\'s count.'
+      : state.apple ? '' : (d.asc.ok ? 'Checking with Apple...' : 'The tool\'s count.');
   }
 
-  // ---- The table ----------------------------------------------------------------------
-
-  /** Only said when something is missing: a made code is the normal case, like in the design. */
-  function appleLine(c) {
-    if (c.appleCustomCodeId) return null;
-    if (c.appleOfferCodeId) return h('span', { class: 'sub warn' }, 'Offer made, no code yet');
-    return h('span', { class: 'sub warn' }, 'No Apple code yet');
+  function notice(kind, children) {
+    return h('div', { class: 'notice ' + kind }, h('span', { class: 'grow' }, children));
   }
 
-  function productPrice(productId) {
-    const p = C.PRODUCTS[productId];
-    return p ? '$' + p.priceUsd.toFixed(2) : '?';
+  function renderBanners() {
+    const d = state.data;
+    const box = clear($('banners'));
+    if (!d.asc.ok) {
+      append(box, notice('warn', [
+        'App Store Connect is not connected, so codes can\'t be made from here. Start the tool with ',
+        h('code', null, ASC_START), '.',
+      ]));
+    }
+    if (d.orphans && d.orphans.rows) {
+      append(box, notice('warn', plural(d.orphans.rows, 'sale matches', 'sales match') + ' no creator here. Offer names: ' +
+        (d.orphans.offerRefs.join(', ') || 'none given') + '.'));
+    }
+  }
+
+  // ---- The list ------------------------------------------------------------------------------
+
+  function statusChip(c) {
+    if (c.stoppedAtMs) return h('span', { class: 'chip bad' }, 'Stopped');
+    if (!c.active) return h('span', { class: 'chip' }, 'Inactive');
+    if (!c.appleCustomCodeId) return h('span', { class: 'chip warn' }, 'No Apple code yet');
+    return null;
   }
 
   function endsCell(c) {
-    if (c.codeEndsAtMs === null) return h('td', null, '');
+    if (!c.codeEndsOn) return h('td', null, '');
     const days = Math.ceil((c.codeEndsAtMs - state.data.nowMs) / C.DAY_MS);
     return h('td', null, h('div', { class: 'stack' },
       h('span', { class: 'nowrap' }, dayText(c.codeEndsOn)),
-      h('span', { class: (days <= 14 ? 'sub warn' : 'sub') + ' nowrap' }, days > 0 ? 'in ' + plural(days, 'day', 'days') : 'ended')));
-  }
-
-  function actionsCell(c) {
-    const m = c.money;
-    const more = state.open && state.open.code === c.id && state.open.kind === 'more';
-    return h('td', { class: 'actions' }, h('div', { class: 'act' },
-      h('button', {
-        type: 'button', class: 'btn small', onclick: () => openForm(c.id, 'pay'),
-        disabled: m.unpaidCents <= 0 ? true : null, title: m.unpaidCents <= 0 ? 'Nothing earned and unpaid' : null,
-      }, 'Mark paid'),
-      h('button', {
-        type: 'button', class: 'btn small ghost more-btn', onclick: () => openForm(c.id, 'more'),
-        'aria-expanded': more ? 'true' : 'false', 'aria-label': 'More for ' + (c.name || c.id), title: 'Share %, Apple code, link, deactivate',
-      }, '\u22EF')));
-  }
-
-  /** The row under a creator with everything that is not Mark paid: the link, the Apple ids, and the other actions. */
-  function moreRow(c) {
-    const link = C.shareLinkFor(c.code);
-    const facts = [
-      ['Offer name', c.offerRef],
-      ['Buyer pays', c.offerPriceUsd === null ? '?' : '$' + c.offerPriceUsd.toFixed(2) + ' (' + c.discountPercent + '% off ' + productPrice(c.discountOff) + ')'],
-      ['Uses allowed', c.usesAllowed === null ? '?' : Number(c.usesAllowed).toLocaleString('en-US')],
-      ['Apple ids', c.appleOfferCodeId ? 'offer ' + c.appleOfferCodeId + (c.appleCustomCodeId ? ', code ' + c.appleCustomCodeId : ', no code yet') : 'none yet'],
-      ['Last paid', c.lastPaidAtMs ? new Date(c.lastPaidAtMs).toISOString().slice(0, 10) : 'never'],
-      ['Their page', c.hasStatementLink
-        ? 'link made ' + (c.statementKeyAtMs ? new Date(c.statementKeyAtMs).toISOString().slice(0, 10) : '') + ' (only its hash is kept)'
-        : 'no link yet'],
-    ];
-    const list = h('dl', { class: 'mini-facts' });
-    for (const [k, v] of facts) append(list, h('dt', null, k), h('dd', null, v));
-    const buttons = [
-      h('button', { type: 'button', class: 'btn small', onclick: () => openForm(c.id, 'share') }, 'Change share %'),
-      !c.appleCustomCodeId && c.active ? h('button', { type: 'button', class: 'btn small', onclick: () => previewExisting(c.id) }, 'Make the Apple code') : null,
-      h('button', { type: 'button', class: 'btn small', onclick: () => makeStatementLink(c) }, c.hasStatementLink ? 'New page link' : 'Make their page link'),
-      h('button', { type: 'button', class: 'btn small ghost', onclick: () => toggleActive(c) }, c.active ? 'Deactivate' : 'Reactivate'),
-      h('button', { type: 'button', class: 'btn small ghost', onclick: () => { state.open = null; renderRows(); } }, 'Close'),
-    ];
-    const fresh = state.statementLink && state.statementLink.code === c.id ? state.statementLink.link : null;
-    return h('tr', { class: 'more-row' }, h('td', { colspan: '9' },
-      list,
-      h('div', { class: 'linkbox' }, h('code', null, link), h('button', { type: 'button', class: 'btn small', onclick: () => copy(link) }, 'Copy link')),
-      fresh ? [
-        h('div', { class: 'linkbox' }, h('code', null, fresh), h('button', { type: 'button', class: 'btn small primary', onclick: () => copy(fresh) }, 'Copy their page link')),
-        h('p', { class: 'fine' }, 'Send this to ' + (c.name || c.id) + '. It opens their own page: sales, money on hold, money ready, and your payments with their notes. ' +
-          'This is the only time it is shown; if it is lost, make a new one, which switches this one off.'),
-      ] : null,
-      h('div', { class: 'row-form' }, buttons)));
-  }
-
-  /** Makes (or replaces) a creator's page link and shows it once. */
-  async function makeStatementLink(c) {
-    if (c.hasStatementLink && !window.confirm('Make a new page link for ' + (c.name || c.id) + '? The link they have now stops working at once.')) return;
-    const { ok, body } = await post('/api/creators/statement-link', { code: c.id });
-    if (!ok) {
-      toast(errorText(body));
-      return;
-    }
-    state.statementLink = { code: body.code, link: body.link };
-    state.open = { code: body.code, kind: 'more' };
-    apply(body.state);
-    toast('Their page link is ready to copy.');
-  }
-
-  function formRow(c) {
-    const open = state.open;
-    if (!open || open.code !== c.id) return null;
-    if (open.kind === 'more') return moreRow(c);
-    const msg = h('span', { class: 'msg plain' });
-    let body;
-    if (open.kind === 'pay') {
-      const amount = h('input', { type: 'number', class: 'inline-input', min: '0.01', step: '0.01', 'aria-label': 'Amount paid, US dollars' });
-      amount.value = ((c.money.owedCents > 0 ? c.money.owedCents : c.money.unpaidCents) / 100).toFixed(2);
-      // The creator sees this note on their own page, next to the payment.
-      const note = h('input', { type: 'text', class: 'inline-input note-input', maxlength: '200', placeholder: 'Note the creator sees, like the transfer reference', 'aria-label': 'Note, shown to the creator' });
-      msg.textContent = 'Owed now ' + C.money(c.money.owedCents) + '; earned and unpaid in all ' + C.money(c.money.unpaidCents) + '. Records the payment as made today.';
-      const save = h('button', {
-        type: 'button', class: 'btn small primary',
-        onclick: async () => {
-          save.disabled = true;
-          const { ok, body: res } = await post('/api/creators/payout', { code: c.id, amountUsd: Number(amount.value), note: note.value });
-          if (ok) {
-            state.open = null;
-            apply(res.state);
-            toast('Payment of ' + C.money(Math.round(res.amountUsd * 100)) + ' to ' + c.name + ' recorded.');
-          } else {
-            save.disabled = false;
-            msg.className = 'msg';
-            msg.textContent = errorText(res);
-          }
-        },
-      }, 'Record payment');
-      body = [h('b', { style: 'font-size:12.5px' }, 'Mark paid, US dollars'), amount, note, save];
-    } else {
-      const share = h('input', { type: 'number', class: 'inline-input', min: '0', max: '100', step: '0.5', 'aria-label': 'Creator share, percent' });
-      share.value = c.sharePercent === null ? '' : String(c.sharePercent);
-      msg.textContent = 'Only sales recorded after this change use the new percent; earlier sales keep theirs.';
-      const save = h('button', {
-        type: 'button', class: 'btn small primary',
-        onclick: async () => {
-          save.disabled = true;
-          // An empty box is no answer, not 0%: Number('') would quietly be 0.
-          const value = share.value.trim() === '' ? null : Number(share.value);
-          const { ok, body: res } = await post('/api/creators/share', { code: c.id, sharePercent: value });
-          if (ok) {
-            state.open = null;
-            apply(res.state);
-            toast(res.changed ? c.name + '\'s share is now ' + share.value + '%.' : 'Nothing changed.');
-          } else {
-            save.disabled = false;
-            msg.className = 'msg';
-            msg.textContent = errorText(res);
-          }
-        },
-      }, 'Save share');
-      body = [h('b', { style: 'font-size:12.5px' }, 'Creator share, %'), share, save];
-    }
-    const cancel = h('button', { type: 'button', class: 'btn small ghost', onclick: () => { state.open = null; renderRows(); } }, 'Cancel');
-    return h('tr', null, h('td', { colspan: '9' }, h('div', { class: 'row-form' }, body, cancel, msg)));
+      h('span', { class: 'small ' + (days <= 14 ? 'chip warn' : 'faint') + ' nowrap', style: 'align-self: flex-start;' },
+        days > 0 ? 'in ' + plural(days, 'day', 'days') : 'ended')));
   }
 
   function renderRows() {
     const d = state.data;
     const body = clear($('creatorRows'));
     if (!d.creators.length) {
-      append(body, h('tr', { class: 'empty-row' }, h('td', { colspan: '9' }, 'No creators yet. Add the first one on the right.')));
+      append(body, h('tr', { class: 'empty' }, h('td', { colspan: '7' }, 'No creators yet. Add creator, top right, makes the first one.')));
+      return;
     }
     for (const c of d.creators) {
       const m = c.money;
-      const salesSubs = [];
-      if (m.refunds) salesSubs.push(h('span', { class: 'sub bad' }, plural(m.refunds, 'refund', 'refunds')));
-      if (m.needsReview) salesSubs.push(h('span', { class: 'sub warn', title: 'The webhook could not work out a share for these rows' }, plural(m.needsReview, 'needs review', 'need review')));
-      append(body, h('tr', { class: c.active ? null : 'inactive' },
+      const off = !c.active || !!c.stoppedAtMs;
+      const hasCode = !!c.appleCustomCodeId && !c.stoppedAtMs;
+      const more = h('button', {
+        type: 'button', class: 'btn sm ghost', 'aria-label': 'More for ' + (c.name || c.id), 'aria-haspopup': 'menu',
+        onclick: (e) => openMenu(c, e.currentTarget),
+      }, '⋯');
+      append(body, h('tr', { class: off ? 'off' : null },
+        h('td', null, h('div', { class: 'row', style: 'gap: 8px;' },
+          h('b', null, c.name || c.id),
+          h('span', { class: 'code-chip' }, c.code),
+          statusChip(c))),
         h('td', null, h('div', { class: 'stack' },
-          h('span', { style: 'font-weight:600' }, c.name || c.id, c.active ? null : h('span', { class: 'chip-status small', style: 'margin-inline-start:6px' }, 'Inactive')),
-          h('code', { class: 'code' }, c.code),
-          appleLine(c))),
-        h('td', null, h('div', { class: 'stack' },
-          h('span', { class: 'nowrap', title: 'Buyer pays ' + (c.offerPriceUsd === null ? '?' : '$' + c.offerPriceUsd.toFixed(2)) },
-            (c.discountPercent === null ? '?' : c.discountPercent) + '% off ' + productPrice(c.discountOff)),
-          h('span', { class: 'sub nowrap' }, (c.sharePercent === null ? '?' : c.sharePercent) + '% share'))),
-        h('td', { class: 'num' }, h('div', { class: 'stack' }, h('span', null, String(m.sales)), salesSubs)),
+          h('span', { class: 'nowrap' }, (c.discountPercent === null ? '?' : c.discountPercent) + '% off'),
+          h('span', { class: 'small faint nowrap' }, (c.sharePercent === null ? '?' : c.sharePercent) + '% to them'))),
+        h('td', { class: 'num' }, h('div', { class: 'stack' },
+          h('span', null, String(m.sales)),
+          m.refunds ? h('span', { class: 'small faint' }, plural(m.refunds, 'refund', 'refunds')) : null)),
         h('td', { class: 'num' }, C.money(m.earnedCents)),
-        h('td', { class: 'num muted-cell' }, C.money(m.paidCents)),
-        h('td', { class: 'num muted-cell' }, C.money(m.waitingCents)),
         h('td', { class: 'num owed' }, C.money(m.owedCents)),
         endsCell(c),
-        actionsCell(c)));
-      append(body, formRow(c));
-    }
-    const foot = clear($('creatorFoot'));
-    if (d.creators.length) {
-      const t = d.totals;
-      append(foot, h('tr', null,
-        h('th', { scope: 'row' }, 'All creators'),
-        h('td', null, ''),
-        h('td', { class: 'num' }, String(t.sales)),
-        h('td', { class: 'num' }, C.money(t.earnedCents)),
-        h('td', { class: 'num muted-cell' }, C.money(t.paidCents)),
-        h('td', { class: 'num muted-cell' }, C.money(t.waitingCents)),
-        h('td', { class: 'num owed' }, C.money(t.owedCents)),
-        h('td', null, ''),
-        h('td', null, '')));
+        h('td', null, h('div', { class: 'acts' },
+          h('button', {
+            type: 'button', class: 'btn sm', disabled: hasCode ? null : true,
+            title: hasCode ? null : 'The link works once Apple has the code',
+            onclick: () => copy(C.shareLinkFor(c.code)),
+          }, 'Copy link'),
+          h('button', {
+            type: 'button', class: 'btn sm', disabled: m.unpaidCents > 0 ? null : true,
+            title: m.unpaidCents > 0 ? null : 'Nothing earned and unpaid',
+            onclick: () => openPay(c),
+          }, 'Pay'),
+          more))));
     }
   }
 
-  function renderLedgerNotes() {
-    const d = state.data;
-    const box = clear($('ledgerNotes'));
-    if (d.orphans.rows) {
-      append(box, h('div', { class: 'banner warn' }, h('div', { class: 'grow' },
-        h('b', null, plural(d.orphans.rows, 'ledger row matches', 'ledger rows match') + ' no creator here. '),
-        'Offer names: ' + (d.orphans.offerRefs.join(', ') || 'none given') + '. A creator whose offer name matches them would be credited from now on; these rows stay unassigned.')));
-    }
-    if (d.sandboxRows) {
-      append(box, h('p', { class: 'fine' }, plural(d.sandboxRows, 'sandbox ledger row is', 'sandbox ledger rows are') + ' left out of every number here.'));
-    }
+  // ---- The row menu ------------------------------------------------------------------------------
+
+  function closeMenu() {
+    $('rowMenu').hidden = true;
+    state.menuFor = null;
   }
 
-  function openForm(code, kind) {
-    state.open = state.open && state.open.code === code && state.open.kind === kind ? null : { code, kind };
-    renderRows();
+  function openMenu(c, anchor) {
+    const menu = clear($('rowMenu'));
+    if (state.menuFor === c.id && !menu.hidden) {
+      closeMenu();
+      return;
+    }
+    state.menuFor = c.id;
+    const item = (label, fn, cls) => h('button', {
+      type: 'button', role: 'menuitem', class: cls || null,
+      onclick: () => {
+        closeMenu();
+        fn();
+      },
+    }, label);
+    append(menu,
+      item(c.hasStatementLink ? 'New earnings page link' : 'Make their earnings page link', () => makePageLink(c)),
+      item('Change their share', () => openShare(c)),
+      !c.appleCustomCodeId && c.active && !c.stoppedAtMs && state.data.asc.ok ? item('Make the Apple code', () => openAddForExisting(c)) : null,
+      item('Details', () => openDetails(c)),
+      !c.active && !c.appleOfferCodeId && !c.stoppedAtMs ? item('Mark active again', () => reactivate(c)) : null,
+      !c.stoppedAtMs ? h('hr') : null,
+      !c.stoppedAtMs ? item('Stop the code', () => openStop(c), 'danger') : null);
+    const r = anchor.getBoundingClientRect();
+    menu.hidden = false;
+    const width = menu.offsetWidth;
+    menu.style.top = (window.scrollY + r.bottom + 6) + 'px';
+    menu.style.left = Math.max(8, window.scrollX + r.right - width) + 'px';
+    const first = menu.querySelector('button');
+    if (first) first.focus();
   }
 
-  async function toggleActive(c) {
-    const question = c.active
-      ? 'Mark ' + c.name + ' (' + c.code + ') inactive here? This does not turn their Apple code off: it keeps working until it ends' +
-        (c.codeEndsOn ? ' on ' + dayText(c.codeEndsOn) : '') + ', and sales through it still earn their share. To stop the code itself, turn off the offer ' + c.offerRef + ' in App Store Connect.'
-      : 'Make ' + c.name + ' (' + c.code + ') active again?';
-    if (!window.confirm(question)) return;
-    const { ok, body } = await post('/api/creators/active', { code: c.id, active: !c.active });
+  // ---- Small dialogs from a row ------------------------------------------------------------------
+
+  function showDlg(title, bodyNodes, footNodes) {
+    const box = clear($('dlgBody'));
+    append(box,
+      h('div', { class: 'dlg-head' },
+        h('h2', { id: 'dlgTitle' }, title),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Close', onclick: () => closeDialog('dlg') }, '✕')),
+      bodyNodes,
+      footNodes ? h('div', { class: 'dlg-foot' }, footNodes) : null);
+    openDialog('dlg');
+  }
+
+  function cancelBtn(label) {
+    return h('button', { type: 'button', class: 'btn ghost lg', onclick: () => closeDialog('dlg') }, label || 'Cancel');
+  }
+
+  function openPay(c) {
+    const m = c.money;
+    const amount = h('input', { type: 'number', class: 'in', id: 'payAmount', min: '0.01', step: '0.01', inputmode: 'decimal' });
+    amount.value = ((m.owedCents > 0 ? m.owedCents : m.unpaidCents) / 100).toFixed(2);
+    const note = h('input', { type: 'text', class: 'in', id: 'payNote', maxlength: '200', placeholder: 'Like the transfer reference' });
+    const msg = h('ul', { class: 'checks' });
+    const save = h('button', {
+      type: 'button', class: 'btn primary lg',
+      onclick: async () => {
+        save.disabled = true;
+        const { ok, body } = await post('/api/creators/payout', { code: c.id, amountUsd: Number(amount.value), note: note.value });
+        if (ok) {
+          closeDialog('dlg');
+          apply(body.state);
+          toast('Payment of ' + C.money(Math.round(body.amountUsd * 100)) + ' to ' + c.name + ' recorded.');
+        } else {
+          save.disabled = false;
+          clear(msg);
+          append(msg, checkLine('bad', errorText(body)));
+        }
+      },
+    }, 'Record payment');
+    showDlg('Pay ' + (c.name || c.id), [
+      h('p', { class: 'muted' }, 'Owed now ' + C.money(m.owedCents) + '. Earned and unpaid in all ' + C.money(m.unpaidCents) + '. Pay by bank first, then record it here.'),
+      h('div', { class: 'fld' }, h('label', { for: 'payAmount' }, 'Amount paid, US dollars'), amount),
+      h('div', { class: 'fld' }, h('label', { for: 'payNote' }, 'Note they see on their page'), note),
+      msg,
+    ], [cancelBtn(), save]);
+    amount.focus();
+  }
+
+  function openShare(c) {
+    const input = h('input', { type: 'number', class: 'in num', id: 'shareInput', min: '0', max: '100', step: '0.5', inputmode: 'decimal' });
+    input.value = c.sharePercent === null ? '' : String(c.sharePercent);
+    const msg = h('ul', { class: 'checks' });
+    const save = h('button', {
+      type: 'button', class: 'btn primary lg',
+      onclick: async () => {
+        save.disabled = true;
+        const value = input.value.trim() === '' ? null : Number(input.value);
+        const { ok, body } = await post('/api/creators/share', { code: c.id, sharePercent: value });
+        if (ok) {
+          closeDialog('dlg');
+          apply(body.state);
+          toast(body.changed ? c.name + '\'s share is now ' + input.value + '%.' : 'Nothing changed.');
+        } else {
+          save.disabled = false;
+          clear(msg);
+          append(msg, checkLine('bad', errorText(body)));
+        }
+      },
+    }, 'Save');
+    showDlg('Change ' + (c.name || c.id) + '\'s share', [
+      h('div', { class: 'fld' },
+        h('label', { for: 'shareInput' }, 'Their share of what Apple sends you'),
+        h('div', { class: 'unit-row' }, input, h('span', { class: 'muted' }, '%'))),
+      h('p', { class: 'small faint' }, 'Sales from now on use the new percent. Earlier sales keep theirs.'),
+      msg,
+    ], [cancelBtn(), save]);
+    input.focus();
+  }
+
+  async function makePageLink(c) {
+    if (c.hasStatementLink && !window.confirm('Make a new earnings page link for ' + (c.name || c.id) + '? The link they have now stops working.')) return;
+    const { ok, body } = await post('/api/creators/statement-link', { code: c.id });
+    if (!ok) {
+      toast(errorText(body));
+      return;
+    }
+    apply(body.state);
+    showLink(c, body.link);
+  }
+
+  function showLink(c, link) {
+    showDlg((c.name || c.id) + '\'s earnings page', [
+      h('p', { class: 'muted' }, 'Send them this link. It opens their own page: their sales, money waiting and ready, and your payments.'),
+      h('div', { class: 'linkbox' }, h('code', null, link), h('button', { type: 'button', class: 'btn sm primary', onclick: () => copy(link) }, 'Copy')),
+      h('p', { class: 'small faint' }, 'Shown once. If it is lost, make a new one, which switches this one off.'),
+    ], [cancelBtn('Done')]);
+  }
+
+  function openDetails(c) {
+    const facts = [
+      ['Code', c.code],
+      ['Apple offer name', c.offerRef],
+      ['Buyer pays', c.offerPriceUsd === null ? '?' : '$' + c.offerPriceUsd.toFixed(2) + ' in the US (' + c.discountPercent + '% off)'],
+      ['Their share', (c.sharePercent === null ? '?' : c.sharePercent) + '% of what Apple sends you'],
+      ['Uses allowed', c.usesAllowed === null ? '?' : Number(c.usesAllowed).toLocaleString('en-US')],
+      ['Code ends', c.codeEndsOn ? dayText(c.codeEndsOn) + ', 00:00 Pacific' : '?'],
+      ['Apple ids', c.appleOfferCodeId ? 'offer ' + c.appleOfferCodeId + (c.appleCustomCodeId ? ', code ' + c.appleCustomCodeId : ', no code yet') : 'none yet'],
+      ['Paid so far', C.money(c.money.paidCents) + (c.lastPaidAtMs ? ', last on ' + msDay(c.lastPaidAtMs) : '')],
+      ['Waiting', C.money(c.money.waitingCents) + ', under 60 days old'],
+      ['Their page', c.hasStatementLink ? 'link made ' + msDay(c.statementKeyAtMs) : 'no link yet'],
+      c.stoppedAtMs ? ['Stopped', msDay(c.stoppedAtMs)] : null,
+    ].filter(Boolean);
+    const list = h('dl', { class: 'facts' });
+    for (const [k, v] of facts) append(list, h('dt', null, k), h('dd', null, v));
+    const link = C.shareLinkFor(c.code);
+    showDlg(c.name || c.id, [
+      list,
+      h('div', { class: 'fld' },
+        h('span', { class: 'label' }, 'The link their followers tap'),
+        h('div', { class: 'linkbox' }, h('code', null, link), h('button', { type: 'button', class: 'btn sm', onclick: () => copy(link) }, 'Copy'))),
+    ], [cancelBtn('Close')]);
+  }
+
+  function openStop(c) {
+    const msg = h('ul', { class: 'checks' });
+    const stop = h('button', {
+      type: 'button', class: 'btn danger solid lg',
+      onclick: async () => {
+        stop.disabled = true;
+        const { ok, body } = await post('/api/creators/stop', { code: c.id });
+        if (ok) {
+          closeDialog('dlg');
+          apply(body.state);
+          toast(body.apple === 'stopped' ? (c.name || c.id) + '\'s code is stopped at Apple.' : (c.name || c.id) + ' is stopped.');
+        } else {
+          stop.disabled = false;
+          clear(msg);
+          append(msg, checkLine('bad', errorText(body)));
+        }
+      },
+    }, 'Stop the code');
+    showDlg('Stop ' + (c.name || c.id) + '\'s code?', [
+      h('p', null, c.appleOfferCodeId
+        ? 'Apple switches the offer off, so ' + c.code + ' stops working for everyone. Sales already made keep their share.'
+        : 'They have no Apple code yet, so this only marks them stopped here.'),
+      msg,
+    ], [cancelBtn(), stop]);
+  }
+
+  async function reactivate(c) {
+    const { ok, body } = await post('/api/creators/active', { code: c.id, active: true });
     if (ok) {
       apply(body.state);
-      toast(c.active ? c.name + ' is inactive.' : c.name + ' is active again.');
+      toast((c.name || c.id) + ' is active again.');
     } else {
       toast(errorText(body));
     }
   }
 
-  // ---- App Store Connect settings and status --------------------------------------------
+  // ---- Add creator --------------------------------------------------------------------------------
 
-  function renderAscNote() {
-    const d = state.data;
-    const box = clear($('ascNote'));
-    if (!d.asc.ok) {
-      append(box, h('div', { class: 'banner warn' }, h('div', { class: 'grow' },
-        h('b', null, 'App Store Connect is not set up for this tool. '),
-        d.asc.missing.join('. ') + '. Start the tool with ',
-        h('code', null, 'ASC_KEY_ID=8672BSV59Q ASC_ISSUER_ID=fb55eebc-827e-4fcd-a941-989b2e36807b npm start'),
-        ' to make codes from here. Until then, Save without the Apple code records the creator, and the code can be made later from its row.')));
+  function formInput() {
+    return {
+      name: $('cName').value.trim(),
+      code: C.normalizeCode($('cCode').value),
+      discountPercent: Number($('cOff').value),
+      discountOff: $('cBase').value,
+      sharePercent: $('cShare').value === '' ? null : Number($('cShare').value),
+      codeEndsOn: $('cUntil').value,
+      usesAllowed: Number($('cUses').value),
+    };
+  }
+
+  function stepErrors(step) {
+    const input = formInput();
+    const all = C.checkCreatorInput(input, { nowMs: Date.now() }).errors;
+    const mine = all.filter((e) => (step === 1 ? STEP1_CODES.has(e.code) : !STEP1_CODES.has(e.code)));
+    if (step === 1 && input.code && state.data.creators.some((c) => c.id === input.code)) {
+      mine.push({ code: 'taken', message: input.code + ' is taken. Pick another code.' });
+    }
+    return mine;
+  }
+
+  function resetAdd() {
+    $('cName').value = '';
+    $('cCode').value = '';
+    $('cOff').value = '20';
+    $('cShare').value = String(C.DEFAULT_SHARE_PERCENT);
+    $('cUses').value = '1000';
+    $('cBase').value = C.DEFAULT_PRODUCT;
+    $('cRate').value = '0.70';
+    $('cUntil').min = state.data.codeEndRange.min;
+    $('cUntil').max = state.data.codeEndRange.max;
+    $('cUntil').value = state.data.codeEndRange.max;
+    state.step = 1;
+    state.touched = { 1: false, 2: false };
+    state.preview = null;
+    state.previewError = null;
+    state.previewLoading = false;
+    state.createError = null;
+    state.done = null;
+  }
+
+  function openAdd() {
+    resetAdd();
+    renderAdd();
+    openDialog('addDialog');
+    $('cName').focus();
+  }
+
+  /** A saved creator with no Apple code yet: straight to step 3 for it. */
+  function openAddForExisting(c) {
+    resetAdd();
+    $('cName').value = c.name;
+    $('cCode').value = c.code;
+    state.step = 3;
+    state.existing = c.id;
+    state.previewDiscount = c.discountPercent;
+    renderAdd();
+    openDialog('addDialog');
+    askPreview({ code: c.id });
+  }
+
+  function paintMoney() {
+    const input = formInput();
+    const m = C.moneyPreview({ productId: input.discountOff, discountPercent: input.discountPercent, sharePercent: input.sharePercent, keepRate: Number($('cRate').value) });
+    $('mBuyer').textContent = m.buyerCents === null ? '?' : C.money(m.buyerCents);
+    $('mApple').textContent = C.money(m.proceedsCents);
+    $('mShareLabel').textContent = '(' + m.sharePercent + '%)';
+    $('mCreator').textContent = C.money(m.creatorCents);
+    $('mKeep').textContent = C.money(m.keepCents);
+  }
+
+  function renderPreviewBox() {
+    const box = clear($('previewBox'));
+    if (state.previewLoading) {
+      append(box, h('p', { class: 'muted' }, 'Checking prices in every country with Apple. This takes about 20 seconds.'));
       return;
     }
-    if (state.apple) {
-      for (const p of state.apple.products) {
-        if (p.state !== 'APPROVED') {
-          append(box, h('div', { class: 'banner warn' }, h('div', { class: 'grow' },
-            h('b', null, p.productId + ' is ' + (p.state || 'unknown') + ' in App Store Connect. '),
-            'Apple only makes codes for an approved product, so codes with the discount off ' + productPrice(p.productId) + ' wait until it passes review.')));
-        }
-      }
+    if (state.previewError) {
+      append(box, h('ul', { class: 'checks' }, checkLine('bad', state.previewError)));
+      return;
     }
+    const p = state.preview;
+    if (!p) return;
+    const s = p.summary;
+    const others = Math.max(0, s.territories - 1);
+    const facts = [
+      ['Apple offer', s.offerStep === 'create' ? s.offerRef + ', new' : s.offerRef + ', already at Apple'],
+      ['Price', s.usPrice + ' in the US' + (s.offerStep === 'create' && others
+        ? ', and at least ' + state.previewDiscount + '% off in ' + plural(others, 'more country', 'more countries')
+        : '')],
+      ['Code', s.code + ', ' + Number(s.usesAllowed).toLocaleString('en-US') + ' uses, ends ' + dayText(s.codeEndsOn)],
+      ['Apple codes', (10 - Math.max(0, s.offersLeftAfter)) + ' of 10 used after this'],
+    ];
+    const list = h('dl', { class: 'facts' });
+    for (const [k, v] of facts) append(list, h('dt', null, k), h('dd', null, v));
+    append(box, list);
+    const lines = h('ul', { class: 'checks' });
+    for (const b of p.blocked) append(lines, checkLine('bad', b));
+    for (const w of p.warnings || []) append(lines, checkLine('warn', w));
+    if (s.deeper) append(lines, checkLine('warn', plural(s.deeper, 'country gets', 'countries get') + ' a little more off, where its currency has no closer price.'));
+    if (s.dropped && s.dropped.length) append(lines, checkLine('warn', 'Left out, with no price low enough there: ' + s.dropped.join(', ') + '.'));
+    if (lines.firstChild) append(box, lines);
+    if (p.requests.length) {
+      const details = h('details', null, h('summary', null, 'The exact requests Create sends'));
+      for (const req of p.requests) append(details, h('pre', null, req.method + ' ' + req.path + '\n' + JSON.stringify(req.body, null, 2)));
+      append(box, details);
+    }
+    if (state.createError) append(box, h('ul', { class: 'checks' }, checkLine('bad', state.createError)));
+  }
+
+  function renderDone() {
+    const d = state.done;
+    if (!d) return;
+    $('doneTitle').textContent = d.saved ? d.name + ' is saved' : d.name + '\'s code is live';
+    $('doneSub').textContent = d.saved
+      ? 'No Apple code yet. Make it from their row when you are ready.'
+      : 'Apple made the code ' + d.code + '.';
+    $('doneLinks').hidden = d.saved;
+    $('doneLink').textContent = d.shareLink;
+    $('donePageBox').hidden = !d.pageLink;
+    $('donePageBtn').hidden = !!d.pageLink;
+    if (d.pageLink) $('donePageLink').textContent = d.pageLink;
+  }
+
+  function renderAdd() {
+    const step = state.step;
+    const items = $('addSteps').children;
+    for (let i = 0; i < items.length; i++) {
+      const n = i + 1;
+      items[i].className = step === 'done' || n < step ? 'done' : n === step ? 'now' : '';
+    }
+    $('addPane1').hidden = step !== 1;
+    $('addPane2').hidden = step !== 2;
+    $('addPane3').hidden = step !== 3;
+    $('addDone').hidden = step !== 'done';
+    $('addTitle').textContent = step === 'done' ? 'Creator ready' : 'Add creator';
+
+    const code = C.normalizeCode($('cCode').value);
+    $('codeLink').textContent = C.shareLinkFor(code || 'CODE').replace(/^https:\/\//, '');
+    paintMoney();
+
+    const errors = clear($('formErrors'));
+    if ((step === 1 || step === 2) && state.touched[step]) {
+      for (const e of stepErrors(step)) append(errors, checkLine('bad', e.message));
+    }
+
+    const back = $('addBack');
+    const next = $('addNext');
+    const saveOnly = $('addSaveOnly');
+    const ascOk = state.data.asc.ok;
+    back.hidden = step === 1 || step === 'done' || (step === 3 && !!state.existing);
+    saveOnly.hidden = !((step === 2 && !ascOk) || (step === 3 && !state.existing));
+    saveOnly.className = step === 2 ? 'btn primary lg' : 'btn lg';
+    next.hidden = step === 2 && !ascOk;
+    if (step === 1) next.textContent = 'Next';
+    else if (step === 2) next.textContent = 'Next: the Apple code';
+    else if (step === 3) next.textContent = state.previewLoading ? 'Checking with Apple...' : 'Create the code';
+    else next.textContent = 'Done';
+    const p = state.preview;
+    next.disabled = state.busy ||
+      (step === 3 && (state.previewLoading || !p || p.blocked.length > 0 || !!state.createError));
+    saveOnly.disabled = state.busy;
+    if (step === 3) renderPreviewBox();
+    if (step === 'done') renderDone();
+  }
+
+  async function askPreview(payload) {
+    state.previewLoading = true;
+    state.previewError = null;
+    state.preview = null;
+    state.createError = null;
+    renderAdd();
+    const { ok, body } = await post('/api/creators/apple/preview', payload);
+    state.previewLoading = false;
+    if (ok) state.preview = body.preview;
+    else state.previewError = errorText(body) || 'Apple could not be asked just now.';
+    renderAdd();
+  }
+
+  async function next() {
+    const step = state.step;
+    if (step === 1 || step === 2) {
+      state.touched[step] = true;
+      if (stepErrors(step).length) {
+        renderAdd();
+        return;
+      }
+      state.step = step + 1;
+      renderAdd();
+      if (state.step === 2) $('cOff').focus();
+      if (state.step === 3) {
+        state.previewDiscount = formInput().discountPercent;
+        askPreview({ input: formInput() });
+      }
+      return;
+    }
+    if (step === 3) {
+      const p = state.preview;
+      if (!p || state.busy) return;
+      state.busy = true;
+      renderAdd();
+      const { ok, body } = await post('/api/creators/apple/create', { planId: p.planId });
+      state.busy = false;
+      if (body.state) apply(body.state);
+      if (ok) {
+        state.done = { name: p.summary.name, code: p.summary.code, shareLink: p.summary.shareLink, saved: false, pageLink: null };
+        state.step = 'done';
+        state.existing = null;
+        toast('Apple made the code for ' + p.summary.name + '.');
+      } else {
+        state.createError = errorText(body) || 'It did not go through.';
+      }
+      renderAdd();
+      return;
+    }
+    closeDialog('addDialog');
+  }
+
+  async function saveOnly() {
+    if (state.busy) return;
+    state.touched[1] = true;
+    state.touched[2] = true;
+    if (stepErrors(1).length) {
+      state.step = 1;
+      renderAdd();
+      return;
+    }
+    if (stepErrors(2).length) {
+      state.step = 2;
+      renderAdd();
+      return;
+    }
+    state.busy = true;
+    renderAdd();
+    const input = formInput();
+    const { ok, body } = await post('/api/creators/add', input);
+    state.busy = false;
+    if (ok) {
+      apply(body.state);
+      state.done = { name: input.name, code: input.code, shareLink: C.shareLinkFor(input.code), saved: true, pageLink: null };
+      state.step = 'done';
+      toast('Saved ' + input.name + '.');
+    } else {
+      state.createError = errorText(body);
+      toast(errorText(body));
+    }
+    renderAdd();
+  }
+
+  async function donePageLink() {
+    const d = state.done;
+    if (!d) return;
+    const { ok, body } = await post('/api/creators/statement-link', { code: d.code });
+    if (!ok) {
+      toast(errorText(body));
+      return;
+    }
+    apply(body.state);
+    d.pageLink = body.link;
+    renderAdd();
+  }
+
+  // ---- Everything ------------------------------------------------------------------------------------
+
+  function apply(data) {
+    state.data = data;
+    renderTiles();
+    renderBanners();
+    renderRows();
+    $('addBtn').disabled = false;
   }
 
   async function loadAppleStatus() {
@@ -386,238 +749,59 @@
     } catch (e) {
       body = { ok: false, error: 'Could not reach the admin tool.' };
     }
-    if (body.ok) {
-      state.apple = body.status;
-      renderTiles();
-      renderAscNote();
-    } else {
-      $('tOffersSub').textContent = 'From this tool\'s records. App Store Connect did not answer: ' + errorText(body);
-    }
-  }
-
-  // ---- The Add form ----------------------------------------------------------------------
-
-  function formInput() {
-    return {
-      name: $('cName').value.trim(),
-      code: $('cCode').value.trim().toUpperCase(),
-      discountPercent: Number($('cOff').value),
-      discountOff: $('cBase').value,
-      sharePercent: $('cShare').value === '' ? null : Number($('cShare').value),
-      codeEndsOn: $('cUntil').value,
-      usesAllowed: Number($('cUses').value),
-    };
-  }
-
-  function paintForm() {
-    const d = state.data;
-    const codeBox = $('cCode');
-    const clean = C.normalizeCode(codeBox.value);
-    if (clean !== codeBox.value) codeBox.value = clean;
-    const input = formInput();
-    const m = C.moneyPreview({ productId: input.discountOff, discountPercent: input.discountPercent, sharePercent: input.sharePercent, keepRate: Number($('cRate').value) });
-    $('mBuyer').textContent = m.buyerCents === null ? '?' : C.money(m.buyerCents);
-    $('mApple').textContent = C.money(m.proceedsCents);
-    $('mShareLabel').textContent = '(' + m.sharePercent + '%)';
-    $('mCreator').textContent = C.money(m.creatorCents);
-    $('mKeep').textContent = C.money(m.keepCents);
-    $('mPlainNote').textContent = 'Without a code, a ' + C.money(m.baseCents) + ' sale leaves you ' + C.money(m.plainCents) +
-      '. Bahrain buyers pay VAT inside the price, so every line is about 9% lower there.';
-    const shown = clean || 'CODE';
-    $('cLink').textContent = C.shareLinkFor(shown).replace(/^https:\/\//, '');
-    const left = d.maxOffers - (state.apple ? state.apple.activeOffers : d.offersInUse) - 1;
-    $('createNote').textContent = 'Makes the Apple offer ' + C.offerRefFor(shown) + ' with the code ' + shown + '. Uses 1 of your ' + d.maxOffers +
-      ' offers, leaving ' + Math.max(0, left) + '.';
-
-    const check = C.checkCreatorInput(input, { nowMs: Date.now() });
-    const list = clear($('formErrors'));
-    if (state.touched) check.errors.forEach((e) => append(list, h('li', { class: 'bad' }, h('span', { 'aria-hidden': 'true' }, '✕'), h('span', null, e.message))));
-    $('previewBtn').disabled = !check.ok || state.busy || !d.asc.ok;
-    $('saveOnlyBtn').disabled = !check.ok || state.busy;
-  }
-
-  function resetForm() {
-    $('cName').value = '';
-    $('cCode').value = '';
-    $('cOff').value = '20';
-    $('cShare').value = String(C.DEFAULT_SHARE_PERCENT);
-    $('cUses').value = '1000';
-    $('cBase').value = C.DEFAULT_PRODUCT;
-    $('cUntil').value = state.data.codeEndRange.max;
-    state.touched = false;
-  }
-
-  // ---- The two-step Apple code ----------------------------------------------------------
-
-  function dl(rows) {
-    const list = h('dl');
-    for (const [k, v] of rows) {
-      if (v === null || v === undefined || v === '') continue;
-      append(list, [h('dt', null, k), h('dd', null, v)]);
-    }
-    return list;
-  }
-
-  const TERRITORY_NAMES = { USA: 'United States', BHR: 'Bahrain', SAU: 'Saudi Arabia', ARE: 'UAE', KWT: 'Kuwait', QAT: 'Qatar', OMN: 'Oman', EGY: 'Egypt', GBR: 'United Kingdom', DEU: 'Germany' };
-
-  function renderPreview() {
-    const box = clear($('previewBox'));
-    const p = state.preview;
-    const r = state.result;
-    if (!p && !r) return;
-    const panel = h('div', { class: 'preview', role: 'region', 'aria-label': 'Apple code preview' });
-    if (p) {
-      const s = p.summary;
-      append(panel, h('h3', null, (p.isNew ? 'Preview: ' : 'Apple code for ') + s.name + ' (' + s.code + ')'));
-      if (p.blocked.length) {
-        append(panel, h('div', { class: 'blocked' }, h('b', null, 'Can\'t be made yet. '), p.blocked.join(' ')));
-      }
-      for (const w of p.warnings || []) {
-        append(panel, h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', null, 'Worth knowing. '), w)));
-      }
-      const others = s.sample.filter((x) => x.territory !== 'USA')
-        .map((x) => (TERRITORY_NAMES[x.territory] || x.territory) + ' ' + x.customerPrice + (x.currency ? ' ' + x.currency : '') +
-          (x.regularPrice ? ' (was ' + x.regularPrice + ', ' + x.percentOff + '% off)' : '')).join(', ');
-      const dropped = (s.dropped || []).map((t) => TERRITORY_NAMES[t] || t).join(', ');
-      append(panel, dl([
-        ['Product', s.productId + ' (Apple id ' + s.iapId + '), ' + (s.productState || 'state unknown') +
-          (s.usPriceToday ? ', sells for ' + s.usPriceToday + ' in the US today' : '')],
-        ['Offer', s.offerStep === 'create' ? s.offerRef + ', a new offer' : s.offerRef + ', already in App Store Connect (' + s.offerId + '), used as it is'],
-        ['Who can use it', s.eligibility],
-        ['Price', s.offerStep === 'create'
-          ? s.usPrice + ' in the US' + (s.usProceeds ? ' (Apple says you get $' + Number(s.usProceeds).toFixed(2) + ')' : '') +
-            ', and at least the same percent off in ' + plural(Math.max(0, s.territories - 1), 'other territory', 'other territories') + (others ? ': ' + others + ', and the rest' : '') +
-            (s.deeper ? '. ' + plural(s.deeper, 'territory gets', 'territories get') + ' a little more off, where its currency has no closer price' : '') +
-            (dropped ? '. Left out, with no price low enough there: ' + dropped : '')
-          : s.usPrice + ' in the US, as the existing offer has it'],
-        ['Code', s.codeStep === 'create'
-          ? s.code + ', ' + Number(s.usesAllowed).toLocaleString('en-US') + ' uses, ends ' + dayText(s.codeEndsOn) + ' at 00:00 Pacific time'
-          : s.code + ', already under this offer in App Store Connect'],
-        ['Apple offers', s.activeOffers + ' active now; ' + Math.max(0, s.offersLeftAfter) + ' of 10 left after this'],
-        ['Share link', s.shareLink],
-      ]));
-      if (p.requests.length) {
-        for (const req of p.requests) {
-          append(panel, h('details', null,
-            h('summary', null, req.step + ': ' + req.method + ' ' + req.path),
-            h('pre', null, JSON.stringify(req.body, null, 2))));
-        }
-        append(panel, h('p', { class: 'fine' }, 'These are the exact requests Create sends, in this order, signed with your App Store Connect key.' +
-          (p.requests.length === 2 ? ' The code request goes under the id Apple returns for the new offer.' : '') + ' This preview is good for 15 minutes.'));
-      } else {
-        append(panel, h('p', { class: 'fine' }, 'Apple already has both the offer and the code. Create sends nothing to Apple; it only records their ids here.'));
-      }
-      const create = h('button', {
-        type: 'button', class: 'btn primary big', disabled: p.blocked.length || state.busy ? true : null,
-        onclick: () => createApple(create),
-      }, p.requests.length ? 'Create in App Store Connect' : 'Record the Apple ids');
-      const cancel = h('button', { type: 'button', class: 'btn ghost', onclick: () => { state.preview = null; renderPreview(); } }, 'Cancel');
-      append(panel, h('div', { class: 'btn-row' }, create, cancel));
-    }
-    if (r) {
-      append(panel, h('div', { class: 'result ' + (r.ok ? 'ok' : 'bad') }, r.message));
-      if (r.ok && r.shareLink) {
-        append(panel, h('div', { class: 'linkbox' }, h('code', null, r.shareLink),
-          h('button', { type: 'button', class: 'btn small', onclick: () => copy(r.shareLink) }, 'Copy')));
-      }
-      if (!p) append(panel, h('div', { class: 'btn-row' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => { state.result = null; renderPreview(); } }, 'Close')));
-    }
-    append(box, panel);
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-
-  async function askPreview(payload, button) {
-    if (state.busy) return;
-    state.busy = true;
-    if (button) button.disabled = true;
-    state.result = null;
-    const { ok, body } = await post('/api/creators/apple/preview', payload);
-    state.busy = false;
-    if (button) button.disabled = false;
-    if (ok) {
-      state.preview = body.preview;
-    } else {
-      state.preview = null;
-      state.result = { ok: false, message: errorText(body) };
-    }
-    renderPreview();
-    paintForm();
-  }
-
-  function previewExisting(code) {
-    askPreview({ code }, null);
-  }
-
-  async function createApple(button) {
-    const p = state.preview;
-    if (!p || state.busy) return;
-    state.busy = true;
-    button.disabled = true;
-    const { ok, body } = await post('/api/creators/apple/create', { planId: p.planId });
-    state.busy = false;
-    state.preview = null;
-    state.result = { ok, message: errorText(body) || (ok ? 'Done.' : 'It did not go through.'), shareLink: ok ? p.summary.shareLink : null };
-    if (body.state) apply(body.state);
-    // A stage means the creator was saved before Apple answered, so the
-    // form's code is taken now: its row carries on from here.
-    if (p.isNew && (ok || body.stage)) resetForm();
-    renderPreview();
-    paintForm();
-    if (ok) toast('Apple code made for ' + p.summary.name + '.');
-  }
-
-  async function saveOnly() {
-    if (state.busy) return;
-    state.busy = true;
-    $('saveOnlyBtn').disabled = true;
-    const { ok, body } = await post('/api/creators/add', formInput());
-    state.busy = false;
-    if (ok) {
-      apply(body.state);
-      resetForm();
-      paintForm();
-      toast('Saved. Its row has Make the Apple code for when you are ready.');
-    } else {
-      toast(errorText(body));
-      paintForm();
-    }
-  }
-
-  // ---- Everything ------------------------------------------------------------------------
-
-  function apply(data) {
-    const first = !state.data;
-    state.data = data;
-    if (first) {
-      const until = $('cUntil');
-      until.min = data.codeEndRange.min;
-      until.max = data.codeEndRange.max;
-      until.value = data.codeEndRange.max;
-      $('cShare').value = String(C.DEFAULT_SHARE_PERCENT);
-    }
-    renderTiles();
-    renderRows();
-    renderLedgerNotes();
-    renderAscNote();
-    paintForm();
+    if (body.ok) state.apple = body.status;
+    else state.appleError = errorText(body) || 'no answer';
+    if (state.data) renderTiles();
   }
 
   function wire() {
-    for (const id of ['cName', 'cCode', 'cOff', 'cBase', 'cShare', 'cUntil', 'cUses', 'cRate']) {
+    $('addBtn').addEventListener('click', openAdd);
+    $('addClose').addEventListener('click', () => closeDialog('addDialog'));
+    closeOnBackdrop('addDialog');
+    $('addDialog').addEventListener('close', () => {
+      state.existing = null;
+    });
+    $('addNext').addEventListener('click', next);
+    $('addBack').addEventListener('click', () => {
+      if (state.step === 2 || state.step === 3) state.step -= 1;
+      state.previewLoading = false;
+      renderAdd();
+    });
+    $('addSaveOnly').addEventListener('click', saveOnly);
+    for (const id of ['cName', 'cCode', 'cOff', 'cShare', 'cUntil', 'cUses', 'cBase', 'cRate']) {
       $(id).addEventListener('input', () => {
-        if (id !== 'cRate') state.touched = true;
-        paintForm();
+        if (id === 'cCode') {
+          const clean = C.normalizeCode($('cCode').value);
+          if (clean !== $('cCode').value) $('cCode').value = clean;
+        }
+        renderAdd();
       });
     }
-    $('copyLink').addEventListener('click', () => copy(C.shareLinkFor(C.normalizeCode($('cCode').value) || 'CODE')));
-    $('previewBtn').addEventListener('click', () => {
-      state.touched = true;
-      askPreview({ input: formInput() }, $('previewBtn'));
+    $('cName').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') next();
     });
-    $('saveOnlyBtn').addEventListener('click', () => {
-      state.touched = true;
-      saveOnly();
+    $('cCode').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') next();
     });
+    $('doneCopy').addEventListener('click', () => copy($('doneLink').textContent));
+    $('donePageBtn').addEventListener('click', donePageLink);
+    $('donePageCopy').addEventListener('click', () => copy($('donePageLink').textContent));
+
+    closeOnBackdrop('dlg');
+    $('howBtn').addEventListener('click', () => openDialog('howDialog'));
+    $('howClose').addEventListener('click', () => closeDialog('howDialog'));
+    closeOnBackdrop('howDialog');
+
+    document.addEventListener('click', (e) => {
+      const menu = $('rowMenu');
+      if (menu.hidden) return;
+      if (menu.contains(e.target) || (e.target.closest && e.target.closest('[aria-haspopup="menu"]'))) return;
+      closeMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !$('rowMenu').hidden) closeMenu();
+    });
+    window.addEventListener('resize', closeMenu);
   }
 
   async function load() {
@@ -629,7 +813,7 @@
       body = { ok: false, error: 'Could not reach the admin tool.' };
     }
     if (!body || body.ok === false) {
-      append($('banners'), h('div', { class: 'banner danger' }, h('div', { class: 'grow' }, 'Could not load the creators: ' + errorText(body))));
+      append($('banners'), notice('danger', 'Could not load the creators: ' + errorText(body)));
       return;
     }
     wire();
