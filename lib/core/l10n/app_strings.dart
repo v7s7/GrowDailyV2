@@ -2805,12 +2805,28 @@ class S {
   // used to say «الإقلاع والتقليل» while the switch said «ترك أو تقليل», two
   // names for one thing (2026-09-08).
   String get gridSectionQuit => isAr ? 'ترك أو تقليل' : 'Quit or cut down';
+  // The full-row pop-up (grid_screen_table.dart, _maybeCelebrateFullRow).
+  // It said «أسبوع $name كله أخضر» for every row, wrong twice over: a theme
+  // can paint done squares purple, blue or pink (see gridGreenSquares), and
+  // a Monday-and-Thursday habit fills its row with two squares, not a week.
+  // Aziz, 2026-09-27: "say it's done", one short line that is true of every
+  // row, whether it asked for every day, some days, or began mid-week. A
+  // quit habit says «التزمت» instead, because «التدخين: تم» would read as
+  // the habit itself done.
   String gridFullRow(String name) => isAr
-      ? 'صف كامل! أسبوع $name كله أخضر.'
-      : 'Full row! A whole green week of $name.';
+      ? 'صف كامل! «$name»: تم هذا الأسبوع.'
+      : 'Full row! "$name": done this week.';
+  String gridFullRowQuit(String name) => isAr
+      ? 'صف كامل! «$name»: التزمت هذا الأسبوع.'
+      : 'Full row! "$name": clean this week.';
+  // The day's own pop-up. It fires on the tap that earns the day's streak
+  // point, which is 80% of the day's habits (kStreakDayCompletionThreshold),
+  // so with five habits it lands on the fourth and «كل عاداتك» was untrue;
+  // it named green too. «يوم كامل» is the app's word for that 80% day (see
+  // fullDaysInSentence), and the streak point is what the tap just earned.
   String get perfectDayMsg => isAr
-      ? 'يوم كامل! كل عاداتك خضرا اليوم.'
-      : 'Perfect day! Every habit green today.';
+      ? 'يوم كامل! يومك انحسب في سلسلتك.'
+      : 'Full day! Today counts toward your streak.';
   // ── Weekly recap (Saturday card on Profile) ───────────────────────────────
   // The card shows once its week has sealed, Saturday from 10:00 (see
   // recapWeekStartAt), so the week it counts is the one that has just ended,

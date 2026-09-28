@@ -1681,6 +1681,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     }
     HapticFeedback.heavyImpact();
     final s = S.of(context);
+    final name = habit.localName(s.isAr);
     ScaffoldMessenger.of(context).showOne(
       SnackBar(
         content: Row(
@@ -1691,7 +1692,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                s.gridFullRow(habit.localName(s.isAr)),
+                habit.goalType == GoalType.quit
+                    ? s.gridFullRowQuit(name)
+                    : s.gridFullRow(name),
                 style: TextStyle(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w800,

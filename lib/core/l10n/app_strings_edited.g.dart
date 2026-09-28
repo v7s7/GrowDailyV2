@@ -726,6 +726,7 @@ const List<String> kEditableWordingKeys = [
   'gridSectionBuild',
   'gridSectionQuit',
   'gridFullRow',
+  'gridFullRowQuit',
   'perfectDayMsg',
   'weeklyRecapTitle',
   'weeklyNoteOfferAsk',
@@ -4829,6 +4830,23 @@ class _EditedS extends S {
                 },
         ) ??
         super.gridFullRow(name);
+  }
+
+  @override
+  String gridFullRowQuit(String name) {
+    final wordingEdit = _edits['gridFullRowQuit'];
+    if (wordingEdit == null) return super.gridFullRowQuit(name);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'name': () => '$name',
+                }
+              : <String, String Function()>{
+                  'name': () => '$name',
+                },
+        ) ??
+        super.gridFullRowQuit(name);
   }
 
   @override

@@ -159,9 +159,11 @@ void showStreakFreezeProtectedSnackBar(BuildContext context, int remaining) {
   );
 }
 
-/// "Every habit green today" — the day's own completion moment, distinct
-/// from level/achievement rewards: emerald (the grid's color), not gold,
-/// because what's being celebrated is the colored board itself.
+/// The day's own completion moment, on the tap that earns its streak point
+/// (see S.perfectDayMsg for why its line names neither a colour nor "every
+/// habit"), distinct from level/achievement rewards: emerald (the grid's
+/// color), not gold, because what's being celebrated is the colored board
+/// itself.
 void showPerfectDaySnackBar(BuildContext context) {
   final gp = context.gp;
   final s = S.of(context);
