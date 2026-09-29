@@ -915,6 +915,63 @@ class S {
   /// Title case, unlike [settings] — that one is an all-caps section label
   /// inside a list; this is a screen's own app-bar title.
   String get settingsScreenTitle => isAr ? 'الإعدادات' : 'Settings';
+
+  // ── Settings, one tap deeper (Aziz picked canvas option C, 2026-09-28) ──
+  // The first page is five rows, each opening its own short page, with the
+  // current state written under it. First wording; Aziz picks the final
+  // words. No «شغّالة»: an ON state gets no word at all (his pick), the
+  // notifications line says what the page holds, and only OFF is named.
+
+  /// The Premium banner's line for a free account.
+  String get settingsPremiumUnlock =>
+      isAr ? 'افتح كل ميزات بريميوم' : 'Unlock every Premium feature';
+
+  /// The same banner's line once Premium is on: it stops selling what is
+  /// owned. Not «اشتراكك»: a Lifetime owner, granted Premium and a trial
+  /// have no subscription, and the Premium page they open says so. The
+  /// answer to the free line above it.
+  String get settingsPremiumManage =>
+      isAr ? 'كل ميزات بريميوم مفتوحة لك' : 'Every Premium feature is yours';
+
+  /// The Notifications row's line while nothing is off: what the page holds.
+  String get settingsNotifSummary => isAr
+      ? 'العادات، التذكير اليومي، ساعات الهدوء'
+      : 'Habits, daily reminder, quiet hours';
+
+  /// ... when the app's own «السماح بالإشعارات» switch is off.
+  String get settingsNotifOff => isAr ? 'موقوفة' : 'Off';
+
+  /// ... when the phone itself blocks this app's notifications.
+  String get settingsNotifPhoneOff =>
+      isAr ? 'موقوفة من تلفونك' : "Off in your phone's settings";
+
+  /// The page for how the app looks: dark mode, theme, icon, font, and the
+  /// «الصفحات» card (bottom bar, Doum).
+  String get settingsLookTitle => isAr ? 'الشكل' : 'Look';
+
+  /// Its row's line starts with the mode, then the theme's name.
+  String get settingsLookLight => isAr ? 'فاتح' : 'Light';
+  String get settingsLookDark => isAr ? 'داكن' : 'Dark';
+
+  /// The Look page's second card: what the app's pages show.
+  String get settingsPagesSection => isAr ? 'الصفحات' : 'Pages';
+
+  /// The page holding Language and the prayer place.
+  String get settingsLanguagePlaceTitle =>
+      isAr ? 'اللغة وموقع الصلاة' : 'Language and prayer location';
+
+  /// The page holding the App Guide and Help & Support.
+  String get settingsHelpTitle => isAr ? 'المساعدة' : 'Help';
+  String get settingsHelpSummary =>
+      isAr ? 'دليل التطبيق والأسئلة' : 'App guide and questions';
+
+  /// The row that opens the App Guide (was an inline literal).
+  String get appGuideRowTitle => isAr ? 'دليل التطبيق' : 'App Guide';
+
+  /// The page holding sign-in methods, sign out and delete account.
+  String get settingsAccountTitle => isAr ? 'الحساب' : 'Account';
+  String get settingsAccountSummary =>
+      isAr ? 'طرق الدخول وتسجيل الخروج' : 'Sign-in methods and sign out';
   String get darkMode => isAr ? 'الوضع الداكن' : 'Dark Mode';
   String get appearance => isAr ? 'المظهر' : 'Appearance';
   String get appearanceSheetTitle =>
@@ -1330,7 +1387,10 @@ class S {
         SquareState.complete => isAr ? 'التزام' : 'Kept',
         // «زلة» until 2026-09-24 (Aziz picked «ما التزمت»).
         SquareState.failed => isAr ? 'ما التزمت' : "Didn't keep it",
-        SquareState.skipped => isAr ? 'تخطّي' : 'Skipped',
+        // «تخطّي» until 2026-09-28, renamed with the build word (see
+        // SquareState): these words live only in the palette, and every other
+        // screen names the square with SquareState.labelAr.
+        SquareState.skipped => isAr ? 'راحة' : 'Rest',
         SquareState.none => isAr ? 'بدون تسجيل' : 'Not recorded',
         // Never offered for a quit habit (see paletteStatesFor); named so the
         // switch stays exhaustive.
@@ -1683,6 +1743,53 @@ class S {
   // vanished.
   String matrixUpcomingCount(int n) => isAr ? '$n قادمة' : '$n upcoming';
   String get matrixAll => isAr ? 'الكل' : 'All';
+
+  // ── Tasks by day ──
+  // The Tasks page header steps through days and opens a month sheet (see
+  // task_day.dart for which day a task belongs to). Days are always named
+  // by their date, never by a word for tomorrow or yesterday (Aziz asked
+  // for dates): the header, the snackbars and the sheets all show the same
+  // date, so a word can never disagree with it.
+  // The [date]/[day] arguments come in already formatted (westernDate /
+  // weekdayDateLabel), Western digits.
+  //
+  // The header's arrows, as their screen reader names and tooltips.
+  String get matrixPrevDay => isAr ? 'اليوم اللي قبل' : 'Previous day';
+  String get matrixNextDay => isAr ? 'اليوم اللي بعد' : 'Next day';
+  // The header's title on today: «اليوم، 28 سبتمبر». Any other day shows
+  // its weekday and date alone.
+  String matrixTodayWithDate(String date) =>
+      isAr ? 'اليوم، $date' : 'Today, $date';
+  // The header title's screen reader hint: tapping it opens the month.
+  String get matrixOpenMonth => isAr ? 'افتح الشهر' : 'Open the month';
+  // The month sheet's footer, shown only when the sheet is away from today.
+  String get matrixBackToToday => isAr ? 'رجوع لليوم' : 'Back to today';
+  // Heading over the month sheet when it is picking a day for a task (the
+  // Add sheet's day row, the move sheet), rather than browsing boards.
+  String get matrixPickDay => isAr ? 'لأي يوم؟' : 'Which day?';
+  // The move sheet's row under the quadrants.
+  String get matrixMoveToAnotherDay =>
+      isAr ? 'نقل ليوم ثاني' : 'Move to another day';
+  // After an add whose task is not on the board being looked at, with a
+  // «عرض» action that opens that day's board. Says where it went, so a task
+  // added for another day never reads as an add that failed.
+  String get matrixAddedForToday => isAr ? 'انضافت لليوم' : 'Added for today';
+  String matrixAddedForDay(String day) =>
+      isAr ? 'انضافت ليوم $day' : 'Added for $day';
+  // After a move to another day, with a «تراجع» action.
+  String get matrixMovedToToday => isAr ? 'انتقلت لليوم' : 'Moved to today';
+  String matrixMovedToDay(String day) =>
+      isAr ? 'انتقلت ليوم $day' : 'Moved to $day';
+  // The snackbar action that opens the day a task was added for.
+  String get matrixShowDay => isAr ? 'عرض' : 'Show';
+  // An empty quadrant on a past day's board: a plain fact, no tap-to-add.
+  String get matrixNoTasksThatDay => isAr ? 'ما فيه مهام' : 'No tasks';
+  // Read after the date in a month sheet cell's screen reader label, for
+  // the dot (open tasks) and the tick (every task done).
+  String get matrixDayHasTasks => isAr ? 'فيه مهام' : 'has tasks';
+  String get matrixDayAllDone => isAr ? 'كلها تمت' : 'all done';
+  // The Add sheet's day row, as its screen reader label.
+  String get matrixDayRowHint => isAr ? 'يوم المهمة' : 'Task day';
   String get matrixTapToAdd =>
       isAr ? 'اضغط في أي مكان للإضافة' : 'Tap anywhere to add a goal';
   String get matrixAddAnother => isAr ? '+ أضف مهمة أخرى' : '+ Add another';
@@ -1736,10 +1843,12 @@ class S {
   String get matrixReminderPast => isAr
       ? 'اختر وقتًا في المستقبل'
       : 'Pick a time that hasn\'t already passed';
-  // The time wheel that follows the date picker (reminder_picker.dart's
-  // showReminderTimeSheet). The wheel carries a floor when the day is
-  // today, so a time that has already passed cannot be landed on; this
-  // line names that floor, and is not shown for any other day.
+  // The time wheel (reminder_picker.dart's showReminderTimeSheet): after
+  // the date picker in TaskDetailSheet, on its own in the Add sheet (whose
+  // day row picks the day) and the move sheet. The wheel carries a floor
+  // when the day is today, so a time that has already passed cannot be
+  // landed on; this line names that floor, and is not shown for any other
+  // day.
   String get matrixReminderTimeTitle => isAr ? 'الوقت' : 'Time';
   String matrixReminderEarliest(String time) =>
       isAr ? 'أقرب وقت: $time' : 'Earliest: $time';
@@ -2216,7 +2325,7 @@ class S {
   // the bar keeps the one noun.
   String get navHeatmap => isAr ? 'الخريطة' : 'Heatmap';
 
-  // ── Bottom bar customiser (Settings › Personalization, Premium) ──────────
+  // ── Bottom bar customiser (Settings › Look › Pages, Premium) ─────────────
   String get navBarSettingsTitle => isAr ? 'الشريط السفلي' : 'Bottom bar';
   String get navBarSettingsIntro => isAr
       ? 'اختر لحد 5 تبويبات، واسحبها عشان ترتّبها. العادات وملفي دائمًا موجودين.'
@@ -2250,7 +2359,7 @@ class S {
   String get navBadgeReviewPending =>
       isAr ? 'مراجعة الليل ما انحفظت بعد' : 'Night review not saved yet';
 
-  // App icon: Settings › التخصيص › أيقونة التطبيق (lib/features/app_icon),
+  // App icon: Settings › الشكل › أيقونة التطبيق (lib/features/app_icon),
   // iPhone only. First wording, 2026-09-25; Aziz picks the final words.
   String get appIconTitle => isAr ? 'أيقونة التطبيق' : 'App icon';
   String get appIconNow => isAr ? 'أيقونتك الحين' : 'Your icon now';
@@ -2736,12 +2845,12 @@ class S {
   /// The six squares are the one part of this app that cannot be understood
   /// by looking at it. Three of them mean some version of "not done", and
   /// nothing on screen said how they differ, so the honest question a person
-  /// arrives with, "what is the difference between تخطّي and فشل and just
-  /// leaving it empty", had no answer anywhere in the product.
+  /// arrives with, "what is the difference between راحة (then تخطّي) and فشل
+  /// and just leaving it empty", had no answer anywhere in the product.
   ///
   /// These lines answer it in terms of CONSEQUENCE, not definition. Nobody
-  /// needs to be told that تخطّي means skipped. What they need to know is
-  /// that it will not be counted against them, and that فشل will.
+  /// needs to be told that راحة means rest. What they need to know is that
+  /// it will not be counted against them, and that فشل will.
   String squareStateEffect(SquareState state) => switch (state) {
         SquareState.complete =>
           isAr ? 'يُحتسب يومًا كاملًا.' : 'Counts as a full day.',
@@ -3280,7 +3389,7 @@ class S {
   // follows" claims. No "any colour": every pick keeps its hue but very dark
   // or near-white ones are nudged into a readable range (fitAccentColour).
   // The old line said "48 colours", which no build ever had. The 9 is the
-  // Premium-only presets (ThemePresets.all has 11, two free). Latin digits,
+  // Premium-only presets (ThemePresets.all has 12, three free). Latin digits,
   // per the 2026-09-01 ruling.
   String get premiumBenefitAppearanceDesc => isAr
       ? 'اختر لونين والمظهر كله يتبعهم، أو خذ واحد من 9 مظاهر جاهزة.'
@@ -5091,44 +5200,59 @@ class S {
 
   String get notifMasterTitle =>
       isAr ? 'السماح بالإشعارات' : 'Allow Notifications';
+  // The subtitles below were cut short on 2026-09-28 (Aziz picked the short
+  // drafts with the sectioned page): one line each where it fits, in easy
+  // spoken Arabic. First wording; Aziz picks the final words.
   String get notifMasterDesc => isAr
-      ? 'أوقفه لإيقاف كل إشعارات Grow Daily، التذكيرات والسلاسل والاحتفالات، كل شيء.'
-      : 'Turn off to stop every notification Grow Daily sends, reminders, streaks, celebrations, all of it.';
+      ? 'إذا وقّفته، ما يوصلك أي إشعار من Grow Daily.'
+      : 'Turn it off and Grow Daily sends nothing.';
 
-  String get notifWhatSection =>
-      isAr ? 'ما الذي تريد إشعاري به' : 'WHAT TO NOTIFY ME ABOUT';
+  /// The page's sections since 2026-09-28, in order. They replaced one
+  /// six-switch card under «ما الذي تريد إشعاري به» and a lone «التوقيت»
+  /// card at the bottom: each switch now sits with what it feeds.
+  String get notifHabitsSection => isAr ? 'العادات' : 'Habits';
+  String get notifDailySection => isAr ? 'التذكير اليومي' : 'Daily reminder';
+  String get notifRoomsWeekSection =>
+      isAr ? 'الغرف والأسبوع' : 'Rooms and the week';
+
+  /// Under «تذكير يومي» once a time is picked: the two switches under it
+  /// add to this one note, they never send their own.
+  String get notifDailyReminderNote => isAr
+      ? 'إشعار واحد باليوم، في الوقت اللي تختاره.'
+      : 'One notification a day, at the time you pick.';
+
+  /// The small × beside the picked time (it used to take a hidden long
+  /// press). The screen reader's label and the tooltip.
+  String get notifClearReminderTime => isAr ? 'شيل الوقت' : 'Clear the time';
   String get notifHabitReminders =>
       isAr ? 'تذكيرات العادات' : 'Habit reminders';
   String get notifHabitRemindersDesc => isAr
-      ? 'تذكير لكل عادة في وقتها الخاص، يُتخطى تلقائيًا بعد إنجازها لهذا اليوم.'
-      : "One reminder per habit, at its own cue, skipped automatically once you've done it for the day.";
+      ? 'لكل عادة تذكير في وقتها، وما يجيك إذا خلّصتها.'
+      : "Each habit reminds you at its time, and stays quiet once it's done.";
   String get notifStreakRisk => isAr ? 'حماية السلسلة' : 'Streak protection';
   String get notifStreakRiskDesc => isAr
-      ? 'يضيف سلسلتك وما تحتاجه اليوم إلى تنبيه المساء. إشعار المساء واحد '
-          'دائمًا، مو أكثر.'
-      : "Adds your streak, and what it still needs today, to the evening "
-          'note. The evening is always one notification, never more.';
+      ? 'يذكر سلسلتك واللي باقي لك اليوم.'
+      : "Mentions your streak and what's left today.";
   String get notifMatrixNudge =>
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr
-      ? 'يضيف مهامك العاجلة من "افعل أولاً" إلى تنبيه المساء. لا يُرسل كإشعار منفصل أبدًا.'
-      : 'Adds your open Do First tasks to the evening note, never a separate notification of its own.';
+      ? 'يذكر مهامك العاجلة من «أولاً».'
+      : 'Mentions your open "Do First" tasks.';
   String get notifBundle =>
       isAr ? 'دمج التذكيرات المتقاربة' : 'Bundle close-together reminders';
   String get notifBundleDesc => isAr
-      ? 'عندما تتقارب مواعيد عادتين أو أكثر، تصل كإشعار واحد بدلًا من عدة إشعارات.'
-      : '2+ habits due around the same time arrive as one notification instead of several.';
+      ? 'إذا تقاربت أوقات أكثر من عادة، يجيك إشعار واحد.'
+      : 'Habits due close together arrive as one notification.';
 
   String get notifWeeklyDigest => isAr ? 'ملخص الأسبوع' : 'Weekly digest';
   String get notifWeeklyDigestDesc => isAr
-      ? 'صباح السبت، بعد ما يخلص الأسبوع، رسالة قصيرة عن أيامك الملوّنة فيه.'
-      : 'A short Saturday-morning note, once the week has closed, on the days '
-          'you colored in it.';
+      ? 'رسالة قصيرة صباح السبت عن أسبوعك.'
+      : 'A short note on your week, Saturday morning.';
 
   String get notifRoomActivity => isAr ? 'نشاط الغرف' : 'Room activity';
   String get notifRoomActivityDesc => isAr
-      ? 'يصلك إشعار عندما ينهي أحد زملائك في الغرفة عاداته اليوم.'
-      : 'Get notified when a teammate in one of your rooms finishes their habits for the day.';
+      ? 'يجيك إشعار إذا خلّص أحد في غرفتك عاداته اليوم.'
+      : 'Get notified when someone in your room finishes their habits today.';
 
   String get notifLocationNotSet => isAr ? 'غير محدد' : 'Not set';
   String get notifDetectingLocation =>
@@ -5142,21 +5266,19 @@ class S {
   // picked per habit in Add Habit (see offsetBeforeMinutes/
   // offsetAfterMinutes) instead of once globally for every prayer habit.
 
-  String get notifQuietHoursSection => isAr ? 'ساعات الهدوء' : 'QUIET HOURS';
+  String get notifQuietHoursSection => isAr ? 'ساعات الهدوء' : 'Quiet hours';
   String get notifQuietHours => isAr ? 'ساعات الهدوء' : 'Quiet hours';
   String get notifQuietHoursDesc => isAr
-      ? 'لا تُرسل أي تذكيرات خلال هذه الفترة.'
-      : 'No reminders fire during this window.';
+      ? 'ما يجيك أي تذكير في هذا الوقت.'
+      : 'No reminders during this time.';
   String get notifQuietStart => isAr ? 'تبدأ' : 'Starts';
   String get notifQuietEnd => isAr ? 'تنتهي' : 'Ends';
   String get notifQuietAppliesToPrayer => isAr
       ? 'تطبيقها على تذكيرات الصلاة أيضًا'
       : 'Apply to prayer reminders too';
   String get notifQuietAppliesToPrayerDesc => isAr
-      ? 'معطّلة افتراضيًا: الفجر عادة يقع ضمن فترة الهدوء الليلية، وهو التذكير الذي يريده معظم الناس رغم ذلك.'
-      : "Off by default: Fajr usually falls inside a nighttime quiet window, and that's the one reminder most people still want.";
-
-  String get notifTimingSection => isAr ? 'التوقيت' : 'TIMING';
+      ? 'الفجر غالبًا يجي في وقت الهدوء، وأغلب الناس يبون تذكيره.'
+      : 'Fajr often falls in quiet hours, and most people still want it.';
 
   String get notifSendTest =>
       isAr ? 'إرسال إشعار تجريبي' : 'Send a test notification';
@@ -5356,13 +5478,6 @@ class S {
   String matrixRewardFloatXp(int xp) => isAr ? '+$xp خبرة' : '+$xp XP';
   String matrixRewardFloatGold(int gold) =>
       isAr ? '+$gold ذهب' : '+$gold gold';
-  /// Shown in the add sheet after adding a task whose reminder anchors on a
-  /// later day: under the default Today lens the new task is legitimately
-  /// not visible, which read as the add having silently failed.
-  String get matrixAddedForLater => isAr
-      ? 'مجدولة ليوم لاحق، تظهر تحت «الكل»'
-      : 'Scheduled for a later day: find it under "All"';
-
   String get monthlyStoryTitle => isAr ? 'قصة الشهر' : 'Monthly Story';
   String get monthlyStoryEmpty => isAr
       ? 'لا توجد بيانات لهذا الشهر بعد.'
@@ -6081,8 +6196,9 @@ class S {
   /// Today asks for no habit at all.
   String get sproutRestDay => isAr ? 'يوم راحة' : 'A rest day';
 
-  /// Tapping the sprout.
-  String get sproutTickle => isAr ? 'هههه' : 'Hehe';
+  /// Tapping the sprout. ONE LINE PER ROW: each tap says one line, picked at
+  /// random (Aziz, 2026-09-29).
+  String get sproutTickle => isAr ? 'هههه\nاوبس' : 'Hehe\nOops';
 
   // ── The sprout's praise ─────────────────────────────────────────────
   // What the sprout says when a square turns green, fitted to the habit's
@@ -6227,8 +6343,8 @@ class S {
 
   /// Under it: the way back, named where it is.
   String get gridSproutHideBody => isAr
-      ? 'تقدر ترجعه متى ما تبي من الإعدادات، في التخصيص.'
-      : 'You can bring him back any time in Settings, under Personalization.';
+      ? 'تقدر ترجعه متى ما تبي من الإعدادات، في الشكل.'
+      : 'You can bring him back any time in Settings, under Look.';
 
   /// Hides him. Also the screen reader's action on the sprout.
   String get gridSproutHideYes => isAr ? 'أخفيه' : 'Hide him';
@@ -6236,7 +6352,7 @@ class S {
   /// Keeps him: he climbs back up.
   String get gridSproutHideNo => isAr ? 'خلّه' : 'Keep him';
 
-  /// The switch in Settings › التخصيص.
+  /// The switch in Settings › الشكل (was التخصيص until 2026-09-28).
   String get gridSproutSetting =>
       isAr ? 'دوم في صفحة العادات' : 'Doum on the Habits page';
 }

@@ -12,14 +12,14 @@ import 'package:grow_daily_v2/features/app_icon/app_icon_catalog.dart';
 
 void main() {
   group('colours', () {
-    test('twenty-four: the free themes, the Premium themes, then 13 more',
+    test('twenty-five: the free themes, the Premium themes, then 13 more',
         () {
-      expect(kIconColours, hasLength(24));
+      expect(kIconColours, hasLength(25));
       expect(
         kIconColours
             .where((c) => c.tier == IconColourTier.free)
             .map((c) => c.id),
-        ['emerald_gold', 'baby_pink'],
+        ['emerald_gold', 'doum', 'baby_pink'],
       );
       expect(
         kIconColours.where((c) => c.tier == IconColourTier.premium).length,
@@ -31,7 +31,7 @@ void main() {
             .map((c) => c.id),
         kExtraIconColourIds,
       );
-      expect(kIconColours.map((c) => c.id).toSet(), hasLength(24));
+      expect(kIconColours.map((c) => c.id).toSet(), hasLength(25));
     });
 
     test('a colour costs what its theme costs', () {
@@ -62,7 +62,7 @@ void main() {
       );
     });
 
-    test('every one of the 96 reads back as itself', () {
+    test('every one of the 100 reads back as itself', () {
       for (final shape in PlantShape.values) {
         for (final colour in kIconColours) {
           final choice = AppIconChoice(shape, colour.id);

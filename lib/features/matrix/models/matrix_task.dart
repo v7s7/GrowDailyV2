@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/theme/game_theme.dart';
 
 /// One recorded voice note attached to a task. A task can carry any number
@@ -156,10 +157,10 @@ class MatrixTask {
   // as any other favorite/priority marker. Powers the Fav/All filter on
   // the Tasks screen (see MatrixScreen._favOnly). For the separate,
   // actually date-based "still open from before today" filter, see
-  // MatrixScreen._carriedOverOnly, which is computed from its anchor day
-  // (reminderAt's day if set, else createdAt — see
-  // MatrixScreen._anchorDay) plus isDone instead — this field has nothing
-  // to do with that one. Stored
+  // MatrixScreen._carriedOverOnly, which is computed from the task's day
+  // (the picked reminder's day if timed, else plannedDay, else createdAt's
+  // day: see taskDay in task_day.dart) plus isDone instead. This field has
+  // nothing to do with that one. Stored
   // under the Firestore/Hive key 'isToday' still, for backward
   // compatibility with tasks flagged before this field was renamed — only
   // the Dart-side name changed, not the wire format.
@@ -244,6 +245,23 @@ class MatrixTask {
   /// as a notification. Same per-item choice, same default and same
   /// platform meaning as IslamicHabitTemplate.alarm; see that field.
   final bool alarm;
+
+  /// The day this task is planned for when no reminder says so, as a
+  /// 'yyyy-MM-dd' key (see dayKey in task_day.dart), or null for "the day it
+  /// was created". Read only through taskDay, which prefers the picked
+  /// reminder's day and falls back to this, then to createdAt.
+  ///
+  /// A plain date key, not a DateTime or a Timestamp, on purpose: a day is a
+  /// calendar date, not a moment, so it must not shift when the phone
+  /// changes time zone, and a String reads the same from Hive and Firestore
+  /// with no `as Timestamp` cast to throw on the way in (the trap that once
+  /// emptied the Tasks page after a guest migration, see fromFirestore).
+  ///
+  /// Written by MatrixNotifier so no edit moves a task by accident (see
+  /// plannedDayOnWrite): adding for a chosen day stores it, setting
+  /// reminders stores the new anchor's day, clearing them keeps the day the
+  /// task shows on.
+  final String? plannedDay;
   // Manual sort rank within a quadrant — a plain double, not an int index,
   // so dragging a task between two others (see MatrixNotifier.reorder) can
   // just average its new neighbors' order values without ever having to
@@ -267,20 +285,22 @@ class MatrixTask {
     this.reminderAts = const [],
     this.reminderAnchorAt,
     this.alarm = false,
+    this.plannedDay,
     required this.order,
   });
 
   /// The earliest moment this task nudges at, or null if it has no
   /// reminders — the single value everything that predates multi-reminders
-  /// still reads (MatrixScreen._anchorDay's day-grouping, the guest Hive
-  /// map's legacy key, the `reminderAt` field still written to Firestore
-  /// for older installs). Kept as a getter rather than a stored field so
-  /// there is exactly one source of truth: [reminderAts].
+  /// still reads (the guest Hive map's legacy key, the `reminderAt` field
+  /// still written to Firestore for older installs, the "has reminders"
+  /// check in MatrixNotifier's resync). Kept as a getter rather than a
+  /// stored field so there is exactly one source of truth: [reminderAts].
   ///
-  /// Deliberately the *first* entry, not the last: a task's anchor day is
-  /// "when this first starts asking for attention", which is what the day
-  /// grouping has always meant. For the opposite end — whether every nudge
-  /// has already come and gone — use [lastReminderAt].
+  /// NOT the task's day. The board once grouped by this first entry, and a
+  /// 17:00 task with a "2 days before" warning left «قادمة» two days early;
+  /// the day is the picked moment's day, [reminderAnchorAt], via taskDay in
+  /// task_day.dart. For the opposite end (whether every nudge has already
+  /// come and gone) use [lastReminderAt].
   DateTime? get reminderAt => reminderAts.isEmpty ? null : reminderAts.first;
 
   /// The final moment this task nudges at, or null if it has no reminders.
@@ -358,6 +378,7 @@ class MatrixTask {
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
     bool alarm = false,
+    String? plannedDay,
   }) {
     final now = DateTime.now();
     final reminders = normalizeReminders(reminderAts);
@@ -372,17 +393,29 @@ class MatrixTask {
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(reminderAnchorAt, reminders),
       alarm: alarm,
+      plannedDay: plannedDay,
       order: now.millisecondsSinceEpoch.toDouble(),
     );
   }
 
+  /// Every date here is read as a Timestamp OR an ISO string. toFirestore
+  /// only ever writes Timestamps, but until 2026-09-28 GuestMigrationService
+  /// copied a guest's [toMap] output across unchanged, so every account that
+  /// brought guest tasks over holds string dates on them. The old
+  /// `as Timestamp?` cast threw on the first one, and those tasks come back
+  /// only because this reads both. A task rewrites itself with Timestamps
+  /// the next time it is saved (MatrixNotifier._persist writes the whole
+  /// [toFirestore] map).
   factory MatrixTask.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final d = doc.data()!;
-    final createdAt =
-        (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-    DateTime? parse(Object? v) => v is Timestamp ? v.toDate() : null;
+    DateTime? parse(Object? v) => switch (v) {
+          Timestamp() => v.toDate(),
+          String() => DateTime.tryParse(v),
+          _ => null,
+        };
+    final createdAt = parse(d['createdAt']) ?? DateTime.now();
     final reminders = _remindersFrom(d, parse: parse);
     return MatrixTask(
       id: doc.id,
@@ -393,7 +426,7 @@ class MatrixTask {
       ),
       isDone: d['isDone'] as bool? ?? false,
       createdAt: createdAt,
-      completedAt: (d['completedAt'] as Timestamp?)?.toDate(),
+      completedAt: parse(d['completedAt']),
       // Both default false for tasks written before these fields existed —
       // an old task is neither flagged as a favorite nor already rewarded.
       // Key stays 'isToday' on the wire — see the field doc on isFav.
@@ -404,12 +437,35 @@ class MatrixTask {
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
       alarm: d['alarm'] as bool? ?? false,
+      plannedDay: _plannedDayFrom(d['plannedDay'], parse: parse),
       // A task written before `order` existed falls back to its creation
       // time, so an untouched board still reads in the same order it
       // always has.
       order: (d['order'] as num?)?.toDouble() ??
           createdAt.millisecondsSinceEpoch.toDouble(),
     );
+  }
+
+  /// Every task in [docs] that [MatrixTask.fromFirestore] can read.
+  ///
+  /// Per document, so one unreadable record costs only itself, the contract
+  /// CustomReward.fromMap already keeps. MatrixNotifier._load used to map
+  /// the whole list inside one try, and its catch-all turned a single throw
+  /// into an empty Tasks page; that is how one migrated guest task with a
+  /// string date hid every task the account had. A skipped document is
+  /// logged and left alone on the server, never deleted or rewritten.
+  static List<MatrixTask> listFromFirestore(
+    Iterable<DocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final tasks = <MatrixTask>[];
+    for (final doc in docs) {
+      try {
+        tasks.add(MatrixTask.fromFirestore(doc));
+      } catch (e) {
+        debugPrint('[MatrixTask] skipped unreadable task ${doc.id}: $e');
+      }
+    }
+    return tasks;
   }
 
   /// Plain-map (de)serialization for the guest's local Hive store — no
@@ -438,9 +494,31 @@ class MatrixTask {
       reminderAts: reminders,
       reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
       alarm: d['alarm'] as bool? ?? false,
+      plannedDay: _plannedDayFrom(d['plannedDay'], parse: parse),
       order: (d['order'] as num?)?.toDouble() ??
           createdAt.millisecondsSinceEpoch.toDouble(),
     );
+  }
+
+  static final _dayKeyShape = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  /// Shared by [fromMap] and [fromFirestore]: the stored [plannedDay] as a
+  /// 'yyyy-MM-dd' key, whatever shape it arrived in.
+  ///
+  /// This build only ever writes the key itself, and a key is kept exactly
+  /// as stored. Anything else goes through the caller's own date [parse], so
+  /// a Timestamp or a full ISO string (another writer, a hand edit in the
+  /// console) comes back as its local day instead of throwing on a cast,
+  /// and whatever cannot be read at all is dropped, which leaves the task on
+  /// the day it was created rather than failing its whole load. A key-shaped
+  /// string that is not a real date is kept too; taskDay's strict
+  /// parseDayKey refuses it and falls through the same way.
+  static String? _plannedDayFrom(
+    Object? raw, {
+    required DateTime? Function(Object? raw) parse,
+  }) {
+    if (raw is String && _dayKeyShape.hasMatch(raw)) return raw;
+    return parse(raw)?.toLocal().toDateKey();
   }
 
   /// Shared by [fromMap] and [fromFirestore]: reads the current
@@ -516,6 +594,8 @@ class MatrixTask {
         if (reminderAnchorAt != null)
           'reminderAnchorAt': reminderAnchorAt!.toIso8601String(),
         'alarm': alarm,
+        // Same plain omit as reminderAnchorAt above, for the same reason.
+        if (plannedDay != null) 'plannedDay': plannedDay,
         'order': order,
       };
 
@@ -563,6 +643,11 @@ class MatrixTask {
             ? Timestamp.fromDate(reminderAnchorAt!)
             : FieldValue.delete(),
         'alarm': alarm,
+        // The key itself, a String, never a Timestamp (see the field doc),
+        // and the delete sentinel when unset for the reason above: a task
+        // whose plannedDay goes away must not keep an old one behind in a
+        // merge-set, or it would come back on a day nobody chose.
+        'plannedDay': plannedDay ?? FieldValue.delete(),
         'order': order,
       };
 
@@ -587,6 +672,10 @@ class MatrixTask {
     DateTime? reminderAnchorAt,
     bool clearReminderAnchorAt = false,
     bool? alarm,
+    // Nullable String, so the same sentinel as the anchor: null here means
+    // "leave it", clearPlannedDay means "back to the created day".
+    String? plannedDay,
+    bool clearPlannedDay = false,
     double? order,
   }) {
     final nextReminders = reminderAts != null
@@ -615,6 +704,7 @@ class MatrixTask {
       // task no longer fires at.
       reminderAnchorAt: resolveAnchor(nextAnchor, nextReminders),
       alarm: alarm ?? this.alarm,
+      plannedDay: clearPlannedDay ? null : plannedDay ?? this.plannedDay,
       order: order ?? this.order,
     );
   }

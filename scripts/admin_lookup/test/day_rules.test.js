@@ -599,3 +599,291 @@ test('a rest day is OUT of the score, though creditForStored says 1.0', () => {
   assert.match(dart, /final resting = isRestDay\(key\);[\s\S]{0,200}resting \|\|/,
       '_liveDaysIn: and nothing to the denominator');
 });
+
+// ── A day no sync has written, after the leader removed a habit ──────────
+
+const { removedHabitRoom, removedHabitMember } = require('./support/removed_habit_room');
+
+test('an unsynced day after a removal reads the plan, as the board does', () => {
+  // PBYAS5, 2026-09-28: the app's day card said «0 من 7 عادات» until
+  // unsyncedPlanInference, and this tool's day card and diagnose_room.js
+  // kept saying 0 of 7. The record alone still counts the removed habits.
+  const room = removedHabitRoom();
+  const part = removedHabitMember();
+  for (const dayKey of ['2026-09-27', '2026-09-28']) {
+    const c = R.roomDayCounts({ room, participant: part, dayKey, offsetMinutes: 180 });
+    assert.equal(c.scheduled, 5, `${dayKey}: the plan without the two removed habits`);
+    assert.equal(c.recorded, 7, `${dayKey}: what the document falls back to`);
+    assert.equal(c.planInferred, true);
+    assert.equal(c.credit, 0);
+    assert.equal(R.storedScheduledOn({ room, participant: part, dayKey, offsetMinutes: 180 }), 7,
+        'the record itself is untouched: the clamp compares against it');
+  }
+  // The removal day still counts for everyone.
+  const removalDay = R.roomDayCounts({
+    room, participant: part, dayKey: '2026-09-26', offsetMinutes: 180,
+  });
+  assert.equal(removalDay.scheduled, 7);
+  assert.equal(removalDay.planInferred, false);
+});
+
+test('the plan inference moves no score: its days are 0 whichever count they read', () => {
+  // Why the own-days line in diagnose_room.js still equals the board: a day
+  // the inference answers has nothing done, so it is in the score at 0.
+  const room = removedHabitRoom();
+  const part = removedHabitMember();
+  const inferred = R.roomDayCounts({ room, participant: part, dayKey: '2026-09-28', offsetMinutes: 180 });
+  const plain = R.roomDayCounts({ room: { ...room, sharedHabits: room.sharedHabits.map(
+    ({ removedAt, stopsOn, ...t }) => t) }, participant: part, dayKey: '2026-09-28', offsetMinutes: 180 });
+  assert.equal(plain.scheduled, 7);
+  assert.deepStrictEqual(R.roomDayVerdict(inferred), R.roomDayVerdict(plain));
+  assert.deepStrictEqual(R.roomDayVerdict(inferred), { counts: true, why: null, credit: 0 });
+});
+
+test('the plan inference steps aside wherever the record has something to say', () => {
+  const room = removedHabitRoom();
+  const at = (edit, dayKey = '2026-09-28') => {
+    const part = removedHabitMember();
+    edit(part);
+    return R.roomDayCounts({ room, participant: part, dayKey, offsetMinutes: 180 });
+  };
+  // Something done, half done, rested, marked or weighted: the sync decided
+  // that day's count in the same write, so it is the sync's to answer. This
+  // is the day a done-only set_room_day.js repair leaves behind, and why the
+  // script now writes the key itself (test/set_room_day.test.js).
+  for (const [what, edit] of [
+    ['done', (p) => { p.dailyDoneCount['2026-09-28'] = 3; }],
+    ['half done', (p) => { p.dailyPartialCount = { '2026-09-28': 1 }; }],
+    ['rested', (p) => { p.dailyRestedCount = { '2026-09-28': 1 }; }],
+    ['marked', (p) => { p.dailyHabitMarks = { '2026-09-28': { fajr: 'rest' } }; }],
+    ['weighted', (p) => { p.dailyDoneWeight = { '2026-09-28': 0 }; }],
+    ['a stored count', (p) => { p.dailyScheduledCount = { '2026-09-28': 4 }; }],
+  ]) {
+    const c = at(edit);
+    assert.equal(c.planInferred, false, what);
+  }
+  assert.equal(at((p) => { p.dailyScheduledCount = { '2026-09-28': 4 }; }).scheduled, 4);
+  // A day a sync observed keeps its record: the clamp compares against it.
+  const observed = at((p) => { p.lastSyncedAt = new Date('2026-09-29T08:00:00Z'); });
+  assert.equal(observed.scheduled, 7);
+  assert.equal(observed.planInferred, false);
+  // A day before the member joined is none of their business on the board.
+  const early = at((p) => { p.joinedAt = new Date('2026-09-28T09:00:00Z'); }, '2026-09-27');
+  assert.equal(early.planInferred, false);
+  // A lobby has no days yet.
+  const lobby = R.roomDayCounts({
+    room: { ...room, status: 'lobby' }, participant: removedHabitMember(),
+    dayKey: '2026-09-28', offsetMinutes: 180,
+  });
+  assert.equal(lobby.planInferred, false);
+});
+
+test('the plan inference never reaches zero, and leaves a legacy removal alone', () => {
+  const room = removedHabitRoom();
+  // Every link this member holds is a removed slot: the fallback stands, as
+  // the sync stores it (planTotal), because a zero is full credit.
+  const onlyRemoved = removedHabitMember();
+  onlyRemoved.linkedHabitIds = onlyRemoved.linkedHabitIds.map(
+    (id, i) => (i === 3 || i === 6 ? id : R.DECLINED_SLOT));
+  const c = R.roomDayCounts({ room, participant: onlyRemoved, dayKey: '2026-09-28', offsetMinutes: 180 });
+  assert.equal(c.scheduled, 2);
+  assert.equal(c.planInferred, false);
+  assert.equal(R.liveHabitCountOn({ room, participant: onlyRemoved, dayKey: '2026-09-28' }), 2);
+
+  // A8GEL7 / BKWVN9: a removal with no stopsOn counts on no day, and every
+  // member declined that slot, so both counts already leave it out.
+  const legacy = {
+    habitMode: 'shared', status: 'active',
+    startDate: new Date('2026-08-31T21:00:00Z'),
+    sharedHabits: [{ name: 'تمرين' }, { name: 'تمرين', removedAt: new Date('2026-09-09T10:00:00Z') }],
+  };
+  const member = {
+    linkedHabitIds: ['tamreen', R.DECLINED_SLOT],
+    joinedAt: new Date('2026-08-31T21:00:00Z'),
+    lastSyncedAt: new Date('2026-09-20T08:00:00Z'),
+  };
+  assert.equal(R.planInferredScheduledOn({
+    room: legacy, participant: member, dayKey: '2026-09-28', offsetMinutes: 180,
+  }), null);
+  assert.equal(R.roomDayCounts({
+    room: legacy, participant: member, dayKey: '2026-09-28', offsetMinutes: 180,
+  }).scheduled, 1);
+});
+
+test('a met quota week keeps its own excuse over the plan inference', () => {
+  // storedScheduledOn reads a blank day of a met, purely weekly week as 0,
+  // a rest day. The inference must not turn it into a 0-of-1 miss.
+  const room = removedHabitRoom();
+  room.sharedHabits = [room.sharedHabits[0], room.sharedHabits[3]];
+  const part = {
+    joinedAt: new Date('2026-09-13T21:00:00Z'),
+    linkedHabitIds: ['run', 'walk'],
+    habitRules: {
+      run: [{ from: '2026-09-14', frequencyType: 'weekly', frequencyTarget: 3 }],
+      walk: [{ from: '2026-09-14', frequencyType: 'weekly', frequencyTarget: 3 }],
+    },
+    quotaOkWeeks: ['2026-09-26'],
+    lastSyncedAt: new Date('2026-09-26T17:00:00Z'),
+  };
+  const c = R.roomDayCounts({ room, participant: part, dayKey: '2026-09-28', offsetMinutes: 180 });
+  assert.equal(c.scheduled, 0);
+  assert.equal(c.isRest, true);
+  assert.equal(c.planInferred, false);
+  // Without the banked week the same day reads the plan: 1, not 2.
+  const unmet = R.roomDayCounts({
+    room, participant: { ...part, quotaOkWeeks: [] }, dayKey: '2026-09-28', offsetMinutes: 180,
+  });
+  assert.equal(unmet.scheduled, 1);
+  assert.equal(unmet.planInferred, true);
+});
+
+test('a stretch out of the plan (offSpans) is inferred the same way', () => {
+  const room = removedHabitRoom();
+  room.sharedHabits = room.sharedHabits.map(({ removedAt, stopsOn, ...t }) => t);
+  room.sharedHabits[2] = { ...room.sharedHabits[2], offSpans: [{ from: '2026-09-27', to: '2026-09-27' }] };
+  const part = removedHabitMember();
+  assert.equal(R.roomDayCounts({ room, participant: part, dayKey: '2026-09-27', offsetMinutes: 180 }).scheduled, 6);
+  assert.equal(R.roomDayCounts({ room, participant: part, dayKey: '2026-09-28', offsetMinutes: 180 }).scheduled, 7);
+});
+
+test('the plan inference asks what the app asks', () => {
+  // Read from main's room_model.dart: if these lines move, the port above
+  // has to be read against them again.
+  const dart = DART('features', 'rooms', 'models', 'room_model.dart');
+  const body = dart.match(/Map<String, int> unsyncedPlanInference\(RoomModel room, \{DateTime\? now\}\) \{([\s\S]*?)\n  \}\n/);
+  assert.ok(body, 'RoomParticipant.unsyncedPlanInference is still there');
+  const src = body[1];
+  assert.match(src, /room\.habitMode != RoomHabitMode\.shared \|\| room\.isLobby/);
+  assert.match(src, /shared\[i\]\.isRemoved \|\| shared\[i\]\.offSpans\.isNotEmpty/);
+  assert.match(src, /if \(wasObservedOn\(key\)\) break;/);
+  for (const field of ['dailyScheduledCount', 'dailyScheduledWeight', 'dailyDoneWeight', 'dailyHabitMarks']) {
+    assert.match(src, new RegExp(`${field}\\.containsKey\\(key\\)`), field);
+  }
+  for (const field of ['dailyDoneCount', 'dailyPartialCount', 'dailyRestedCount']) {
+    assert.match(src, new RegExp(`\\(${field}\\[key\\] \\?\\? 0\\) != 0`), field);
+  }
+  assert.match(src, /if \(recordedScheduledCountFor\(key\) != fallback\) continue;/);
+  assert.match(src, /if \(!room\.slotLiveOn\(i, key\)\) continue;/);
+  assert.match(src, /if \(live == 0 \|\| live >= fallback\) continue;/);
+  // And the board reads it before the record, after a met week's rest the
+  // plan as the leader left it gives (unsyncedQuotaRestDays), which this
+  // tool reads through storedScheduledOn.
+  assert.match(dart, /inferredScheduledCount\[dateKey\] \?\?\n\s+\(unsyncedQuotaRestDays\.contains\(dateKey\) \? 0 : null\) \?\?\n\s+planInferredScheduledCount\[dateKey\] \?\?\n\s+recordedScheduledCountFor\(dateKey\);/);
+});
+
+// ── A daily habit the leader removed, and a met quota week ───────────────
+
+test('a removed daily habit no longer keeps a met quota week from resting '
+  + 'the days no phone has graded', () => {
+  // قراءة القرآن removed on Tuesday 14 July, so from the 15th the plan is
+  // تمرين 4x a week alone. The member met the week of the 18th by the 21st
+  // and last synced at 11:00 on the 22nd; the 23rd has nothing on it. The
+  // app's board rests it (RoomParticipant.unsyncedQuotaRestInference) and so
+  // does the phone when it next grades it (it writes 0).
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [
+      { name: 'قراءة القرآن', frequencyType: 'daily', frequencyTarget: 1,
+        removedAt: 'x', stopsOn: '2026-07-15' },
+      { name: 'تمرين', frequencyType: 'weekly', frequencyTarget: 4 },
+    ],
+  };
+  const part = {
+    linkedHabitIds: ['q', 'e'],
+    habitRules: {
+      q: [{ from: '2026-07-04', frequencyType: 'daily', frequencyTarget: 1 }],
+      e: [{ from: '2026-07-04', frequencyType: 'weekly', frequencyTarget: 4 }],
+    },
+    dailyDoneCount: { '2026-07-18': 1, '2026-07-19': 1, '2026-07-20': 1, '2026-07-21': 1 },
+    dailyScheduledCount: { '2026-07-22': 0 },
+    quotaOkWeeks: ['2026-07-04', '2026-07-11', '2026-07-18'],
+    lastSyncedDay: '2026-07-22',
+    lastSyncedAt: new Date('2026-07-22T08:00:00Z'),
+  };
+  const at = (dayKey, p = part, r = room) =>
+    R.storedScheduledOn({ room: r, participant: p, dayKey, offsetMinutes: 180 });
+  assert.equal(at('2026-07-23'), 0);
+  assert.equal(at('2026-07-24'), 0);
+  // The same member in a room that never removed it: the daily habit is
+  // still owed, so the week's rest cannot speak for the day.
+  const unedited = {
+    ...room,
+    sharedHabits: [{ ...room.sharedHabits[0], removedAt: undefined, stopsOn: undefined },
+      room.sharedHabits[1]],
+  };
+  assert.equal(at('2026-07-23', part, unedited), 2);
+  // A week not met is owed as before.
+  assert.equal(at('2026-07-23', { ...part, quotaOkWeeks: ['2026-07-11'] }), 2);
+  // A day a sync observed keeps the fallback: the arm is for unseen days.
+  assert.equal(
+    at('2026-07-23', { ...part, lastSyncedAt: new Date('2026-07-25T08:00:00Z') }),
+    2,
+  );
+  // A legacy removal (removedAt, no stopsOn) counts on no day at all.
+  const legacy = {
+    ...room,
+    sharedHabits: [{ ...room.sharedHabits[0], stopsOn: undefined }, room.sharedHabits[1]],
+  };
+  assert.equal(at('2026-07-23', part, legacy), 0);
+});
+
+test('a quota the leader removed beside a daily habit: the daily habit '
+  + 'still owes the day', () => {
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [
+      { name: 'قراءة القرآن', frequencyType: 'daily', frequencyTarget: 1 },
+      { name: 'تمرين', frequencyType: 'weekly', frequencyTarget: 4,
+        removedAt: 'x', stopsOn: '2026-07-12' },
+    ],
+  };
+  const part = {
+    linkedHabitIds: ['q', 'e'],
+    habitRules: {
+      q: [{ from: '2026-07-04', frequencyType: 'daily', frequencyTarget: 1 }],
+      e: [{ from: '2026-07-04', frequencyType: 'weekly', frequencyTarget: 4 }],
+    },
+    dailyDoneCount: {},
+    dailyScheduledCount: {},
+    quotaOkWeeks: ['2026-07-11'],
+    lastSyncedDay: '2026-07-12',
+    lastSyncedAt: new Date('2026-07-12T08:00:00Z'),
+  };
+  assert.equal(
+    R.storedScheduledOn({ room, participant: part, dayKey: '2026-07-14', offsetMinutes: 180 }),
+    2,
+  );
+});
+
+test('the repair never writes a key on a met week\'s blank day the removal '
+  + 'left to rest', () => {
+  // set_room_day.js with a done count of 0 on the day above: the board rests
+  // it and the phone will write 0, so a key of the plan's count (1) would
+  // turn that rest into a miss the next sync then has to undo.
+  const { scheduledKeyPlan } = require('../lib/room_day_repair');
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [
+      { name: 'قراءة القرآن', frequencyType: 'daily', frequencyTarget: 1,
+        removedAt: 'x', stopsOn: '2026-07-15' },
+      { name: 'تمرين', frequencyType: 'weekly', frequencyTarget: 4 },
+    ],
+  };
+  const part = {
+    linkedHabitIds: ['q', 'e'],
+    habitRules: {
+      q: [{ from: '2026-07-04', frequencyType: 'daily', frequencyTarget: 1 }],
+      e: [{ from: '2026-07-04', frequencyType: 'weekly', frequencyTarget: 4 }],
+    },
+    dailyDoneCount: { '2026-07-18': 1, '2026-07-19': 1, '2026-07-20': 1, '2026-07-21': 1 },
+    dailyScheduledCount: { '2026-07-22': 0 },
+    quotaOkWeeks: ['2026-07-18'],
+    lastSyncedDay: '2026-07-22',
+    lastSyncedAt: new Date('2026-07-22T08:00:00Z'),
+  };
+  const plan = scheduledKeyPlan({
+    room, participant: part, dayKey: '2026-07-23', done: 0, scheduled: null, offsetMinutes: 180,
+  });
+  assert.equal(plan.action, 'keep');
+  assert.equal(plan.reads, 0);
+});

@@ -1059,6 +1059,13 @@ enum _DayFill { rest, empty, partial, full }
 /// empty planned days, which then owes nothing (see moved_day_plan.dart).
 /// [markOn] keeps a day the person marked themselves out of that; without
 /// it every day that is not green reads as empty.
+///
+/// A habit resting that day («راحة», [markIsRest]) leaves the count, as it
+/// leaves the reports' day score (dayScoreFor) and the Grid's own day. It
+/// used to stay in: four done and one rested painted this cell 4 of 5 while
+/// the Grid and the report beside it read the day full. Only here and not in
+/// [habitOwesDay], which also answers the day streak, where a day with every
+/// habit resting must still owe something (see squaresCrossStreakThreshold).
 int heatmapScheduledOn(
   List<IslamicHabitTemplate> habits,
   DateTime day,
@@ -1067,12 +1074,14 @@ int heatmapScheduledOn(
 }) =>
     habits
         .where(
-          (h) => habitOwesDay(
-            habit: h,
-            day: day,
-            isGreen: isGreen,
-            markOn: markOn,
-          ),
+          (h) =>
+              !(markOn != null && markIsRest(markOn(h.id, day))) &&
+              habitOwesDay(
+                habit: h,
+                day: day,
+                isGreen: isGreen,
+                markOn: markOn,
+              ),
         )
         .length;
 

@@ -9,16 +9,39 @@ class _EmptyQuadrantBody extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
+  /// A past day's empty quadrant (QuadrantCard.pastDay): it says there were
+  /// no tasks, and nothing more. No pulsing "+", no tap-to-add, since
+  /// nothing is added to a day that has gone; the header's + still adds,
+  /// for today.
+  final bool quiet;
+
   const _EmptyQuadrantBody({
     super.key,
     required this.color,
     required this.onTap,
+    this.quiet = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
+    if (quiet) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Text(
+            s.matrixNoTasksThatDay,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10,
+              color: gp.textTert,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      );
+    }
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -94,6 +117,10 @@ class _AddAnotherRow extends StatelessWidget {
 
 class _TaskTile extends StatefulWidget {
   final MatrixTask task;
+  // The line under the title, or null for none. Decided by the screen and
+  // handed down through _AnimatedTaskStack, which reserved exactly this
+  // line's height for the row (see _rowHeightFor); never worked out here.
+  final String? meta;
   // True only inside QuadrantExpandedScreen — swaps the title to
   // _expandedTitleStyle (bigger, bolder) instead of the compact grid's
   // small inline style. See _AnimatedTaskStack.expanded's doc comment.
@@ -118,6 +145,7 @@ class _TaskTile extends StatefulWidget {
   const _TaskTile({
     super.key,
     required this.task,
+    this.meta,
     required this.expanded,
     required this.accentColor,
     required this.onToggle,
@@ -314,6 +342,46 @@ class _TaskTileState extends State<_TaskTile>
                   ),
                 ],
               ),
+              // The row's time, or its date on a board that mixes days
+              // (MatrixScreen's matrixRowMeta). Under the title rather
+              // than beside it, so a title never loses width to it, and
+              // starting where the title starts. One quiet line: no chip,
+              // no background, ellipsized rather than wrapped, so six rows
+              // in a quadrant still read as six titles. Its height is in
+              // _AnimatedTaskStackState._rowHeightFor.
+              if (widget.meta != null) ...[
+                const SizedBox(height: _rowMetaGap),
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(
+                      start: _rowTitleIndent),
+                  child: Row(
+                    children: [
+                      Icon(
+                        // A bell for a reminder, the alarm clock when it
+                        // rings as an alarm (MatrixTask.alarm), and a
+                        // calendar for an untimed task's date, which
+                        // nothing will ring for.
+                        widget.task.reminderAts.isEmpty
+                            ? Icons.calendar_today_rounded
+                            : widget.task.alarm
+                                ? Icons.alarm_rounded
+                                : Icons.notifications_none_rounded,
+                        size: _rowMetaIconSize,
+                        color: gp.textSec,
+                      ),
+                      const SizedBox(width: _rowMetaIconGap),
+                      Flexible(
+                        child: Text(
+                          widget.meta!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _rowMetaStyle.copyWith(color: gp.textSec),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               // Row 2: everything that isn't the title gets its own strip
               // underneath instead of squeezing into the title's row.
               // Cramming checkbox+title+4-icons into one Row caused two

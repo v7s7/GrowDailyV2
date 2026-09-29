@@ -202,31 +202,44 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
     ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
     final isAr = Directionality.of(context) == TextDirection.rtl;
     final perDay = habit.effectiveDailyTarget;
-    final mirroredBySingleTap =
-        await ref.read(dashboardProvider.notifier).completeHabit(
-              habitId: habit.id,
-              scheduledWeekdays: habit.scheduledWeekdays.toSet(),
-              runsOn: habit.runsOn,
-              xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: DateTime.now().effectiveDay),
-              goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: DateTime.now().effectiveDay),
-              frequencyTarget: perDay,
-              allHabitsDoneAfter: willCompleteAllHabitsToday(
-                state: dashState,
-                todayHabits: todayHabits,
-                habitId: habit.id,
-                frequencyTarget: perDay,
-                // A جزئي square is half a habit on every other surface, so
-                // finishing the day from Tasbih has to read it too, or the
-                // same day scores lower here than on the Grid.
-                halfDoneHabitIds:
-                    ref.read(weeklyGridProvider).halfDoneTodayIds(),
-                skippedHabitIds:
-                    ref.read(weeklyGridProvider).skippedTodayIds(),
-              ),
-              scheduledHabitCount: todayHabits.length,
-              category: habit.category.name,
-              habitName: habit.localName(isAr),
-            );
+    final dash = ref.read(dashboardProvider.notifier);
+    final xpReward = roomBoostedReward(ref, habit.id, habit.xpReward, day: DateTime.now().effectiveDay);
+    final goldReward = roomBoostedReward(ref, habit.id, habit.goldReward, day: DateTime.now().effectiveDay);
+    final allHabitsDoneAfter = willCompleteAllHabitsToday(
+      state: dashState,
+      todayHabits: todayHabits,
+      habitId: habit.id,
+      frequencyTarget: perDay,
+      // A جزئي square is half a habit on every other surface, so
+      // finishing the day from Tasbih has to read it too, or the
+      // same day scores lower here than on the Grid.
+      halfDoneHabitIds: ref.read(weeklyGridProvider).halfDoneTodayIds(),
+      skippedHabitIds: ref.read(weeklyGridProvider).skippedTodayIds(),
+    );
+    // The habit's own streak measured past its «راحة» days and the days a
+    // session elsewhere in the week stood in for, as the Grid's own tap
+    // measures it (see streakRunsOn). It was the plain schedule here, so a
+    // tasbih finished the day after a rest restarted the streak at 1. Every
+    // ref read above comes first: this can wait on stored days, and the
+    // completion must still land if the screen is closed meanwhile.
+    final runsOn = await streakRunsOn(
+      habit: habit,
+      day: DateTime.now().effectiveDay,
+      lastCompletedKey: dashState.habitLastCompletedDate[habit.id],
+      squaresOn: ref.read(weeklyGridProvider.notifier).storedSquaresFor,
+    );
+    final mirroredBySingleTap = await dash.completeHabit(
+      habitId: habit.id,
+      scheduledWeekdays: habit.scheduledWeekdays.toSet(),
+      runsOn: runsOn,
+      xpReward: xpReward,
+      goldReward: goldReward,
+      frequencyTarget: perDay,
+      allHabitsDoneAfter: allHabitsDoneAfter,
+      scheduledHabitCount: todayHabits.length,
+      category: habit.category.name,
+      habitName: habit.localName(isAr),
+    );
     if (!mounted) return;
     final today = DateTime.now().effectiveDay;
     if (mirroredBySingleTap) {

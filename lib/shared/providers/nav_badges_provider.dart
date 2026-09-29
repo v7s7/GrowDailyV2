@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/extensions/datetime_ext.dart';
+import '../../core/providers/day_clock_provider.dart';
 import '../../core/providers/nav_badges_setting_provider.dart';
 import '../../features/auth/notifiers/auth_notifier.dart';
 import '../../features/matrix/notifiers/matrix_notifier.dart';
@@ -32,11 +33,15 @@ bool nightReviewPending(NightReviewState review, DateTime now) =>
 /// notifiers are the ones their own screens already keep loaded. This only
 /// re-reads what is in memory.
 ///
-/// Time enters through DateTime.now() at build, so a badge that depends on
-/// the clock (the evening dot, the day rolling over) moves on the next
-/// rebuild the shell gets, not on a timer. That is the same limitation the
-/// Profile prompt card lives with, and a wrong-by-minutes dot is not worth
-/// a ticking provider.
+/// The Tasks count watches dayClockProvider, which re-reads itself at
+/// midnight and on resume, so the count turns to the new day with the board
+/// it points at (MatrixScreen turns at the same midnight) instead of
+/// waiting for some unrelated rebuild. The rest reads DateTime.now() at
+/// build: the evening dot depends on the hour, which dayClockProvider's
+/// instant does not keep (it is only exact to the day), so it moves on the
+/// next rebuild the shell gets. That is the same limitation the Profile
+/// prompt card lives with, and a wrong-by-minutes dot is not worth a
+/// ticking provider.
 final navBadgesProvider = Provider<Map<NavTab, NavBadge>>((ref) {
   // Switched off in the customiser: nothing is computed, not merely
   // hidden, so the bar does not keep the room and task streams busy for
@@ -66,9 +71,9 @@ final navBadgesProvider = Provider<Map<NavTab, NavBadge>>((ref) {
     if (waiting > 0) out[NavTab.rooms] = NavBadge.count(waiting);
   }
 
-  // Tasks: today's open ones, by the Today lens's own rule.
+  // Tasks: today's open ones, by the day board's own rule (task_day.dart).
   final tasks = ref.watch(matrixProvider.select((s) => s.tasks));
-  final open = matrixOpenTodayCount(tasks, now);
+  final open = matrixOpenTodayCount(tasks, ref.watch(dayClockProvider));
   if (open > 0) out[NavTab.matrix] = NavBadge.count(open);
 
   // Night Review: a dot in the evening until tonight's is saved.

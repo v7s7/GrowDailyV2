@@ -25,10 +25,11 @@ part of 'quadrant_card.dart';
 /// acting on one task at a time.
 class QuadrantExpandedScreen extends ConsumerWidget {
   final MatrixQuadrant quadrant;
-  // Same Today/Fav/All + carried-over lens MatrixScreen's own body is
-  // currently showing (see MatrixScreen._isVisibleUnderFilter) — captured
-  // once at the moment this screen is opened. It can't go stale the way a
-  // task *list* snapshot could: the toggle that would change it lives on
+  // Same lens MatrixScreen's own board is currently showing (the day lens
+  // on the header's day, Fav, All or a chip; see
+  // MatrixScreen._isVisibleUnderFilter), so this quadrant and the board
+  // behind it always hold the same tasks. It can't go stale the way a
+  // task *list* snapshot could: the controls that would change it live on
   // the covered route, entirely unreachable while this one is on top, so
   // there's no way for it to change out from under this screen.
   final bool Function(MatrixTask task) isVisible;
@@ -40,6 +41,14 @@ class QuadrantExpandedScreen extends ConsumerWidget {
   final void Function(String id) onToggleFav;
   final VoidCallback onAddTapped;
   final void Function(MatrixTask task) onOpenDetails;
+  // The line under each row's title, the same function the compact board
+  // uses (MatrixScreen._metaFor, read live like [isVisible]), so a row
+  // says the same thing in both views.
+  final String? Function(MatrixTask task)? metaFor;
+  // The board behind this is a day that has gone: the same quiet empty
+  // body and no «+ أضف مهمة أخرى» as QuadrantCard.pastDay. The + in the
+  // header still adds, for today.
+  final bool pastDay;
 
   const QuadrantExpandedScreen({
     super.key,
@@ -52,6 +61,8 @@ class QuadrantExpandedScreen extends ConsumerWidget {
     required this.onToggleFav,
     required this.onAddTapped,
     required this.onOpenDetails,
+    this.metaFor,
+    this.pastDay = false,
   });
 
   // Unlike QuadrantCard (a plain StatelessWidget that receives title/color
@@ -187,7 +198,11 @@ class QuadrantExpandedScreen extends ConsumerWidget {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                 child: tasks.isEmpty
-                    ? _EmptyQuadrantBody(color: color, onTap: onAddTapped)
+                    ? _EmptyQuadrantBody(
+                        color: color,
+                        onTap: onAddTapped,
+                        quiet: pastDay,
+                      )
                     : _AnimatedTaskStack(
                         quadrant: quadrant,
                         tasks: tasks,
@@ -204,6 +219,8 @@ class QuadrantExpandedScreen extends ConsumerWidget {
                         onAddTapped: onAddTapped,
                         onOpenDetails: onOpenDetails,
                         expanded: true,
+                        metaFor: metaFor,
+                        showAddAnother: !pastDay,
                       ),
               ),
             ),

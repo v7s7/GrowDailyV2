@@ -75,7 +75,10 @@ void main() {
     testWidgets('Arabic: Latin digits, the day before the month',
         (tester) async {
       await _loadAppDelegates(tester);
-      expect(formatReminderMoment(fri, true, now: now), '18 سبتمبر · 9:05 م',
+      // The weekday leads since 2026-09-29 (Aziz: the same day words as
+      // the Tasks header); before that «18 سبتمبر · 9:05 م».
+      expect(formatReminderMoment(fri, true, now: now),
+          'الجمعة، 18 سبتمبر · 9:05 م',
           reason: 'drew «سبتمبر ١٨ · ٩:٠٥ م»');
       expect(
         formatReminderMoment(DateTime(2026, 9, 14, 17), true, now: now),
@@ -83,13 +86,15 @@ void main() {
       );
       expect(
         formatReminderMoment(DateTime(2026, 9, 15, 9, 30), true, now: now),
-        'غدًا · 9:30 ص',
+        'الثلاثاء، 15 سبتمبر · 9:30 ص',
+        reason: 'no «غدًا»: tomorrow is named by its date like any day',
       );
     });
 
-    testWidgets('English is unchanged', (tester) async {
+    testWidgets('English names the weekday too', (tester) async {
       await _loadAppDelegates(tester);
-      expect(formatReminderMoment(fri, false, now: now), 'Sep 18 · 9:05 PM');
+      expect(formatReminderMoment(fri, false, now: now),
+          'Friday, Sep 18 · 9:05 PM');
     });
   });
 

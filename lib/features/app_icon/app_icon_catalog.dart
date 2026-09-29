@@ -11,7 +11,7 @@ import 'app_icon_art.dart';
 /// 2026-09-25: the Night family (a deep ground, a light sprout, the same
 /// recipe as the shipped icon), a colour per theme plus five for custom
 /// themes, and a plant that grows with someone's full days. Growing shapes
-/// are free for everyone; colours follow the themes' own split (the two free
+/// are free for everyone; colours follow the themes' own split (the free
 /// themes' colours are free, everything else Premium). One seasonal icon
 /// besides: Ramadan, open to everyone during Ramadan ([AppIconChoice.ramadan]).
 ///
@@ -131,7 +131,7 @@ const List<String> kExtraIconColourIds = [
   'mint',
 ];
 
-/// All twenty-four, in picker order: the free themes' colours, the Premium
+/// All twenty-five, in picker order: the free themes' colours, the Premium
 /// themes', then the extra thirteen. Built from [ThemePresets] so a preset's
 /// free/Premium flag is the one place that decides its icon's price.
 final List<IconColour> kIconColours = [
@@ -169,7 +169,7 @@ class AppIconChoice {
   bool get isRamadan => colourId == kRamadanIconId;
 
   /// The colour, for a shape-and-colour icon. Never read it for [ramadan],
-  /// which has no entry among the twenty-four: ask [needsPremium] and
+  /// which has no entry among the twenty-five: ask [needsPremium] and
   /// [colourName] instead, which know about it.
   IconColour get colour => iconColourById(colourId);
 
@@ -240,11 +240,12 @@ String iconColourForTheme(String presetId, Color customAccent) {
 /// The icons a custom accent can land on, each keyed by the hue it was drawn
 /// from: a theme's accent, or the sprout of one of the extra colours.
 ///
-/// Three theme colours are left out on purpose, because their icons are two
+/// Four theme colours are left out on purpose, because their icons are two
 /// colours rather than one and a custom theme would read them as someone
-/// else's: Burgundy (rose on wine), Monochrome (gold on charcoal) and Teal
+/// else's: Burgundy (rose on wine), Monochrome (gold on charcoal), Teal
 /// (a green sprout on teal; a custom teal lands on Ocean, which is teal all
-/// through). Grey and brown are caught before the hue is looked at, below.
+/// through) and Doum (a cream plant on the mascot's green; a custom green
+/// lands on Green). Grey and brown are caught before the hue is looked at, below.
 /// Black and the light colours are never landed on: they are only ever
 /// picked.
 const List<String> _kMatchableIds = [

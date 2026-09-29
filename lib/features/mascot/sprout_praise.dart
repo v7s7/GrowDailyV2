@@ -99,10 +99,25 @@ List<String> praiseLines(S s, PraiseGroup group, {required PraiseForm form}) {
     PraiseGroup.general =>
       woman ? s.sproutPraiseGeneralF : s.sproutPraiseGeneral,
   };
-  return [
-    for (final line in raw.split('\n'))
-      if (line.trim().isNotEmpty) line.trim(),
-  ];
+  return _lines(raw);
+}
+
+List<String> _lines(String raw) => [
+      for (final line in raw.split('\n'))
+        if (line.trim().isNotEmpty) line.trim(),
+    ];
+
+/// What a tap on the sprout can say, one per row of S.sproutTickle
+/// («هههه», «اوبس»), blank rows dropped like the praise lists.
+List<String> tickleLines(S s) => _lines(s.sproutTickle);
+
+/// One tap's line, picked at random (Aziz, 2026-09-29: the same word can
+/// come twice in a row). Never empty: a list blanked on the admin page
+/// falls back to the built-in one.
+String pickTickle(S s, [Random? random]) {
+  var lines = tickleLines(s);
+  if (lines.isEmpty) lines = _lines(S(s.locale).sproutTickle);
+  return lines[(random ?? Random()).nextInt(lines.length)];
 }
 
 /// Picks the praise, remembering what it said so nothing repeats: a fresh

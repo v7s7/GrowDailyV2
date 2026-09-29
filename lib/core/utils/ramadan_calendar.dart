@@ -73,3 +73,60 @@ RamadanDates? ramadanOnOrAfter(DateTime day) {
   }
   return null;
 }
+
+/// 10 Dhu al-Hijjah (Eid al-Adha) of each year, as yyyymmdd. Read off the
+/// same Calendar(identifier: .islamicUmmAlQura) on 2026-09-29, which gives
+/// back this file's Ramadan and Eid al-Fitr rows exactly.
+const List<(int, int)> _kEidAlAdha = [
+  (1447, 20260527),
+  (1448, 20270516),
+  (1449, 20280505),
+  (1450, 20290424),
+  (1451, 20300413),
+  (1452, 20310402),
+  (1453, 20320322),
+  (1454, 20330312),
+  (1455, 20340301),
+  (1456, 20350219),
+  (1457, 20360208),
+  (1458, 20370127),
+  (1459, 20380116),
+  (1460, 20390105),
+  (1461, 20391226),
+  (1462, 20401215),
+  (1463, 20411204),
+  (1464, 20421123),
+  (1465, 20431112),
+  (1466, 20441101),
+  (1467, 20451021),
+  (1468, 20461011),
+  (1469, 20470930),
+  (1470, 20480919),
+  (1471, 20490908),
+  (1472, 20500828),
+  (1473, 20510817),
+  (1474, 20520806),
+  (1475, 20530726),
+];
+
+/// Eid al-Adha's first day for every year in the table, oldest first.
+List<DateTime> get eidAlAdhaTable => [
+      for (final (_, day) in _kEidAlAdha) _day(day),
+    ];
+
+/// Whether [day] is one of Eid's days by the table: Eid al-Fitr's three
+/// (1 to 3 Shawwal) or Eid al-Adha's four (10 to 13 Dhu al-Hijjah).
+bool isEidDay(DateTime day) {
+  final date = DateTime(day.year, day.month, day.day);
+  // Calendar days, not 24-hour steps, which a clock change would shorten.
+  bool within(DateTime first, int days) =>
+      !date.isBefore(first) &&
+      date.isBefore(DateTime(first.year, first.month, first.day + days));
+  for (final r in ramadanTable) {
+    if (within(r.eid, 3)) return true;
+  }
+  for (final adha in eidAlAdhaTable) {
+    if (within(adha, 4)) return true;
+  }
+  return false;
+}

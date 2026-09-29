@@ -1,0 +1,48 @@
+# Doum in winter
+
+Aziz, 2026-09-29: "I loved this, save it in a winter folder, we will use it
+later, cropped and upscaled." Then, after seeing how they differ from the
+sheets: "use it, but change the sizes, and upscale to make it high quality
+matching the other poses". The drawing stays as drawn (thinner, greyer
+outline, softer shading, peach cheeks, leaves hidden under the ghutra and
+the hood); only the body colour and the size are matched.
+
+| File | Picture | App copy |
+| --- | --- | --- |
+| `winter_ghutra_cup` | in a white ghutra and black agal, sunglasses, holding a cup | 805x662 |
+| `winter_cloak_campfire` | in a brown fur-lined cloak, warming his hands at a campfire | 949x671 |
+| `winter_blanket_heater` | wrapped in a navy blanket beside an electric heater, eyes closed | 958x766 |
+
+- `originals/`: the three 512x512 Canva exports as received (from
+  `~/Downloads/new 3 imgs/`, also in `Untitled design.zip`).
+- `cropped/`: each cut to the picture plus a 12 px margin, two stray specks
+  removed (a dot off the cloak, a dot beside the blanket). The campfire's
+  two embers are kept. Colours as received.
+- `4x/`: the cropped pictures with the body green matched to #74C878, at
+  four times the size, through the same Real-ESRGAN model and clean-up as
+  the app's poses. Not bundled.
+- App copies: `assets/images/mascot/winter/`, lossless WebP like the other
+  poses, with Doum at the same size as every other pose. Show them with the
+  same shared scale as the rest (`Sprout.sizeOf`), never a shared height.
+  NOT in pubspec.yaml: add a file there when a screen draws it.
+
+Rebuild everything with `python tool/mascot/upscale_winter.py [source]
+[weights]`, in the environment `tool/mascot/upscale_poses.py` uses. How the
+colour and the sizes were measured is in that script's docstring.
+
+- Colour: the body was L 0.80 to 0.81 and hue 140 to 142; it is moved onto
+  the palette keeping its shading (now L 0.76, hue 145, like the sheets).
+  The fire, embers and heater bars are left alone.
+- Size, in app px per original px: ghutra 2.05, cloak 2.40, blanket 2.55.
+  The pictures drew Doum at different sizes; each is scaled by its face.
+  The blanket picture's leaves come out about a quarter wider than the
+  sheets' leaves, as drawn.
+
+Before placing one:
+
+- The cup keeps the mug's rule: never on a fasting day, in Ramadan or on its
+  eve. Ramadan 1448 falls in winter (about February 2027).
+- The navy blanket and the dark bisht have no outline of their own, so on a
+  dark card their edge fades into the background. Test on the dark theme.
+- The leaves only show in `winter_blanket_heater`. In the other two, the face
+  and cheeks carry the character.

@@ -9,6 +9,7 @@ import '../dashboard/notifiers/dashboard_notifier.dart';
 import '../grid/models/square_state.dart';
 import '../grid/notifiers/square_audit.dart';
 import '../grid/notifiers/weekly_grid_notifier.dart';
+import '../launch/launch_scene.dart' show LaunchMemory;
 import '../rooms/notifiers/rooms_notifier.dart';
 import 'catalog/islamic_habit_catalog.dart';
 import 'models/habit_day_demand.dart';
@@ -267,6 +268,15 @@ const double kStepBonusShare = 1.2;
 /// half the goal, the green square at the goal, the blue one at
 /// [kStepBonusShare] of it. Pure, so the ladder is testable without health
 /// data or a Grid.
+/// Remembers [day] for the next launch when its walk reached the goal (the
+/// green square or the blue one): the first open after it opens on Doum
+/// running to the finish (LaunchMemory, pickLaunchScene).
+void _rememberGoalMet(SquareState target, DateTime day) {
+  if (target == SquareState.complete || target == SquareState.bonus) {
+    LaunchMemory.recordStepsGoal(day);
+  }
+}
+
 SquareState stepSquareFor({required int steps, required int goal}) {
   if (goal <= 0 || steps <= 0) return SquareState.none;
   if (steps >= goal * kStepBonusShare) return SquareState.bonus;
@@ -287,7 +297,7 @@ SquareState stepSquareFor({required int steps, required int goal}) {
 /// Null in four cases, each of them a day this must not speak about: nothing
 /// walked, the goal already reached (the square is green by then and says so
 /// itself), a day the habit does not run on, and a square that already
-/// carries a mark — تخطّي, فشل, جزئي or the blue one are all statements that
+/// carries a mark — راحة, فشل, جزئي or the blue one are all statements that
 /// outrank a measured count, exactly as _effectiveSquare ranks them over a
 /// times-per-day tally.
 ///
@@ -425,7 +435,7 @@ String? compactStepCount(int steps) {
 /// place of the square's glyph on the four rungs the count itself can reach
 /// (empty, جزئي, the green square, the blue one), where the square's colour
 /// already says what the walk earned and the number says how much it was.
-/// فشل and تخطّي keep their glyph: they are the owner's word about the day,
+/// فشل and راحة keep their glyph: they are the owner's word about the day,
 /// the count does not get to talk over them on the board, and the held
 /// square's card still has the figure. Null too for a day the habit does
 /// not run on, for an unlinked habit, and for a day with no count.
@@ -441,7 +451,7 @@ int? stepSquareCount({
 }
 
 /// Where a square sits on the ladder the step count may climb: -1 for the
-/// two marks that are the owner's own word about the day (فشل, تخطّي) and
+/// two marks that are the owner's own word about the day (فشل, راحة) and
 /// must never be touched by a count.
 int stepSquareRank(SquareState square) => switch (square) {
       SquareState.none => 0,
@@ -596,9 +606,10 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
 
   for (final habit in linked) {
     final target = stepSquareFor(steps: steps, goal: habit.stepGoal!);
+    _rememberGoalMet(target, effectiveDay);
     final current =
         ref.read(weeklyGridProvider).squareFor(habit.id, effectiveDay);
-    // Upwards only, and never off فشل or تخطّي: the count set this square
+    // Upwards only, and never off فشل or راحة: the count set this square
     // earlier today or the person did, and either way it only ever climbs.
     if (!stepCountMayLift(current, target)) continue;
     if (!stepHabitAcceptsAutoComplete(
@@ -648,11 +659,22 @@ Future<void> runStepAutoComplete(WidgetRef ref, {bool force = false}) async {
       markOn: ref.read(weeklyGridProvider).currentWeekMark,
       alsoOwing: {habit.id},
     ).map((h) => (id: h.id, frequencyTarget: h.effectiveDailyTarget));
+    // The habit's own streak measured past its «راحة» days and the days a
+    // session elsewhere in the week stood in for, exactly as a tap measures
+    // it (see streakRunsOn). It was the plain schedule here, so a walk
+    // counted the morning after a rest restarted the streak at 1.
+    final runsOn = await streakRunsOn(
+      habit: habit,
+      day: effectiveDay,
+      lastCompletedKey: dashState.habitLastCompletedDate[habit.id],
+      squaresOn: ref.read(weeklyGridProvider.notifier).storedSquaresFor,
+    );
+    if (!ref.context.mounted) return;
     final mirroredBySingleTap =
         await ref.read(dashboardProvider.notifier).completeHabit(
               habitId: habit.id,
               scheduledWeekdays: habit.scheduledWeekdays.toSet(),
-              runsOn: habit.runsOn,
+              runsOn: runsOn,
               xpReward: roomBoostedReward(ref, habit.id, habit.xpReward, day: effectiveDay),
               goldReward: roomBoostedReward(ref, habit.id, habit.goldReward, day: effectiveDay),
               frequencyTarget: perDay,
@@ -767,7 +789,7 @@ Future<bool> _creditWalksOn(
   // includes a mark made seconds ago whose write to the store may still be
   // in flight. Outside it, WeeklyGridState answers `none` for every day it
   // has not loaded — indistinguishable from an untouched day, and believing
-  // that would paint over a تخطّي.
+  // that would paint over a راحة.
   final grid = ref.read(weeklyGridProvider);
   final marks = grid.days.any((d) => d.isSameDayAs(day))
       ? grid.states[day.toDateKey()] ?? const <String, SquareState>{}
@@ -805,6 +827,7 @@ Future<bool> _creditWalksOn(
   for (final habit in owed) {
     final current = marks[habit.id] ?? SquareState.none;
     final target = stepSquareFor(steps: steps, goal: habit.stepGoal!);
+    _rememberGoalMet(target, day);
     // The day's final count, in the day's own square: half stays a جزئي,
     // the goal a green, twenty percent over a blue. Only ever upwards from
     // whatever the live reads left there on the day itself.
@@ -839,7 +862,7 @@ Future<bool> _creditWalksOn(
 /// not allowed here).
 ///
 /// An explicit mark of any kind ends it. A green square means the walk is
-/// already recorded; a تخطّي means the person stood the day down on purpose;
+/// already recorded; a راحة means the person stood the day down on purpose;
 /// a red means they said it did not happen. A step count read a day late
 /// does not get to overrule any of those, and neither does a جزئي, which is
 /// somebody's own account of a part-done day.
@@ -862,7 +885,7 @@ List<IslamicHabitTemplate> stepHabitsOwedOn({
 /// or whether the person has already said something about that day.
 ///
 /// The step counter is evidence, not a verdict. Someone who marks the day
-/// فشل or تخطّي has made a statement about it, and a pedometer does not get
+/// فشل or راحة has made a statement about it, and a pedometer does not get
 /// to overrule a person about their own day; إنجاز إضافي is already the top
 /// of the ladder. A جزئي is different since 2026-09-07: the count sets it
 /// itself at half the goal, so it is a rung the count may climb from. Before
@@ -888,7 +911,7 @@ bool stepHabitAcceptsAutoComplete({
   required DateTime day,
 }) {
   final square = grid.squareFor(habit.id, day);
-  // فشل and تخطّي are the owner's word about the day and stay theirs; the
+  // فشل and راحة are the owner's word about the day and stay theirs; the
   // blue square is already more than done. A جزئي is in play: the count
   // sets it itself at half the goal now, and a person who marked half by
   // hand and then walked the whole goal is still owed the green square.

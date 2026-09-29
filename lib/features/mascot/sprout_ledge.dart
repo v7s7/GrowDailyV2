@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -16,9 +17,13 @@ import '../../core/l10n/app_strings.dart';
 import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../core/utils/reduced_motion.dart';
+import '../../shared/widgets/snack_bar_watch.dart';
 import 'day_card_sprout.dart';
 import 'sprout.dart';
+import 'sprout_echo.dart';
 import 'sprout_mood.dart';
+
+part 'sprout_bottom.dart';
 
 // ─── The sprout on the board's edge ─────────────────────────────────────────
 //
@@ -109,7 +114,7 @@ Box<dynamic>? _settingsBox() => LocalStoreService.settingsBoxOpen
     : null;
 
 /// Whether the sprout stands on the Grid. Hidden by pulling it down behind
-/// the board (after a question) or by the switch in Settings › التخصيص; the
+/// the board (after a question) or by the switch in Settings › الشكل; the
 /// switch is also the way back. Only "hidden" is ever stored.
 class GridSproutShownNotifier extends StateNotifier<bool> {
   GridSproutShownNotifier() : super(_settingsBox()?.get(_kHiddenKey) != true);
@@ -189,6 +194,8 @@ class SproutLedge extends ConsumerStatefulWidget {
     this.todayFromStart,
     this.drawLine = false,
     this.clock = DateTime.now,
+    this.stage,
+    this.namesFromStart,
   });
 
   /// The day's numbers, for [DayCardSprout] (see its fields).
@@ -210,6 +217,20 @@ class SproutLedge extends ConsumerStatefulWidget {
 
   /// The wall clock; replaced in tests.
   final DateTime Function() clock;
+
+  /// Where Doum is, shared with [SproutBottomPeek] at the foot of the
+  /// screen. With one, this ledge watches where its line is on screen and
+  /// sends him down there while it is scrolled away (see sprout_bottom.dart);
+  /// without one he simply stays here.
+  final SproutStage? stage;
+
+  /// Where the habit names are on a board this wide (namesColumnFromStart),
+  /// or null when there is no fixed place for them: then there is no spot
+  /// at the foot of the screen either, and he stays here.
+  final ({double centre, double squaresFrom})? Function(
+    double boardWidth, {
+    required bool rtl,
+  })? namesFromStart;
 
   @override
   ConsumerState<SproutLedge> createState() => _SproutLedgeState();
@@ -234,8 +255,10 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   /// The lane itself: 1 open, 0 closed down to the old gap.
   late final AnimationController _open;
 
-  /// What the sprout is saying (see DayCardSprout.onBubble).
-  final _speech = ValueNotifier<String?>(null);
+  /// What the sprout is saying (see DayCardSprout.onBubble): the stage's,
+  /// so it can be drawn at the foot of the screen too, or this ledge's own.
+  final _ownSpeech = ValueNotifier<String?>(null);
+  ValueNotifier<String?> get _speech => widget.stage?.speech ?? _ownSpeech;
 
   /// True while a finger holds the sprout: the bubble steps aside.
   final _held = ValueNotifier<bool>(false);
@@ -252,6 +275,29 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   bool _pastHide = false;
   bool _asking = false;
   bool _reduced = false;
+
+  /// The Grid's vertical scroll, read to know where this ledge's line is
+  /// on screen (never the board's sideways scroll, nor the tab pages').
+  ScrollPosition? _position;
+
+  /// Whether this ledge has made its first call on where Doum is: that one
+  /// is not animated (the board may be built already scrolled).
+  bool _decided = false;
+
+  /// Why the foot of the screen was not his, the last time this looked.
+  SproutSpotBlock _lastBlock = SproutSpotBlock.none;
+
+  /// Whether his mood had him asleep, the last time this looked.
+  bool _wasAsleep = false;
+
+  /// Where Doum was when this ledge last looked: at the foot of the screen.
+  bool _atBottom = false;
+
+  /// He has ducked all the way out of sight up here while he is down there:
+  /// this body is then not painted at all (Offstage), so nothing of it can
+  /// show over the board's edge, whatever pose his mood gives him.
+  bool _tucked = false;
+  Timer? _climbBack;
 
   static final _glide = SpringDescription.withDampingRatio(
     mass: 1,
@@ -275,17 +321,238 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
     );
     if (!shown) _sink.value = _kMaxSink;
     _speech.addListener(_pickBubbleSide);
+    final stage = widget.stage;
+    if (stage != null) {
+      stage.claim(this);
+      stage.addListener(_onStage);
+      _atBottom = stage.atBottom;
+      if (_atBottom) {
+        _sink.value = _kMaxSink;
+        _tucked = true;
+      }
+      // After every frame the app draws: a scroll, a card above folding
+      // away, the lane opening, the split board's line coming, all redraw,
+      // and nothing has moved the line without one. Still screens cost
+      // nothing (see FrameWatch).
+      FrameWatch.add(_check);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The nearest VERTICAL scrollable: the Grid's own page. The board's
+    // sideways scroll is not an ancestor of the ledge, and HomeShell's tab
+    // pages scroll sideways, so neither is ever this one.
+    // The position is replaced whenever the scroll view's own dependencies
+    // change (a theme or language switch), so it is looked up again here.
+    final position = widget.stage == null
+        ? null
+        : Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+    if (!identical(position, _position)) {
+      _position?.isScrollingNotifier.removeListener(_mirrorScrolling);
+      _position = position;
+      _position?.isScrollingNotifier.addListener(_mirrorScrolling);
+      _mirrorScrolling();
+    }
+  }
+
+  /// Tells the foot of the screen whether the page is moving (see
+  /// SproutStage.scrolling). A glide can start or end while the page is
+  /// laid out, where nothing may be marked dirty, so then it waits for the
+  /// frame's end.
+  void _mirrorScrolling() {
+    void mirror() {
+      final stage = widget.stage;
+      if (!mounted || stage == null) return;
+      stage.scrolling.value = _position?.isScrollingNotifier.value ?? false;
+    }
+
+    final scheduler = SchedulerBinding.instance;
+    if (scheduler.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+      scheduler.addPostFrameCallback((_) => mirror());
+      return;
+    }
+    mirror();
+  }
+
+  @override
+  void didUpdateWidget(covariant SproutLedge old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.stage, widget.stage)) {
+      (old.stage?.speech ?? _ownSpeech).removeListener(_pickBubbleSide);
+      _speech.addListener(_pickBubbleSide);
+      old.stage?.removeListener(_onStage);
+      old.stage?.release(this);
+      widget.stage?.claim(this);
+      widget.stage?.addListener(_onStage);
+      if (old.stage == null) FrameWatch.add(_check);
+      if (widget.stage == null) FrameWatch.remove(_check);
+      _decided = false;
+    }
   }
 
   @override
   void dispose() {
     _speech.removeListener(_pickBubbleSide);
+    _position?.isScrollingNotifier.removeListener(_mirrorScrolling);
+    FrameWatch.remove(_check);
+    _climbBack?.cancel();
+    widget.stage?.removeListener(_onStage);
+    widget.stage?.release(this);
     _x.dispose();
     _sink.dispose();
     _open.dispose();
-    _speech.dispose();
+    _ownSpeech.dispose();
     _held.dispose();
     super.dispose();
+  }
+
+  // ── Following the page down ─────────────────────────────────────────────
+
+  /// Where this ledge's line (the board's top edge) is, from the top of the
+  /// Grid's scroll view, where the page's pixels say it is: the offset that
+  /// would bring the lane to the top, less the pixels scrolled. A bounce
+  /// past either end is not a scroll anyone meant, so it is not counted.
+  double? _lineOnScreen() {
+    final position = _position;
+    final box = context.findRenderObject();
+    if (position == null ||
+        box is! RenderBox ||
+        !box.attached ||
+        !box.hasSize ||
+        !position.hasPixels ||
+        !position.hasContentDimensions) {
+      return null;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(box);
+    if (viewport == null) return null;
+    final reveal = viewport.getOffsetToReveal(box, 0.0).offset;
+    final pixels = position.pixels
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    // On a split board the lane draws its own line 6pt above its foot.
+    final below = widget.drawLine ? 6.0 : 0.0;
+    return reveal - pixels + box.size.height - below;
+  }
+
+  /// Sends Doum to the foot of the screen when the line nears the top, and
+  /// back when it is well in view again (see _kLeaveAt, _kComeBackAt). He
+  /// stays up here while he is held or asked about, while the lane is
+  /// opening or closing, when the board has no fixed place for the names,
+  /// while the spot down there is someone else's, and while he is asleep:
+  /// he sleeps on his edge, not at the foot of the page.
+  void _check() {
+    final stage = widget.stage;
+    if (stage == null || !mounted || _held.value || _asking) return;
+    final line = _lineOnScreen();
+    if (line == null) return;
+    final block = stage.block.value;
+    final asleep = dayCardMoodFor(
+          greens: widget.greens,
+          owed: widget.owed,
+          perfectDay: widget.perfectDay,
+          hour: widget.clock().hour,
+        ).pose ==
+        SproutPose.sleeping;
+    // Falling asleep while he waits down there (the day made perfect after
+    // bedtime) is the one mood change with words on it: he stays for them,
+    // and goes up to sleep on his edge once they have been said, instead of
+    // leaving mid-sentence with the line lost.
+    final sleepyButTalking =
+        asleep && stage.atBottom && stage.speech.value != null;
+    final hasSpot = ref.read(gridSproutShownProvider) &&
+        _open.value >= 1 &&
+        _width > 0 &&
+        block == SproutSpotBlock.none &&
+        (!asleep || sleepyButTalking) &&
+        (widget.namesFromStart?.call(_width, rtl: _rtl) != null);
+    final bool down;
+    if (!hasSpot) {
+      down = false;
+    } else if (stage.atBottom) {
+      down = line <= _kComeBackAt;
+    } else {
+      down = line < _kLeaveAt;
+    }
+    // Not seen: the first call a board makes, and the keyboard's coming and
+    // going (a sheet is over the page).
+    final quiet = !_decided ||
+        block == SproutSpotBlock.quietly ||
+        _lastBlock == SproutSpotBlock.quietly;
+    // Woken by a square done down there (the first one of the small hours):
+    // the praise for it goes down with him.
+    final woke = _decided && _wasAsleep && !asleep;
+    _decided = true;
+    _lastBlock = block;
+    _wasAsleep = asleep;
+    stage.moveTo(bottom: down, animate: !quiet, keepSpeech: woke);
+  }
+
+  /// The stage moved him (this ledge decided, or its board went away): duck
+  /// out of sight here, or climb back up a moment after the foot of the
+  /// screen has started its own duck.
+  void _onStage() {
+    final stage = widget.stage;
+    if (stage == null || stage.atBottom == _atBottom) return;
+    // Rebuilt so his moves, taps and screen-reader node follow him (see
+    // _lane).
+    setState(() => _atBottom = stage.atBottom);
+    _climbBack?.cancel();
+    _reduced = prefersReducedMotion(context);
+    final shown = ref.read(gridSproutShownProvider);
+    if (_atBottom) {
+      // A glide along the line is left to finish out of sight: stopped here,
+      // he would come back short of the spot the glide just saved.
+      if (!stage.animate || _reduced) {
+        _sink.stop();
+        _sink.value = _kMaxSink;
+        _tuck(true);
+      } else {
+        _sink
+            .animateTo(_kMaxSink, duration: _kDuck, curve: Curves.easeIn)
+            .then((_) {
+          if (mounted && _atBottom) _tuck(true);
+        });
+      }
+      return;
+    }
+    if (!shown) {
+      _tuck(false);
+      return;
+    }
+    if (_reduced && stage.animate) {
+      // No travel: he appears up here once the foot's fade has taken him
+      // away there, never both at once.
+      _climbBack = Timer(_kCalmFade, () {
+        if (!mounted || _atBottom) return;
+        _tuck(false);
+        _sink.stop();
+        _sink.value = 0;
+      });
+      return;
+    }
+    _tuck(false);
+    if (!stage.animate) {
+      _sink.stop();
+      _sink.value = 0;
+      return;
+    }
+    // Turned back mid-duck, still partly in view: straight back up from
+    // where he is, with the speed he had, no pause.
+    if (_sink.value < _kMaxSink - 0.5) {
+      final velocity = _sink.velocity;
+      _sink.stop();
+      _settle(_sink, _bounce, 0, velocity);
+      return;
+    }
+    _climbBack = Timer(_kHandoffGap, () {
+      if (mounted && !_atBottom) _settleSink(0);
+    });
+  }
+
+  void _tuck(bool tucked) {
+    if (_tucked != tucked && mounted) setState(() => _tucked = tucked);
   }
 
   bool get _rtl => Directionality.of(context) == TextDirection.rtl;
@@ -380,6 +647,8 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   }
 
   void _settleSink(double velocity) {
+    // Waiting at the foot of the screen: he stays out of sight up here.
+    if (_atBottom) return;
     _settle(_sink, _bounce, 0, velocity);
   }
 
@@ -416,7 +685,8 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   void _down(DragDownDetails d) => _downAt = d.globalPosition;
 
   void _start(DragStartDetails d) {
-    if (_asking) return;
+    // Ducking down to the foot of the screen: not to be picked up here.
+    if (_asking || _atBottom) return;
     _x.stop();
     _sink.stop();
     _fromX = _x.value;
@@ -582,42 +852,60 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
 
     // Built once per ledge build and handed to the moving part as a child,
     // so a drag frame moves a picture and rebuilds nothing inside it.
-    final sprout = RepaintBoundary(
-      child: RawGestureDetector(
-        gestures: <Type, GestureRecognizerFactory>{
-          _PickUpRecognizer:
-              GestureRecognizerFactoryWithHandlers<_PickUpRecognizer>(
-            () => _PickUpRecognizer(debugOwner: this),
-            (r) => r
-              // The device's own slop (8 on Android), which the pick-up
-              // stays under; see [_kPickUpSlop].
-              ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
-              ..dragStartBehavior = DragStartBehavior.start
-              ..onDown = _down
-              ..onStart = _start
-              ..onUpdate = _update
-              ..onEnd = _end
-              ..onCancel = _cancel,
-          ),
-        },
-        child: Semantics(
-          // Pulling it down is a gesture a screen reader cannot make; this
-          // is the same question, one action away.
-          customSemanticsActions: {
-            CustomSemanticsAction(label: s.gridSproutHideYes): () {
-              if (!_asking) _duckAndAsk();
+    //
+    // While he waits at the foot of the screen this body makes no moves
+    // (bodyAway), takes no touches, is left out for screen readers, and once
+    // it has ducked out of sight is not painted at all; the wrappers are
+    // always here, so none of that rebuilds his mind.
+    final sprout = Offstage(
+      offstage: _tucked,
+      child: IgnorePointer(
+        ignoring: _atBottom,
+        child: RepaintBoundary(
+          child: RawGestureDetector(
+            gestures: <Type, GestureRecognizerFactory>{
+              _PickUpRecognizer:
+                  GestureRecognizerFactoryWithHandlers<_PickUpRecognizer>(
+                () => _PickUpRecognizer(debugOwner: this),
+                (r) => r
+                  // The device's own slop (8 on Android), which the pick-up
+                  // stays under; see [_kPickUpSlop].
+                  ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
+                  ..dragStartBehavior = DragStartBehavior.start
+                  ..onDown = _down
+                  ..onStart = _start
+                  ..onUpdate = _update
+                  ..onEnd = _end
+                  ..onCancel = _cancel,
+              ),
             },
-          },
-          child: DayCardSprout(
-            greens: widget.greens,
-            owed: widget.owed,
-            ratio: widget.ratio,
-            perfectDay: widget.perfectDay,
-            live: widget.live,
-            height: kLedgeSproutHeight,
-            clock: widget.clock,
-            drawsBubble: false,
-            onBubble: _hear,
+            // Down at the foot of the screen, that body is the one a screen
+            // reader finds; this one is out of sight behind the board.
+            child: ExcludeSemantics(
+              excluding: _atBottom,
+              child: Semantics(
+                // Pulling it down is a gesture a screen reader cannot make;
+                // this is the same question, one action away.
+                customSemanticsActions: {
+                  CustomSemanticsAction(label: s.gridSproutHideYes): () {
+                    if (!_asking) _duckAndAsk();
+                  },
+                },
+                child: DayCardSprout(
+                  greens: widget.greens,
+                  owed: widget.owed,
+                  ratio: widget.ratio,
+                  perfectDay: widget.perfectDay,
+                  live: widget.live,
+                  height: kLedgeSproutHeight,
+                  clock: widget.clock,
+                  drawsBubble: false,
+                  onBubble: _hear,
+                  echo: widget.stage?.echo,
+                  bodyAway: _atBottom,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -679,64 +967,82 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   }
 
   /// SproutBubble beside the sprout, its bottom just above the line, the
-  /// tail pointing at it. Hidden while the sprout is held.
+  /// tail pointing at it. Hidden while the sprout is held, and while he
+  /// waits at the foot of the screen (the bubble goes with him there).
   Widget _bubble(double under) {
     return AnimatedBuilder(
       animation: Listenable.merge([_x, _speech, _held]),
       builder: (context, _) {
-        final text = _held.value ? null : _speech.value;
+        final text = _held.value || _atBottom ? null : _speech.value;
         final x = _x.value;
         final onRight = _bubbleOnRight;
         final room = onRight
             ? _width + 12 - (x + _kHalfWidth - 6)
             : (x - _kHalfWidth + 6) + 12;
-        final maxWidth = room.clamp(60.0, 170.0).toDouble();
         // SproutBubble's tail is on its bottom END corner unless told
         // otherwise; the corner that faces the sprout is bottom-left for a
         // bubble on its right, bottom-right for one on its left.
         final tailAtStart = onRight != _rtl;
-        final bubble = IgnorePointer(
-          child: ExcludeSemantics(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              reverseDuration: const Duration(milliseconds: 160),
-              transitionBuilder: (child, animation) => FadeTransition(
-                opacity: animation,
-                child: _reduced
-                    ? child
-                    : ScaleTransition(
-                        alignment: onRight
-                            ? Alignment.bottomLeft
-                            : Alignment.bottomRight,
-                        scale: Tween(begin: 0.8, end: 1.0).animate(
-                          CurvedAnimation(
-                            parent: animation,
-                            curve: Curves.easeOutBack,
-                          ),
-                        ),
-                        child: child,
-                      ),
-              ),
-              child: text == null
-                  ? const SizedBox.shrink(key: ValueKey('none'))
-                  : SproutBubble(
-                      key: ValueKey(text),
-                      text: text,
-                      maxWidth: maxWidth,
-                      tailAtStart: tailAtStart,
-                    ),
-            ),
-          ),
-        );
         return Positioned(
           left: onRight ? x + _kHalfWidth - 6 : null,
           right: onRight ? null : _width - (x - _kHalfWidth + 6),
           bottom: under + 2,
-          child: bubble,
+          child: _speechSwitcher(
+            text: text,
+            maxWidth: room.clamp(60.0, 170.0).toDouble(),
+            onRight: onRight,
+            tailAtStart: tailAtStart,
+            reduced: _reduced,
+          ),
         );
       },
     );
   }
+}
+
+/// The bubble coming and going beside the sprout: a fade, and a small grow
+/// from the corner that faces him unless Reduce Motion is on. IgnorePointer:
+/// the squares under it stay tappable. Shared by the board's edge and the
+/// foot of the screen.
+Widget _speechSwitcher({
+  required String? text,
+  required double maxWidth,
+  required bool onRight,
+  required bool tailAtStart,
+  required bool reduced,
+}) {
+  return IgnorePointer(
+    child: ExcludeSemantics(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        reverseDuration: const Duration(milliseconds: 160),
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: reduced
+              ? child
+              : ScaleTransition(
+                  alignment:
+                      onRight ? Alignment.bottomLeft : Alignment.bottomRight,
+                  scale: Tween(begin: 0.8, end: 1.0).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutBack,
+                    ),
+                  ),
+                  child: child,
+                ),
+        ),
+        child: text == null
+            ? const SizedBox.shrink(key: ValueKey('none'))
+            : SproutBubble(
+                key: ValueKey(text),
+                text: text,
+                maxWidth: maxWidth,
+                tailAtStart: tailAtStart,
+              ),
+      ),
+    ),
+  );
 }
 
 /// Picks the sprout up once the finger is [_kPickUpSlop] away from where it

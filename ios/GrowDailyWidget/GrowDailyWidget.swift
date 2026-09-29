@@ -101,6 +101,10 @@ struct GrowDailyEntry: TimelineEntry {
     let completedToday: Int
     let totalToday: Int
     let habits: [TodayHabit]
+    /// False when no list in the store is this entry's day's (see
+    /// HabitListDay.unknown): the faces then ask for the app instead of
+    /// drawing an older day's habits as today's.
+    var habitsKnown: Bool = true
 }
 
 struct GrowDailyProvider: TimelineProvider {
@@ -123,33 +127,70 @@ struct GrowDailyProvider: TimelineProvider {
         // AppIntent button finishes — this timeline is only the fallback
         // for while the app isn't open and nothing's been tapped.
         let next = Calendar.current.date(byAdding: .hour, value: 1, to: now)!
-        // The sprout's bedtime and wake-up (see WidgetSprout) fall between
-        // those hourly reloads, so each gets an entry of its own when it is
-        // inside this hour: a finished day's sprout falls asleep at 21:00,
-        // not up to an hour later.
         var entries = [loadEntry(at: now)]
-        for hour in [kWidgetSproutBedtimeHour, kWidgetSproutWakeHour] {
-            if let t = Calendar.current.nextDate(after: now,
-                                                 matching: DateComponents(hour: hour, minute: 0),
-                                                 matchingPolicy: .nextTime),
-               t < next {
-                entries.append(loadEntry(at: t))
-            }
-        }
+        // And the day turning, whether or not iOS grants the reload: from
+        // midnight the faces draw the next day's list (loadEntry), the one
+        // the app left beside today's, with nothing done yet. The Race and
+        // Tasks providers carry the same entry for their own day.
+        let calendar = Calendar.current
+        let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
+        entries.append(loadEntry(at: midnight))
         entries.sort { $0.date < $1.date }
         completion(Timeline(entries: entries, policy: .after(next)))
     }
 
+    /// [date]'s face from the store. The list is the one written for
+    /// [date]'s day (habitListDay): today's, the next day's once midnight
+    /// has passed with the app closed, or none when both are older, and
+    /// «4 من 9» is counted from that list (habitDayCounts), so it always
+    /// agrees with the rows under it, a widget tap included.
     private func loadEntry(at date: Date = Date()) -> GrowDailyEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
+        let source = habitListDay(
+            for: appDayKey(date),
+            todayDay: defaults?.string(forKey: "todayHabitsDay"),
+            nextDay: defaults?.string(forKey: "nextHabitsDay"))
+        let habits: [TodayHabit]
+        switch source {
+        case .today:
+            habits = readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) ?? []
+        case .next:
+            habits = readJSON("nextHabitsJson", from: defaults, as: [TodayHabit].self) ?? []
+        case .unknown:
+            habits = []
+        }
+        let counts = habitDayCounts(habits)
         return GrowDailyEntry(
             date: date,
             copy: WidgetCopy.fromDefaults(),
             streak: defaults?.integer(forKey: "streak") ?? 0,
-            completedToday: defaults?.integer(forKey: "completedToday") ?? 0,
-            totalToday: defaults?.integer(forKey: "totalToday") ?? 0,
-            habits: readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) ?? []
+            completedToday: counts.done,
+            totalToday: counts.total,
+            habits: habits,
+            habitsKnown: source != .unknown
         )
+    }
+}
+
+/// Makes the today-list [day]'s when the app left it as the next day's
+/// list, before a tap reads or rewrites it: the first tap of a morning the
+/// app has not been opened yet must tick today's row, not yesterday's.
+/// HomeWidgetService.rollTodayHabitsTo is the same step for a lock screen
+/// «تمت». Returns whether the today-list now speaks for [day].
+func rollHabitList(to day: String, in defaults: UserDefaults?) -> Bool {
+    switch habitListDay(for: day,
+                        todayDay: defaults?.string(forKey: "todayHabitsDay"),
+                        nextDay: defaults?.string(forKey: "nextHabitsDay")) {
+    case .today:
+        return true
+    case .next:
+        guard let next = defaults?.string(forKey: "nextHabitsJson") else { return false }
+        // The list first and its day after, the order the app writes them in.
+        defaults?.set(next, forKey: "todayHabitsJson")
+        defaults?.set(day, forKey: "todayHabitsDay")
+        return true
+    case .unknown:
+        return false
     }
 }
 
@@ -198,15 +239,22 @@ struct MarkHabitDoneIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let defaults = UserDefaults(suiteName: appGroupId)
-        // Decided before the list is rewritten, from the counts as they
-        // stood before this tap.
-        let finishes = habitTapFinishesDay(habitId, in: defaults)
         // One clock reading for the whole tap: the day it is queued under and
         // the day whose reminders it takes down have to be the same day, even
         // if midnight falls between the two lines.
         let day = appDayKey(Date())
+        // The morning's first tap with the app still closed: the face drew
+        // the next-day list (GrowDailyProvider.loadEntry), so that is the
+        // list this tap belongs in.
+        let listIsToday = rollHabitList(to: day, in: defaults)
+        // Decided before the list is rewritten, from the counts as they
+        // stood before this tap.
+        let finishes = habitTapFinishesDay(habitId, in: defaults, listIsForDay: listIsToday)
 
-        if var habits = readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) {
+        // An older day's list is never ticked: the tap is today's, and that
+        // list is not (the faces no longer draw it, see habitListDay).
+        if listIsToday,
+           var habits = readJSON("todayHabitsJson", from: defaults, as: [TodayHabit].self) {
             for i in habits.indices where habits[i].id == habitId {
                 habits[i].recordOneCompletion()
             }
@@ -344,10 +392,16 @@ private struct TodayHabitCount: Decodable {
 /// that cannot be known, as there: no list, the habit absent, or its counts
 /// missing, which is how a list re-encoded by a build before 2026-09-24
 /// reads (TodayHabit keeps the pair since then).
-private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?) -> Bool {
+///
+/// [listIsForDay] false means the list is an older day's: its perDay holds,
+/// its count does not, so this tap is the day's first. Without that, a
+/// three-a-day habit left at 2 of 3 last night read as finished by this
+/// morning's first tap, and its reminders for the day were taken down.
+private func habitTapFinishesDay(_ habitId: String, in defaults: UserDefaults?,
+                                 listIsForDay: Bool = true) -> Bool {
     guard let list = readJSON("todayHabitsJson", from: defaults, as: [TodayHabitCount].self),
           let entry = list.first(where: { $0.id == habitId }),
-          let count = entry.count,
+          let count = listIsForDay ? entry.count : 0,
           let perDay = entry.perDay else { return true }
     return count + 1 >= perDay
 }
@@ -622,6 +676,11 @@ struct HabitDaySquare: View {
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                     .padding(.horizontal, 1)
+            } else if habit.isResting {
+                // A «راحة», neutral like the Grid's rest square and the race
+                // strip's declared rest (RoomDayCell): nothing earned,
+                // nothing lost, and not the green of a day that asked nothing.
+                shape.fill(Color.parchmentSecondary.opacity(0.3))
             } else if resting {
                 shape.fill(Color.themeGreenFill.opacity(0.18))
             } else {
@@ -673,10 +732,11 @@ struct HabitWidgetRow: View {
             if resting {
                 // A day you may train on but do not owe: said in words as
                 // well as by the square, so an empty square here is never
-                // read as a habit left undone.
-                Text(copy.notDue)
+                // read as a habit left undone. A rest the person chose says
+                // «راحة», in the neutral ink its square wears.
+                Text(habit.isResting ? copy.restWord : copy.notDue)
                     .font(.system(size: max(8.5, fontSize - 3.5), weight: .semibold))
-                    .foregroundColor(.themeGreen)
+                    .foregroundColor(habit.isResting ? .parchmentSecondary : .themeGreen)
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -762,56 +822,63 @@ struct HabitStatusLine: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(entry.totalToday > 0
-                 ? entry.copy.todayCount(entry.completedToday, entry.totalToday)
-                 : entry.copy.noHabitsToday)
-                .font(.system(size: size, weight: .heavy))
-                .foregroundColor(entry.totalToday <= 0 ? .parchmentSecondary
-                                 : entry.completedToday >= entry.totalToday
-                                 ? .themeGreen : .parchmentInk)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .layoutPriority(1)
-                .contentTransition(.opacity)
-                .animation(.default, value: entry.completedToday)
+            // No count on a day the widget has no list for: «0 من 0» or
+            // «ما في عادات اليوم» would both be claims about a day it
+            // cannot see. The face says why underneath (HabitsUnknownNote).
+            if entry.habitsKnown {
+                Text(entry.totalToday > 0
+                     ? entry.copy.todayCount(entry.completedToday, entry.totalToday)
+                     : entry.copy.noHabitsToday)
+                    .font(.system(size: size, weight: .heavy))
+                    .foregroundColor(entry.totalToday <= 0 ? .parchmentSecondary
+                                     : entry.completedToday >= entry.totalToday
+                                     ? .themeGreen : .parchmentInk)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .layoutPriority(1)
+                    .contentTransition(.opacity)
+                    .animation(.default, value: entry.completedToday)
+            }
             Spacer(minLength: 4)
             StreakBadge(streak: entry.streak, copy: entry.copy, size: size - 1, showWord: false)
         }
     }
 }
 
-/// The hours the widget's sprout goes to sleep and wakes on a finished day,
-/// the app's own (kSproutBedtimeHour / kSproutWakeHour in sprout_mood.dart).
-let kWidgetSproutBedtimeHour = 21
-let kWidgetSproutWakeHour = 4
-
-/// Whether the widget's sprout is asleep at [date]: from bedtime to waking.
-func widgetSproutSleeps(at date: Date) -> Bool {
-    let hour = Calendar.current.component(.hour, from: date)
-    return hour >= kWidgetSproutBedtimeHour || hour < kWidgetSproutWakeHour
-}
-
-/// The app's mascot on the Habits widget, only where the face has nothing
-/// left to list: happy with a finished day, asleep once it is late or when
-/// the day asks for nothing at all. It never appears beside open habits,
-/// which keep all the room (Aziz, 2026-09-24: the widget is for a quick,
-/// useful flow), and it is never sad: an unfinished day shows the habits,
-/// not a mascot about them.
-///
-/// The two PNGs come from tool/mascot at one shared character scale
-/// (SproutHappy 240px tall, SproutSleeping 204px), so drawing them at
-/// [height] and height x 204/240 keeps the character one size between them.
-struct WidgetSprout: View {
-    let entry: GrowDailyEntry
-    let height: CGFloat
+/// What a Habits face says when no list in the store is its day's
+/// (GrowDailyEntry.habitsKnown): the app has not been opened since the day
+/// before yesterday. Words instead of an older day's rows, which would be
+/// tappable, and whose taps would be paid to today.
+struct HabitsUnknownNote: View {
+    let copy: WidgetCopy
+    var fontSize: CGFloat = 12
 
     var body: some View {
-        let asleep = entry.totalToday == 0 || widgetSproutSleeps(at: entry.date)
-        Image(asleep ? "SproutSleeping" : "SproutHappy")
-            .resizable()
-            .interpolation(.high)
-            .scaledToFit()
-            .frame(height: asleep ? height * 204 / 240 : height)
+        Text(copy.openAppForHabits)
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundColor(.parchmentSecondary)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// The one mark a Habits face shows once nothing is left to list: a green
+/// seal on a finished day, a leaf on a day that asks nothing.
+///
+/// Doum stood here from 2026-09-28 (happy on a done day, asleep after 21:00)
+/// until Aziz took him off the widgets on 2026-09-29 ("make it without doum
+/// for now") after seeing a canvas of bigger, Duolingo-style options. His two
+/// imagesets (SproutHappy, SproutSleeping) stay in the asset catalog for
+/// when he comes back; commit 969463a has the view that drew them.
+struct HabitDayDoneMark: View {
+    let entry: GrowDailyEntry
+    var size: CGFloat
+
+    var body: some View {
+        Image(systemName: entry.totalToday > 0 ? "checkmark.seal.fill" : "leaf")
+            .font(.system(size: size))
+            .foregroundColor(entry.totalToday > 0 ? .themeGreen : .parchmentSecondary)
             .accessibilityHidden(true)
     }
 }
@@ -837,14 +904,15 @@ struct GrowDailySmallView: View {
         let open = open
         VStack(alignment: .leading, spacing: 8) {
             HabitStatusLine(entry: entry, size: 12)
-            if open.isEmpty {
+            if !entry.habitsKnown {
+                Spacer(minLength: 0)
+                HabitsUnknownNote(copy: entry.copy, fontSize: 12)
+                Spacer(minLength: 0)
+            } else if open.isEmpty {
                 Spacer(minLength: 0)
                 // Nothing left: the line above already says so in words;
-                // this is the one mark that says it at a glance. The sprout,
-                // where a green seal (or a leaf, on a day asking nothing)
-                // used to be: the only place on this face with room to
-                // spare, so it costs the habit rows nothing.
-                WidgetSprout(entry: entry, height: 70)
+                // this is the one mark that says it at a glance.
+                HabitDayDoneMark(entry: entry, size: 34)
                     .frame(maxWidth: .infinity)
                 Spacer(minLength: 0)
             } else {
@@ -885,20 +953,28 @@ struct GrowDailyMediumView: View {
         let open = open
         HStack(spacing: 14) {
             VStack(spacing: 8) {
-                ProgressRing(completed: entry.completedToday, total: entry.totalToday,
-                             fontSize: 15, lineWidth: 5)
-                    .frame(width: 56, height: 56)
+                // No ring for a day the widget has no list for: an empty
+                // «0/0» would read as a day that asks nothing.
+                if entry.habitsKnown {
+                    ProgressRing(completed: entry.completedToday, total: entry.totalToday,
+                                 fontSize: 15, lineWidth: 5)
+                        .frame(width: 56, height: 56)
+                }
                 StreakBadge(streak: entry.streak, copy: entry.copy, size: 11)
             }
             .frame(width: 76)
 
             VStack(alignment: .leading, spacing: 8) {
-                if open.isEmpty {
+                if !entry.habitsKnown {
                     Spacer(minLength: 0)
-                    HStack(spacing: 8) {
-                        // The sprout, where the seal was: happy with a done
-                        // day, asleep late or on a day that asks nothing.
-                        WidgetSprout(entry: entry, height: 54)
+                    HabitsUnknownNote(copy: entry.copy, fontSize: 13)
+                    Spacer(minLength: 0)
+                } else if open.isEmpty {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 6) {
+                        if entry.totalToday > 0 {
+                            HabitDayDoneMark(entry: entry, size: 16)
+                        }
                         Text(entry.totalToday > 0
                              ? entry.copy.allDoneToday
                              : entry.copy.noHabitsToday)
@@ -954,30 +1030,36 @@ struct GrowDailyLargeView: View {
         let firstDone = shown.firstIndex { $0.done }
         VStack(alignment: .leading, spacing: 10) {
             HabitStatusLine(entry: entry, size: 13.5)
-            DayProgressBar(completed: entry.completedToday, total: entry.totalToday)
-
-            if entry.habits.isEmpty {
-                Text(entry.copy.noHabitsToday)
-                    .font(.system(size: 12))
-                    .foregroundColor(.parchmentSecondary)
+            if !entry.habitsKnown {
+                Spacer(minLength: 0)
+                HabitsUnknownNote(copy: entry.copy, fontSize: 14)
+                Spacer(minLength: 0)
             } else {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, habit in
-                        if index == firstDone, index > 0 {
-                            Rectangle()
-                                .fill(Color.parchmentBorder.opacity(0.35))
-                                .frame(height: 0.5)
-                        }
-                        HabitWidgetRow(habit: habit, copy: entry.copy,
-                                       tile: 20, square: 22, fontSize: 13)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.35),
-                           value: shown.map { "\($0.id)|\($0.timesDone)" })
-                if hiddenOpen > 0 {
-                    Text(entry.copy.moreInApp(hiddenOpen))
-                        .font(.system(size: 10.5))
+                DayProgressBar(completed: entry.completedToday, total: entry.totalToday)
+
+                if entry.habits.isEmpty {
+                    Text(entry.copy.noHabitsToday)
+                        .font(.system(size: 12))
                         .foregroundColor(.parchmentSecondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, habit in
+                            if index == firstDone, index > 0 {
+                                Rectangle()
+                                    .fill(Color.parchmentBorder.opacity(0.35))
+                                    .frame(height: 0.5)
+                            }
+                            HabitWidgetRow(habit: habit, copy: entry.copy,
+                                           tile: 20, square: 22, fontSize: 13)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.35),
+                               value: shown.map { "\($0.id)|\($0.timesDone)" })
+                    if hiddenOpen > 0 {
+                        Text(entry.copy.moreInApp(hiddenOpen))
+                            .font(.system(size: 10.5))
+                            .foregroundColor(.parchmentSecondary)
+                    }
                 }
             }
         }
@@ -1079,7 +1161,9 @@ struct GrowDailyRectangularView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .contentTransition(.numericText())
                     .animation(.default, value: entry.streak)
-                Text(entry.copy.doneToday(entry.completedToday, entry.totalToday))
+                Text(entry.habitsKnown
+                     ? entry.copy.doneToday(entry.completedToday, entry.totalToday)
+                     : entry.copy.openAppShort)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .contentTransition(.numericText())
@@ -1149,7 +1233,7 @@ struct GrowDailyLockScreenWidget: Widget {
 //           medium's rows with that line under each, five of them
 //
 // Every day is drawn from the room strip's own states (RoomDayMark, decoded
-// from roomRaceDayCode): a miss is crossed, a rest is soft green, a تخطّي is
+// from roomRaceDayCode): a miss is crossed, a rest is soft green, a راحة is
 // grey, a paused day is a dash, today still open is faint, and today wears
 // the gold border, all as on the room screen. The days run the way the room
 // row's run: oldest at the leading edge, today at the trailing end, so in
@@ -1178,6 +1262,14 @@ struct RoomRaceEntry: TimelineEntry {
     /// loses the gold border: yesterday must not be drawn as today. The
     /// provider adds a midnight entry for exactly this.
     var stripEndsToday: Bool { !stripEndDay.isEmpty && stripEndDay == appDayKey(date) }
+
+    /// «باقي N يوم» as of this entry's own day, counted down from the day
+    /// the app wrote it (roomDaysLeft); 0 for an open-ended room, nil once
+    /// the room's last day has passed with the app closed.
+    var daysLeftNow: Int? {
+        roomDaysLeft(daysRemaining, writtenDay: stripEndDay, dayKey: appDayKey(date),
+                     hour: Calendar(identifier: .gregorian).component(.hour, from: date))
+    }
 
     /// The room's «اليوم» card: who was asked something today, and how many
     /// of them finished it (RoomTodayCard, over the same unblocked roster).
@@ -1217,7 +1309,17 @@ struct RoomRaceProvider: TimelineProvider {
         // today (RoomRaceEntry.stripEndsToday).
         let calendar = Calendar(identifier: .gregorian)
         let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
-        completion(Timeline(entries: [loadEntry(at: now), loadEntry(at: midnight)], policy: .after(next)))
+        var entries = [loadEntry(at: now), loadEntry(at: midnight)]
+        // And the morning cutoff, when a room whose last day was yesterday
+        // ends (roomDaysLeft) and its title says so.
+        if let cutoff = calendar.nextDate(after: now,
+                                          matching: DateComponents(hour: kWidgetDayCutoffHour, minute: 0),
+                                          matchingPolicy: .nextTime),
+           cutoff != midnight {
+            entries.append(loadEntry(at: cutoff))
+        }
+        entries.sort { $0.date < $1.date }
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 
     private func loadEntry(at date: Date = Date()) -> RoomRaceEntry {
@@ -1345,7 +1447,7 @@ struct RoomDayCell: View {
                 // Half the stand-down wash: "not yet", never an outcome.
                 shape.fill(Color.parchmentSurface.opacity(0.5))
             case .declaredRest:
-                // Neutral, like the Grid's تخطّي square: nothing earned,
+                // Neutral, like the Grid's راحة square: nothing earned,
                 // nothing lost.
                 shape.fill(Color.parchmentSecondary.opacity(0.3))
             case .rest:
@@ -1530,8 +1632,15 @@ struct RoomRaceTitle: View {
                 .layoutPriority(1)
             Spacer(minLength: 6)
             if showDaysLeft {
-                if entry.daysRemaining > 0 {
-                    Text(entry.copy.daysLeftShort(entry.daysRemaining))
+                if let left = entry.daysLeftNow, left > 0 {
+                    Text(entry.copy.daysLeftShort(left))
+                        .font(.system(size: size - 2, weight: .semibold))
+                        .foregroundColor(.parchmentSecondary)
+                        .fixedSize()
+                } else if entry.daysLeftNow == nil {
+                    // Its last day has passed since the app wrote this: the
+                    // room's own word for it, RoomDetail's S.roomEnded.
+                    Text(entry.copy.roomEnded)
                         .font(.system(size: size - 2, weight: .semibold))
                         .foregroundColor(.parchmentSecondary)
                         .fixedSize()
@@ -1557,8 +1666,10 @@ extension RoomRaceRow {
     }
 
     /// The board's bar colour for this place: the medal colours, gold for
-    /// everyone else (LinearProgressIndicator in _LeaderboardRow).
-    var barColor: Color {
+    /// everyone else (LinearProgressIndicator in _LeaderboardRow). A team
+    /// room ranks nobody (RoomPlaceMark), so no medal colours there either.
+    func barColor(isTeam: Bool) -> Color {
+        if isTeam { return .themeGold }
         switch rank {
         case 2: return .parchmentSilver
         case 3: return .parchmentBronze
@@ -1696,7 +1807,10 @@ struct RoomRaceListView: View {
                                                     count: Self.stripDays))
                 VStack(alignment: .leading, spacing: large ? 8 : 0) {
                     RoomRaceTitle(entry: entry, size: large ? 14 : 12)
-                    if large && entry.todayCounted > 0 {
+                    // «اليوم X من Y خلّصوا» is about the day the app wrote
+                    // it on; from the next day on it would be yesterday's
+                    // count under today's word.
+                    if large && entry.todayCounted > 0 && entry.stripEndsToday {
                         todayLine
                     }
                     if !large { Spacer(minLength: 4) }
@@ -1804,7 +1918,7 @@ struct RoomRaceListView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.parchmentSurface)
-                    Capsule().fill(row.barColor)
+                    Capsule().fill(row.barColor(isTeam: entry.isTeam))
                         .frame(width: geo.size.width * CGFloat(min(100, max(0, row.percent))) / 100)
                 }
             }
@@ -1848,7 +1962,7 @@ struct RoomRaceListView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.parchmentSurface)
-                            Capsule().fill(row.barColor)
+                            Capsule().fill(row.barColor(isTeam: entry.isTeam))
                                 .frame(width: geo.size.width * CGFloat(min(100, max(0, row.percent))) / 100)
                         }
                     }
@@ -1947,8 +2061,12 @@ struct RoomRaceCircularView: View {
             Gauge(value: Double(mine.percent), in: 0...100) {
                 Image(systemName: "flag.checkered")
             } currentValueLabel: {
-                Text(rankLabel(mine.rank))
-                    .font(.system(size: 14, weight: .bold))
+                // A team room ranks nobody, on its own screen and on the
+                // Home Screen faces (RoomPlaceMark), so the centre shows the
+                // percent the ring already draws instead of a place.
+                Text(verbatim: entry.isTeam ? entry.copy.percent(mine.percent) : rankLabel(mine.rank))
+                    .font(.system(size: entry.isTeam ? 12 : 14, weight: .bold))
+                    .minimumScaleFactor(0.7)
                     .contentTransition(.numericText())
             }
             .gaugeStyle(.accessoryCircularCapacity)
@@ -2002,9 +2120,12 @@ struct RoomRaceRectangularView: View {
         isMine: Bool
     ) -> some View {
         HStack(spacing: 4) {
-            Text(rankLabel(rank))
-                .fontWeight(.bold)
-                .layoutPriority(2)
+            // No place in a team room, which ranks nobody (RoomPlaceMark).
+            if !entry.isTeam {
+                Text(rankLabel(rank))
+                    .fontWeight(.bold)
+                    .layoutPriority(2)
+            }
             Text(name)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -2152,6 +2273,21 @@ struct WidgetMatrixTask: Codable, Identifiable {
 
     var dueAt: Date? { dueAtMs.map { Date(timeIntervalSince1970: $0 / 1000) } }
 
+    /// When this open task turns late (its last reminder, the moment the
+    /// app's isLate compares with), in milliseconds since 1970; nil when it
+    /// has no reminder or was already late when written. isLate is only
+    /// true from the moment the app last wrote the list, so until
+    /// 2026-09-29 the red mark waited for the next board change, however
+    /// many hours after the reminder had passed.
+    var lateAtMs: Double?
+
+    var lateAt: Date? { lateAtMs.map { Date(timeIntervalSince1970: $0 / 1000) } }
+
+    /// isLate as of [date]: late when written, or late since.
+    func isLate(at date: Date) -> Bool {
+        isLate || (!isDone && (lateAt.map { $0 <= date } ?? false))
+    }
+
     init(id: String, title: String, quadrant: String, isDone: Bool, isFav: Bool, isLate: Bool, dueAtMs: Double? = nil) {
         self.id = id
         self.title = title
@@ -2175,6 +2311,7 @@ struct WidgetMatrixTask: Codable, Identifiable {
         isFav = try c.decode(Bool.self, forKey: .isFav)
         isLate = try c.decodeIfPresent(Bool.self, forKey: .isLate) ?? false
         dueAtMs = try c.decodeIfPresent(Double.self, forKey: .dueAtMs)
+        lateAtMs = try c.decodeIfPresent(Double.self, forKey: .lateAtMs)
     }
 }
 
@@ -2210,6 +2347,8 @@ private let matrixQuickAddURL = URL(string: "growdaily://matrix/add")!
 struct MatrixEntry: TimelineEntry {
     let date: Date
     var copy: WidgetCopy = WidgetCopy(isAr: false)
+    /// Open-first, as the app sorts them, plus any the widget's own
+    /// checkmark has just ticked, sunk to the bottom (MarkTaskDoneIntent).
     let tasks: [WidgetMatrixTask]
     // Tasks completed IN-APP today. The app deliberately writes only OPEN
     // tasks into matrixTasksJson (every list face assumes open-only), so
@@ -2218,6 +2357,12 @@ struct MatrixEntry: TimelineEntry {
     // completing 9 of 10 tasks showed an empty ring. Defaulted so older
     // snapshots and placeholders keep working.
     var doneToday: Int = 0
+
+    /// The tasks still open. Every count on the faces is over these: a task
+    /// ticked here stays in [tasks] until the app rewrites the list, and
+    /// until 2026-09-29 it went on counting as open («3» after all three
+    /// were ticked, and «لوحتك فاضية» never came).
+    var openTasks: [WidgetMatrixTask] { tasks.filter { !$0.isDone } }
 }
 
 struct MatrixProvider: TimelineProvider {
@@ -2248,12 +2393,35 @@ struct MatrixProvider: TimelineProvider {
         // date regardless.
         let calendar = lockScreenCalendar
         let midnight = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))!
-        completion(Timeline(entries: [loadEntry(at: now), loadEntry(at: midnight)], policy: .after(next)))
+        var entries = [loadEntry(at: now), loadEntry(at: midnight)]
+        // And each moment an open task turns late in the next day, so its
+        // red mark comes on at the time and not at the next reload.
+        let tasks = readJSON("matrixTasksJson", from: UserDefaults(suiteName: appGroupId),
+                             as: [WidgetMatrixTask].self) ?? []
+        let dayAhead = now.addingTimeInterval(24 * 3600)
+        let lateMoments = Set(tasks.compactMap { task -> Date? in
+            guard !task.isDone, !task.isLate, let at = task.lateAt,
+                  at > now, at < dayAhead, at != midnight else { return nil }
+            return at
+        })
+        for at in lateMoments.sorted().prefix(12) {
+            entries.append(loadEntry(at: at))
+        }
+        entries.sort { $0.date < $1.date }
+        completion(Timeline(entries: entries, policy: .after(next)))
     }
 
     private func loadEntry(at date: Date = Date()) -> MatrixEntry {
         let defaults = UserDefaults(suiteName: appGroupId)
-        let tasks = readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? []
+        // Each task's late mark as of this entry's own time (isLate(at:)).
+        // A copy for drawing only: MarkTaskDoneIntent reads and writes the
+        // stored list, never this one.
+        let tasks = (readJSON("matrixTasksJson", from: defaults, as: [WidgetMatrixTask].self) ?? [])
+            .map { task -> WidgetMatrixTask in
+                var drawn = task
+                drawn.isLate = task.isLate(at: date)
+                return drawn
+            }
         // The count is only meaningful on the day it was written: after
         // midnight a stale count would sit in today's denominator until the
         // app next foregrounds. Judged on the entry's own date, so the
@@ -2461,11 +2629,11 @@ struct MatrixMediumView: View {
 
     var body: some View {
         Group {
-            if entry.tasks.isEmpty {
+            if entry.openTasks.isEmpty {
                 MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    MatrixHeaderRow(openCount: entry.tasks.count, copy: entry.copy)
+                    MatrixHeaderRow(openCount: entry.openTasks.count, copy: entry.copy)
                     ForEach(Array(entry.tasks.prefix(3))) { task in
                         MatrixTaskRow(task: task)
                     }
@@ -2490,11 +2658,11 @@ struct MatrixLargeView: View {
 
     var body: some View {
         Group {
-            if entry.tasks.isEmpty {
+            if entry.openTasks.isEmpty {
                 MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    MatrixHeaderRow(openCount: entry.tasks.count, copy: entry.copy)
+                    MatrixHeaderRow(openCount: entry.openTasks.count, copy: entry.copy)
                     Divider().background(Color.parchmentBorder)
                     // Was capped at 5 regardless of size, which left a
                     // systemLarge card with obvious empty space below the
@@ -2510,8 +2678,10 @@ struct MatrixLargeView: View {
                     }
                     .animation(.easeInOut(duration: 0.35),
                                value: entry.tasks.map { "\($0.id)|\($0.isDone)" })
-                    if entry.tasks.count > 8 {
-                        Text(entry.copy.moreInApp(entry.tasks.count - 8))
+                    // Open tasks the eight rows leave out; the rows put
+                    // every open task before any just ticked here.
+                    if entry.openTasks.count > 8 {
+                        Text(entry.copy.moreInApp(entry.openTasks.count - 8))
                             .font(.system(size: 10))
                             .foregroundColor(.parchmentSecondary)
                     }
@@ -2544,7 +2714,7 @@ struct MatrixSmallView: View {
 
     var body: some View {
         Group {
-            if entry.tasks.isEmpty {
+            if entry.openTasks.isEmpty {
                 MatrixEmptyView(copy: entry.copy)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -2552,17 +2722,17 @@ struct MatrixSmallView: View {
                         Image(systemName: "square.stack.3d.up.fill")
                             .foregroundColor(.themeGold)
                             .font(.system(size: 14))
-                        Text(verbatim: "\(entry.tasks.count)")
+                        Text(verbatim: "\(entry.openTasks.count)")
                             .font(.system(size: 22, weight: .heavy))
                             .foregroundColor(.parchmentInk)
                             .contentTransition(.numericText())
-                            .animation(.default, value: entry.tasks.count)
+                            .animation(.default, value: entry.openTasks.count)
                     }
-                    Text(entry.copy.tasksOpen(entry.tasks.count))
+                    Text(entry.copy.tasksOpen(entry.openTasks.count))
                         .font(.system(size: 11))
                         .foregroundColor(.parchmentSecondary)
                     Spacer(minLength: 0)
-                    if let top = entry.tasks.first {
+                    if let top = entry.openTasks.first {
                         HStack(spacing: 5) {
                             QuadrantDot(quadrant: top.quadrant, size: 6)
                             Text(top.title)
@@ -2621,7 +2791,7 @@ struct GrowDailyMatrixWidget: Widget {
             MatrixWidgetView(entry: entry)
         }
         .configurationDisplayName(Text("Matrix"))
-        .description(Text("Your most urgent tasks — check them off or add a new one without opening the app."))
+        .description(Text("Your most urgent tasks: check them off or add a new one without opening the app."))
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 }
@@ -2658,22 +2828,24 @@ struct GrowDailyMatrixWidget: Widget {
 //
 // entry.tasks is open-only from the Dart side (see main.dart's
 // _matrixWidgetSub); the only done tasks that can appear are ones
-// MarkTaskDoneIntent just marked locally, and inLockScreenOrder keeps
-// those at the bottom.
+// MarkTaskDoneIntent just marked locally. The list below leaves them out
+// (openTasks), and the ring counts them as done (lockScreenDone).
 extension MatrixEntry {
     /// Starred tasks when there are any, otherwise every open task, in the
     /// Lock Screen's order (MatrixLockScreenOrder.swift). Judged on the
     /// entry's own date, not the clock at drawing time: iOS draws entries
     /// ahead of time, and the midnight entry has to sort as the new day.
+    /// Open tasks only: a starred task ticked on the widget used to stay
+    /// the Lock Screen's headline until the app next wrote the list.
     var lockScreenTasks: [WidgetMatrixTask] {
-        let starred = tasks.filter { $0.isFav }
-        return (starred.isEmpty ? tasks : starred).inLockScreenOrder(on: date)
+        let starred = openTasks.filter { $0.isFav }
+        return (starred.isEmpty ? openTasks : starred).inLockScreenOrder(on: date)
     }
 
     /// True when [lockScreenTasks] is the fallback list rather than a real
     /// starred selection — drives the icon swap so the two states are
     /// always distinguishable at a glance.
-    var lockScreenIsFallback: Bool { !tasks.contains { $0.isFav } }
+    var lockScreenIsFallback: Bool { !openTasks.contains { $0.isFav } }
 
     var lockScreenIcon: String { lockScreenIsFallback ? "checklist" : "star.fill" }
 
@@ -2771,7 +2943,7 @@ struct MatrixLockScreenRectangularView: View {
     /// whether that's because the starred selection is narrower than the
     /// board or because the board is simply longer than three lines.
     private var visible: (tasks: [WidgetMatrixTask], overflow: Int) {
-        let boardCount = entry.tasks.count
+        let boardCount = entry.openTasks.count
         let needsSummary = shown.count > Self.lineBudget || boardCount > shown.count
         guard needsSummary else { return (shown, 0) }
         let head = Array(shown.prefix(Self.lineBudget - 1))
@@ -2874,7 +3046,7 @@ struct GrowDailyMatrixLockScreenWidget: Widget {
             MatrixLockScreenView(entry: entry)
         }
         .configurationDisplayName(Text("Starred Tasks"))
-        .description(Text("Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any."))
+        .description(Text("Your starred tasks on the Lock Screen, or your top tasks if you haven't starred any."))
         .supportedFamilies([.accessoryCircular, .accessoryRectangular])
     }
 }

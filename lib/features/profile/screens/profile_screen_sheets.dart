@@ -212,7 +212,7 @@ class _ThemePresetSheet extends ConsumerWidget {
                     children: [
                       // Free first. A free user should meet what they
                       // already have before what they cannot have, and with
-                      // only two of them nobody has to scroll to find one.
+                      // only three of them nobody has to scroll to find one.
                       _ThemeSectionLabel(s.themeSectionFree),
                       const SizedBox(height: 10),
                       ...ThemePresets.free.map(

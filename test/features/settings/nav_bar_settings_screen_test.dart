@@ -1,4 +1,4 @@
-// Settings › Personalization › Bottom bar.
+// Settings › Look › Bottom bar.
 //
 // Two things are pinned here. The editor really edits the layout the shell
 // reads (add, remove, reset all land in navLayoutProvider), and the gate is

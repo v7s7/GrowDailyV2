@@ -18,6 +18,7 @@ const Map<String, ({List<String> sprout, String? flower, String? eye})> _kShapeA
 const Map<String, ({int ground, int sprout, double flowerLift})> _kColourArt = {
   'emerald_gold': (ground: 0xFF0F694A, sprout: 0xFFE2A336, flowerLift: 0.62),
   'baby_pink': (ground: 0xFF692140, sprout: 0xFFEE96AC, flowerLift: 0.62),
+  'doum': (ground: 0xFF74C878, sprout: 0xFFF5F0E1, flowerLift: 0.62),
   'ocean': (ground: 0xFF0F585C, sprout: 0xFF5AD8D0, flowerLift: 0.62),
   'burgundy': (ground: 0xFF4A0F20, sprout: 0xFFE07A92, flowerLift: 0.62),
   'monochrome': (ground: 0xFF23231F, sprout: 0xFFCAA449, flowerLift: 0.62),

@@ -21,7 +21,7 @@ Color appIconSprout(String colourId) => Color(
     );
 
 /// A seasonal icon's own mark colour (Ramadan's crescent), null for the
-/// twenty-four colours, which have none.
+/// twenty-five colours, which have none.
 Color? appIconMarkColour(String colourId) {
   final season = _kSeasonalArt[colourId];
   return season == null ? null : Color(season.markColour);

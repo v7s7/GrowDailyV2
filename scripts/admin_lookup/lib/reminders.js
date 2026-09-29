@@ -453,6 +453,18 @@ function completedToday(h, dayData, scheduledToday, plan) {
 }
 
 /**
+ * Whether the habit's square today is «راحة» (stored 'skipped'). The phone
+ * arms nothing for a resting habit on its rest day (main.dart's
+ * _excusedDaysById: nothing is owed, so nothing rings), which for today is
+ * the same as every one of today's copies being answered.
+ */
+function restingToday(h, dayData, scheduledToday) {
+  if (!scheduledToday) return false;
+  const squares = plainMap((dayData || {}).squareStates) || {};
+  return squares[h.__id] === 'skipped';
+}
+
+/**
  * Every slot of one habit with the moment it next rings, or why it does not.
  *
  * Slot states:
@@ -683,9 +695,17 @@ function buildRemindersModel({
       nowMs,
       todayKey,
       dayTimes: forFile ? () => null : times.dayTimes,
-      completed: completedToday(h, dayData, due[0], plan),
+      completed: restingToday(h, dayData, due[0])
+        ? plan.dailyTarget
+        : completedToday(h, dayData, due[0], plan),
     });
-    habits.push({ ...entry, state: 'armed', slots });
+    habits.push({
+      ...entry,
+      state: 'armed',
+      slots: restingToday(h, dayData, due[0])
+        ? slots.map((sl) => (sl.doneToday ? { ...sl, doneToday: false, restingToday: true } : sl))
+        : slots,
+    });
   }
 
   const tasks = [];

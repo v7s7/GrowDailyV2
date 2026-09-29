@@ -110,21 +110,27 @@ void main() {
   group('formatReminderDay', () {
     final now = DateTime(2026, 9, 7, 15, 4);
 
-    test('names today and tomorrow', () {
+    // Aziz, 2026-09-29: the same day words as the Tasks header, so only
+    // today has a word; tomorrow is named by its date like any other day.
+    test('names today, and tomorrow by its date', () {
       expect(formatReminderDay(DateTime(2026, 9, 7), false, now: now), 'Today');
       expect(formatReminderDay(DateTime(2026, 9, 7), true, now: now), 'اليوم');
       expect(
         formatReminderDay(DateTime(2026, 9, 8), false, now: now),
-        'Tomorrow',
+        'Tuesday, Sep 8',
       );
-      expect(formatReminderDay(DateTime(2026, 9, 8), true, now: now), 'غدًا');
+      expect(formatReminderDay(DateTime(2026, 9, 8), true, now: now),
+          'الثلاثاء، 8 سبتمبر');
     });
 
-    test('spells out any other day', () {
+    test('spells out any other day, with the year only when it differs', () {
       expect(
         formatReminderDay(DateTime(2026, 9, 12), false, now: now),
-        'Saturday، 12 September',
+        'Saturday, Sep 12',
+        reason: 'was «Saturday، 12 September» with an Arabic comma',
       );
+      expect(formatReminderDay(DateTime(2027, 1, 2), true, now: now),
+          'السبت، 2 يناير 2027');
     });
   });
 

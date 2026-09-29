@@ -592,7 +592,8 @@ const SQUARE_META = {
   bonus: { emoji: '🟦', label: 'bonus', cell: 'bonus, counts green' },
   partial: { emoji: '🟨', label: 'partly done', cell: 'partly done' },
   failed: { emoji: '🟥', label: 'missed', cell: 'missed' },
-  skipped: { emoji: '⬛', label: 'skipped', cell: 'skipped' },
+  // «راحة» in the app since 2026-09-28 (was «تخطّي»); still stored 'skipped'.
+  skipped: { emoji: '⬛', label: 'rest', cell: 'rest' },
   none: { emoji: '⬜', label: 'empty', cell: 'empty' },
 };
 

@@ -46,6 +46,11 @@
       "sprout": "#EE96AC"
     },
     {
+      "id": "doum",
+      "ground": "#74C878",
+      "sprout": "#F5F0E1"
+    },
+    {
       "id": "ocean",
       "ground": "#0F585C",
       "sprout": "#5AD8D0"

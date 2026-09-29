@@ -54,3 +54,22 @@ final requestedHomeTabInstantProvider = StateProvider<bool>((ref) => false);
 /// resets this exactly once, same one-shot pattern as
 /// [requestedHomeTabProvider] itself — see MatrixScreen's own ref.listen.
 final requestedMatrixQuickAddProvider = StateProvider<bool>((ref) => false);
+
+/// Set alongside [requestedHomeTabProvider] (NavTab.settings) when a link
+/// from outside the app wants one page INSIDE Settings, not Settings itself.
+/// Today that is only the prayer widget («حدّد موقعك» and its Lock Screen
+/// faces), which asks for [kSettingsPagePrayerLocation]: since Settings
+/// became five rows that each open their own page (2026-09-28), the place
+/// sits two taps below Settings, and the widget should land on it.
+///
+/// SettingsScreen consumes and resets it, the same one-shot pattern as
+/// [requestedMatrixQuickAddProvider]: read in its initState (Settings built
+/// after the request, the usual case) and heard by its ref.listen (Settings
+/// already open as a bar tab). Pushing from there, rather than from
+/// main.dart, is what leaves Settings under the page for the back button,
+/// wherever HomeShell decided Settings belongs.
+final requestedSettingsPageProvider = StateProvider<String?>((ref) => null);
+
+/// The one page id [requestedSettingsPageProvider] knows. Same spelling as
+/// the `page=` of the prayer widget's link (see openTabLinkPage).
+const String kSettingsPagePrayerLocation = 'prayer-location';

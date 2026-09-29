@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,6 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
+import '../../../core/providers/day_clock_provider.dart'
+    show dayClockSourceProvider;
+import '../../../core/utils/western_digits.dart';
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/providers/nav_layout_provider.dart' show NavTab;
@@ -14,84 +19,83 @@ import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/get_started_checklist_card.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../task_day.dart';
 import '../widgets/add_task_sheet.dart';
 import '../widgets/edit_quadrant_sheet.dart';
 import '../widgets/quadrant_card.dart';
 import '../widgets/task_detail_sheet.dart';
+import '../widgets/task_month_sheet.dart'
+    show showTaskMonthSheet, taskDayTitle;
 import 'matrix_history_screen.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 
-bool _isSameDay(DateTime a, DateTime b) =>
-    a.year == b.year && a.month == b.month && a.day == b.day;
+// Which day a task belongs to, which boards it shows on, and why it is the
+// day the task is FOR rather than the day it was typed: task_day.dart. Every
+// set on this screen (the day board, «مُرحّلة», «قادمة», the badge below)
+// reads it, so none of them can file a task somewhere the others do not.
 
-/// The day [t] is judged against for the Today lens and the Carried Over
-/// chip: ALWAYS the day it was created.
+/// Today's still-open tasks: open, and their day ([taskDay]) is today. The
+/// same set the day lens shows open on today's board, which is also where a
+/// tap on the badge lands. Carried-over tasks are excluded on purpose, as
+/// they are from that board: they have their own chip. The bottom bar's
+/// Tasks badge (navBadgesProvider) shows this number.
 ///
-/// This used to prefer the reminder's day, on the reasoning that a task
-/// set two days out is a deliberate "not now" and shouldn't clutter Today
-/// until it arrives. Reasonable in theory, and it lost people their tasks
-/// in practice: users reported adding a task, setting a reminder for
-/// tomorrow morning because that is when they meant to do it, and then
-/// being unable to find the task at all. It had silently moved to a day
-/// they were not looking at, with nothing on the board to say so.
-///
-/// A todo you just typed must appear where you typed it. A reminder is a
-/// notification, not a filing instruction, and the task already shows its
-/// reminder chip, so "later" stays visible without the task going missing.
-/// Losing a task is far worse than a slightly fuller Today.
-///
-/// See _isVisibleUnderFilter and build()'s carriedOver/todayTasks below —
-/// the only three places this is used.
-// startOfDay, NOT effectiveDay: tasks roll over at real midnight, on
-// purpose. The 10 AM flex window exists for HABITS — a late sleeper's
-// 1 AM workout still counting toward the day they haven't slept on yet
-// (streaks, grid squares, room credit all stay on effectiveDay). A todo
-// board is a different thing: at 12 AM the phone says a new day, and the
-// board should agree — yesterday's finished tasks clear off to history,
-// "Today" means the actual calendar day. This was effectiveDay once, which
-// left the board looking stuck on yesterday until 6 in the morning.
-DateTime _anchorDay(MatrixTask t) => t.createdAt.startOfDay;
+/// A task created on Sunday for Tuesday 17:00 is counted on Tuesday, not
+/// Sunday, and a task with a "2 days before" warning is not counted until
+/// its own day; both were wrong while this counted by the day a task was
+/// created and by its first reminder.
+int matrixOpenTodayCount(Iterable<MatrixTask> tasks, DateTime now) =>
+    openOnDayCount(tasks, now.startOfDay);
 
-/// Whether [t] is deliberately dated for a day that hasn't arrived yet: it
-/// carries a reminder and the earliest one lands after [now].
+/// What a board row says under its title, or null to say nothing (and take
+/// no height, see _AnimatedTaskStackState._rowHeightFor).
 ///
-/// This is the third lens on the same board, and it exists to settle the
-/// argument [_anchorDay] documents above. Filing by the reminder day lost
-/// people their tasks; filing by the creation day means a task you dated two
-/// weeks out sits in Today for two weeks, shouting at you every morning about
-/// something you already decided wasn't for now.
+/// Only what the board around the row does not already say:
+///  * [dayLens] (the row sits on its own day's board, which is the only day
+///    an open task shows on there): the time, if it has one. The header
+///    already names the day.
+///  * Fav, All and the two chips mix days, so a task whose day is not
+///    [today] shows its date («30 سبتمبر»), and its time after it when it
+///    has one («30 سبتمبر · 4:30 م»). A task for today shows only its time.
+///  * An untimed task on its own day, and every done task, say nothing: a
+///    done row has nothing left to plan, and a line on every row would be
+///    noise that hides the lines that matter.
 ///
-/// Neither is necessary. A future-dated task leaves Today, exactly as the
-/// reminder-day rule wanted, but it leaves *into a chip with a visible count*
-/// rather than into thin air - the same escape hatch [_CarriedOverChip]
-/// already gives the tasks that fall off the other end. Nothing can go
-/// missing when the board is always telling you how many are waiting.
-///
-/// Earliest reminder, not latest: a task with reminders on the 27th and the
-/// 30th is upcoming until the 27th, then it's simply today's.
-bool _isUpcoming(MatrixTask t, DateTime now) {
-  final first = t.reminderAt;
-  return first != null && first.startOfDay.isAfter(now);
-}
-
-/// Today's still-open tasks, by the exact rule the Today lens uses to fill
-/// the board (see build()'s todayTasks): open, anchored to today, and not
-/// deliberately dated forward. Carried-over tasks are excluded on purpose,
-/// same as the lens. The bottom bar's Tasks badge (navBadgesProvider) shows
-/// this number, and living here beside [_anchorDay] and [_isUpcoming] is
-/// what keeps the badge and the board a tap lands on in agreement.
-int matrixOpenTodayCount(Iterable<MatrixTask> tasks, DateTime now) {
-  final day = now.startOfDay;
-  return tasks
-      .where((t) =>
-          !t.isDone && _isSameDay(_anchorDay(t), day) && !_isUpcoming(t, day))
-      .length;
+/// The time is the moment the person picked (the anchor), never an early
+/// warning, the same moment [taskDay] files the task by. Western digits,
+/// through [westernDate]. The year is added only for another year's day.
+/// One function, called once per row by the screen and handed down, so the
+/// height the stack reserves and the line the tile draws never disagree.
+@visibleForTesting
+String? matrixRowMeta(
+  MatrixTask t, {
+  required bool dayLens,
+  required DateTime today,
+  required bool isAr,
+}) {
+  if (t.isDone) return null;
+  final locale = isAr ? 'ar' : 'en';
+  final anchor =
+      MatrixTask.resolveAnchor(t.reminderAnchorAt, t.reminderAts)?.toLocal();
+  final time = anchor == null ? null : westernDate(anchor, 'h:mm a', locale);
+  final day = taskDay(t);
+  if (dayLens || day.isSameDayAs(today)) return time;
+  var date = westernDate(day, isAr ? 'd MMMM' : 'MMM d', locale);
+  if (day.year != today.year) {
+    date = isAr ? '$date ${day.year}' : '$date, ${day.year}';
+  }
+  return time == null ? date : '$date · $time';
 }
 
 /// The three top-level lenses on the board — see _MatrixScreenState._filter.
 /// Deliberately just three plain client-side filters over one already-loaded
 /// task list, not three separate queries: nothing here needs a network round
 /// trip to switch.
+///
+/// [today] is the DAY lens: one day's board, the day the header names
+/// (_MatrixScreenState._selectedDay, today unless the arrows or the month
+/// moved it). The segment is still called «اليوم» because tapping it always
+/// comes back to today.
 enum _MatrixFilter { today, fav, all }
 
 class MatrixScreen extends ConsumerStatefulWidget {
@@ -101,10 +105,13 @@ class MatrixScreen extends ConsumerStatefulWidget {
   ConsumerState<MatrixScreen> createState() => _MatrixScreenState();
 }
 
-class _MatrixScreenState extends ConsumerState<MatrixScreen> {
+class _MatrixScreenState extends ConsumerState<MatrixScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _armDayTimer();
     // The widget's quick-add link can arrive before this screen exists:
     // with Tasks out of the bottom bar, HomeShell pushes this screen as a
     // route AFTER the deep link set the flag, so the ref.listen in build
@@ -115,8 +122,15 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !ref.read(requestedMatrixQuickAddProvider)) return;
       ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
-      _showAdd(context, ref, MatrixQuadrant.doFirst);
+      _showAdd(context, ref, MatrixQuadrant.doFirst, day: _today);
     });
+  }
+
+  @override
+  void dispose() {
+    _dayTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   final Set<String> _selectedIds = {};
@@ -125,25 +139,148 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
   // task" spot here, same choice GetStartedChecklistCard's onAddTask above
   // already makes.
   final GlobalKey _addTaskCardKey = GlobalKey();
-  // Today is the default lens: today's fresh tasks plus anything finished
-  // today, same set a brand-new user with nothing carried over would expect
-  // to land on. Nothing to migrate for existing boards either — this is
-  // computed fresh from createdAt/completedAt on every build (see
-  // _MatrixScreenState.build's `today` local below), never stored, so it
-  // can't disagree with what's actually on the board the way a saved
-  // preference could.
+  // The day lens is the default: today's board, the same set a brand-new
+  // user with nothing carried over would expect to land on. Nothing to
+  // migrate for existing boards either: which board a task is on is worked
+  // out fresh on every build (task_day.dart), never stored, so it can't
+  // disagree with what's actually on the board the way a saved preference
+  // could.
   _MatrixFilter _filter = _MatrixFilter.today;
-  // A second, independent filter layered on top of Today/All (mutually
-  // exclusive with them — see the toggle's onChanged below): tasks that are
-  // still open and were created before today. Unlike isFav, this one really
-  // is date-based, computed fresh from createdAt/isDone on every build
-  // rather than stored on the task — nothing to migrate, and it can never
-  // go stale the way a stored flag could.
+  // The day the header names and the day lens shows. Null is today, and
+  // follows the clock: a board left open over midnight turns to the new
+  // day by itself (see _armDayTimer). Set by the header's arrows and its
+  // month sheet, and by an add's «عرض»; cleared by the «اليوم» segment,
+  // the only way back that is needed (Aziz: "we already have a button for
+  // today"). Kept while Fav, All or a chip is showing, so the header can
+  // still say which day the arrows will step from. Lives in this State
+  // only: HomeShell keeps no page alive, so leaving the Tasks tab and
+  // coming back opens on today again, which is accepted.
+  DateTime? _selectedDay;
+  // A second, independent filter layered on top of the segments (mutually
+  // exclusive with them, see the toggle's onChanged below): open tasks
+  // whose day has gone (task_day.dart's isCarriedOver). Date-based and
+  // computed fresh on every build rather than stored on the task, so it
+  // can never go stale the way a stored flag could.
   bool _carriedOverOnly = false;
   // The forward-looking twin of [_carriedOverOnly]. Mutually exclusive with
   // it and with the Fav/All segments: each is a separate lens on one board,
   // and switching any of them backs out of the others.
   bool _upcomingOnly = false;
+
+  // ── The clock ──────────────────────────────────────────────────────────
+  //
+  // "Today" is read from dayClockSourceProvider, the same source
+  // dayClockProvider reads (DateTime.now in the app, a fixed instant in a
+  // test that wants one), and re-read by this screen's own timer at the
+  // next real midnight and on every resume.
+  //
+  // Not a watch of dayClockProvider itself, which would do the same job:
+  // that provider arms an hours-long Timer in the container, and in a
+  // widget test whose container outlives the tree (every test that pumps
+  // this screen through UncontrolledProviderScope, the filter row layout
+  // test among them) the timer is still pending when the tree goes, which
+  // fails the test outright. A timer owned by this State is cancelled with
+  // it. The badge (navBadgesProvider) does watch dayClockProvider; both
+  // turn at the same midnight, so the badge and this board agree.
+  //
+  // startOfDay, NOT effectiveDay: tasks roll over at real midnight, on
+  // purpose (task_day.dart's header has the reason).
+  Timer? _dayTimer;
+
+  DateTime get _now => ref.read(dayClockSourceProvider)();
+  DateTime get _today => _now.startOfDay;
+
+  /// Rebuilds at the coming midnight, then re-arms for the one after. A
+  /// suspended app's timer can fire late or not at all, so resume re-reads
+  /// the clock too (see [didChangeAppLifecycleState]).
+  void _armDayTimer() {
+    _dayTimer?.cancel();
+    final now = _now;
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    _dayTimer = Timer(midnight.difference(now) + const Duration(seconds: 1),
+        () {
+      if (!mounted) return;
+      setState(_followClockIfToday);
+      _armDayTimer();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    setState(_followClockIfToday);
+    _armDayTimer();
+  }
+
+  /// A board walked to Wednesday that is still open when Wednesday comes is
+  /// showing today: from then on it follows the clock like any other today
+  /// board, rather than turning into a past day at the next midnight.
+  void _followClockIfToday() {
+    final selected = _selectedDay;
+    if (selected != null && selected.isSameDayAs(_today)) _selectedDay = null;
+  }
+
+  /// The day the header names: the selected day, or today.
+  DateTime _viewDay(DateTime today) => _selectedDay ?? today;
+
+  /// Whether the board is the day lens (no Fav, All or chip in charge).
+  bool get _dayLensActive =>
+      _filter == _MatrixFilter.today && !_carriedOverOnly && !_upcomingOnly;
+
+  /// Shows [day]'s board: the day lens, any Fav/All/chip lens backed out of,
+  /// as every day control on this screen does. Today is stored as null so
+  /// it keeps following the clock.
+  ///
+  /// A selection ends when the board changes under it. The selected tasks
+  /// are the old board's, and Delete deletes every selected id whether it
+  /// is on screen or not: a selection kept across an arrow tap would bin
+  /// yesterday's picks from tomorrow's board, with only the undo snackbar
+  /// to say so. Picking the day already on screen changes nothing, so it
+  /// keeps the selection.
+  void _selectDay(DateTime day) {
+    final today = _today;
+    final next = day.isSameDayAs(today) ? null : day.startOfDay;
+    final sameBoard = _dayLensActive &&
+        (next == null
+            ? _selectedDay == null
+            : _selectedDay != null && next.isSameDayAs(_selectedDay!));
+    setState(() {
+      _selectedDay = next;
+      _filter = _MatrixFilter.today;
+      _carriedOverOnly = false;
+      _upcomingOnly = false;
+      if (!sameBoard) _selectedIds.clear();
+    });
+  }
+
+  /// The arrows: one day from the day the header names, also when Fav, All
+  /// or a chip is showing (the header keeps naming it, dimmed, for exactly
+  /// this). DateTime(y, m, d + n), never .add(Duration(days: n)).
+  void _stepDay(int by) {
+    final from = _viewDay(_today);
+    _selectDay(DateTime(from.year, from.month, from.day + by));
+  }
+
+  Future<void> _openMonth(BuildContext context) async {
+    final picked = await showTaskMonthSheet(
+      context,
+      selected: _viewDay(_today),
+      tasks: ref.read(matrixProvider).tasks,
+    );
+    if (picked == null || !mounted) return;
+    _selectDay(picked);
+  }
+
+  /// The day a new task is for when it is added from the board: the day on
+  /// screen when the day lens shows today or a later day, today otherwise.
+  /// A past day's board, Fav, All and the chips have no day of their own a
+  /// new task could sensibly go to, and nothing is added for a day that has
+  /// gone.
+  DateTime _addDay() {
+    final today = _today;
+    final day = _viewDay(today);
+    return _dayLensActive && day.isAfter(today) ? day : today;
+  }
 
   bool get _selectionMode => _selectedIds.isNotEmpty;
 
@@ -211,43 +348,50 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     ref.read(matrixProvider.notifier).reorder(id, q, beforeId: beforeId);
   }
 
-  /// Whether [t] is currently visible under the active Today/Fav/All +
-  /// carried-over lens — exactly the rule build() uses below to compute its
-  /// on-screen `tasks` list, factored out into a standalone predicate so
-  /// QuadrantExpandedScreen can apply the same lens and stay live (it
-  /// re-filters matrixProvider's data on every rebuild) instead of freezing
-  /// on a snapshot from the moment it was opened.
-  bool _isVisibleUnderFilter(MatrixTask t) {
-    // Real midnight, not the habit flex cutoff — see _anchorDay's comment.
-    final now = DateTime.now().startOfDay;
-    bool doneToday(MatrixTask x) =>
-        x.isDone &&
-        x.completedAt != null &&
-        _isSameDay(x.completedAt!.startOfDay, now);
-    if (t.isDone && !doneToday(t)) return false;
-    if (_upcomingOnly) return !t.isDone && _isUpcoming(t, now);
-    if (_carriedOverOnly) {
-      // Excluded here as well as from Today: a task dated for next week is
-      // not stale, it just hasn't come up yet, and putting it under a chip
-      // named "carried over" would be calling it late. This is what the
-      // comment on carriedOver in build() always claimed happened and, since
-      // _anchorDay stopped reading the reminder, no longer did.
-      return !t.isDone &&
-          _anchorDay(t).isBefore(now) &&
-          !_isUpcoming(t, now);
-    }
+  /// Whether [t] is currently visible under the active lens (the day lens,
+  /// Fav, All, or a chip). build() fills the board with exactly this, and
+  /// it is handed to QuadrantExpandedScreen as its filter, so the expanded
+  /// quadrant applies the same lens and stays live (it re-filters
+  /// matrixProvider's data on every rebuild) instead of freezing on a
+  /// snapshot from the moment it was opened. Also what decides whether an
+  /// add needs its «عرض» snackbar ([_announceHiddenAdds]).
+  bool _isVisibleUnderFilter(MatrixTask t) => _visibleOn(t, _today);
+
+  /// [_isVisibleUnderFilter] against a [today] the caller already read, so
+  /// one build reads the clock once and cannot straddle midnight halfway
+  /// through its sets.
+  bool _visibleOn(MatrixTask t, DateTime today) {
+    // «قادمة» and «مُرحّلة»: open tasks whose day is after or before today.
+    // With today's open tasks these split every open task exactly once
+    // (task_day.dart), so no open task is on none of the three or on two.
+    if (_upcomingOnly) return isUpcoming(t, today);
+    if (_carriedOverOnly) return isCarriedOver(t, today);
     return switch (_filter) {
-      // Fav and All are explicit lenses the user asked for by name, so an
-      // upcoming task still belongs in them. Only Today, which claims to be
-      // what is live right now, hands them over to the chip.
-      _MatrixFilter.today => (!t.isDone &&
-              _isSameDay(_anchorDay(t), now) &&
-              !_isUpcoming(t, now)) ||
-          doneToday(t),
-      _MatrixFilter.fav => t.isFav || t.isDone,
-      _MatrixFilter.all => true,
+      // One day's board: planned for it, or done on it (showsOnDay).
+      _MatrixFilter.today => showsOnDay(t, _viewDay(today)),
+      // Fav and All are explicit lenses the user asked for by name, so
+      // tasks of every day belong in them, each row saying its day (see
+      // matrixRowMeta). Done tasks only for the day they were finished on,
+      // as before: older ones live in Completed history.
+      _MatrixFilter.fav => (t.isFav && !t.isDone) || _doneOn(t, today),
+      _MatrixFilter.all => !t.isDone || _doneOn(t, today),
     };
   }
+
+  /// Done, and finished on [today]'s calendar day.
+  static bool _doneOn(MatrixTask t, DateTime today) {
+    final done = t.completedAt;
+    return t.isDone && done != null && done.toLocal().isSameDayAs(today);
+  }
+
+  /// Row lines for QuadrantExpandedScreen, read live like its filter (see
+  /// matrixRowMeta for what a row says).
+  String? _metaFor(MatrixTask t) => matrixRowMeta(
+        t,
+        dayLens: _dayLensActive,
+        today: _today,
+        isAr: S.of(context).isAr,
+      );
 
   /// Pushes QuadrantExpandedScreen for [quadrant] — a near-fullscreen view
   /// of just that quadrant's tasks, opened from its header (see
@@ -266,6 +410,10 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     MatrixQuadrant quadrant,
   ) {
     HapticFeedback.lightImpact();
+    final today = _today;
+    // Read once, at open: nothing on the covered board can change the lens
+    // while this route is on top.
+    final pastDay = _dayLensActive && _viewDay(today).isBefore(today);
     Navigator.push(
       context,
       PageRouteBuilder(
@@ -275,6 +423,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
             QuadrantExpandedScreen(
           quadrant: quadrant,
           isVisible: _isVisibleUnderFilter,
+          metaFor: _metaFor,
+          pastDay: pastDay,
           onToggle: (id) {
             HapticFeedback.lightImpact();
             ref.read(matrixProvider.notifier).toggle(id);
@@ -352,20 +502,22 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     final matrixState = ref.watch(matrixProvider);
 
     // The Matrix widget's "+" button (see requestedMatrixQuickAddProvider's
-    // doc comment) — consumed exactly once, same one-shot pattern as
+    // doc comment), consumed exactly once, same one-shot pattern as
     // _OnboardingOrGrid's pendingJoinCodeProvider listener in main.dart.
     // Safe unconditionally on every build, same reasoning as HomeShell's own
-    // ref.listen(requestedHomeTabProvider, ...). MatrixScreen is always
-    // mounted (one of HomeShell's PageView children, never rebuilt away),
-    // so this fires whether Matrix happens to be the visible tab yet or
-    // not — the tab switch itself is requestedHomeTabProvider's job, set
-    // alongside this one by the same deep-link handler.
+    // ref.listen(requestedHomeTabProvider, ...). HomeShell's PageView keeps
+    // no page alive, so this State exists only while the Tasks page is up:
+    // this listener covers a link that lands while it is, and initState's
+    // post-frame check covers one that set the flag before the page was
+    // built. The tab switch itself is requestedHomeTabProvider's job, set
+    // alongside this one by the same deep-link handler. Always today's day:
+    // a quick add from outside the app has no board day behind it.
     ref.listen<bool>(requestedMatrixQuickAddProvider, (previous, next) {
       if (!next) return;
       ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
-        _showAdd(context, ref, MatrixQuadrant.doFirst);
+        _showAdd(context, ref, MatrixQuadrant.doFirst, day: _today);
       });
     });
 
@@ -382,71 +534,45 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       }
     });
 
-    // Real midnight, not the habit flex cutoff — see _anchorDay's comment.
-    final now = DateTime.now().startOfDay;
-    bool doneToday(MatrixTask t) =>
-        t.isDone &&
-        t.completedAt != null &&
-        _isSameDay(t.completedAt!.startOfDay, now);
+    // One clock read for the whole build (see _armDayTimer for why this is
+    // the source and not dayClockProvider). Real midnight, not the habits'
+    // 10:00 cutoff: task_day.dart's header has the tasks-vs-habits split.
+    final today = ref.watch(dayClockSourceProvider)().startOfDay;
+    final day = _viewDay(today);
+    final dayLens = _dayLensActive;
+    // A day that has gone, on the day lens: its board is a record, not a
+    // plan, so the quadrants drop their count pill, their "add" body and
+    // their «+ أضف مهمة أخرى» row (see QuadrantCard.pastDay).
+    final pastDay = dayLens && day.isBefore(today);
 
-    // A task stays on its own board — struck through, not gone — for the
+    // A task stays on its own board, struck through, not gone, for the
     // rest of the day it was finished on. That's the "proof you did it"
     // moment a lot of task apps lose by yanking the row away the instant
-    // you check it. Only once the calendar day itself rolls over at
-    // midnight does it drop off here for good, at which point it's still
-    // reachable (forever) in Completed history via the header icon.
-    final visible =
-        matrixState.tasks.where((t) => !t.isDone || doneToday(t)).toList();
+    // you check it. Fav and All drop it once the calendar day rolls over
+    // at midnight; it stays on its day's board (and the day it was for)
+    // and in Completed history via the header icon.
     final completedCount = matrixState.tasks.where((t) => t.isDone).length;
-    final favCount = visible.where((t) => t.isFav && !t.isDone).length;
-    // Still open, and its anchor day — reminderAt's day if it has one,
-    // else createdAt, see _anchorDay — has already passed. The stuff
-    // that's easy to lose track of in a long "All" list. Based on the
-    // anchor rather than isFav on purpose: favoriting something doesn't
-    // protect it from going stale, and this is meant to catch exactly that,
-    // starred or not. A task deliberately deferred with a future reminder
-    // is excluded here on purpose — it hasn't arrived yet, so it isn't
-    // stale.
-    final carriedOver = visible
-        .where(
-          (t) =>
-              !t.isDone && _anchorDay(t).isBefore(now) && !_isUpcoming(t, now),
-        )
-        .toList();
-    // Tasks deliberately dated forward. Held out of Today so the board reads
-    // as what is actually live, and surfaced by _UpcomingChip with a count so
-    // they can never quietly disappear the way they did the last time this
-    // screen filed by the reminder day. See _isUpcoming.
+    final favCount =
+        matrixState.tasks.where((t) => t.isFav && !t.isDone).length;
+    // Open, and their day has gone (task_day.dart's isCarriedOver): the
+    // stuff that's easy to lose track of. By the task's day rather than
+    // isFav on purpose: favoriting something doesn't protect it from going
+    // stale, and this is meant to catch exactly that, starred or not. A
+    // task planned for a day still ahead is never here: it hasn't arrived,
+    // so it isn't stale.
+    final carriedOver =
+        matrixState.tasks.where((t) => isCarriedOver(t, today)).toList();
+    // Open, and planned for a day after today. Surfaced by _UpcomingChip
+    // with a count, so a task planned ahead can never quietly disappear the
+    // way tasks did the last time this screen filed by the reminder day.
     final upcoming =
-        visible.where((t) => !t.isDone && _isUpcoming(t, now)).toList();
-    // The default lens: today's own tasks (not yet done) plus anything
-    // finished today. Deliberately excludes carriedOver — that's what the
-    // chip below is for — so Today reads as "what's fresh right now"
-    // instead of quietly re-showing every stale task All already covers.
-    // `now` (and therefore this whole set) is re-derived from the device's
-    // clock on every build, so it rolls over on its own at local midnight
-    // in the device's own timezone — a user in Bahrain resets on Bahrain's
-    // midnight, no timer required. (Real midnight, not the habit flex
-    // cutoff — see _anchorDay's comment for the tasks-vs-habits split.)
-    final todayTasks = visible
-        .where(
-          (t) =>
-              (!t.isDone &&
-                  _isSameDay(_anchorDay(t), now) &&
-                  !_isUpcoming(t, now)) ||
-              doneToday(t),
-        )
-        .toList();
-    final tasks = _upcomingOnly
-        ? upcoming
-        : _carriedOverOnly
-            ? carriedOver
-            : switch (_filter) {
-                _MatrixFilter.today => todayTasks,
-                _MatrixFilter.fav =>
-                  visible.where((t) => t.isFav || t.isDone).toList(),
-                _MatrixFilter.all => visible,
-              };
+        matrixState.tasks.where((t) => isUpcoming(t, today)).toList();
+    // The board itself: exactly _isVisibleUnderFilter, so the expanded
+    // quadrant and the «عرض» check can never show a different set.
+    final tasks =
+        matrixState.tasks.where((t) => _visibleOn(t, today)).toList();
+    String? metaFor(MatrixTask t) =>
+        matrixRowMeta(t, dayLens: dayLens, today: today, isAr: s.isAr);
 
     if (matrixState.isLoading) {
       return Scaffold(
@@ -482,22 +608,53 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+                  // Even on both sides, with a 48pt spacer mirroring the
+                  // History button below: the day sits in the true centre
+                  // of the bar (Aziz, 2026-09-29: "the day in the center of
+                  // the upper bar, not on right"), not just the centre of
+                  // what History leaves over.
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Subtitle removed to give the board itself more room —
-                      // the title alone is enough to orient the screen, and
-                      // this was the only header on any main tab carrying a
-                      // second explanatory line.
+                      // The page title «مصفوفة الأهداف» gave way to the day
+                      // the board shows (Aziz picked this over a second row
+                      // under the lens strip, which would have cost every
+                      // quadrant 20pt). No separate "today" pill: the
+                      // «اليوم» segment below is the way back.
+                      const SizedBox(width: 48),
                       Expanded(
-                        child: Text(
-                          s.goalsMatrix,
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.w800,
-                            color: gp.textPrimary,
-                            letterSpacing: s.isAr ? 0 : -0.4,
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: _DayNavigator(
+                            title: taskDayTitle(day, s, now: today),
+                            // Every weekday name, with a two-digit date, in
+                            // every month of the shown day's year (the 22nd
+                            // to the 28th), plus today's own «اليوم، …»
+                            // title: the widest title that year can have.
+                            // Centred in the bar, the whole navigator
+                            // re-centres whenever the slot changes width, so
+                            // a slot sized per month moved BOTH arrows at
+                            // every new month name, and one that left out
+                            // «اليوم، 29 سبتمبر» moved them on the first
+                            // step away from today. Named against 1 January
+                            // of today's year, so a year other than today's
+                            // carries its year the way the real title does
+                            // (named against the day itself, every title of
+                            // another year outgrew the slot).
+                            slotTitles: [
+                              for (var m = 1; m <= 12; m++)
+                                for (var i = 0; i < 7; i++)
+                                  taskDayTitle(
+                                    DateTime(day.year, m, 22 + i),
+                                    s,
+                                    now: DateTime(today.year),
+                                  ),
+                              taskDayTitle(today, s, now: today),
+                            ],
+                            dimmed: !dayLens,
+                            onPrev: () => _stepDay(-1),
+                            onNext: () => _stepDay(1),
+                            onOpenMonth: () => _openMonth(context),
                           ),
                         ),
                       ),
@@ -534,8 +691,12 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                   onAddHabit: () => ref
                       .read(requestedHomeTabProvider.notifier)
                       .state = NavTab.grid,
-                  onAddTask: () =>
-                      _showAdd(context, ref, MatrixQuadrant.doFirst),
+                  onAddTask: () => _showAdd(
+                    context,
+                    ref,
+                    MatrixQuadrant.doFirst,
+                    day: today,
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
@@ -562,7 +723,15 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                           _MatrixFilterToggle(
                             filter: _filter,
                             favCount: favCount,
-                            lensOverridden: _carriedOverOnly || _upcomingOnly,
+                            // Also blank while the day lens shows a day
+                            // other than today: «اليوم» lit over Wednesday's
+                            // board would be the same false claim a lit
+                            // segment over a chip's board is. Tapping it is
+                            // the way back to today.
+                            lensOverridden: _carriedOverOnly ||
+                                _upcomingOnly ||
+                                (_filter == _MatrixFilter.today &&
+                                    !day.isSameDayAs(today)),
                             onChanged: (v) => setState(() {
                               _filter = v;
                               // Each segment, carried-over and upcoming are
@@ -571,6 +740,16 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                               // instead of trying to combine them.
                               _carriedOverOnly = false;
                               _upcomingOnly = false;
+                              // «اليوم» means today, whichever day the
+                              // arrows had walked to. Fav and All keep the
+                              // day, so the header can still name it.
+                              // Coming back from another day swaps the
+                              // board, so it ends a selection the way the
+                              // arrows do (see _selectDay).
+                              if (v == _MatrixFilter.today) {
+                                if (_selectedDay != null) _selectedIds.clear();
+                                _selectedDay = null;
+                              }
                             }),
                           ),
                           // `|| _carriedOverOnly`: the chip is the only control
@@ -707,6 +886,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           task,
                                         ),
                                         selectionMode: _selectionMode,
+                                        metaFor: metaFor,
+                                        pastDay: pastDay,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
@@ -770,6 +951,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           task,
                                         ),
                                         selectionMode: _selectionMode,
+                                        metaFor: metaFor,
+                                        pastDay: pastDay,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
@@ -839,6 +1022,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           task,
                                         ),
                                         selectionMode: _selectionMode,
+                                        metaFor: metaFor,
+                                        pastDay: pastDay,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
@@ -902,6 +1087,8 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                                           task,
                                         ),
                                         selectionMode: _selectionMode,
+                                        metaFor: metaFor,
+                                        pastDay: pastDay,
                                         selectedIds: _selectedIds,
                                         onSelectionToggle: _toggleSelection,
                                         onSelectionStart: _startSelection,
@@ -956,9 +1143,25 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
     );
   }
 
-  void _showAdd(BuildContext context, WidgetRef ref, MatrixQuadrant quadrant) {
-    HapticFeedback.lightImpact();
-    showModalBottomSheet(
+  /// Opens the Add sheet for [quadrant], for [day] when given (today, from
+  /// the Get Started card and the widget's quick add) and otherwise for the
+  /// board's own add day ([_addDay]).
+  ///
+  /// When the sheet closes, a task that went somewhere this board is not
+  /// showing is announced once ([_announceHiddenAdds]). Filing a task on a
+  /// day nobody is looking at is exactly how tasks were once lost (see
+  /// task_day.dart); saying where it went, with a way to go there, is what
+  /// makes it safe.
+  Future<void> _showAdd(
+    BuildContext context,
+    WidgetRef ref,
+    MatrixQuadrant quadrant, {
+    DateTime? day,
+  }) async {
+    unawaited(HapticFeedback.lightImpact());
+    final addDay = day ?? _addDay();
+    final added = <String>[];
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -968,16 +1171,18 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
       useSafeArea: true,
       builder: (_) => AddTaskSheet(
         quadrant: quadrant,
-        onAdd: (
+        day: addDay,
+        onAddOnDay: (
           title, {
           description,
           voiceNotes,
           reminderAts,
           reminderAnchorAt,
           alarm,
+          required day,
         }) {
           HapticFeedback.mediumImpact();
-          ref.read(matrixProvider.notifier).add(
+          final task = ref.read(matrixProvider.notifier).add(
                 title,
                 quadrant,
                 description: description,
@@ -985,10 +1190,64 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 reminderAts: reminderAts ?? const [],
                 reminderAnchorAt: reminderAnchorAt,
                 alarm: alarm ?? false,
+                day: day,
               );
+          if (task != null) added.add(task.id);
         },
       ),
     );
+    if (!mounted || added.isEmpty) return;
+    _announceHiddenAdds(added);
+  }
+
+  /// One snackbar when a task just added is not on the board showing now
+  /// (added for a later day from Fav, for today from a past day's board, a
+  /// non-star task under Fav...): «انضافت ليوم الأربعاء، 30 سبتمبر» with
+  /// «عرض», which opens that day's board. Nothing when every added task is
+  /// in view, which is the usual case.
+  ///
+  /// One bar for the whole sheet, naming the day of the LAST hidden task:
+  /// a multi-add is almost always one day's list (the sheet's day is
+  /// sticky), and a bar per task would only replace itself.
+  void _announceHiddenAdds(List<String> ids) {
+    final byId = {for (final t in ref.read(matrixProvider).tasks) t.id: t};
+    MatrixTask? hidden;
+    for (final id in ids) {
+      final t = byId[id];
+      if (t != null && !_isVisibleUnderFilter(t)) hidden = t;
+    }
+    if (hidden == null) return;
+    final s = S.of(context);
+    final day = taskDay(hidden);
+    final message = day.isSameDayAs(_today)
+        ? s.matrixAddedForToday
+        : s.matrixAddedForDay(
+            weekdayDateLabel(day, isAr: s.isAr, locale: s.isAr ? 'ar' : 'en'),
+          );
+    ScaffoldMessenger.of(context).showOne(
+      SnackBar(
+        content: Text(message),
+        // Never pin the bar open. See AppSnackBar.
+        persist: false,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: s.matrixShowDay,
+          onPressed: () => _showDayFromSnackbar(day),
+        ),
+      ),
+    );
+  }
+
+  /// «عرض»: that day's board. The bar rides on the root messenger, so it
+  /// can be tapped over the expanded quadrant that the add was made from;
+  /// that route is closed first, or the day would change underneath it.
+  void _showDayFromSnackbar(DateTime day) {
+    if (!mounted) return;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      Navigator.of(context).popUntil((r) => r == route);
+    }
+    _selectDay(day);
   }
 
   // Pencil icon on an existing task (see quadrant_card.dart's _TaskTile) —
@@ -1033,6 +1292,220 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen> {
                 ),
         onDelete: () => _deleteTask(task.id),
         onMove: (q) => _moveTask(task.id, q),
+      ),
+    );
+  }
+}
+
+// ─── Day navigator (the header) ─────────────────────────────────────────────
+
+/// [previous][the day ⌄][next], where the page title used to be.
+///
+/// Copies the Habits page's week navigator (grid_screen_summary.dart's
+/// _NavArrow and its title) so the two pages step through time the same
+/// way: the same 40pt arrows, and the title a button that opens the month.
+/// In a Row, so it mirrors with the language: in Arabic the previous-day
+/// arrow sits on the right and points right, as the week navigator's does
+/// (chevron_left/right mirror themselves under RTL).
+///
+/// One line whatever the language, width or text size: the title scales
+/// down to fit rather than wrapping, because a two-line header would push
+/// the whole board down on the phones with the least room. Taps only: the
+/// Tasks tab swipes between pages, and a drag recognizer up here would
+/// fight it.
+///
+/// The arrows hold still. The title's slot is as wide as the widest of
+/// [slotTitles] (every weekday of the shown month, see the call) and the
+/// title sits centred in it. Sized to each title alone, the next arrow
+/// moved with every tap, by up to most of its own width between «الأحد»
+/// and «الأربعاء», and a quick second tap landed on the title and opened
+/// the month instead.
+class _DayNavigator extends StatelessWidget {
+  final String title;
+
+  /// Titles the slot keeps room for; [title] is always one of them.
+  final List<String> slotTitles;
+
+  /// Fav, All or a chip is showing: the header still names the day the
+  /// arrows step from, but quieter, because the board under it is not that
+  /// day's.
+  final bool dimmed;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
+  final VoidCallback onOpenMonth;
+
+  const _DayNavigator({
+    required this.title,
+    this.slotTitles = const [],
+    required this.dimmed,
+    required this.onPrev,
+    required this.onNext,
+    required this.onOpenMonth,
+  });
+
+  static const _titleStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w800,
+  );
+  // The title's horizontal padding (6 a side), and the chevron after it
+  // with its gap.
+  static const double _slotChrome = 12 + 2 + 16;
+
+  static final Map<String, double> _slotWidthCache = {};
+
+  /// The slot width [slotTitles] need, measured in the style and text
+  /// scale the title is drawn in. A narrower screen gets less: the slot is
+  /// Flexible, and the title then scales down inside it.
+  ///
+  /// Cached: [slotTitles] is a whole year of titles (see the call), and the
+  /// header rebuilds with every tick on the board, so each answer is kept
+  /// per font, direction, text scale and title list, and the cache is
+  /// dropped once it holds more than a handful of them.
+  double _slotWidth(BuildContext context) {
+    final style = DefaultTextStyle.of(context).style.merge(_titleStyle);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final titles = {title, ...slotTitles};
+    final key = '${style.fontFamily}|$direction|${scaler.scale(100)}|'
+        '${titles.join('|')}';
+    final cached = _slotWidthCache[key];
+    if (cached != null) return cached;
+    if (_slotWidthCache.length > 16) _slotWidthCache.clear();
+    var widest = 0.0;
+    for (final t in titles) {
+      final tp = TextPainter(
+        text: TextSpan(text: t, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (tp.width > widest) widest = tp.width;
+      tp.dispose();
+    }
+    return _slotWidthCache[key] = widest + _slotChrome;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _DayArrow(
+          icon: Icons.chevron_left_rounded,
+          tooltip: s.matrixPrevDay,
+          onTap: onPrev,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: ConstrainedBox(
+            // A minimum, not a fixed width: the Flexible above still caps
+            // it at the room there is.
+            constraints: BoxConstraints(minWidth: _slotWidth(context)),
+            child: Semantics(
+              button: true,
+              label: title,
+              hint: s.matrixOpenMonth,
+              excludeSemantics: true,
+              onTap: onOpenMonth,
+              child: Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+                child: InkWell(
+                  borderRadius:
+                      BorderRadius.circular(GameSpacing.buttonRadius),
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    onOpenMonth();
+                  },
+                  child: SizedBox(
+                    height: 40,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AnimatedSwitcher(
+                              duration: GameMotion.standard,
+                              child: Text(
+                                title,
+                                key: ValueKey(title),
+                                maxLines: 1,
+                                softWrap: false,
+                                style: _titleStyle.copyWith(
+                                  color:
+                                      dimmed ? gp.textSec : gp.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 2),
+                            // So the date reads as a control: without it
+                            // the title looks like a caption between two
+                            // arrows, and nobody tries tapping a caption.
+                            Icon(
+                              Icons.expand_more_rounded,
+                              size: 16,
+                              color: gp.textSec,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        _DayArrow(
+          icon: Icons.chevron_right_rounded,
+          tooltip: s.matrixNextDay,
+          onTap: onNext,
+        ),
+      ],
+    );
+  }
+}
+
+/// grid_screen_summary.dart's _NavArrow, plus a name for screen readers.
+class _DayArrow extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _DayArrow({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: gp.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+          side: BorderSide(color: gp.border, width: 0.5),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(icon, color: gp.textSec, size: 24),
+          ),
+        ),
       ),
     );
   }
@@ -1101,7 +1574,9 @@ class _MatrixFilterToggle extends StatelessWidget {
   final ValueChanged<_MatrixFilter> onChanged;
 
   /// True while a chip lens (carried-over or upcoming) is driving the board
-  /// instead of [filter]. Every segment then draws unselected.
+  /// instead of [filter], or while the day lens shows a day other than
+  /// today. Every segment then draws unselected, and «اليوم» is the way
+  /// back to today.
   ///
   /// [filter] deliberately keeps its old value underneath, so backing out of
   /// a chip returns you to the segment you came from rather than dumping you
@@ -1243,8 +1718,10 @@ class _CarriedOverChip extends StatelessWidget {
   }
 }
 
-/// [_CarriedOverChip]'s forward-looking twin: the tasks dated for a day that
-/// hasn't arrived, which Today deliberately holds back (see [_isUpcoming]).
+/// [_CarriedOverChip]'s forward-looking twin: open tasks planned for a day
+/// that hasn't arrived (task_day.dart's isUpcoming), which today's board
+/// deliberately holds back. Each is on its own day's board too, and the
+/// month sheet dots that day.
 ///
 /// Structurally identical to that chip on purpose. This screen already taught
 /// the user that a counted pill beside the Today/Fav/All toggle means "there

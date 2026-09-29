@@ -782,4 +782,72 @@ void main() {
           'habitReminderCategory');
     });
   });
+
+  // The first tap of a morning the app has not been opened yet (2026-09-29).
+  // The today-list is still last night's; the app left the next day's list
+  // beside it (HomeWidgetService.updateWidgetData's nextHabits), and the tap
+  // must land in that one.
+  group('A morning with the app still closed', () {
+    const morning = '2026-09-07';
+
+    test('swaps in the list the app left for today and ticks its row',
+        () async {
+      store['todayHabitsJson'] = todayList([
+        {'id': 'fajr', 'name': 'الفجر', 'done': true, 'count': 1, 'perDay': 1},
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 2, 'perDay': 3},
+      ]);
+      store['todayHabitsDay'] = '2026-09-06';
+      store['nextHabitsJson'] = todayList([
+        {'id': 'fajr', 'name': 'الفجر', 'done': false, 'count': 0, 'perDay': 1},
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 0, 'perDay': 3},
+      ]);
+      store['nextHabitsDay'] = morning;
+
+      await handleBackgroundNotificationAction(
+          actionId: 'mark_done',
+          habitId: 'water',
+          now: DateTime(2026, 9, 7, 7, 30));
+
+      expect(store['todayHabitsDay'], morning);
+      final list = jsonDecode(store['todayHabitsJson'] as String) as List;
+      final water = list.firstWhere((e) => (e as Map)['id'] == 'water') as Map;
+      final fajr = list.firstWhere((e) => (e as Map)['id'] == 'fajr') as Map;
+      expect(water['count'], 1, reason: "today's first, not last night's third");
+      expect(water['done'], isFalse);
+      expect(fajr['done'], isFalse, reason: "last night's tick is not today's");
+      expect(queued().single.day, morning);
+    });
+
+    test("with no list for today, last night's counts decide nothing",
+        () async {
+      // Two days closed: the stored lists are the 5th's and the 6th's.
+      store['todayHabitsJson'] = todayList([
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 2, 'perDay': 3},
+      ]);
+      store['todayHabitsDay'] = '2026-09-05';
+      store['nextHabitsJson'] = todayList([
+        {'id': 'water', 'name': 'ماء', 'done': false, 'count': 0, 'perDay': 3},
+      ]);
+      store['nextHabitsDay'] = '2026-09-06';
+      recordArmed(copies: [
+        copy('water', nextCopy('water'), DateTime(2026, 9, 7, 12)),
+      ]);
+      pending.add(nextCopy('water'));
+
+      await handleBackgroundNotificationAction(
+          actionId: 'mark_done',
+          habitId: 'water',
+          now: DateTime(2026, 9, 7, 7, 30));
+
+      expect(queued().single.day, morning, reason: 'the tap still counts');
+      expect(cancels(), isEmpty,
+          reason: 'one tap of three does not finish the day, whatever the '
+              'count left over from the 5th says');
+      expect(store['todayHabitsDay'], '2026-09-05',
+          reason: 'an older day is not rolled into today');
+      final list = jsonDecode(store['todayHabitsJson'] as String) as List;
+      expect((list.single as Map)['count'], 2,
+          reason: "the 5th's list is not ticked with the 7th's tap");
+    });
+  });
 }

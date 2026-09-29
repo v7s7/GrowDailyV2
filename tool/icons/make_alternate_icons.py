@@ -9,12 +9,13 @@ Needs Pillow (`pip3 install Pillow`), nothing else: no numpy on this Mac.
 
 The Home Screen icon is a plant shape in a colour (see
 lib/features/app_icon/app_icon_catalog.dart): four shapes that grow with
-someone's full days, times twenty-four colours: the Night family Aziz picked
+someone's full days, times twenty-five colours: the Night family Aziz picked
 on 2026-09-25, then black with a white plant and seven light colours with a
 dark one (white, vanilla, matcha, lavender on 2026-09-26; beige, mist blue,
-mint on 2026-09-27). One of the 96 is the shipped icon itself (the sprout in
-the original colours), which stays AppIcon and is never touched here. The
-other 95 are written as single-size 1024 sets
+mint on 2026-09-27), then Doum's, a cream plant on the mascot's green
+(2026-09-28, free with its theme). One of the 100 is the shipped icon itself
+(the sprout in the original colours), which stays AppIcon and is never
+touched here. The other 99 are written as single-size 1024 sets
 under ios/Runner/Assets.xcassets/AlternateIcons/, one folder per icon, named
 AppIcon-<shape>-<colour>. The seasonal icons (Ramadan) come after them, one
 set each, named AppIcon-<id>: a shape in colours of their own with one mark

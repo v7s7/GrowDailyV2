@@ -35,8 +35,8 @@ import 'color_math.dart';
 /// streakOrange (see e.g. Sage's and Teal's doc comments below). A few
 /// presets instead let `emerald` be a punchier, more saturated expression
 /// of the *same* hue as their own `gold` — Ocean, Burgundy, Nour Violet,
-/// Baby Blue, Baby Pink, and Navy — so completing a habit colors the grid
-/// in that preset's own signature color rather than a green that would
+/// Baby Blue, Baby Pink, Navy, and Doum — so completing a habit colors the
+/// grid in that preset's own signature color rather than a green that would
 /// clash with (or just feel disconnected from) the rest of the theme. Any
 /// user-facing copy that names a color (grid/heatmap labels, achievement
 /// text) was written to stay color-neutral for exactly this reason — see
@@ -326,6 +326,60 @@ const _emeraldGold = ThemePreset(
   darkTextTertiary: Color(0xFF6F7A70),
 );
 
+/// Doum, the app's sprout (lib/features/mascot), as a free theme. Aziz,
+/// 2026-09-28: the same colours as Doum, "use the hex". Two of its colours
+/// are Doum's own, exact (design/mascot/README.md): the accent is the body
+/// green 0xFF74C878, and the cream 0xFFF5F0E1 of its leaves, stem and belly
+/// is both the light theme's card and the dark theme's text. So light mode
+/// is green on Doum's cream, and dark mode is Doum's cream on green-black.
+///
+/// Every other value is what [ThemePreset.custom] derives from this accent
+/// and grid, with one change: the light neutrals and the dark text keep the
+/// cream's hue (45) where custom() would tint them green, because the cream
+/// is half of what Doum looks like. Only the hue moves, never the lightness,
+/// so contrast stays the default preset's: body text 12.33:1 on the light
+/// highlight card and 11.83:1 on the dark one, secondary text 3.95 and 6.72
+/// against the default's 3.88 and 6.83.
+///
+/// Signature-colour preset (see the class doc comment): the grid is Doum's
+/// own hue made deeper and punchier (OKLCh 0.70 0.18 145). The deeper green
+/// Doum's marks are drawn in (0xFF308639) was tried first on the preview
+/// mocks: a completed square is a 26 to 34% wash of this colour, and that
+/// one went muddy on the dark theme, done and empty squares barely apart.
+/// The accent sits at luminance 0.46, so FilledButton labels stay dark.
+const _doum = ThemePreset(
+  id: 'doum',
+  nameEn: 'Doum',
+  nameAr: 'دوم',
+  isPremium: false,
+  gold: Color(0xFF74C878),
+  goldDim: Color(0xFF49854B),
+  xpBlue: Color(0xFF46BD4C),
+  xpBlueDim: Color(0xFF39783C),
+  streakOrange: Color(0xFF89CA8C),
+  streakOrangeDim: Color(0xFF539456),
+  emerald: Color(0xFF45BA50),
+  emeraldDim: Color(0xFF287B30),
+  lightBg: Color(0xFFFFFDF5),
+  lightSurface: Color(0xFFF5F0E1),
+  lightSurfaceHigh: Colors.white,
+  lightSurfaceHL: Color(0xFFEAE2CB),
+  lightBorder: Color(0xFFD8D1BA),
+  lightDivider: Color(0xFFE8E1CB),
+  lightTextPrimary: Color(0xFF182519),
+  lightTextSecondary: Color(0xFF657166),
+  lightTextTertiary: Color(0xFF97A398),
+  darkBg: Color(0xFF071008),
+  darkSurface: Color(0xFF101B11),
+  darkSurfaceElevated: Color(0xFF172518),
+  darkSurfaceHighlight: Color(0xFF203322),
+  darkBorder: Color(0xFF2D402F),
+  darkDivider: Color(0xFF223524),
+  darkTextPrimary: Color(0xFFF5F0E1),
+  darkTextSecondary: Color(0xFFBCB7A8),
+  darkTextTertiary: Color(0xFF7A776F),
+);
+
 /// A cooler, calmer teal/blue take with a true-white light mode — the most
 /// direct answer to "gold on cream feels muted in light mode." Dark mode
 /// swaps the default's forest undertone for a blue-black deep-sea one.
@@ -586,9 +640,9 @@ const _babyPink = ThemePreset(
   id: 'baby_pink',
   nameEn: 'Baby Pink',
   nameAr: 'وردي فاتح',
-  // The one non-default free preset (product decision: two free looks —
-  // the original Emerald & Gold plus this one; everything else is
-  // Premium). Free on purpose, not oversight.
+  // Free on purpose, not oversight (product decision: two free looks, the
+  // original Emerald & Gold plus this one; Doum joined them as a third on
+  // 2026-09-28; everything else is Premium).
   isPremium: false,
   gold: Color(0xFFE4819A),
   goldDim: Color(0xFFBA3959),
@@ -1073,6 +1127,9 @@ abstract final class ThemePresets {
 
   static final List<ThemePreset> all = [
     _emeraldGold,
+    // Beside the original: the mascot's look is the app's second own look,
+    // so it comes first among the free ones after the default.
+    _doum,
     _ocean,
     _burgundy,
     _monochrome,
@@ -1088,7 +1145,7 @@ abstract final class ThemePresets {
   /// What the picker lists: the built-ins, then the user's own at the end.
   static List<ThemePreset> get selectable => [...all, custom];
 
-  /// The two looks everyone gets. Listed first, because a free user should
+  /// The three looks everyone gets. Listed first, because a free user should
   /// see what they already have before what they do not.
   static List<ThemePreset> get free =>
       all.where((p) => !p.isPremium).toList();

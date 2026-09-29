@@ -14,7 +14,7 @@ import '../../../shared/widgets/nav_tabs.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../premium/screens/premium_screen.dart';
 
-/// Settings › Personalization › Bottom bar: which tabs the bar holds, and
+/// Settings › Look › Bottom bar: which tabs the bar holds, and
 /// in what order.
 ///
 /// Every change lands the moment it is made (the theme and font sheets set

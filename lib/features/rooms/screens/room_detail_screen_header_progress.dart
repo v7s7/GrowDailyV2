@@ -1399,6 +1399,7 @@ class _MyPlanCard extends ConsumerWidget {
       myHabits,
       ref.watch(pausedHabitsProvider),
       isAr: s.isAr,
+      room: room,
     );
     final pausedLinkNames = unresolved.pausedNames;
     final hasDeletedLink = unresolved.hasDeleted;
@@ -1413,7 +1414,8 @@ class _MyPlanCard extends ConsumerWidget {
     // Habits whose live settings no longer match what this room scores them
     // by - see roomRuleMismatches for why the room deliberately keeps the
     // original rule rather than following the edit.
-    final ruleMismatches = roomRuleMismatches(mine, myHabits, today);
+    final ruleMismatches =
+        roomRuleMismatches(mine, myHabits, today, room: room);
     // One colour, decided once, so the icon and the words can never disagree
     // about what today looks like.
     final statusColor = ended || stoodDownToday

@@ -107,6 +107,12 @@ struct PrayerEntry: TimelineEntry {
     /// (Aziz's call, 2026-09-24). buildPrayerEntries fills it in; the
     /// default only reaches the gallery placeholder and the empty face.
     var periodKey: String = "dhuhr"
+    /// With no [prayer]: true when the app did write a schedule and every
+    /// moment in it has passed (it writes a week, and has not been opened
+    /// since), false when there was never one (no place saved yet). The
+    /// empty faces said «حدّد موقعك» for both until 2026-09-29, asking a
+    /// person with a saved place to set it again.
+    var weekRanOut: Bool = false
 }
 
 /// The six moments in the order a day passes through them, which is also

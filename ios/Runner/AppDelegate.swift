@@ -61,7 +61,38 @@ import flutter_local_notifications
     // needs no permission: the token is issued regardless, permission only
     // decides whether a push may be shown.
     application.registerForRemoteNotifications()
+    paintLaunchGroundUnderFlutter()
     return launched
+  }
+
+  // MARK: - The launch screen's cream under the first frame
+
+  /// Flutter shows a copy of the launch screen over its view and fades it out
+  /// once the first frame is rasterised. On a slow start (a debug build, the
+  /// first launch after a reboot) that is a moment before the frame reaches
+  /// the screen, and the view under the fade was black: recorded 2026-09-29,
+  /// the cream dipped toward black for 100 to 200 ms right where the launch
+  /// curtain (lib/features/launch/launch_curtain.dart) takes over. Painted the
+  /// curtain's own ground (kLaunchGround, #FEFAF0) instead, the fade has
+  /// nothing to show. Flutter paints every frame edge to edge, so this colour
+  /// is never seen once the first one is up.
+  private var launchGroundObserver: NSObjectProtocol?
+
+  private func paintLaunchGroundUnderFlutter() {
+    launchGroundObserver = NotificationCenter.default.addObserver(
+      forName: UIWindow.didBecomeVisibleNotification, object: nil, queue: .main
+    ) { [weak self] note in
+      guard
+        let flutter = (note.object as? UIWindow)?.rootViewController
+          as? FlutterViewController
+      else { return }
+      flutter.view.backgroundColor =
+        UIColor(red: 254 / 255, green: 250 / 255, blue: 240 / 255, alpha: 1)
+      if let observer = self?.launchGroundObserver {
+        NotificationCenter.default.removeObserver(observer)
+        self?.launchGroundObserver = nil
+      }
+    }
   }
 
   // MARK: - Notification action taps need a moment of background time

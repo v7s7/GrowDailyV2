@@ -1104,10 +1104,24 @@ class _ParticipantHeader extends StatelessWidget {
     // on. Your own sheet always shows your own names, since there is nobody to
     // hide them from.
     final showDetails = isYou || !participant.hideDetails;
+    // Only the habits the plan still has on the day the room is on. A habit
+    // the leader removed leaves this line on its stopsOn, the same day it
+    // leaves the plan card's own row (roomPlanTilesFor) and the coverage
+    // caption below (planCoverageIn), and a slot removed before this member
+    // joined was never theirs. It used to list every name ever linked, so
+    // PBYAS5 read seven habits here with two of them out of the plan (Aziz,
+    // 2026-09-28). The calendar day planCoverageIn asks, not the grace tail:
+    // the tiles and the caption both turn at midnight, and the line and the
+    // caption under it must never disagree about how many habits there are.
+    final planDay = DateTime.now().startOfDay.toDateKey();
     final names = showDetails
-        ? participant.linkedHabitNames
-            .where((n) => n.trim().isNotEmpty)
-            .toList()
+        ? [
+            for (var i = 0; i < participant.linkedHabitNames.length; i++)
+              if (participant.linkedHabitNames[i].trim().isNotEmpty &&
+                  room.slotLiveOn(i, planDay) &&
+                  !participant.slotRemovedBeforeJoin(room, i))
+                participant.linkedHabitNames[i],
+          ]
         : const <String>[];
 
     return Column(

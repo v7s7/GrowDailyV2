@@ -37,7 +37,7 @@ void main() {
   List<String> labelsFor(S s) => [
         s.gridJournalFilterAll,
         s.gridJournalFilterHasNote,
-        s.isAr ? 'تخطّي' : 'Skipped',
+        s.isAr ? 'راحة' : 'Rest',
         s.isAr ? 'فشل' : 'Failed',
         s.isAr ? 'إنجاز إضافي' : 'Bonus',
       ];

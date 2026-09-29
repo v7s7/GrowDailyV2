@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:hive/hive.dart';
 
+import 'package:grow_daily_v2/core/providers/day_clock_provider.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
@@ -88,6 +89,18 @@ class LandingHarness {
       ],
     );
     await container.read(authStateProvider.future);
+    // The day clock, created here in the real zone the way main.dart
+    // creates it at launch (its _dayTurnSub listens from the first frame).
+    // It arms a Timer for the next day boundary, hours away. Created
+    // lazily by the first widget that watches it (the bottom bar's badges
+    // do, through navBadgesProvider), that Timer would belong to the test's
+    // fake-async zone and outlive the tree, since this container is only
+    // disposed in tearDown, and the test would fail with "A Timer is still
+    // pending even after the widget tree was disposed". Created here it is
+    // a real timer, cancelled by [dispose]. It reads whatever
+    // dayClockSourceProvider or dayClockProvider override the test passed
+    // in [extraOverrides], so a test's clock is unchanged.
+    container.read(dayClockProvider);
   }
 
   /// Call from tearDown. Deliberately does NOT await Hive cleanup: disk

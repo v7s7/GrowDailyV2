@@ -133,6 +133,20 @@ String? parseOpenTabLink(Uri uri) {
 bool openTabLinkWantsAdd(Uri uri) =>
     parseOpenTabLink(uri) != null && uri.queryParameters['add'] == '1';
 
+/// The page inside the tab an "open the app here" link asks for, or null.
+///
+/// Only the prayer widget sets it: `growdaily://open?tab=settings&page=
+/// prayer-location` (PrayerCountdownWidget.swift), so a tap on «حدّد موقعك»
+/// lands on the prayer location page rather than on Settings' first page,
+/// two taps above it. A flag on the same link rather than a new path, for
+/// the reason [openTabLinkWantsAdd] gives: one link shape, and an older
+/// build that does not know `page` still opens the tab it names.
+String? openTabLinkPage(Uri uri) {
+  if (parseOpenTabLink(uri) == null) return null;
+  final page = uri.queryParameters['page']?.trim().toLowerCase() ?? '';
+  return page.isEmpty ? null : page;
+}
+
 /// The link a control hands to the app. Kept here so the Swift side has one
 /// spelling to copy and the test can assert the round trip.
 ///

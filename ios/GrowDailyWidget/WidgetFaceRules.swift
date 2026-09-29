@@ -57,7 +57,14 @@ struct TodayHabit: Codable, Identifiable {
     var category: String? = nil
     var color: String? = nil
 
+    /// Rested on purpose today («راحة») and not done since. Such a row is
+    /// notDue too, a rest leaves the count, but it is drawn as the Grid
+    /// draws a rest, neutral and named, and not as a day that asked nothing
+    /// (it read «مو مطلوبة» until 2026-09-29).
+    var rest: Bool? = nil
+
     var isDue: Bool { notDue != true }
+    var isResting: Bool { rest == true && !done }
 
     /// Completions the day wants, never below one.
     var target: Int { max(1, perDay ?? 1) }
@@ -74,6 +81,15 @@ struct TodayHabit: Codable, Identifiable {
     /// notification_action_queue.dart): count + 1, done once it reaches
     /// perDay; without the pair, one tap means done.
     mutating func recordOneCompletion() {
+        // Any tap on a «راحة» ends the rest, a first slice of three as much
+        // as a whole: the app paints the square part done or done over it,
+        // and from then the habit is owed (_todayHabitStats reads rests off
+        // the squares). Clearing it only once done left a 1/3 row still
+        // saying «راحة» and still out of the count.
+        if rest == true {
+            rest = nil
+            notDue = false
+        }
         if let perDay, let count, perDay > 1 {
             let next = min(count + 1, perDay)
             self.count = next
@@ -82,7 +98,43 @@ struct TodayHabit: Codable, Identifiable {
             if let perDay, count != nil { self.count = perDay }
             done = true
         }
+        // A finished habit is owed by definition, on the app side too
+        // (_todayHabitStats' alsoOwing): a quota's spare day, once done,
+        // counts on both sides of «4 من 9».
+        if done, notDue == true { notDue = false }
     }
+}
+
+/// «4 من 9» from the list itself: the finished rows, and every row the day
+/// owes. The same two numbers the app writes as completedToday/totalToday
+/// (done habits are owed by definition, so the first never passes the
+/// second), recomputed here so a tap on the widget moves the count with
+/// the square. Until 2026-09-29 the faces read the app's two stored numbers
+/// and a widget tap left them behind: the last habit ticked, and the face
+/// still said «4 من 5».
+func habitDayCounts(_ habits: [TodayHabit]) -> (done: Int, total: Int) {
+    (habits.filter(\.done).count, habits.filter { $0.done || $0.isDue }.count)
+}
+
+/// Which of the two lists the app leaves in the store speaks for a day.
+enum HabitListDay: Equatable {
+    /// The today-list (todayHabitsJson).
+    case today
+    /// The next day's list (nextHabitsJson), written beside it so the faces
+    /// can turn the day at midnight with the app closed.
+    case next
+    /// Neither: the app has not been opened since the day before yesterday,
+    /// and no list here says anything true about [dayKey]'s habits.
+    case unknown
+}
+
+/// The list for [dayKey] (appDayKey of the entry's date), given the days the
+/// app wrote the two lists for. A today-list with no day is from a build
+/// before the day key and is trusted, as it always was.
+func habitListDay(for dayKey: String, todayDay: String?, nextDay: String?) -> HabitListDay {
+    if todayDay == nil || todayDay == dayKey { return .today }
+    if nextDay == dayKey { return .next }
+    return .unknown
 }
 
 /// Today's habits in the order every Habits face lists them: open habits
@@ -211,7 +263,7 @@ enum RoomDayMark: Equatable {
     case standDown
     /// Today, still open, with nothing recorded on it yet.
     case pending
-    /// Every habit marked تخطّي and nothing done.
+    /// Every habit marked راحة and nothing done.
     case declaredRest
     /// A rest the schedule granted: nothing was asked.
     case rest
@@ -364,6 +416,40 @@ func gregorianDay(fromKey key: String,
     let parts = key.split(separator: "-").compactMap { Int($0) }
     guard parts.count == 3 else { return nil }
     return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+}
+
+/// Whole days from the day [fromKey] names to the day [toKey] names, both
+/// "yyyy-MM-dd"; nil when either will not parse. Counted in calendar days,
+/// so a daylight-saving change in between does not shave one off.
+func dayKeyDistance(from fromKey: String, to toKey: String,
+                    calendar: Calendar = Calendar(identifier: .gregorian)) -> Int? {
+    guard let from = gregorianDay(fromKey: fromKey, calendar: calendar),
+          let to = gregorianDay(fromKey: toKey, calendar: calendar) else { return nil }
+    return calendar.dateComponents([.day], from: from, to: to).day
+}
+
+/// The hour yesterday closes each morning, kDayCutoffHour on the app side
+/// (datetime_ext.dart): from midnight until then the day before is still
+/// open for marking.
+let kWidgetDayCutoffHour = 10
+
+/// The room's «باقي N يوم» as of [dayKey] at [hour], for a count the app
+/// wrote on [writtenDay] (RoomModel.daysRemaining: the days left counting
+/// that day, 0 for an open-ended room). Nil once the room has ended since:
+/// the count must not go on saying «باقي 5 أيام» for days on end with the
+/// app closed, as it did until 2026-09-29.
+///
+/// A room ends when its last day CLOSES, at the cutoff the morning after
+/// (RoomModel.isEndedAt), not at midnight. Until then this answers 0, what
+/// the app itself writes that morning, and the face draws no count.
+func roomDaysLeft(_ daysRemaining: Int, writtenDay: String, dayKey: String,
+                  hour: Int) -> Int? {
+    guard daysRemaining > 0 else { return 0 }
+    let elapsed = max(0, dayKeyDistance(from: writtenDay, to: dayKey) ?? 0)
+    let left = daysRemaining - elapsed
+    if left > 0 { return left }
+    if left == 0 && hour < kWidgetDayCutoffHour { return 0 }
+    return nil
 }
 
 /// Which cells of a [count]-day strip ending on [endDayKey] open a new

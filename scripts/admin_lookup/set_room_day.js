@@ -32,6 +32,13 @@
  *
  * Optional --scheduled=N overrides how many habits counted as due that day.
  * Leave it off unless you know you need it; the app maintains it itself.
+ *
+ * Without it, a day that has no scheduled count stored gets one when the
+ * leader's plan asked for fewer habits than the member has linked (a habit
+ * removed from the plan, or a stretch one spent out of it): the app's
+ * fallback for a day with no key still counts the removed habits, so a
+ * done count alone would be paid against them. The dry run says which.
+ * See lib/room_day_repair.js.
  */
 
 'use strict';
@@ -92,6 +99,7 @@ admin.initializeApp({
 
 const { resolveAccount } = require('./lib/fetchAccount');
 const { keyAtOffset, offsetOf } = require('./lib/day_key');
+const { scheduledKeyPlan } = require('./lib/room_day_repair');
 
 /**
  * YYYY-MM-DD for "today" on the member's own phone, matching the app's own
@@ -140,18 +148,34 @@ function todayKey(offsetMinutes) {
     fail(`No participant ${uid} in room "${roomCode}".${hint}`);
   }
   const d = snap.data() || {};
+  // The room, for the plan as it stood that day: the participant document
+  // alone cannot see a habit the leader removed (see lib/room_day_repair.js).
+  const roomSnap = await db.collection('rooms').doc(roomCode).get();
+  if (!roomSnap.exists) fail(`No room "${roomCode}".`);
+  const room = roomSnap.data() || {};
   const doneMap = d.dailyDoneCount || {};
   const schedMap = d.dailyScheduledCount || {};
   const linked = Array.isArray(d.linkedHabitIds) ? d.linkedHabitIds : [];
   const counted = linked.filter((id) => id !== '__declined__').length;
+  const plan = scheduledKeyPlan({
+    room, participant: d, dayKey: dateKey, done, scheduled, offsetMinutes: tz.minutes,
+  });
 
   console.log(`\nRoom ${roomCode} - ${d.displayName || uid}`);
   console.log(`  uid                : ${uid}`);
   console.log(`  linked habits      : ${counted} counting (${linked.length} slots)`);
+  if (plan.live !== plan.fallback) {
+    console.log(`  plan on ${dateKey} : ${plan.live} of them; the leader had ` +
+                `${plan.fallback - plan.live} out of the plan that day`);
+  }
   console.log(`\n  ${dateKey} now     : done=${doneMap[dateKey] ?? 0}` +
-              `  scheduled=${schedMap[dateKey] ?? `(default ${counted})`}`);
-  console.log(`  ${dateKey} after   : done=${done}` +
-              `  scheduled=${scheduled === null ? `(unchanged)` : scheduled}`);
+              `  scheduled=${schedMap[dateKey] ??
+                `(no key: the record falls back to ${plan.readsNow})`}`);
+  const after = plan.action === 'write' ? `${plan.value} (${plan.why})`
+    : plan.action === 'delete' ? `(key removed: ${plan.why})`
+      : typeof schedMap[dateKey] === 'number' ? `(unchanged, ${schedMap[dateKey]})`
+        : `(unchanged: no key, the record falls back to ${plan.reads})`;
+  console.log(`  ${dateKey} after   : done=${done}  scheduled=${after}`);
 
   if (dateKey === todayKey(tz.minutes)) {
     console.log(
@@ -161,10 +185,12 @@ function todayKey(offsetMinutes) {
       'Edit a past day, or just fix the square in the app.'
     );
   }
-  if (done > counted) {
+  // Against the day's own count, the one the app will divide by: after the
+  // leader took a habit out, fewer than the habits linked.
+  if (done > plan.reads) {
     console.log(
-      `\n  WARNING: done=${done} is higher than the ${counted} habit(s) ` +
-      `this person\n  actually has linked. The app will pull it back down.`
+      `\n  WARNING: done=${done} is higher than the ${plan.reads} habit(s) ` +
+      `the room asks of\n  this person that day. The app will pull it back down.`
     );
   }
 
@@ -182,13 +208,14 @@ function todayKey(offsetMinutes) {
   } else {
     update[`dailyDoneCount.${dateKey}`] = admin.firestore.FieldValue.delete();
   }
-  if (scheduled !== null) {
-    if (scheduled === counted) {
-      update[`dailyScheduledCount.${dateKey}`] =
-          admin.firestore.FieldValue.delete();
-    } else {
-      update[`dailyScheduledCount.${dateKey}`] = scheduled;
-    }
+  // The scheduled count as lib/room_day_repair.js decided it: an override,
+  // or the plan's count on a day with no key after a removal. A key equal to
+  // the participant-only fallback is removed, the sync's own invariant.
+  if (plan.action === 'delete') {
+    update[`dailyScheduledCount.${dateKey}`] =
+        admin.firestore.FieldValue.delete();
+  } else if (plan.action === 'write') {
+    update[`dailyScheduledCount.${dateKey}`] = plan.value;
   }
   // update(), not set(merge:true): dotted keys are real nested field paths
   // here, which is only true for update - see BUILD_LESSONS.md #10.

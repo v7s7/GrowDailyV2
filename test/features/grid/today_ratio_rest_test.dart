@@ -1,6 +1,6 @@
 // A rest day and the "إنجاز اليوم" figure on the Grid's own summary.
 //
-// The number used to score a تخطّي as zero and keep it in the denominator,
+// The number used to score a راحة as zero and keep it in the denominator,
 // which meant deliberately resting a habit lowered the day's percentage by
 // exactly as much as forgetting it would have. The app's stated position is
 // that a rest day is not a missed day, and the reports had already been fixed
@@ -48,14 +48,17 @@ void main() {
       expect(s.todayCompletionRatio(['a', 'b']), 1.0);
     });
 
-    test('resting everything is a finished day, not an empty one', () {
-      // The same answer RoomParticipant.creditFor gives when its scheduled
-      // count reaches zero: nothing was owed, so nothing was fallen short of.
+    test('resting everything is not a finished day', () {
+      // It read 1.0 until 2026-09-28, "nothing was owed, so nothing was
+      // fallen short of". The streak disagrees (Aziz, 2026-09-22: "skip a
+      // habit: fine, skip the whole day: no"), so the ring showed a full day
+      // on a day about to cost the streak. Nothing done of nothing owed is
+      // what a day with no habit on it already reads (see the guards below).
       final s = stateWith({
         'a': SquareState.skipped,
         'b': SquareState.skipped,
       });
-      expect(s.todayCompletionRatio(['a', 'b']), 1.0);
+      expect(s.todayCompletionRatio(['a', 'b']), 0);
     });
 
     test('a miss still costs exactly what it always did', () {
@@ -83,7 +86,7 @@ void main() {
 
     test('failed still counts against you, unlike a rest', () {
       // The distinction this whole change rests on: فشل is an admission and
-      // it costs, تخطّي is a decision and it does not.
+      // it costs, راحة is a decision and it does not.
       final failed = stateWith({
         'a': SquareState.complete,
         'b': SquareState.failed,

@@ -3,6 +3,7 @@
 
     python tool/mascot/upscale_poses.py                           # all 18
     python tool/mascot/upscale_poses.py --only mascot_laptop      # one pose
+    python tool/mascot/upscale_poses.py --sheet 2                 # the second sheet
 
 Needs torch, numpy, scipy and Pillow. Step 3 of 3: reads design/mascot/
 poses-native/ (cut_poses.py), writes design/mascot/poses-4x/ (PNG masters,
@@ -39,8 +40,24 @@ the poses it draws (happy when the day is done, asleep late or on a day with
 nothing asked) are written into its own asset catalog as PNGs, from the app
 copies (the files already at one shared character scale), at that scale (the front pose would be 230px tall): 240px for
 the happy pose, 204px for the sleeping one. SwiftUI draws each at a fixed
-height (see WidgetSprout in GrowDailyWidget.swift), so the character stays
+height (WidgetSprout in GrowDailyWidget.swift did, until Doum left the
+widget on 2026-09-29; the images stay for his return), so the character stays
 one size between the two. `--only` skips them unless it names their pose.
+
+THE SECOND SHEET (2026-09-29)
+`--sheet 2` reads design/mascot/sheet-2/poses-native/ and writes its masters
+to design/mascot/sheet-2/poses-4x/. It drew two sizes: rows 1 and 2 about
+11% bigger than rows 3 and 4. Each row's app scale (app px per sheet px) is
+set so its character matches the first sheet's app copies, from eye height,
+eye spacing, belly width, leaf area and green area on every pose where each
+can be measured, and checked by fitting the five poses the sheet repeats from
+the first one (front wave, confused, laptop, love heart, sleeping) over their
+first-sheet copies: 2.90, 2.93, 3.25 and 3.25. Leaf area alone said 3.66 for
+row 4 and green area 2.90; that row draws shorter leaves on a chunkier body,
+so row 4 was settled by eye beside the first sheet's poses, where 3.25 matches
+(the love heart fit says 3.30). Only poses marked "app" in poses-2.json get an
+app copy; the five repeats keep a master only. The widget's two are the first
+sheet's.
 """
 import argparse
 import json
@@ -64,6 +81,13 @@ WIDGET_FRONT_PX = 230            # the front pose's height at the widget's scale
 ROW_NORM = {1: 1 / 1.385, 2: 1 / 1.103, 3: 1.0}
 S = 3.0                          # app copy: 3x of the activity row's native size
 MARGIN = 12
+
+SHEETS = {
+    1: dict(poses="poses.json", src=SRC, masters=MASTERS, row_norm=ROW_NORM),
+    2: dict(poses="poses-2.json", src=ROOT / "design/mascot/sheet-2/poses-native",
+            masters=ROOT / "design/mascot/sheet-2/poses-4x",
+            row_norm={1: 2.90 / S, 2: 2.93 / S, 3: 3.25 / S, 4: 3.25 / S}),
+}
 
 
 def bounds_up(img, size=3):
@@ -108,8 +132,8 @@ def master(net, dev, n):
     return np.dstack([clean_edges(rgb, al, reach=6), al])
 
 
-def app_copy(m4, row):
-    f = S * ROW_NORM[row] / 4
+def app_copy(m4, row, row_norm=ROW_NORM):
+    f = S * row_norm[row] / 4
     w, h = round(m4.shape[1] * f), round(m4.shape[0] * f)
     RGB, A = resize_premult(m4, w, h)
     A = np.where(A >= 0.985, 1.0, np.where(A <= 0.015, 0.0, A))
@@ -160,13 +184,17 @@ def to_webp(a, path):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--src", type=pathlib.Path, default=SRC)
-    ap.add_argument("--masters", type=pathlib.Path, default=MASTERS)
+    ap.add_argument("--sheet", type=int, choices=sorted(SHEETS), default=1)
+    ap.add_argument("--src", type=pathlib.Path, default=None)
+    ap.add_argument("--masters", type=pathlib.Path, default=None)
     ap.add_argument("--app", type=pathlib.Path, default=APP)
     ap.add_argument("--weights", type=pathlib.Path, default=None, help="a local copy of the model file")
     ap.add_argument("--only", nargs="*", default=None, help="pose names to redo")
     args = ap.parse_args()
-    poses = json.loads((HERE / "poses.json").read_text())
+    cfg = SHEETS[args.sheet]
+    args.src = args.src or cfg["src"]
+    args.masters = args.masters or cfg["masters"]
+    poses = json.loads((HERE / cfg["poses"]).read_text())
     net, dev = esrgan.load(args.weights)
     args.masters.mkdir(parents=True, exist_ok=True)
     args.app.mkdir(parents=True, exist_ok=True)
@@ -176,10 +204,13 @@ if __name__ == "__main__":
         n = np.asarray(Image.open(args.src / f"{pose['name']}.png").convert('RGBA')).astype(np.float64) / 255
         m4 = master(net, dev, n)
         to_png(m4, args.masters / f"{pose['name']}.png")
-        a = app_copy(m4, pose['row'])
+        if not pose.get('app', True):
+            print(f"{pose['name']:28s} 4x {m4.shape[1]}x{m4.shape[0]}  (repeats {pose['twin']}: master only)")
+            continue
+        a = app_copy(m4, pose['row'], cfg["row_norm"])
         to_webp(a, args.app / f"{pose['name']}.webp")
         print(f"{pose['name']:28s} 4x {m4.shape[1]}x{m4.shape[0]}  app {a.shape[1]}x{a.shape[0]}")
     for asset, name in WIDGET_POSES.items():
-        if args.only and name not in args.only:
+        if args.sheet != 1 or (args.only and name not in args.only):
             continue
         write_widget_image(asset, name, args.app)

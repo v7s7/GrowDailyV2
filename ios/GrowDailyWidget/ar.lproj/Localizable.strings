@@ -25,16 +25,26 @@
 
 /* Home Screen: tasks. */
 "Matrix" = "المهام";
-"Your most urgent tasks — check them off or add a new one without opening the app." = "أهم مهامك: علّمها أو أضف وحدة بدون ما تفتح التطبيق.";
+"Your most urgent tasks: check them off or add a new one without opening the app." = "أهم مهامك: علّمها أو أضف وحدة بدون ما تفتح التطبيق.";
 "Starred Tasks" = "المهام المفضّلة";
-"Your starred tasks on the Lock Screen — or your top tasks if you haven't starred any." = "مهامك المفضّلة على شاشة القفل، وإذا ما عندك مفضّلة تطلع أهم مهامك.";
+"Your starred tasks on the Lock Screen, or your top tasks if you haven't starred any." = "مهامك المفضّلة على شاشة القفل، وإذا ما عندك مفضّلة تطلع أهم مهامك.";
 
 /* Home Screen: the room leaderboard. */
 "Room Race" = "سباق الغرف";
 "See your rank and your friends' progress in your active room." = "ترتيبك وتقدّم أصحابك في غرفتك الشغالة.";
 "Your rank in your starred room, on the Lock Screen." = "ترتيبك في غرفتك المفضّلة، على شاشة القفل.";
 
-/* Lock Screen and Control Center controls (GrowDailyControls.swift). */
+/* Lock Screen and Control Center controls (GrowDailyControls.swift): the
+   picker names and the button labels, then the descriptions. The names were
+   missing until 2026-09-29, so an Arabic phone listed "Grow Daily Habits"
+   over an Arabic description. The gallery already groups them under the
+   app, so each name is the tab's own word. */
+"Grow Daily Habits" = "العادات";
+"Grow Daily Tasks" = "المهام";
+"Grow Daily Add Task" = "أضف مهمة";
+"Habits" = "العادات";
+"Tasks" = "المهام";
+"Add Task" = "أضف مهمة";
 "Open your habit board straight from the Lock Screen." = "افتح لوحة عاداتك من شاشة القفل على طول.";
 "Open your tasks straight from the Lock Screen." = "افتح مهامك من شاشة القفل على طول.";
 "Capture a task without unlocking to the home screen first." = "سجّل مهمة بدون ما تفتح الجوال أول.";

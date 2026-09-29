@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
+import 'package:grow_daily_v2/core/l10n/wording_edits.dart';
 import 'package:grow_daily_v2/features/character/models/character_option.dart';
 import 'package:grow_daily_v2/features/character/notifiers/character_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
@@ -269,7 +270,7 @@ void main() {
         s.sproutGoodNight,
         s.sproutLateNight,
         s.sproutRestDay,
-        s.sproutTickle,
+        ...tickleLines(s),
         s.perfectDayMsg,
         for (final group in PraiseGroup.values)
           for (final form in PraiseForm.values)
@@ -279,6 +280,33 @@ void main() {
         expect(line, isNot(contains('!')), reason: line);
       }
     }
+  });
+
+  group('a tap on Doum (Aziz, 2026-09-29)', () {
+    test('says «هههه» or «اوبس»', () {
+      expect(tickleLines(ar), ['هههه', 'اوبس']);
+      expect(tickleLines(en), ['Hehe', 'Oops']);
+    });
+
+    test('picks at random, and both lines come up', () {
+      final random = Random(7);
+      final seen = {for (var i = 0; i < 40; i++) pickTickle(ar, random)};
+      expect(seen, {'هههه', 'اوبس'});
+    });
+
+    test('a list blanked on the admin page falls back to the built-in one',
+        () {
+      final blank = S.edited(const Locale('ar'),
+          const WordingEdits(ar: {'sproutTickle': ' \n '}));
+      expect(tickleLines(blank), isEmpty);
+      expect(tickleLines(ar), contains(pickTickle(blank)));
+    });
+
+    test('a line added on the admin page can be picked', () {
+      final edited = S.edited(const Locale('ar'),
+          const WordingEdits(ar: {'sproutTickle': 'هههه\nاوبس\nيا ساتر'}));
+      expect(tickleLines(edited), ['هههه', 'اوبس', 'يا ساتر']);
+    });
   });
 
   test('a full day says «ما شاء الله تبارك الله»', () {

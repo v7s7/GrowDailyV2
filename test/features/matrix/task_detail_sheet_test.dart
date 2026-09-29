@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart'
+    show CupertinoDatePicker, CupertinoLocalizations, DefaultCupertinoLocalizations;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,7 @@ import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
+import 'package:grow_daily_v2/features/matrix/task_day.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/task_detail_sheet.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/voice_note_player.dart';
 import 'package:hive/hive.dart';
@@ -27,6 +30,10 @@ import 'package:intl/date_symbol_data_local.dart';
 ///
 /// Arabic/RTL throughout, because that's the app's default locale and both
 /// defects are about where things land horizontally.
+///
+/// Plus one about what the sheet saves: giving a time to an untimed task
+/// planned for a later day must not move it to today (see
+/// taskDetailPickerInitial).
 void main() {
   const dpr = 3.0;
   const ar = S(Locale('ar'));
@@ -237,6 +244,102 @@ void main() {
     });
   });
 
+  group('a time for an untimed task planned for a later day', () {
+    final now = DateTime.now();
+    DateTime inDays(int n) => DateTime(now.year, now.month, now.day + n);
+
+    MatrixTask untimed({DateTime? planned}) => MatrixTask(
+          id: 't1',
+          title: 'اتصل بالبنك',
+          quadrant: MatrixQuadrant.doFirst,
+          isDone: false,
+          createdAt: now,
+          plannedDay: planned == null ? null : dayKey(planned),
+          order: 1,
+        );
+
+    test('opens on the task\'s own day at 9:00, which keeps its day', () {
+      final day = inDays(3);
+      final task = untimed(planned: day);
+      final initial = taskDetailPickerInitial(task, now: now);
+      expect(initial, DateTime(day.year, day.month, day.day, 9));
+      // Accepting that moment files the task where it already was.
+      expect(
+        plannedDayOnWrite(
+          before: task,
+          newReminders: [initial!],
+          newAnchor: initial,
+        ),
+        task.plannedDay,
+      );
+    });
+
+    test('today\'s, carried-over and timed tasks open as they always did', () {
+      // Null: pickReminderMoment's own today-in-an-hour.
+      expect(taskDetailPickerInitial(untimed(), now: now), isNull);
+      expect(taskDetailPickerInitial(untimed(planned: inDays(0)), now: now),
+          isNull);
+      expect(taskDetailPickerInitial(untimed(planned: inDays(-2)), now: now),
+          isNull);
+      // A time already picked in the sheet is where it opens, whatever day
+      // the task was planned for.
+      final anchor = DateTime(now.year, now.month, now.day + 5, 16, 30);
+      expect(
+        taskDetailPickerInitial(untimed(planned: inDays(3)),
+            anchor: anchor, now: now),
+        anchor,
+      );
+    });
+
+    Future<void> openPicker(WidgetTester tester, MatrixTask task) async {
+      await open(tester, harness(task: task));
+      await tester.tap(find.text(ar.matrixReminderLabel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    testWidgets('the calendar opens on the planned day, and the wheel at 9:00',
+        (tester) async {
+      final day = inDays(3);
+      await openPicker(tester, untimed(planned: day));
+
+      final calendar =
+          tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      expect(DateUtils.isSameDay(calendar.initialDate, day), isTrue,
+          reason: 'on today, an OK meant only to reach the time moves the '
+              'task to today');
+
+      await tester.tap(find.text('OK'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final wheel =
+          tester.widget<CupertinoDatePicker>(find.byType(CupertinoDatePicker));
+      expect(wheel.initialDateTime, DateTime(day.year, day.month, day.day, 9));
+      expect(wheel.minimumDate, isNull, reason: 'a later day has no floor');
+
+      // Not saved: the save asks the OS for notification permission, which
+      // writes its answer to Hive and never finishes inside a widget test.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('a day more than a year ahead still opens the calendar',
+        (tester) async {
+      // The month sheet plans to the last day of the month a year ahead,
+      // which can be past the calendar's old now + 365 limit, where
+      // showDatePicker asserts.
+      final day = inDays(400);
+      await openPicker(tester, untimed(planned: day));
+      expect(tester.takeException(), isNull);
+      final calendar =
+          tester.widget<DatePickerDialog>(find.byType(DatePickerDialog));
+      expect(DateUtils.isSameDay(calendar.initialDate, day), isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
   group('the voice notes section', () {
     testWidgets('label, hint and mic sit together in one card', (tester) async {
       await open(tester, harness(task: taskWith()));
@@ -382,7 +485,21 @@ class _AnyLocale {
   static const delegates = <LocalizationsDelegate<dynamic>>[
     _AnyLocaleMaterial(),
     _AnyLocaleWidgets(),
+    // The reminder time wheel is a CupertinoDatePicker.
+    _AnyLocaleCupertino(),
   ];
+}
+
+class _AnyLocaleCupertino
+    extends LocalizationsDelegate<CupertinoLocalizations> {
+  const _AnyLocaleCupertino();
+  @override
+  bool isSupported(Locale locale) => true;
+  @override
+  Future<CupertinoLocalizations> load(Locale locale) =>
+      DefaultCupertinoLocalizations.load(locale);
+  @override
+  bool shouldReload(_) => false;
 }
 
 class _AnyLocaleMaterial extends LocalizationsDelegate<MaterialLocalizations> {

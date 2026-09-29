@@ -90,3 +90,16 @@ test('diagnose_room.js grades a member from the day they joined', () => {
   const table = SOURCE.match(/for \(let i = 0; i < (\w+)\.length; i\+\+\) \{\n\s+const dk = \1\[i\];/);
   assert.equal(table && table[1], 'mdays', 'and so does the day table');
 });
+
+test('diagnose_room.js reads an unsynced day after a removal the way the board does', () => {
+  // PBYAS5 2026-09-28 printed 0/7 beside a board of 0 of 5: the record's
+  // fallback cannot see the two removed habits. roomDayCounts now carries
+  // the board's inference (planInferredScheduledOn) and says when it did,
+  // and the column says so too rather than calling the plan's count stored.
+  assert.match(SOURCE, /const unsynced = stored\.planInferred \?/);
+  assert.match(SOURCE, /the record alone says \$\{stored\.recorded\}/);
+  assert.match(SOURCE, /still open\$\{unsynced\}/);
+  const graded = SOURCE.match(/\} else \{\n\s+countsCell = `\$\{num\(credited\)\}\/\$\{stored\.scheduled\}` \+([\s\S]*?);\n/);
+  assert.ok(graded, 'the graded branch is still there');
+  assert.match(graded[1], /unsynced/);
+});

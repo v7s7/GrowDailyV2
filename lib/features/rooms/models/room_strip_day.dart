@@ -174,8 +174,10 @@ bool roomStripMissIsFinal(
     return false;
   }
   // The habits in the plan THAT day: a slot whose habit was changed since
-  // (RoomsController.relinkPlanHabit) keeps the cadence it had then.
-  final onQuota = participant.habitsInSlotsOn(day.toDateKey()).any(
+  // (RoomsController.relinkPlanHabit) keeps the cadence it had then, and a
+  // habit the leader removed is out of it from its stopsOn (habitsInPlanOn),
+  // so a removed quota no longer holds a daily habit's miss open all week.
+  final onQuota = participant.habitsInPlanOn(room, day.toDateKey()).any(
     (id) =>
         participant.ruleFor(id, day.toDateKey())?.frequencyType ==
         HabitFrequencyType.weekly,
@@ -205,7 +207,9 @@ bool roomStripMissIsFinal(
 /// plan not stood down, and the slot holding this habit under a recorded
 /// rule. Null for:
 ///  * a day whose plan holds more than one habit, since [dailyDoneCount]
-///    counts habits, not sessions of one of them;
+///    counts habits, not sessions of one of them (the plan the room had
+///    that day, [RoomParticipant.habitsInPlanOn]: a habit the leader
+///    removed is not in it from its stopsOn);
 ///  * a week with a day this member was away, or with more than one habit in
 ///    the slot, or two rules for it: the grader takes the week's first day's
 ///    rule and the habit each day held, and this cannot replay either;
@@ -223,7 +227,7 @@ DayDemand? roomStripQuotaDemandOn(
   DateTime day,
 ) {
   final key = day.toDateKey();
-  final habits = participant.habitsInSlotsOn(key);
+  final habits = participant.habitsInPlanOn(room, key);
   if (habits.length != 1) return null;
   final habit = habits.single;
   final rule = participant.ruleFor(habit, key);
@@ -243,7 +247,7 @@ DayDemand? roomStripQuotaDemandOn(
     if (d.isBefore(first) || (end != null && d.isAfter(end))) continue;
     if (participant.isAwayOn(k)) return null;
     if (room.isPausedOn(k) || participant.isStoodDownOn(k)) continue;
-    final held = participant.habitsInSlotsOn(k);
+    final held = participant.habitsInPlanOn(room, k);
     if (held.isEmpty) continue;
     if (held.length != 1 || held.single != habit) return null;
     final dayRule = participant.ruleFor(habit, k);

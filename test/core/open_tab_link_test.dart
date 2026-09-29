@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/constants/deep_links.dart';
+import 'package:grow_daily_v2/core/providers/home_tab_provider.dart'
+    show kSettingsPagePrayerLocation;
 import 'package:grow_daily_v2/core/providers/nav_layout_provider.dart';
 
 /// The link a Lock Screen control taps.
@@ -113,6 +117,59 @@ void main() {
       expect(parseOpenTabLink(Uri.parse('growdaily://open?tab=focus')),
           'focus');
       expect(NavTab.byId('focus'), isNull);
+    });
+  });
+
+  group('openTabLinkPage: the prayer widget lands on the place page', () {
+    // Settings became five rows that each open a page (2026-09-28), so the
+    // prayer widget's «حدّد موقعك» asks for the page inside Settings where
+    // the place is chosen, instead of Settings' first page two taps above.
+    test('the link the widget really builds names settings and the page', () {
+      // Read from the Swift source rather than retyped here, so a change to
+      // either side that breaks the agreement fails in this test.
+      final swift = File('ios/GrowDailyWidget/PrayerCountdownWidget.swift')
+          .readAsStringSync();
+      final match = RegExp(r'growdaily://open\?[^"]+').firstMatch(swift);
+      expect(match, isNotNull, reason: 'prayerPlaceOpenURL moved or changed');
+      final link = Uri.parse(match!.group(0)!);
+      expect(parseOpenTabLink(link), 'settings');
+      expect(NavTab.byId(parseOpenTabLink(link)), NavTab.settings);
+      expect(openTabLinkPage(link), kSettingsPagePrayerLocation);
+    });
+
+    test('every widget tap uses it, none the bare settings link', () {
+      final swift = File('ios/GrowDailyWidget/PrayerCountdownWidget.swift')
+          .readAsStringSync();
+      expect(swift.contains('lockScreenOpenURL(tab: "settings")'), isFalse);
+      expect('.widgetURL(prayerPlaceOpenURL())'.allMatches(swift).length, 3);
+    });
+
+    test('a plain open link asks for no page', () {
+      expect(openTabLinkPage(openTabUrl('settings')), isNull);
+      expect(
+          openTabLinkPage(Uri.parse('growdaily://open?tab=settings&page=')),
+          isNull);
+    });
+
+    test('the page is read the way the tab is: trimmed, any case', () {
+      expect(
+        openTabLinkPage(
+            Uri.parse('growdaily://open?tab=settings&page=Prayer-Location')),
+        kSettingsPagePrayerLocation,
+      );
+    });
+
+    test('a page on a link that is not ours is nothing', () {
+      expect(
+        openTabLinkPage(
+            Uri.parse('https://$linkHost/join/A8GEL7?page=prayer-location')),
+        isNull,
+      );
+      expect(
+        openTabLinkPage(
+            Uri.parse('otherapp://open?tab=settings&page=prayer-location')),
+        isNull,
+      );
     });
   });
 

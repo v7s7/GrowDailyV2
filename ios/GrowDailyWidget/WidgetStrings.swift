@@ -54,7 +54,18 @@ struct WidgetCopy {
 
     // MARK: Habits
 
-    func streakLine(_ n: Int) -> String { pick("\(n) يوم متتابع", "\(n) day streak") }
+    /// The Lock Screen's streak line. The day word takes its Arabic shape
+    /// (daysWord) and the adjective agrees with it: «9 أيام متتابعة», where
+    /// it printed «9 يوم متتابع» until 2026-09-29.
+    func streakLine(_ n: Int) -> String {
+        guard isAr else { return "\(n) day streak" }
+        switch n {
+        case 1: return "يوم متتابع"
+        case 2: return "يومين متتابعين"
+        case 3...10: return "\(daysWord(n)) متتابعة"
+        default: return "\(daysWord(n)) متتابع"
+        }
+    }
     func doneToday(_ done: Int, _ total: Int) -> String {
         pick("\(done) من \(total) اليوم", "\(done)/\(total) done today")
     }
@@ -67,6 +78,18 @@ struct WidgetCopy {
 
     var noHabitsToday: String { pick("ما في عادات اليوم", "No habits scheduled today") }
     var notDue: String { pick("مو مطلوبة", "not due") }
+    /// A habit rested on purpose today, the Grid's own word for the square
+    /// (SquareState.skipped's label).
+    var restWord: String { pick("راحة", "rest") }
+    /// When no list in the store is today's: the app has not been opened
+    /// since the day before yesterday, so the widget does not know today's
+    /// habits and says so rather than show an older day's as today's. Same
+    /// shape as the prayer face's «عشان تطلع أوقات الصلاة».
+    var openAppForHabits: String {
+        pick("افتح التطبيق عشان تطلع عادات اليوم", "Open the app to see today's habits")
+    }
+    /// The same, where a Lock Screen line has room for two words.
+    var openAppShort: String { pick("افتح التطبيق", "Open the app") }
     /// NOT "+\(n) ..." in Arabic. A leading "+" is a bidi-neutral character,
     /// so at the start of a right-to-left line the system moves it to the
     /// other end and the widget rendered «5+ بالتطبيق». Seen on the large
@@ -91,7 +114,11 @@ struct WidgetCopy {
     var noActiveRoom: String { pick("ما في غرفة شغالة", "No active room") }
     var joinOrCreate: String { pick("ادخل غرفة أو سوِّ وحدة", "Join or create one in the app") }
     var startingSoon: String { pick("بتبدأ قريب", "Starting soon") }
-    func daysLeftShort(_ n: Int) -> String { pick("باقي \(n) يوم", "\(n)d left") }
+    /// A room whose last day passed while the app was closed: the room
+    /// screen's own word, S.roomEnded.
+    var roomEnded: String { pick("انتهت", "Ended") }
+    /// «باقي 5 أيام», «باقي يومين» (daysWord), where it printed «باقي 5 يوم».
+    func daysLeftShort(_ n: Int) -> String { pick("باقي \(daysWord(n))", "\(n)d left") }
     func moreRacing(_ n: Int) -> String { pick("معك \(n) غيرهم", "+\(n) more racing") }
 
     /// Arabic counts days in three shapes, and a widget that says «٢ يوم»

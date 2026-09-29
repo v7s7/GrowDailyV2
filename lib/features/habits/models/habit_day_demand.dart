@@ -97,7 +97,7 @@ typedef GreenOnDay = bool Function(String habitId, DateTime day);
 /// Reads what, if anything, was recorded for one habit on one day. Two rules
 /// need more than [GreenOnDay]: a session on a day off a specific-days plan
 /// covers a planned day with NOTHING recorded, never one the person marked
-/// فشل, تخطّي or جزئي (see moved_day_plan.dart); and a flexible quota's week
+/// فشل, راحة or جزئي (see moved_day_plan.dart); and a flexible quota's week
 /// counts a جزئي as a half session (see weekly_quota_plan.dart). Every
 /// function taking one treats it as optional, and without it reads a day that
 /// is not green as unmarked, a جزئي included.
@@ -323,21 +323,37 @@ DayDemand? movedDemandOn({
 }
 
 /// [IslamicHabitTemplate.runsOn] minus the days a session on another day of
-/// the same week stands in for, for a habit's own streak.
+/// the same week stands in for, and the days the habit was resting, for a
+/// habit's own streak.
 ///
 /// The per-habit streak counts the habit's run days between two sessions as
 /// missed (see habit_schedule.dart's scheduledGapBy). A Monday, Thursday and
 /// Saturday habit done on Wednesday instead of Thursday would otherwise read
 /// Thursday as a miss the next day and restart at 1 on Saturday, for a week
-/// in which every promised session happened. [isGreen] null excuses nothing.
+/// in which every promised session happened. [isGreen] null excuses no such
+/// day.
+///
+/// A day marked «راحة» ([SquareState.skipped]) is not one of the habit's days
+/// either (Aziz, 2026-09-28: a rest means the habit was not needed that day).
+/// It keeps the streak without adding to it: the streak still counts only
+/// sessions. Read off [markOn] whenever there is one, [isGreen] or not,
+/// because a mark is only ever what was actually stored: a day [markOn]
+/// cannot see reads `none`, which excuses nothing, so a missing week can
+/// cost a streak line but never invent a rest.
 bool Function(DateTime day) runsOnExcusing(
   IslamicHabitTemplate habit,
   GreenOnDay? isGreen, {
   MarkOnDay? markOn,
 }) {
-  if (isGreen == null) return habit.runsOn;
+  bool resting(DateTime day) =>
+      markOn != null && markOn(habit.id, day) == SquareState.skipped;
+  if (isGreen == null) {
+    if (markOn == null) return habit.runsOn;
+    return (day) => habit.runsOn(day) && !resting(day);
+  }
   return (day) =>
       habit.runsOn(day) &&
+      !resting(day) &&
       movedDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn) !=
           DayDemand.earned;
 }
@@ -350,9 +366,11 @@ bool Function(DateTime day) runsOnExcusing(
 /// ([lastCompletedKey], DashboardState.habitLastCompletedDate) to [day] read
 /// through [squaresOn], to see whether a session on a day off the plan
 /// covered the days in between: a Monday, Thursday and Saturday habit done on
-/// Wednesday instead of Thursday keeps its streak on Saturday. Nearly every
+/// Wednesday instead of Thursday keeps its streak on Saturday, and a daily
+/// habit rested («راحة») on Thursday keeps it on Friday. Nearly every
 /// completion reads nothing. A last completion more than three weeks back is
-/// left to the plain rule: whatever covered it, that gap is real.
+/// left to the plain rule: whatever covered it, that gap is real, rest or no
+/// rest.
 Future<bool Function(DateTime day)> streakRunsOn({
   required IslamicHabitTemplate habit,
   required DateTime day,

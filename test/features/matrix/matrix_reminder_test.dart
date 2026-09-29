@@ -56,28 +56,30 @@ void main() {
       );
     });
 
-    test('the very next calendar day reads "Tomorrow"', () {
+    // Aziz, 2026-09-29: the same day words as the Tasks header, so the
+    // next day is named by its weekday and date, not «غدًا» / "Tomorrow".
+    test('the very next calendar day is named by its date', () {
       expect(
         formatReminderMoment(DateTime(2026, 7, 17, 9, 30), false, now: now),
-        'Tomorrow · 9:30 AM',
+        'Friday, Jul 17 · 9:30 AM',
       );
     });
 
-    test('anything further out falls back to a month/day date', () {
+    test('anything further out names the weekday and date', () {
       expect(
         formatReminderMoment(DateTime(2026, 7, 20, 14), false, now: now),
-        'Jul 20 · 2:00 PM',
+        'Monday, Jul 20 · 2:00 PM',
       );
     });
 
-    test('Arabic uses the Arabic Today/Tomorrow labels', () {
+    test('Arabic says «اليوم» only for today', () {
       expect(
         formatReminderMoment(DateTime(2026, 7, 16, 17), true, now: now),
         startsWith('اليوم'),
       );
       expect(
         formatReminderMoment(DateTime(2026, 7, 17, 9), true, now: now),
-        startsWith('غدًا'),
+        'الجمعة، 17 يوليو · 9:00 ص',
       );
     });
 
@@ -91,7 +93,7 @@ void main() {
       final lateNow = DateTime(2026, 7, 16, 23, 50);
       expect(
         formatReminderMoment(DateTime(2026, 7, 17, 0, 10), false, now: lateNow),
-        'Tomorrow · 12:10 AM',
+        'Friday, Jul 17 · 12:10 AM',
       );
     });
   });

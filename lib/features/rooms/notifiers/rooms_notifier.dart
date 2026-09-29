@@ -150,23 +150,42 @@ final roomRosterHistoryProvider =
 /// syncLinkedHabitsProgress parses the raw document itself, and the inferred
 /// counts are not a field of that document.
 ///
-/// `now` is taken whenever either stream emits, and the answer is kept while
-/// neither does, so it can lag the clock. A week that has closed since is
-/// picked up on the next emission, under-inferring meanwhile; a week that
-/// has aged out of the window, or a room that has ended, stays inferred
-/// until then. Neither lag reaches a payout: the room screen reads an ended
+/// `now` is taken whenever either stream emits and at every day boundary
+/// (dayClockProvider, below), and the answer is kept in between, so it can
+/// lag the clock only between two boundaries: a quota week closing on a far
+/// time zone's clock is picked up at the next emission or boundary,
+/// under-inferring meanwhile, and a room that has ended stays inferred until
+/// then. Neither lag reaches a payout: the room screen reads an ended
 /// room's record (RoomLeaderboard.scoringRoster), and a team milestone
 /// always does (RoomTeamProgress.claimableTeamMilestone). A leader's
 /// extension re-emits the room.
+///
+/// Also the plan as the leader left it on the days a member's phone has not
+/// graded yet (RoomParticipant.unsyncedPlanInference): without it, a habit
+/// removed from the plan still counted on those days («0 من 7 عادات» with
+/// five in the plan, PBYAS5, 28 Sep 2026). That one is about TODAY, the day
+/// nobody has synced at midnight, so the day clock is watched as well: a
+/// screen left open across midnight re-reads the new day instead of the
+/// count from before the removal.
+///
+/// And the met quota week's blank days that plan rests
+/// (RoomParticipant.unsyncedQuotaRestInference): a daily habit removed from
+/// a daily-plus-quota plan kept the record's own rest from running, so a
+/// member who met their week and stopped opening the app read owed.
 final gradedRoomParticipantsProvider =
     Provider.family<AsyncValue<List<RoomParticipant>>, String>((ref, code) {
   final roster = ref.watch(roomParticipantsProvider(code));
   final room = ref.watch(roomProvider(code)).valueOrNull;
   if (room == null) return roster;
+  ref.watch(dayClockProvider);
   final now = DateTime.now();
   return roster.whenData(
     (list) => [
-      for (final p in list) p.withClosedQuotaWeeksInferred(room, now: now),
+      for (final p in list)
+        p
+            .withClosedQuotaWeeksInferred(room, now: now)
+            .withUnsyncedPlanInferred(room, now: now)
+            .withUnsyncedQuotaRestInferred(room, now: now),
     ],
   );
 });
@@ -178,10 +197,15 @@ final gradedRoomRosterHistoryProvider =
   final roster = ref.watch(roomRosterHistoryProvider(code));
   final room = ref.watch(roomProvider(code)).valueOrNull;
   if (room == null) return roster;
+  ref.watch(dayClockProvider);
   final now = DateTime.now();
   return roster.whenData(
     (list) => [
-      for (final p in list) p.withClosedQuotaWeeksInferred(room, now: now),
+      for (final p in list)
+        p
+            .withClosedQuotaWeeksInferred(room, now: now)
+            .withUnsyncedPlanInferred(room, now: now)
+            .withUnsyncedQuotaRestInferred(room, now: now),
     ],
   );
 });
@@ -1493,14 +1517,22 @@ bool sameHabitMarks(
 /// matches, and for any habit with no recorded rule yet or no longer in this
 /// account's own habit list. A plain top-level function for the same
 /// unit-testability reasons as [roomRuleAt] above.
+///
+/// Given [room], only the habits still linked to it right now
+/// (RoomParticipant.countedHabitIdsIn): a habit the leader removed stays in
+/// the member's Grid, untied from the room, and editing it there is nothing
+/// this room scores any more, so it has nothing to warn about.
 List<String> roomRuleMismatches(
   RoomParticipant mine,
   List<IslamicHabitTemplate> myHabits,
-  String todayKey,
-) {
+  String todayKey, {
+  RoomModel? room,
+}) {
   final habitById = {for (final h in myHabits) h.id: h};
   final out = <String>[];
-  for (final id in mine.countedHabitIds) {
+  final ids =
+      room == null ? mine.countedHabitIds : mine.countedHabitIdsIn(room);
+  for (final id in ids) {
     final habit = habitById[id];
     if (habit == null) continue;
     final rule = mine.ruleFor(id, todayKey);
@@ -1538,11 +1570,16 @@ List<String> roomRuleMismatches(
 /// because dropping it would pay a member full marks for pausing everything
 /// (see test/features/rooms/paused_habit_room_grading_test.dart). The split
 /// only decides which sentence the member reads.
+///
+/// Given [room], only the habits still linked to it right now, as
+/// [roomRuleMismatches]: pausing a habit the leader has already removed from
+/// the plan pauses nothing in this room, so the card must not say it did.
 ({List<String> pausedNames, bool hasDeleted}) roomUnresolvedLinks(
   RoomParticipant mine,
   List<IslamicHabitTemplate> myHabits,
   List<IslamicHabitTemplate> pausedHabits, {
   required bool isAr,
+  RoomModel? room,
 }) {
   final activeIds = {for (final h in myHabits) h.id};
   // Keyed by id: a catalog habit switched on and off more than once emits
@@ -1553,7 +1590,9 @@ List<String> roomRuleMismatches(
   // countedHabitIds, not linkedHabitIds: a slot this person skipped holds
   // the literal kDeclinedSlot placeholder, which is never a real habit id
   // and would otherwise trip this permanently.
-  for (final id in mine.countedHabitIds) {
+  final ids =
+      room == null ? mine.countedHabitIds : mine.countedHabitIdsIn(room);
+  for (final id in ids) {
     if (activeIds.contains(id)) continue;
     final paused = pausedById[id];
     if (paused != null) {
@@ -2962,7 +3001,10 @@ class RoomsController {
   /// starting today for every linked habit whose live settings no longer
   /// match what the room is scoring (see [roomRuleMismatches], which drives
   /// the warning this is offered from); habits already in agreement are left
-  /// alone.
+  /// alone. Over the same habits that warning lists, the ones still linked
+  /// to [room] right now: a habit the leader removed keeps its frozen rule,
+  /// so if it is ever brought back the warning can name it and the member
+  /// decides, rather than a tap on another habit's warning deciding for them.
   ///
   /// Crucially forward-only: the earlier periods stay exactly as they were,
   /// so every finished day keeps the grade it actually earned. That's the
@@ -2982,7 +3024,7 @@ class RoomsController {
 
     final updated = <String, List<RoomHabitRule>>{...mine.habitRules};
     var changed = false;
-    for (final id in mine.countedHabitIds) {
+    for (final id in mine.countedHabitIdsIn(room)) {
       final habit = habitById[id];
       if (habit == null) continue;
       final current = mine.ruleFor(id, todayKey);

@@ -76,6 +76,7 @@ function nextLine(slot, model) {
     case 'rings': {
       const why = [];
       if (slot.doneToday) why.push('done today, so today\'s was taken down');
+      if (slot.restingToday) why.push('resting today (راحة), so today\'s was taken down');
       if (slot.quietSome) why.push('skipped on days it lands in quiet hours');
       return `<b class="rem-when">${escapeHtml(whenText(slot.next, model))}</b>`
         + (why.length ? ` <span class="rem-why">${escapeHtml(why.join('; '))}</span>` : '');

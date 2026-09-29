@@ -32,6 +32,58 @@ typedef RoomRacePayloadRow = ({
   String days,
 });
 
+/// One row of a day's habit list on the Habits widget, as
+/// [HomeWidgetService.updateWidgetData] writes it (main.dart builds it).
+typedef WidgetHabitRow = ({
+  String id,
+  String name,
+  bool done,
+  int count,
+  int perDay,
+  bool notDue,
+  bool rest,
+  String category,
+  String? color,
+});
+
+/// [rows] as the JSON TodayHabit decodes (WidgetFaceRules.swift).
+String encodeWidgetHabitRows(List<WidgetHabitRow> rows) => jsonEncode([
+      for (final h in rows)
+        {
+          'id': h.id,
+          'name': h.name,
+          'done': h.done,
+          // How far along a counted habit is: one tap on a three-a-day habit
+          // must not draw it done. The background action handler
+          // (NotificationActionRules.markOneDone) and the widget's own Mark
+          // Done button (MarkHabitDoneIntent) apply the same rule, count + 1,
+          // done at perDay. The button used to drop this pair when it
+          // re-encoded the list, so every counted habit read as one-a-day
+          // after its first tap; since 2026-09-24 TodayHabit keeps them.
+          'count': h.count,
+          'perDay': h.perDay,
+          // Whether the day asked for this habit at all. The widget's own
+          // Mark Done button PRESERVES this on its re-encode (TodayHabit
+          // carries it, WidgetFaceRules.swift), so a rest-day row does not
+          // turn back into an outstanding one the moment it is tapped.
+          'notDue': h.notDue,
+          // Rested on purpose («راحة») and not done since. Such a row is
+          // also notDue, since a rest leaves the count, but the Grid draws
+          // it as a rest and not as a day that asked nothing, and the
+          // widget said «مو مطلوبة» over it until 2026-09-29. Written only
+          // when true, so the list stays the size it was.
+          if (h.rest) 'rest': true,
+          // How the Grid draws the habit: its category glyph, in its own
+          // colour when one was picked (IslamicHabitTemplate.iconColorHex,
+          // six hex digits) and the category's otherwise. The widget rows
+          // are habits, not a task list (Aziz, 2026-09-24: "show it as
+          // habit, not as tasks"), and the icon tile is what makes a Grid
+          // row a habit.
+          'category': h.category,
+          if (h.color != null) 'color': h.color,
+        },
+    ]);
+
 /// Dart-side bridge to the iOS home screen + Lock Screen widgets. This is
 /// only half the feature — home_widget explicitly does not let Flutter draw
 /// the widget itself, so the actual on-screen widget is native Swift, added
@@ -116,22 +168,24 @@ class HomeWidgetService {
   /// 2026-09-24 ("what is 4005, xp? no one cares") and the month grid off
   /// the large one the same day ("if user wants to see his month work, he
   /// can check in app"), so the writes went with them.
+  ///
+  /// [nextDay] and [nextHabits] are the day after, built by the same rules
+  /// with nothing done yet. The widget cannot build a day's list itself, so
+  /// until 2026-09-29 a phone left alone overnight showed YESTERDAY on every
+  /// Habits face each morning until the app was opened: a finished day's
+  /// green rows and «خلّصت اليوم كله» at 07:00 with nothing to tap, and an
+  /// open row from yesterday that a tap then paid to today. The widget
+  /// switches to this list at midnight (GrowDailyProvider.loadEntry), and
+  /// whichever Done path outside the app runs first that day promotes it to
+  /// the today-list ([rollTodayHabitsTo], rollHabitList in
+  /// WidgetFaceRules.swift).
   Future<void> updateWidgetData({
     required int streak,
     required int completedToday,
     required int totalToday,
-    required List<
-            ({
-              String id,
-              String name,
-              bool done,
-              int count,
-              int perDay,
-              bool notDue,
-              String category,
-              String? color,
-            })>
-        todayHabits,
+    required List<WidgetHabitRow> todayHabits,
+    DateTime? nextDay,
+    List<WidgetHabitRow>? nextHabits,
   }) async {
     if (!_supported) return;
     // The day [todayHabits] was built for, read before the first await so it
@@ -141,40 +195,22 @@ class HomeWidgetService {
       await HomeWidget.saveWidgetData<int>('streak', streak);
       await HomeWidget.saveWidgetData<int>('completedToday', completedToday);
       await HomeWidget.saveWidgetData<int>('totalToday', totalToday);
+      // Tomorrow before today, for the reason the day key goes last below:
+      // the widget reads today's pair first and only falls back to this
+      // one on a day that pair is not for.
+      // Its day key is cleared before the list is replaced and set after,
+      // so a read in between finds no next list at all rather than the new
+      // list under the old day (the first write after midnight moves the
+      // pair a day on while the widget may be reading it for today).
+      if (nextDay != null && nextHabits != null) {
+        await HomeWidget.saveWidgetData<String>(_nextHabitsDayKey, '');
+        await HomeWidget.saveWidgetData<String>(
+            _nextHabitsKey, encodeWidgetHabitRows(nextHabits));
+        await HomeWidget.saveWidgetData<String>(
+            _nextHabitsDayKey, nextDay.toDateKey());
+      }
       await HomeWidget.saveWidgetData<String>(
-        _todayHabitsKey,
-        jsonEncode(todayHabits
-            .map((h) => {
-                  'id': h.id,
-                  'name': h.name,
-                  'done': h.done,
-                  // How far along a counted habit is: one tap on a
-                  // three-a-day habit must not draw it done. The background
-                  // action handler (NotificationActionRules.markOneDone) and
-                  // the widget's own Mark Done button (MarkHabitDoneIntent)
-                  // apply the same rule, count + 1, done at perDay. The
-                  // button used to drop this pair when it re-encoded the
-                  // list, so every counted habit read as one-a-day after
-                  // its first tap; since 2026-09-24 TodayHabit keeps them.
-                  'count': h.count,
-                  'perDay': h.perDay,
-                  // Whether the day asked for this habit at all. The
-                  // widget's own Mark Done button PRESERVES this on its
-                  // re-encode (TodayHabit carries it, WidgetFaceRules.swift),
-                  // so a rest-day row does not turn back into an outstanding
-                  // one the moment it is tapped.
-                  'notDue': h.notDue,
-                  // How the Grid draws the habit: its category glyph, in its
-                  // own colour when one was picked (IslamicHabitTemplate.
-                  // iconColorHex, six hex digits) and the category's
-                  // otherwise. The widget rows are habits, not a task list
-                  // (Aziz, 2026-09-24: "show it as habit, not as tasks"), and
-                  // the icon tile is what makes a Grid row a habit.
-                  'category': h.category,
-                  if (h.color != null) 'color': h.color,
-                })
-            .toList()),
-      );
+          _todayHabitsKey, encodeWidgetHabitRows(todayHabits));
       // Which day those checkmarks belong to (see [readTodayHabitsDay]).
       // Written AFTER the list, so a reader between the two writes sees a
       // new list under the old day, which it distrusts, and never an old
@@ -345,15 +381,34 @@ class HomeWidgetService {
   static const _localeKey = 'localeIsAr';
   static const _todayHabitsKey = 'todayHabitsJson';
   static const _todayHabitsDayKey = 'todayHabitsDay';
+  static const _nextHabitsKey = 'nextHabitsJson';
+  static const _nextHabitsDayKey = 'nextHabitsDay';
   static const _armedRemindersKey = 'armedHabitRemindersJson';
   static const _armedTaskRemindersKey = 'armedTaskRemindersJson';
 
   /// Whether the app runs in Arabic, for a process that has no locale
   /// provider to ask. main.dart writes it at boot and on every switch.
-  Future<void> saveLocale(bool isAr) async {
+  ///
+  /// [reload] redraws every widget kind in the new language, for a switch
+  /// made in the app. Until 2026-09-29 a switch only wrote the flag, and
+  /// the faces kept the old language until iOS happened to reload each one.
+  Future<void> saveLocale(bool isAr, {bool reload = false}) async {
     if (!_supported) return;
     try {
       await HomeWidget.saveWidgetData<bool>(_localeKey, isAr);
+      if (!reload) return;
+      for (final kind in [
+        _iOSPrayerWidgetName,
+        _iOSPrayerLockScreenWidgetName,
+        _iOSWidgetName,
+        _iOSLockScreenWidgetName,
+        _iOSMatrixWidgetName,
+        _iOSMatrixLockScreenWidgetName,
+        _iOSRoomRaceWidgetName,
+        _iOSRoomRaceLockScreenWidgetName,
+      ]) {
+        await HomeWidget.updateWidget(iOSName: kind);
+      }
     } catch (e) {
       debugPrint('[HomeWidgetService] locale write skipped: $e');
     }
@@ -445,13 +500,42 @@ class HomeWidgetService {
   /// write one. The list itself carries no date, and when the app has not
   /// been opened since yesterday it is still yesterday's list. The Done
   /// paths outside the app rewrite the list but never this, since a tap
-  /// flips one row and does not make the rest of the list today's.
+  /// flips one row and does not make the rest of the list today's; the one
+  /// exception is [rollTodayHabitsTo], which swaps in a whole list the app
+  /// built for that day.
   Future<String?> readTodayHabitsDay() async {
     if (!_supported) return null;
     try {
       return await HomeWidget.getWidgetData<String>(_todayHabitsDayKey);
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Makes the today-list [day]'s when it is not yet but the app left the
+  /// next day's list for [day] (see [updateWidgetData]'s nextHabits): the
+  /// promotion the widget's own button makes (rollHabitList in
+  /// WidgetFaceRules.swift), so a lock screen «تمت» the first thing in the
+  /// morning ticks today's row and not yesterday's.
+  ///
+  /// Returns whether the today-list now speaks for [day]. A list with no
+  /// day at all is from a build before the day key, and is trusted as it
+  /// always was.
+  Future<bool> rollTodayHabitsTo(String day) async {
+    if (!_supported) return false;
+    try {
+      final listDay = await HomeWidget.getWidgetData<String>(_todayHabitsDayKey);
+      if (listDay == null || listDay == day) return true;
+      final nextDay = await HomeWidget.getWidgetData<String>(_nextHabitsDayKey);
+      final next = await HomeWidget.getWidgetData<String>(_nextHabitsKey);
+      if (nextDay != day || next == null) return false;
+      // The list first and its day after, the order updateWidgetData keeps.
+      await HomeWidget.saveWidgetData<String>(_todayHabitsKey, next);
+      await HomeWidget.saveWidgetData<String>(_todayHabitsDayKey, day);
+      return true;
+    } catch (e) {
+      debugPrint('[HomeWidgetService] today-list roll skipped: $e');
+      return false;
     }
   }
 
@@ -640,6 +724,7 @@ class HomeWidgetService {
               bool hasReminder,
               bool alarm,
               DateTime? dueAt,
+              DateTime? lateAt,
             })>
         tasks, {
     // Written as its own key rather than folded into the list: every list
@@ -687,6 +772,14 @@ class HomeWidgetService {
                   'isLate': t.isLate,
                   if (t.dueAt != null)
                     'dueAtMs': t.dueAt!.millisecondsSinceEpoch,
+                  // When an open task turns late: its last reminder
+                  // (see main.dart's isLate). isLate is true only from the
+                  // moment of this write, so without the moment itself the
+                  // red mark waited for the next board change, however
+                  // many hours later; the widget now compares it with each
+                  // entry's own time (WidgetMatrixTask.lateAtMs).
+                  if (!t.isLate && t.lateAt != null)
+                    'lateAtMs': t.lateAt!.millisecondsSinceEpoch,
                 })
             .toList()),
       );
@@ -717,6 +810,32 @@ class HomeWidgetService {
       debugPrint(
           '[HomeWidgetService] pending-task-completions read skipped: $e');
       return const [];
+    }
+  }
+
+  /// Puts [ids] back at the front of the task queue, ahead of anything the
+  /// widget queued since they were taken, for a drain that could not
+  /// resolve them yet: the task list was still loading when it gave up.
+  /// Until 2026-09-29 those taps were simply dropped, on a cold start with
+  /// a slow network, and the task came back open on the widget at the next
+  /// push. Runs on the same chain as every take, so it cannot interleave
+  /// with one. Safe to repeat: the drain skips a task already done.
+  Future<void> requeuePendingTaskCompletions(List<String> ids) async {
+    if (!_supported || ids.isEmpty) return;
+    final result = _takeChain.then((_) async {
+      final raw = await HomeWidget.getWidgetData<String>(_pendingTaskKey);
+      final decoded = raw == null || raw.isEmpty ? null : jsonDecode(raw);
+      final since = decoded is List ? decoded.whereType<String>() : const <String>[];
+      await HomeWidget.saveWidgetData<String>(
+        _pendingTaskKey,
+        jsonEncode([...ids, ...since.where((id) => !ids.contains(id))]),
+      );
+    });
+    _takeChain = result.then<void>((_) {}, onError: (_) {});
+    try {
+      await result;
+    } catch (e) {
+      debugPrint('[HomeWidgetService] task requeue skipped: $e');
     }
   }
 

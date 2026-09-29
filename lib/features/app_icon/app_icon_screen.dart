@@ -13,7 +13,7 @@ import 'app_icon_art.dart';
 import 'app_icon_catalog.dart';
 import 'app_icon_providers.dart';
 
-/// Settings › التخصيص › أيقونة التطبيق: the Home Screen icon, as a SHAPE and
+/// Settings › الشكل › أيقونة التطبيق: the Home Screen icon, as a SHAPE and
 /// a COLOUR picked separately (see app_icon_catalog.dart).
 ///
 /// A page rather than a sheet like its neighbours, because it holds two

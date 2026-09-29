@@ -77,10 +77,14 @@ struct AddGrowDailyTaskIntent: AppIntent {
 
 // MARK: - Controls
 
-/// Names are English, matching every existing widget in this bundle
-/// (.configurationDisplayName is "Grow Daily", "Room Race", "Matrix"). The
-/// extension carries no .lproj, and on the lock screen only the GLYPH shows
-/// anyway — the name is what the person reads once, in the picker.
+/// The names and labels below are keys into the widget folder's
+/// ar.lproj/en.lproj, like every widget's gallery title in this bundle
+/// ("Grow Daily" reads «العادات» on an Arabic phone). They follow the DEVICE
+/// language, as all gallery text must (see WidgetStrings.swift). On the
+/// lock screen only the GLYPH shows anyway: the name is what the person
+/// reads once, in the picker. The Arabic ones were missing until
+/// 2026-09-29, so an Arabic phone listed "Grow Daily Habits" over an Arabic
+/// description.
 ///
 /// Tinted, not plain: the two stock buttons Aziz screenshotted are grey
 /// glass, so the app's own green is what makes its control findable at a

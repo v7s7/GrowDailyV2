@@ -7,6 +7,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/alarm_choice_provider.dart';
 import '../../../core/services/alarm_service.dart';
@@ -20,7 +21,9 @@ import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import 'reminder_picker.dart'
-    show ReminderPicker, pickReminderMoment, remindersFor;
+    show ReminderPicker, pickReminderTimeOnDay, remindersFor;
+import 'task_month_sheet.dart'
+    show TaskSheetRowButton, showTaskMonthSheet, taskDayTitle;
 import 'voice_note_player.dart'
     show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
@@ -35,8 +38,8 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// adds and — once you're finished — closes the sheet.
 ///
 /// Title-only by default, on purpose — that's the fast path and it stays
-/// exactly as fast as it's always been. The reminder picker sits right
-/// under the title field, always visible - setting a reminder is common
+/// exactly as fast as it's always been. The reminder picker sits under the
+/// title field and its day row, always visible - setting a reminder is common
 /// enough (and easy to miss entirely once hidden) that it doesn't get an
 /// extra tap gating it the way heavier, rarer additions do. "Add details"
 /// is a separate, collapsed-by-default opt-in just for a description and a
@@ -49,8 +52,22 @@ import '../../../shared/widgets/app_snackbar.dart';
 /// Editing details on a task already in the matrix happens from its pencil
 /// icon (see TaskDetailSheet) instead — this sheet is only ever about
 /// what's being added right now.
+///
+/// Every task here is added FOR A DAY, shown in the day row under the
+/// title: the day the Tasks page is showing when that is today or later,
+/// else today (the caller decides, see [day]). The row opens the month
+/// (showTaskMonthSheet in pick mode) and the reminder row under it opens
+/// only the time wheel on that day, so the day is asked once and the time
+/// can never land on a different day than the row says. Unlike the
+/// reminder, the day stays for the whole multi-add: a brain-dump for next
+/// Sunday is several tasks for next Sunday.
 class AddTaskSheet extends ConsumerStatefulWidget {
   final MatrixQuadrant quadrant;
+
+  /// The callback from before tasks had days, kept only so a caller
+  /// written against it still compiles: it cannot carry the day, so a task
+  /// added through it without a time lands on the day it was created,
+  /// whatever the day row says. [onAddOnDay] wins when both are given.
   final void Function(
     String title, {
     String? description,
@@ -66,16 +83,80 @@ class AddTaskSheet extends ConsumerStatefulWidget {
     /// Ring the reminders as an alarm rather than a notification, see
     /// MatrixTask.alarm.
     bool? alarm,
-  }) onAdd;
+  })? onAdd;
+
+  /// Called once per task added, with the day it is for (a local midnight,
+  /// never before today): hand it to MatrixNotifier.add as `day:`, which
+  /// stores it as the task's plannedDay (or the reminder's day, when there
+  /// is one; the two always agree here).
+  final AddTaskOnDay? onAddOnDay;
+
+  /// The day the sheet opens on. Null, or a day before today, is today.
+  final DateTime? day;
 
   const AddTaskSheet({
     super.key,
     required this.quadrant,
-    required this.onAdd,
-  });
+    this.onAdd,
+    this.onAddOnDay,
+    this.day,
+  }) : assert(onAdd != null || onAddOnDay != null);
 
   @override
   ConsumerState<AddTaskSheet> createState() => _AddTaskSheetState();
+}
+
+/// The notification permission ask made before a timed add (see
+/// _AddTaskSheetState._submit). Replaced in widget tests only: the real ask
+/// records its answer in Hive, and a Hive write inside a testWidgets body
+/// never completes (fake async), so a timed add would stall before it
+/// reached the callback.
+@visibleForTesting
+Future<bool> Function() addTaskPermissionAsk =
+    () => NotificationService.instance.requestPermissions();
+
+/// [AddTaskSheet.onAddOnDay]: the old callback's fields plus the [day] the
+/// task is for.
+typedef AddTaskOnDay = void Function(
+  String title, {
+  String? description,
+  List<VoiceNote>? voiceNotes,
+  List<DateTime>? reminderAts,
+  DateTime? reminderAnchorAt,
+  bool? alarm,
+  required DateTime day,
+});
+
+/// A set reminder carried to another day by the Add sheet's day row: the
+/// same clock time on [day], with the same offsets, minus any offset whose
+/// moment would already have passed by [now] (the move sheet's rule, see
+/// taskMovedToDay). When the carried time itself is not in the future
+/// (moving a 9:00 reminder to today at noon) the reminder is dropped whole:
+/// [anchor] comes back null and [cleared] true, and the sheet says why.
+/// With no reminder set, nothing changes.
+///
+/// Pure, with the clock passed in, so the rule is testable on its own.
+@visibleForTesting
+({DateTime? anchor, Set<int> offsets, bool cleared}) carryReminderToDay({
+  required DateTime? anchor,
+  required Set<int> offsets,
+  required DateTime day,
+  required DateTime now,
+}) {
+  if (anchor == null) return (anchor: null, offsets: offsets, cleared: false);
+  final moved =
+      DateTime(day.year, day.month, day.day, anchor.hour, anchor.minute);
+  if (!moved.isAfter(now)) {
+    return (anchor: null, offsets: <int>{}, cleared: true);
+  }
+  return (
+    anchor: moved,
+    offsets: {
+      for (final o in offsets)
+        if (moved.add(Duration(minutes: o)).isAfter(now)) o,
+    },
+    cleared: false,
+  );
 }
 
 class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
@@ -84,13 +165,14 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   final _focus = FocusNode();
   final List<String> _addedTitles = [];
 
-  /// Whether any task added in this session anchors its reminder on a
-  /// LATER calendar day. Under the default Today lens such a task is
-  /// legitimately invisible the moment the sheet closes — which, with no
-  /// explanation, read as the add having silently failed. One quiet line
-  /// under the confirmation list closes that dead end without touching
-  /// the lens semantics.
-  bool _addedFutureAnchored = false;
+  /// The day every task added from here is for; see the class comment.
+  /// Sticky across the multi-add, unlike the reminder. A given day before
+  /// today opens as today: nothing is added for a day that has gone.
+  late DateTime _day = () {
+    final today = DateTime.now().startOfDay;
+    final given = widget.day?.startOfDay;
+    return given == null || given.isBefore(today) ? today : given;
+  }();
   bool _hasText = false;
   bool _detailsExpanded = false;
 
@@ -107,7 +189,9 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   // Reminder picked for the *next* item to be submitted — same per-item,
   // resets-after-submit treatment as _pendingNotes/_descCtrl, not a sticky
   // setting across the whole rapid multi-add session. See ReminderRow /
-  // pickReminderMoment in reminder_picker.dart for the shared picking UI.
+  // pickReminderTimeOnDay in reminder_picker.dart for the shared picking
+  // UI. Always on [_day]: the wheel picks a time on it, and a day change
+  // carries the time along (carryReminderToDay).
   // Anchor + signed offsets rather than a flat list of moments: that's the
   // shape the picker edits in, and deriving the moments from it (see
   // remindersFor) means the chips and the scheduled reminders can never
@@ -182,8 +266,32 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       Navigator.pop(context);
       return;
     }
+    // Checked again here, not only when picked: the sheet stays open across
+    // a multi-add and can stay open across midnight. A day that has gone
+    // becomes today (nothing is added for a past day), and a time that has
+    // gone is not stored: it could only ever fire as an overdue catch-up.
+    // The time is cleared and the add waits, text kept, so the person sees
+    // why and either picks a new time or taps Add again without one.
+    final now = DateTime.now();
+    _rollPastDay(now);
+    final anchor = _anchorAt;
+    if (anchor != null && !anchor.isAfter(now)) {
+      setState(() {
+        _anchorAt = null;
+        _offsets = {};
+      });
+      showOverlayNotice(
+        context,
+        S.of(context).matrixReminderPast,
+        icon: Icons.history_toggle_off_rounded,
+      );
+      return;
+    }
+    final day = _day;
     final description = _descCtrl.text.trim();
-    final reminderAts = _reminderAts;
+    // An offset can have gone by while the sheet sat open ("1 hour before"
+    // a time 50 minutes away); the anchor itself is ahead, checked above.
+    final reminderAts = _reminderAts.where((r) => r.isAfter(now)).toList();
     HapticFeedback.mediumImpact();
     // Requested *before* widget.onAdd — which schedules the actual OS
     // notification synchronously inside MatrixNotifier.add — rather than
@@ -203,24 +311,34 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     // request landing before scheduling instead of after.
     var granted = true;
     if (reminderAts.isNotEmpty) {
-      granted = await NotificationService.instance.requestPermissions();
+      granted = await addTaskPermissionAsk();
     }
-    widget.onAdd(
-      text,
-      description: description.isEmpty ? null : description,
-      voiceNotes: _pendingNotes,
-      reminderAts: reminderAts,
-      reminderAnchorAt: _anchorAt,
-      alarm: _alarm,
-    );
+    final onDay = widget.onAddOnDay;
+    if (onDay != null) {
+      onDay(
+        text,
+        description: description.isEmpty ? null : description,
+        voiceNotes: _pendingNotes,
+        reminderAts: reminderAts,
+        reminderAnchorAt: anchor,
+        alarm: _alarm,
+        day: day,
+      );
+    } else {
+      widget.onAdd!(
+        text,
+        description: description.isEmpty ? null : description,
+        voiceNotes: _pendingNotes,
+        reminderAts: reminderAts,
+        reminderAnchorAt: anchor,
+        alarm: _alarm,
+      );
+    }
     if (!mounted) return;
-    final now = DateTime.now();
-    final anchor = _anchorAt;
-    final anchorsLater = anchor != null &&
-        DateTime(anchor.year, anchor.month, anchor.day)
-            .isAfter(DateTime(now.year, now.month, now.day));
+    // No "find it under All" line any more: the Tasks page says where a
+    // task went once this sheet closes (its «عرض» snackbar), and the day
+    // row above already says which day these are for.
     setState(() {
-      _addedFutureAnchored = _addedFutureAnchored || anchorsLater;
       _addedTitles.add(text);
       _ctrl.clear();
       _descCtrl.clear();
@@ -228,6 +346,8 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       // only the *reference* to them resets here, same as _voiceNotePath
       // used to just go back to null without deleting anything.
       _pendingNotes = [];
+      // The time resets for the next item; the day does not (see the
+      // class comment).
       _anchorAt = null;
       _offsets = {};
       // Back to the fast title-only default for the next item — adding
@@ -380,8 +500,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     setState(() => _detailsExpanded = !_detailsExpanded);
   }
 
-  /// The anchor: the moment the task is actually about. Straight to the
-  /// full picker, because this is the one value the app can't guess.
   /// Alarm needs the system's permission the first time; a refusal keeps
   /// the choice on notification and says so where the person is looking.
   Future<void> _setAlarm(bool alarm) async {
@@ -401,10 +519,59 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     setState(() => _alarm = true);
   }
 
+  /// The anchor: the moment the task is actually about. Straight to the
+  /// picker, because this is the one value the app can't guess. The wheel
+  /// alone, on [_day]: the day row has already chosen the day, so there is
+  /// no calendar step to disagree with it.
   Future<void> _pickAnchor() async {
-    final picked = await pickReminderMoment(context, initial: _anchorAt);
+    _rollPastDay(DateTime.now());
+    final picked = await pickReminderTimeOnDay(
+      context,
+      day: _day,
+      initial: _anchorAt,
+    );
     if (picked == null || !mounted) return;
     setState(() => _anchorAt = picked);
+  }
+
+  /// A sheet left open past midnight holds a day that has gone; it becomes
+  /// today before anything reads it. A time set on the old day is left for
+  /// [_submit]'s check, which clears it and says why.
+  void _rollPastDay(DateTime now) {
+    final today = now.startOfDay;
+    if (_day.isBefore(today)) setState(() => _day = today);
+  }
+
+  /// The day row: the month in pick mode, past days refused. A set time
+  /// moves with the day (carryReminderToDay); when it would land in the
+  /// past it is cleared, with the same notice the wheel's own guard gives.
+  Future<void> _pickDay() async {
+    final picked = await showTaskMonthSheet(
+      context,
+      selected: _day,
+      tasks: ref.read(matrixProvider).tasks,
+      pickMode: true,
+    );
+    if (picked == null || !mounted) return;
+    if (picked.isSameDayAs(_day)) return;
+    final carried = carryReminderToDay(
+      anchor: _anchorAt,
+      offsets: _offsets,
+      day: picked,
+      now: DateTime.now(),
+    );
+    setState(() {
+      _day = picked;
+      _anchorAt = carried.anchor;
+      _offsets = carried.offsets;
+    });
+    if (carried.cleared) {
+      showOverlayNotice(
+        context,
+        S.of(context).matrixReminderPast,
+        icon: Icons.history_toggle_off_rounded,
+      );
+    }
   }
 
   void _clearReminders() {
@@ -456,6 +623,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         bottom > 0 ? screenHeight - bottom - 24 : screenHeight * 0.85;
     final maxHeight = rawMaxHeight < 200.0 ? 200.0 : rawMaxHeight;
     final canSubmit = (_hasText || _addedTitles.isNotEmpty) && !_recording;
+    final dayText = taskDayTitle(_day, s);
     return AnimatedPadding(
       duration: GameMotion.standard,
       curve: Curves.easeOut,
@@ -596,6 +764,20 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                                 const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    // The day these tasks are for, always visible and named
+                    // by its date: what the Tasks page will file them under.
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: TaskSheetRowButton(
+                        icon: Icons.calendar_today_rounded,
+                        label: dayText,
+                        // Vertical, so RTL mirroring has nothing to do.
+                        trailing: Icons.expand_more_rounded,
+                        semanticsLabel: '${s.matrixDayRowHint}: $dayText',
+                        onTap: _pickDay,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -801,27 +983,6 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                             ),
                           ),
                         ).animate().fadeIn(duration: 200.ms),
-                      if (_addedFutureAnchored)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 2, 20, 8),
-                          child: Row(
-                            children: [
-                              Icon(Icons.schedule_rounded,
-                                  size: 13, color: gp.textTert),
-                              const SizedBox(width: 7),
-                              Expanded(
-                                child: Text(
-                                  S.of(context).matrixAddedForLater,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: gp.textSec,
-                                    height: 1.3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                     ],
                   ],
                 ),

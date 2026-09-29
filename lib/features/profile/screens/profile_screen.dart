@@ -19,6 +19,8 @@ import '../../auth/notifiers/guest_reconnect_provider.dart';
 import '../../auth/widgets/reconnect_guest_sheet.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart';
+import '../../../core/providers/home_tab_provider.dart'
+    show kSettingsPagePrayerLocation, requestedSettingsPageProvider;
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
@@ -52,6 +54,7 @@ import '../../../features/rooms/notifiers/rooms_notifier.dart';
 import '../../../features/rooms/screens/rooms_hub_screen.dart';
 import '../../../features/settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
+import '../../../features/settings/widgets/notification_summary.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../milestones/reports/record_lifetime.dart';
 import '../../milestones/reports/record_screen.dart';

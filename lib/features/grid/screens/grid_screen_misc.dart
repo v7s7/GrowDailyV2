@@ -27,6 +27,44 @@ class _GridSkeleton extends StatelessWidget {
   }
 }
 
+/// The board while its week is still on its way from the server.
+///
+/// It draws the squares this device last saw (WeeklyGridState.preview), so a
+/// cold start shows the person's week at once instead of a spinner. It takes
+/// no taps until the real week lands: a square's tap works out its next
+/// colour, its XP and its streak from the square as the store has it, and
+/// the device's copy can be behind (a square marked on the web a minute
+/// ago). A tap in that moment says so, in the words the board already uses
+/// for a tap that arrives before the account's numbers, rather than doing
+/// nothing. Scrolling is untouched; only taps and long presses are held.
+class _BoardUntilLoaded extends StatelessWidget {
+  final bool loading;
+  final Widget child;
+  const _BoardUntilLoaded({required this.loading, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!loading) return child;
+    void notYet() {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            content: Text(S.of(context).squareNotReadyYet),
+          ),
+        );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: notYet,
+      onLongPress: notYet,
+      child: AbsorbPointer(child: child),
+    );
+  }
+}
+
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
 /// The one line habits paused on an earlier day get on this screen — a

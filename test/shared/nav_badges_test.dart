@@ -11,6 +11,7 @@ import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/providers/nav_bar_hint_provider.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/screens/matrix_screen.dart';
+import 'package:grow_daily_v2/features/matrix/task_day.dart';
 import 'package:grow_daily_v2/features/night_review/notifiers/night_review_notifier.dart';
 import 'package:grow_daily_v2/shared/providers/nav_badges_provider.dart';
 
@@ -49,6 +50,67 @@ void main() {
 
     test('an empty board has no badge', () {
       expect(matrixOpenTodayCount(const [], now), 0);
+    });
+
+    // Both of these were wrong while the badge counted by the day a task
+    // was created and «قادمة» read its FIRST reminder (task_day.dart's
+    // header has the story).
+    test('a task made on Sunday for Tuesday 17:00 is Tuesday\'s', () {
+      final sunday = DateTime(2026, 9, 27, 20);
+      final tuesdayAt5 = DateTime(2026, 9, 29, 17);
+      final t = MatrixTask(
+        id: 'tue',
+        title: 'tue',
+        quadrant: MatrixQuadrant.doFirst,
+        isDone: false,
+        createdAt: sunday,
+        reminderAts: [tuesdayAt5],
+        reminderAnchorAt: tuesdayAt5,
+        order: 0,
+      );
+      // Sunday and Monday: waiting under «قادمة», not on the badge.
+      for (final day in [sunday, DateTime(2026, 9, 28, 9)]) {
+        expect(matrixOpenTodayCount([t], day), 0, reason: '$day');
+        expect(isUpcoming(t, day.startOfDay), isTrue, reason: '$day');
+      }
+      // Tuesday, before and after its hour: on today's board and the badge,
+      // never under «مُرحّلة».
+      for (final day in [
+        DateTime(2026, 9, 29, 8),
+        DateTime(2026, 9, 29, 23),
+      ]) {
+        expect(matrixOpenTodayCount([t], day), 1, reason: '$day');
+        expect(isCarriedOver(t, day.startOfDay), isFalse, reason: '$day');
+        expect(isUpcoming(t, day.startOfDay), isFalse, reason: '$day');
+      }
+      // Wednesday: now it is carried over, and off the badge.
+      final wednesday = DateTime(2026, 9, 30, 9);
+      expect(matrixOpenTodayCount([t], wednesday), 0);
+      expect(isCarriedOver(t, wednesday.startOfDay), isTrue);
+    });
+
+    test('a "2 days before" warning does not pull a task out of «قادمة»', () {
+      final thursdayAt5 = DateTime(2026, 10, 1, 17);
+      final warning = DateTime(2026, 9, 29, 17);
+      final t = MatrixTask(
+        id: 'thu',
+        title: 'thu',
+        quadrant: MatrixQuadrant.schedule,
+        isDone: false,
+        createdAt: DateTime(2026, 9, 26, 10),
+        reminderAts: [warning, thursdayAt5],
+        reminderAnchorAt: thursdayAt5,
+        order: 0,
+      );
+      // The warning's own day, and the day after it: still upcoming.
+      for (final day in [DateTime(2026, 9, 29, 18), DateTime(2026, 9, 30, 9)]) {
+        expect(isUpcoming(t, day.startOfDay), isTrue, reason: '$day');
+        expect(matrixOpenTodayCount([t], day), 0, reason: '$day');
+      }
+      // Its day: today's.
+      final thursday = DateTime(2026, 10, 1, 9);
+      expect(isUpcoming(t, thursday.startOfDay), isFalse);
+      expect(matrixOpenTodayCount([t], thursday), 1);
     });
   });
 

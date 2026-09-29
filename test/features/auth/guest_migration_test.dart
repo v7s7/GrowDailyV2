@@ -8,6 +8,8 @@ import 'package:hive/hive.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/services/local_store_service.dart';
 import 'package:grow_daily_v2/features/auth/services/guest_migration_service.dart';
+import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
+import 'package:grow_daily_v2/features/rewards/models/custom_reward.dart';
 
 /// Moving a guest's local data onto the account they just created.
 ///
@@ -256,6 +258,91 @@ void main() {
       expect(tasks.docs.single.id, 't1');
       expect(tasks.docs.single.data()['title'], 'Ship it');
       expect(rewards.docs.single.id, 'r1');
+    });
+
+    test('a guest task reads back as the same task, dates and all', () async {
+      // The fixture above carries no dates, and dates are exactly where the
+      // two sides differ: MatrixTask.toMap writes ISO strings for Hive,
+      // fromFirestore reads Timestamps. Built from a real task so the payload
+      // is what the guest board actually saves, reminders and all.
+      final task = MatrixTask(
+        id: 't1',
+        title: 'Ship it',
+        quadrant: MatrixQuadrant.schedule,
+        isDone: true,
+        createdAt: DateTime(2026, 9, 20, 8, 15),
+        completedAt: DateTime(2026, 9, 21, 17, 40),
+        reminderAts: [DateTime(2026, 9, 21, 15), DateTime(2026, 9, 21, 16, 30)],
+        reminderAnchorAt: DateTime(2026, 9, 21, 16, 30),
+        order: 5,
+      );
+      await settings.put(LocalStoreService.guestMatrixTasksKey, [task.toMap()]);
+
+      final result = await GuestMigrationService.migrate(uid);
+      expect(result.failed, isFalse);
+
+      final doc = await db
+          .collection('users')
+          .doc(uid)
+          .collection('matrix_tasks')
+          .doc('t1')
+          .get();
+      // The shape the signed-in board writes for its own tasks
+      // (MatrixTask.toFirestore), so every reader, the admin tool included,
+      // sees one shape.
+      final data = doc.data()!;
+      expect(data['createdAt'], isA<Timestamp>());
+      expect(data['completedAt'], isA<Timestamp>());
+      expect(data['reminderAts'], everyElement(isA<Timestamp>()));
+      expect(data['reminderAt'], isA<Timestamp>());
+      expect(data['reminderAnchorAt'], isA<Timestamp>());
+
+      final back = MatrixTask.fromFirestore(doc);
+      expect(back.title, 'Ship it');
+      expect(back.quadrant, MatrixQuadrant.schedule);
+      expect(back.isDone, isTrue);
+      expect(back.createdAt, task.createdAt);
+      expect(back.completedAt, task.completedAt);
+      expect(back.reminderAts, task.reminderAts);
+      expect(back.reminderAnchorAt, task.reminderAnchorAt);
+      expect(back.order, 5);
+
+      // A retry from the Profile banner lands the same document again.
+      await GuestMigrationService.migrate(uid);
+      final again = await db
+          .collection('users')
+          .doc(uid)
+          .collection('matrix_tasks')
+          .get();
+      expect(again.docs.single.data(), data);
+    });
+
+    test('a guest reward reads back as the same reward', () async {
+      // Rewards cross unchanged, and that is right for them: CustomReward
+      // keeps createdAt as an ISO string on BOTH sides (see its toFirestore),
+      // and its reader takes a string, a Timestamp or an int.
+      final reward = CustomReward(
+        id: 'r1',
+        name: 'Coffee',
+        priceGold: 400,
+        createdAt: DateTime(2026, 9, 20, 8, 15),
+      );
+      await settings
+          .put(LocalStoreService.guestCustomRewardsKey, [reward.toMap()]);
+
+      await GuestMigrationService.migrate(uid);
+
+      final doc = await db
+          .collection('users')
+          .doc(uid)
+          .collection('custom_rewards')
+          .doc('r1')
+          .get();
+      final back = CustomReward.fromMap(doc.data()!, id: doc.id);
+      expect(back, isNotNull);
+      expect(back!.name, 'Coffee');
+      expect(back.priceGold, 400);
+      expect(back.createdAt, reward.createdAt);
     });
 
     test('a record with no id is skipped rather than given a new one',

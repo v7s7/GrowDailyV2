@@ -10,6 +10,7 @@ import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/notifiers/matrix_notifier.dart';
 import 'package:grow_daily_v2/features/matrix/screens/matrix_screen.dart';
 import 'package:hive/hive.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 /// The Goals Matrix should never require precision-tapping a tiny + icon:
 /// the whole empty square is a tap target, and a persistent add row stays
@@ -21,6 +22,11 @@ void main() {
   late ProviderContainer container;
 
   setUp(() async {
+    // The add sheet names its day by date (taskDayTitle, through
+    // DateFormat), which throws until the locale data is loaded; main.dart
+    // loads it before the app runs, a test has to do the same.
+    await initializeDateFormatting('en');
+    await initializeDateFormatting('ar');
     tmp = await Directory.systemTemp.createTemp('matrix_test_');
     Hive.init(tmp.path);
     // MatrixNotifier now persists guest goals to this box — open it here,

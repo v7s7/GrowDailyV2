@@ -297,6 +297,15 @@ function buildDaySection(raw, dateKey) {
     } else if (c.isRest) {
       stored = 'nothing was asked of them this day, so the room leaves it '
         + 'out of the score';
+    } else if (c.planInferred) {
+      // A day their phone has not graded since the leader took a habit out
+      // of the plan (DayRules.planInferredScheduledOn). The record alone
+      // still counts the removed habit; the board reads the plan, and so
+      // does this line, but it says which it is.
+      stored = 'nothing stored yet, their phone has not graded this day: '
+        + `${credited} of ${c.scheduled}, the plan as the board reads it `
+        + `(the record alone says ${c.recorded}: it still counts the habits `
+        + 'the leader took out)';
     } else {
       stored = `the room stored ${credited} of ${c.scheduled}`
         + (c.partial > 0 ? ` (${c.partial} جزئي, worth half each)` : '');
@@ -330,7 +339,8 @@ function buildDaySection(raw, dateKey) {
       return {
         code: r.code,
         stored: c.stoodDown ? 'stood down'
-          : c.isRest ? 'rest day' : `${credited}/${c.scheduled}`,
+          : c.isRest ? 'rest day'
+            : `${credited}/${c.scheduled}${c.planInferred ? ' (not synced)' : ''}`,
       };
     });
 

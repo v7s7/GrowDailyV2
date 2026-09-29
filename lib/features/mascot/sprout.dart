@@ -36,7 +36,31 @@ enum SproutPose {
   walkBackpack('mascot_walk_backpack', 713, 812),
   pencil('mascot_pencil', 700, 773),
   checklist('mascot_checklist', 679, 778),
-  sleeping('mascot_sleeping', 850, 679);
+  sleeping('mascot_sleeping', 850, 679),
+  // For the launch splash (lib/features/launch/launch_scenes.dart): the
+  // turn from behind (back, backThreeQuarter, sideRight), the morning mug
+  // and the evening thumbs up. The mug and the thumbs up are from the second
+  // sheet; the mug never shows on a fasting day or in Ramadan (see
+  // pickLaunchScene).
+  back('mascot_back', 591, 743),
+  backThreeQuarter('mascot_back_three_quarter', 576, 750),
+  sideRight('mascot_side_right', 399, 752),
+  mug('mascot_mug', 698, 781),
+  thumbsUp('mascot_thumbs_up', 730, 815),
+  // The launch splash's other scenes (Aziz, 2026-09-29, the canvas's "More
+  // ideas"): the first open's pointer, Eid's confetti, Saturday's chart and
+  // the new week's fists up, an update's bulb, a slow load's magnifier, the
+  // steps goal's run and cheer, a summer noon's sunglasses. All from the
+  // second sheet.
+  pointer('mascot_pointer', 767, 760),
+  confetti('mascot_confetti', 748, 789),
+  chart('mascot_chart', 1044, 745),
+  determined('mascot_determined', 695, 780),
+  idea('mascot_idea', 943, 851),
+  magnifier('mascot_magnifier', 716, 783),
+  running('mascot_running', 790, 725),
+  cheer('mascot_cheer', 699, 789),
+  sunglasses('mascot_sunglasses', 640, 792);
 
   const SproutPose(this.file, this.width, this.height);
 
@@ -74,6 +98,34 @@ class SproutController extends ChangeNotifier {
 
   /// The big jump, 1.1 s: the day is complete, a streak step, a room done.
   void celebrate() => _fire(_SproutMove.celebrate);
+
+  /// Plays [other]'s latest move here too: a second body of the same
+  /// sprout (see SproutEcho) repeating what the first one just did.
+  void repeat(SproutController other) {
+    final move = other._move;
+    if (move != null) _fire(move);
+  }
+
+  /// How far the latest move lifts the top of [pose] drawn at [height] (the
+  /// Sprout's height) above where it rests, at the move's highest: what a
+  /// body with little room over its head checks before playing it. The
+  /// keyframes move the height and the stretch together within a segment, so
+  /// the highest point is at a keyframe; a tilt lifts one top corner too.
+  double lastRise(SproutPose pose, double height) {
+    final move = _move;
+    if (move == null) return 0;
+    final keys = move == _SproutMove.celebrate
+        ? _SproutState._partyKeys
+        : _SproutState._hopKeys;
+    final unit = height / 150;
+    final box = Sprout.sizeOf(pose, height);
+    var most = 0.0;
+    for (final k in keys) {
+      final tilt = box.width / 2 * math.sin(k[4].abs() * math.pi / 180);
+      most = math.max(most, -k[1] * unit + (k[3] - 1) * box.height + tilt);
+    }
+    return most;
+  }
 
   void _fire(_SproutMove move) {
     _move = move;
@@ -158,6 +210,22 @@ class Sprout extends StatefulWidget {
     return Size(pose.width / scale, pose.height / scale);
   }
 
+  /// How long a hop and a sleeping breath take.
+  static const hopDuration = Duration(milliseconds: 650);
+  static const sleepBreathDuration = Duration(milliseconds: 4200);
+
+  /// For what lies on the ground under the sprout (the launch curtain's
+  /// shadow), so it keeps to the sprout's own keys: how high a hop has
+  /// lifted it at [t], 0 to 1 through [hopDuration], as a share of the
+  /// hop's top (0 on the ground, 1 at the top).
+  static double hopLiftAt(double t) =>
+      -_SproutState._at(_SproutState._hopKeys, t.clamp(0.0, 1.0))[0] / 25;
+
+  /// And how wide a sleeping breath makes it at [t], 0 to 1 through
+  /// [sleepBreathDuration], as a horizontal scale.
+  static double sleepBreathWidthAt(double t) =>
+      _SproutState._at(_SproutState._sleepKeys, t.clamp(0.0, 1.0))[1];
+
   @override
   State<Sprout> createState() => _SproutState();
 }
@@ -227,9 +295,9 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
     _current = move;
     _breath.stop();
     _move
-      ..duration = Duration(
-        milliseconds: _current == _SproutMove.celebrate ? 1100 : 650,
-      )
+      ..duration = _current == _SproutMove.celebrate
+          ? const Duration(milliseconds: 1100)
+          : Sprout.hopDuration
       ..forward(from: 0).whenComplete(_breathe);
   }
 
@@ -237,7 +305,9 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
     if (!mounted || _reduced || widget.idleBreaths <= 0) return;
     final sleepy = widget.pose == SproutPose.sleeping;
     _breath
-      ..duration = Duration(milliseconds: sleepy ? 4200 : 3200)
+      ..duration = sleepy
+          ? Sprout.sleepBreathDuration
+          : const Duration(milliseconds: 3200)
       ..value = 0;
     // repeat(count:) would be neater but its future never completes when the
     // widget is disposed mid-way; a counted forward chain stops cleanly.

@@ -94,17 +94,24 @@ struct PrayerProvider: TimelineProvider {
             // app writing a schedule reloads this widget explicitly, but an
             // hourly retry is the same cheap safety net every other provider
             // in this target keeps.
-            let empty = PrayerEntry(date: Date(), prayer: nil, elapsed: false, isAr: readIsAr())
+            var empty = PrayerEntry(date: Date(), prayer: nil, elapsed: false, isAr: readIsAr())
+            empty.weekRanOut = !readSlots().isEmpty
             completion(Timeline(entries: [empty], policy: .after(Date().addingTimeInterval(3600))))
             return
         }
-        // .atEnd, not a fixed hour: every word on this face is already
-        // scheduled up to `last`, so there is nothing to ask about until
-        // then. The entry list is capped below at a few days, so this still
-        // comes back regularly enough to pick up a freshly written week
-        // even if the app itself never gets opened to push one.
-        _ = last
-        completion(Timeline(entries: built, policy: .atEnd))
+        // After the last entry, not a fixed hour: every word on this face is
+        // already scheduled up to `last`, so there is nothing to ask about
+        // until then. The entry list is capped below at a few days, so this
+        // still comes back regularly enough to pick up a freshly written
+        // week even if the app itself never gets opened to push one.
+        //
+        // Never sooner than a few minutes from now, though. In the last
+        // minutes of a week that has run out (the final «مضى» window), the
+        // only entry is dated now, and `.atEnd` on a timeline already at
+        // its end asked WidgetKit for a new one at once, over and over,
+        // spending the widget's reload budget on the same face.
+        let refresh = max(last.date, Date().addingTimeInterval(5 * 60))
+        completion(Timeline(entries: built, policy: .after(refresh)))
     }
 
     private func readIsAr() -> Bool {
@@ -201,32 +208,56 @@ private struct PrayerTicker: View {
 }
 
 /// Shown when there is no schedule at all — no saved location yet, or a
-/// written week that has run out. Says which, and opens the page that
-/// fixes it.
+/// written week that has run out. Says which (PrayerEntry.weekRanOut), and
+/// opens the page that fixes it; for a week that ran out, any opening of
+/// the app writes the next one (main.dart's resume push).
 struct PrayerEmptyFace: View {
     let isAr: Bool
     let compact: Bool
+    var weekRanOut: Bool = false
 
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: "location.slash")
+            Image(systemName: weekRanOut ? "arrow.clockwise" : "location.slash")
                 .font(.system(size: compact ? 18 : 22))
                 .foregroundColor(.parchmentGold)
-            Text(isAr ? "حدّد موقعك" : "Set your location")
+            Text(prayerEmptyTitle(isAr: isAr, weekRanOut: weekRanOut))
                 .font(.system(size: compact ? 13 : 15, weight: .bold))
                 .foregroundColor(.parchmentInk)
-            Text(isAr ? "عشان تطلع أوقات الصلاة" : "to see prayer times")
+            Text(weekRanOut
+                 ? (isAr ? "عشان تتحدّث أوقات الصلاة" : "to update prayer times")
+                 : (isAr ? "عشان تطلع أوقات الصلاة" : "to see prayer times"))
                 .font(.system(size: compact ? 10 : 12))
                 .foregroundColor(.parchmentSecondary)
                 .multilineTextAlignment(.center)
         }
         .padding()
         .containerBackground(for: .widget) { WidgetParchmentBackground() }
-        .widgetURL(lockScreenOpenURL(tab: "settings"))
+        .widgetURL(prayerPlaceOpenURL())
     }
 }
 
+/// The empty faces' first line: «حدّد موقعك» when no place was ever saved,
+/// «افتح التطبيق» when the written week has run out (see
+/// PrayerEntry.weekRanOut).
+func prayerEmptyTitle(isAr: Bool, weekRanOut: Bool) -> String {
+    weekRanOut
+        ? (isAr ? "افتح التطبيق" : "Open the app")
+        : (isAr ? "حدّد موقعك" : "Set your location")
+}
+
 // The Home Screen face itself, on its sky, is PrayerCountdownFace.swift.
+
+/// Where every tap on this widget goes: the prayer location page inside
+/// Settings, which is what «حدّد موقعك» asks for and where the place that
+/// feeds these times is chosen. Settings is five rows that each open a page
+/// (2026-09-28), so plain `tab=settings` would land two taps above it; the
+/// app reads `page=` in openTabLinkPage (lib/core/constants/deep_links.dart).
+/// An older app build ignores `page` and still opens Settings.
+func prayerPlaceOpenURL() -> URL {
+    URL(string: "growdaily://open?tab=settings&page=prayer-location")!
+}
+
 
 // MARK: - Lock Screen
 //
@@ -281,10 +312,10 @@ struct PrayerRectangularView: View {
     var body: some View {
         guard let prayer = entry.prayer else {
             return AnyView(
-                Text(entry.isAr ? "حدّد موقعك" : "Set your location")
+                Text(prayerEmptyTitle(isAr: entry.isAr, weekRanOut: entry.weekRanOut))
                     .font(.system(size: 13))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .widgetURL(lockScreenOpenURL(tab: "settings"))
+                    .widgetURL(prayerPlaceOpenURL())
             )
         }
         let isAr = entry.isAr
@@ -348,7 +379,8 @@ struct PrayerCircularView: View {
             return AnyView(
                 ZStack {
                     AccessoryWidgetBackground()
-                    Image(systemName: "location.slash").font(.system(size: 14))
+                    Image(systemName: entry.weekRanOut ? "arrow.clockwise" : "location.slash")
+                        .font(.system(size: 14))
                 }
             )
         }
@@ -402,7 +434,7 @@ struct PrayerInlineView: View {
 
     var body: some View {
         guard let prayer = entry.prayer else {
-            return AnyView(Text(entry.isAr ? "حدّد موقعك" : "Set your location"))
+            return AnyView(Text(prayerEmptyTitle(isAr: entry.isAr, weekRanOut: entry.weekRanOut)))
         }
         // One line beside the clock, so it gets the name and the counter and
         // nothing else; the symbol carries what the words have no room for.
@@ -436,8 +468,9 @@ struct PrayerLockScreenView: View {
             }
         }
         // Same "each Lock Screen widget opens its own page" rule the other
-        // three follow. Settings is where the location that feeds this lives.
-        .widgetURL(lockScreenOpenURL(tab: "settings"))
+        // three follow. The prayer location page is where the place that
+        // feeds this is chosen (see prayerPlaceOpenURL).
+        .widgetURL(prayerPlaceOpenURL())
         // Same omission as the other three Lock Screen faces, same fix.
         .environment(\.layoutDirection, entry.isAr ? .rightToLeft : .leftToRight)
     }

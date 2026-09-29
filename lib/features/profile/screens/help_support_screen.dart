@@ -247,9 +247,9 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Can I change the tabs in the bottom bar?',
     questionAr: 'أقدر أغيّر الشريط السفلي؟',
     answerEn:
-        'Yes, with Premium. Go to Settings, then Bottom bar, or press and hold the bar itself. The bar holds up to 5 tabs, and Habits and Profile always stay. Add tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
+        'Yes, with Premium. Go to Settings, then Look, then Bottom bar, or press and hold the bar itself. The bar holds up to 5 tabs, and Habits and Profile always stay. Add tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
     answerAr:
-        'نعم، مع بريميوم. روح للإعدادات ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. الشريط ياخذ لحد 5 تبويبات، والعادات وملفي دائمًا موجودين. أضف تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
+        'نعم، مع بريميوم. روح للإعدادات، ثم الشكل، ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. الشريط ياخذ لحد 5 تبويبات، والعادات وملفي دائمًا موجودين. أضف تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
     group: FaqGroup.features,
   ),
   FaqEntry(
@@ -268,9 +268,9 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Why isn\'t my prayer-time reminder going off?',
     questionAr: 'لماذا لا يعمل تذكير الصلاة؟',
     answerEn:
-        'Most likely your location isn\'t set. Without it, the app can\'t work out prayer times for you. Go to Notification Settings, set your location, and check the reminder is still on for that habit.',
+        'Most likely your location isn\'t set. Without it, the app can\'t work out prayer times for you. Go to Settings, then Language and prayer location, set your location, and check the reminder is still on for that habit.',
     answerAr:
-        'الأرجح أن موقعك غير محدَّد. وبدونه، لا يستطيع التطبيق حساب أوقات الصلاة لك. اذهب إلى إعدادات الإشعارات، حدّد موقعك، وتأكد أن التذكير مفعّل لتلك العادة.',
+        'الأرجح أن موقعك غير محدَّد. وبدونه، لا يستطيع التطبيق حساب أوقات الصلاة لك. اذهب إلى الإعدادات، ثم اللغة وموقع الصلاة، حدّد موقعك، وتأكد أن التذكير مفعّل لتلك العادة.',
     group: FaqGroup.account,
   ),
   FaqEntry(
@@ -288,9 +288,9 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Can I delete my account?',
     questionAr: 'هل يمكنني حذف حسابي؟',
     answerEn:
-        'Yes. Go to Settings and tap Delete Account. We ask you to confirm it is you first: your password if you signed up with email, or a quick Google or Apple sign-in if you used one of those. After that it\'s permanent.',
+        'Yes. Go to Settings, then Account, and tap Delete Account. We ask you to confirm it is you first: your password if you signed up with email, or a quick Google or Apple sign-in if you used one of those. After that it\'s permanent.',
     answerAr:
-        'نعم. اذهب إلى الإعدادات واضغط على حذف الحساب. بنتأكد إنه أنت أول: كلمة المرور إذا سجلت بالإيميل، أو تسجيل دخول سريع بقوقل أو آبل إذا استخدمت وحدة منهم. وبعدها يكون نهائيًا.',
+        'نعم. اذهب إلى الإعدادات، ثم الحساب، واضغط على حذف الحساب. بنتأكد إنه أنت أول: كلمة المرور إذا سجلت بالإيميل، أو تسجيل دخول سريع بقوقل أو آبل إذا استخدمت وحدة منهم. وبعدها يكون نهائيًا.',
     group: FaqGroup.account,
   ),
 ];

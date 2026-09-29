@@ -310,9 +310,9 @@ flutter:
     - assets/images/accessories/
     # The sprout mascot (see lib/features/mascot/sprout.dart and
     # design/mascot/README.md). Listed file by file, not as the folder: the
-    # folder holds all 18 poses the art came with, and only these are drawn
-    # anywhere, so the other six stay out of the app until something uses
-    # them. sprout_assets_test fails if a pose in SproutPose is missing here.
+    # folder holds every pose the art came with, and only these are drawn
+    # anywhere, so the rest stay out of the app until something uses them.
+    # sprout_assets_test fails if a pose in SproutPose is missing here.
     - assets/images/mascot/mascot_front_wave.webp
     - assets/images/mascot/mascot_three_quarter_wave.webp
     - assets/images/mascot/mascot_side_right_leaf_up.webp
@@ -325,6 +325,20 @@ flutter:
     - assets/images/mascot/mascot_pencil.webp
     - assets/images/mascot/mascot_checklist.webp
     - assets/images/mascot/mascot_sleeping.webp
+    - assets/images/mascot/mascot_back.webp
+    - assets/images/mascot/mascot_back_three_quarter.webp
+    - assets/images/mascot/mascot_side_right.webp
+    - assets/images/mascot/mascot_mug.webp
+    - assets/images/mascot/mascot_thumbs_up.webp
+    - assets/images/mascot/mascot_pointer.webp
+    - assets/images/mascot/mascot_confetti.webp
+    - assets/images/mascot/mascot_chart.webp
+    - assets/images/mascot/mascot_determined.webp
+    - assets/images/mascot/mascot_idea.webp
+    - assets/images/mascot/mascot_magnifier.webp
+    - assets/images/mascot/mascot_running.webp
+    - assets/images/mascot/mascot_cheer.webp
+    - assets/images/mascot/mascot_sunglasses.webp
     - assets/icons/
     - assets/prayer/
     # Bundled copies of the two GoogleFonts families the themes use, in the
@@ -397,33 +411,24 @@ flutter_launcher_icons:
   min_sdk_android: 26
 
 # ── Native splash screen ─────────────────────────────────────────
-# Run once (and again any time splash_background.png changes):
+# Run again any time the splash colour changes:
 #   dart run flutter_native_splash:create
+#
+# Since 2026-09-29 every launch starts on plain cream, no words and no logo
+# (Aziz: no "Let’s Grow Daily" first), and the app's first frame
+# (LaunchCurtain) is the same cream until Doum arrives with his scene's own
+# line. The four-tile logo left the launch that day as well.
 flutter_native_splash:
   color: "#FEFAF0"
-  image: assets/images/splash_background.png
   # Android only, for the same reason flutter_launcher_icons is above: an
   # iOS run rewrites ios/Runner/Info.plist wholesale (re-indenting all ~170
   # lines around a single UIStatusBarHidden change) and a web run rewrites
-  # web/index.html. The iOS splash assets are already generated and
-  # committed, so regenerating them only produces churn in a working,
-  # shipping iOS project.
+  # web/index.html. The iOS launch screen is its storyboard, the cream
+  # LaunchBackground alone.
   ios: false
   web: false
   android_12:
     color: "#FEFAF0"
-    # A SQUARE icon, not the full-screen splash_background.png the
-    # pre-12 splash uses.
-    #
-    # Android 12+ does not draw a full-bleed splash image at all: it drops
-    # whatever you give windowSplashScreenAnimatedIcon into a fixed 288dp
-    # icon slot. Handing it the 853x1844 portrait background made Android
-    # squash that 1:2.16 image into a square slot, and the four rounded
-    # tiles of the mark rendered as visibly stretched horizontal bars.
-    # Confirmed on an Android 16 emulator before this was changed.
-    #
-    # This image is the mark alone, lifted out of splash_background.png and
-    # squared about its own centre, on transparency (the cream comes from
-    # `color` above). Regenerate with
-    # tool/icons/make_android12_splash.py if the splash art changes.
-    image: tool/icons/splash_android12_icon.png
+    # Blank, on purpose: left out entirely, Android 12+ would put the
+    # launcher icon in the middle of the cream.
+    image: tool/icons/splash_android12_blank.png

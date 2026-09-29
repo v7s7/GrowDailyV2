@@ -61,6 +61,27 @@ const _expandedTitleStyle = TextStyle(
   height: 1.25,
 );
 
+// The line under a row's title (see MatrixScreen's matrixRowMeta): its
+// time, or its date on a board that mixes days. Shared the same way as
+// _expandedTitleStyle, by the height measurement (_rowHeightFor) and the
+// tile that draws it, so the two cannot drift apart. One line, never two:
+// with six or more rows in a quadrant a second line per row would crowd
+// out the titles, so it ellipsizes instead. The same size in the compact
+// grid and the expanded view: it is a quiet caption, not a second title.
+const _rowMetaStyle = TextStyle(
+  fontSize: 10.5,
+  fontWeight: FontWeight.w500,
+  height: 1.3,
+);
+// Gap between the title and the line under it.
+const double _rowMetaGap = 2;
+// The bell (or alarm, or calendar) before the line, and the space after it.
+const double _rowMetaIconSize = 11;
+const double _rowMetaIconGap = 3;
+// Where the title starts inside the tile's padding: the checkbox (17) and
+// its gap to the title (9). The line under the title starts there too.
+const double _rowTitleIndent = 26;
+
 /// Renders [tasks] (already ordered: still-pending first, anything finished
 /// today sunk to the bottom) as a scrollable stack of fixed-height rows,
 /// each positioned purely by its index in that order. A row's position is
@@ -94,6 +115,14 @@ class _AnimatedTaskStack extends StatefulWidget {
   // needs the space-hungry small/dynamic layout to fit a narrow cell, is
   // completely untouched.
   final bool expanded;
+  // The line under each row's title, or null for none (MatrixScreen's
+  // matrixRowMeta). Called once per task per build, and that one answer
+  // both sizes the row (_rowHeightFor) and is drawn by _TaskTile, so a row
+  // can never be drawn with a line it was not sized for.
+  final String? Function(MatrixTask task)? metaFor;
+  // False on a past day's board (QuadrantCard.pastDay): no
+  // «+ أضف مهمة أخرى» under the rows of a day that has gone.
+  final bool showAddAnother;
 
   const _AnimatedTaskStack({
     super.key,
@@ -112,6 +141,8 @@ class _AnimatedTaskStack extends StatefulWidget {
     required this.onAddTapped,
     required this.onOpenDetails,
     this.expanded = false,
+    this.metaFor,
+    this.showAddAnother = true,
   });
 
   @override
@@ -200,23 +231,58 @@ class _AnimatedTaskStackState extends State<_AnimatedTaskStack> {
   // for the compact grid, _expandedTitleStyle for the maximized view) so
   // this measurement and the real render can't disagree about how tall the
   // text is.
+  //
+  // [meta] is the line under the title (null for none). When there is one
+  // it adds its gap and its own measured height: one line in
+  // _rowMetaStyle, under the same text scale, in the width the tile gives
+  // it (the title's width less the icon before it), and never less than
+  // the icon. Measured in the inherited DefaultTextStyle merged with
+  // _rowMetaStyle, which is exactly what the tile's Text renders with, so a
+  // font with taller metrics cannot make the line outgrow its slot.
   double _rowHeightFor(
     BuildContext context,
     String title,
     double maxWidth,
     bool selectionMode, {
     required TextStyle style,
+    String? meta,
   }) {
     final textWidth = maxWidth - _titleRowChromeWidth;
+    final direction = Directionality.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
     final tp = TextPainter(
       text: TextSpan(text: title, style: style),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
+      textDirection: direction,
+      textScaler: scaler,
     )..layout(maxWidth: textWidth < 40 ? 40 : textWidth);
     // Row 2 (see _TaskTile.build()) only takes up real height outside
     // selection mode.
     final row2Chrome = selectionMode ? 0.0 : (_iconRowGap + _iconRowHeight);
     final fixedChrome = row2Chrome + _tileVerticalPadding + _dividerBorderHeight;
+    if (meta != null) {
+      final metaWidth = textWidth - _rowMetaIconSize - _rowMetaIconGap;
+      final mp = TextPainter(
+        text: TextSpan(
+          text: meta,
+          style: DefaultTextStyle.of(context).style.merge(_rowMetaStyle),
+        ),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+        ellipsis: '\u2026',
+      )..layout(maxWidth: metaWidth < 20 ? 20 : metaWidth);
+      final metaLine =
+          mp.size.height < _rowMetaIconSize ? _rowMetaIconSize : mp.size.height;
+      // Row 1 is at least the checkbox tall, whatever the title measures.
+      final row1 = tp.size.height < _oneLineTitleHeight
+          ? _oneLineTitleHeight
+          : tp.size.height;
+      return row1 +
+          _rowMetaGap +
+          metaLine +
+          fixedChrome +
+          _heightSafetyMargin;
+    }
     final height = tp.size.height + fixedChrome + _heightSafetyMargin;
     final minHeight = _oneLineTitleHeight + fixedChrome;
     return height < minHeight ? minHeight : height;
@@ -251,11 +317,12 @@ class _AnimatedTaskStackState extends State<_AnimatedTaskStack> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final rowStyle = widget.expanded ? _expandedTitleStyle : _titleStyle;
+        final metas = [for (final t in tasks) widget.metaFor?.call(t)];
         final heights = [
-          for (final t in tasks)
-            _rowHeightFor(
-                context, t.title, constraints.maxWidth, widget.selectionMode,
-                style: rowStyle),
+          for (var i = 0; i < tasks.length; i++)
+            _rowHeightFor(context, tasks[i].title, constraints.maxWidth,
+                widget.selectionMode,
+                style: rowStyle, meta: metas[i]),
         ];
 
         int? insertionIndex;
@@ -423,6 +490,7 @@ class _AnimatedTaskStackState extends State<_AnimatedTaskStack> {
                                   ),
                                   child: _TaskTile(
                                     task: tasks[i],
+                                    meta: metas[i],
                                     expanded: widget.expanded,
                                     accentColor: widget.accentColor,
                                     onToggle: () =>
@@ -493,8 +561,10 @@ class _AnimatedTaskStackState extends State<_AnimatedTaskStack> {
                 // another" row, or any blank space below it — means "put
                 // it last": nearestBeforeId returns null once the pointer
                 // is past every row's midpoint, same as it always meant.
-                _AddAnotherRow(
-                    color: widget.accentColor, onTap: widget.onAddTapped),
+                // Not on a past day's board (see showAddAnother).
+                if (widget.showAddAnother)
+                  _AddAnotherRow(
+                      color: widget.accentColor, onTap: widget.onAddTapped),
               ],
             ),
           ),

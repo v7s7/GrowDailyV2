@@ -94,9 +94,15 @@ Future<void> handleBackgroundNotificationAction({
 
   final widgets = HomeWidgetService.instance;
   await widgets.init();
-  final todayList = await widgets.readTodayHabitsJson();
   final clock = now ?? DateTime.now();
   final day = clock.effectiveDay.toDateKey();
+  // The first tap of a morning the app has not been opened yet finds
+  // yesterday's list; the app left today's beside it, and this swaps it in
+  // before anything reads a count. When even that is missing (the app has
+  // been closed for days), the list is some older day's: its names still
+  // serve a snooze, but its counts say nothing about today.
+  final listIsToday = await widgets.rollTodayHabitsTo(day);
+  final todayList = await widgets.readTodayHabitsJson();
 
   switch (actionId) {
     case NotificationService.actionSnooze:
@@ -118,14 +124,22 @@ Future<void> handleBackgroundNotificationAction({
       // Decided BEFORE the cache is rewritten, since the rewrite bumps the
       // count this reads. The queue write goes first of all: it is the one
       // step that must land for the tap to count.
-      final finishes = NotificationActionRules.finishesDay(todayList, habitId);
+      final finishes = NotificationActionRules.finishesDay(
+        todayList,
+        habitId,
+        listIsForDay: listIsToday,
+      );
       await widgets.queueNotificationAction(QueuedNotificationAction(
         action: actionId,
         habitId: habitId,
         day: day,
       ));
       debugPrint('[NotificationAction] queued $actionId for $habitId on $day');
-      final rewritten = NotificationActionRules.markOneDone(todayList, habitId);
+      // Only today's list takes the tick: ticking an older day's row would
+      // put this morning's tap on a day it does not belong to.
+      final rewritten = listIsToday
+          ? NotificationActionRules.markOneDone(todayList, habitId)
+          : null;
       if (rewritten != null) await widgets.writeTodayHabitsJson(rewritten);
       if (finishes) {
         // The habit's own reminders for the day of the tap, by the ids the

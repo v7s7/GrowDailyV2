@@ -2,10 +2,12 @@
 """Cut the recoloured mascot sheet into one transparent PNG per pose.
 
     python tool/mascot/cut_poses.py                # writes design/mascot/poses-native/
+    python tool/mascot/cut_poses.py --sheet 2      # writes design/mascot/sheet-2/poses-native/
 
 Needs numpy, scipy and Pillow. Step 2 of 3: reads the sheet recolor_sheet.py
 wrote, and upscale_poses.py reads what this writes. Names, sheet rows and what
-each pose shows are in poses.json, in sheet order (row by row, left to right).
+each pose shows are in poses.json, in sheet order (row by row, left to right);
+the second sheet's are in poses-2.json.
 
 WHAT BELONGS TO A POSE
 Every piece of art at alpha > 16 is a connected component. The 18 over
@@ -14,7 +16,12 @@ along). Everything else is an effect: sparkles, hearts, "?", motion lines,
 "zZ". Effects within 12 px of each other are grouped first and the group goes
 to the nearest character. Grouping is not optional: measured one piece at a
 time, the big "Z" is nearer the determined pose's feet (50 px) than the
-sleeping pose it belongs to (57 px).
+sleeping pose it belongs to (57 px). The second sheet has one piece that
+grouping cannot place: the cheering pose's upper right-hand line is 15 px from
+its own arm and 18 px from the magnifier pose's leaf, and the lines on either
+side of it are more than 12 px away. SHEETS gives it to its pose by where it
+sits on the sheet, and drops the headphones pose's two music notes the same
+way (Aziz, 2026-09-29).
 
 ALPHA, BECAUSE THE SHEET'S TRANSPARENCY IS NOT CLEAN
 The generator left the body at alpha 250 to 254, never 255, so every pose was
@@ -48,9 +55,22 @@ A_FLOOR, A_FULL, MARGIN, CLUSTER = 16, 240, 8, 12
 ROW_SPLITS = (410, 715)          # sheet y between the three rows of this sheet
 EIGHT = np.ones((3, 3))
 
+# Each sheet's rows and fixes belong to that sheet. `give` hands the piece of
+# art whose centre sits at sheet (x, y) to the named pose, or drops it (None).
+SHEETS = {
+    1: dict(sheet=SHEET, poses="poses.json", out=OUT, row_splits=ROW_SPLITS, give={}),
+    2: dict(sheet=ROOT / "design/mascot/sheet-2/mascot-sheet-2-final.png",
+            poses="poses-2.json", out=ROOT / "design/mascot/sheet-2/poses-native",
+            row_splits=(290, 555, 790),
+            give={(224, 96): "mascot_cheer",
+                  (1029, 395): None, (1251, 388): None}),   # the headphones' music notes
+}
 
-def assign_pixels(A, count):
-    """Label map: 1..count for the poses in sheet order, 0 for empty."""
+
+def assign_pixels(A, count, row_splits=ROW_SPLITS, give=None):
+    """Label map: 1..count for the poses in sheet order, 0 for empty.
+    `give` maps a piece's centre on the sheet to the pose (1..count) it joins,
+    or to 0 to drop it."""
     mask = A > A_FLOOR
     lab, n = ndi.label(mask, structure=EIGHT)
     sizes = ndi.sum(mask, lab, range(1, n + 1))
@@ -60,7 +80,7 @@ def assign_pixels(A, count):
     def key(c):
         sl = objs[c - 1]
         cy, cx = (sl[0].start + sl[0].stop) / 2, (sl[1].start + sl[1].stop) / 2
-        return (sum(cy >= s for s in ROW_SPLITS), cx)
+        return (sum(cy >= s for s in row_splits), cx)
 
     anchors.sort(key=key)
     if len(anchors) != count:
@@ -74,6 +94,14 @@ def assign_pixels(A, count):
     for e in range(1, en + 1):
         members = effects & (groups == e)
         pose_of[members] = int(np.argmin(dist[:, members].min(axis=1))) + 1
+    if give:
+        centres = ndi.center_of_mass(mask, lab, range(1, n + 1))
+        for (x, y), p in give.items():
+            near = [c for c in range(1, n + 1) if c not in anchors
+                    and np.hypot(centres[c - 1][1] - x, centres[c - 1][0] - y) < 8]
+            if len(near) != 1:
+                raise SystemExit(f"found {len(near)} pieces at ({x}, {y}), expected one")
+            pose_of[lab == near[0]] = p
     return pose_of
 
 
@@ -114,15 +142,20 @@ def cut(rgb, A, m):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--sheet", type=pathlib.Path, default=SHEET)
-    ap.add_argument("--out", type=pathlib.Path, default=OUT)
+    ap.add_argument("--sheet", type=int, choices=sorted(SHEETS), default=1)
+    ap.add_argument("--src", type=pathlib.Path, default=None, help="the sheet image, if not the usual one")
+    ap.add_argument("--out", type=pathlib.Path, default=None)
     args = ap.parse_args()
-    poses = json.loads((HERE / "poses.json").read_text())
-    im = np.asarray(Image.open(args.sheet).convert('RGBA')).astype(np.float64)
+    cfg = SHEETS[args.sheet]
+    out = args.out or cfg["out"]
+    poses = json.loads((HERE / cfg["poses"]).read_text())
+    index = {pose["name"]: p for p, pose in enumerate(poses, 1)}
+    im = np.asarray(Image.open(args.src or cfg["sheet"]).convert('RGBA')).astype(np.float64)
     rgb, A = im[..., :3], im[..., 3]
-    pose_of = assign_pixels(A, len(poses))
-    args.out.mkdir(parents=True, exist_ok=True)
+    pose_of = assign_pixels(A, len(poses), cfg["row_splits"],
+                            {xy: index[name] if name else 0 for xy, name in cfg["give"].items()})
+    out.mkdir(parents=True, exist_ok=True)
     for p, pose in enumerate(poses, 1):
-        out = cut(rgb, A, pose_of == p)
-        Image.fromarray(out).save(args.out / f"{pose['name']}.png", optimize=True)
-        print(f"{pose['name']:28s} {out.shape[1]}x{out.shape[0]}")
+        piece = cut(rgb, A, pose_of == p)
+        Image.fromarray(piece).save(out / f"{pose['name']}.png", optimize=True)
+        print(f"{pose['name']:28s} {piece.shape[1]}x{piece.shape[0]}")

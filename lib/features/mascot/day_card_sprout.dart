@@ -10,6 +10,7 @@ import '../habits/notifiers/custom_habits_notifier.dart'
     show allHabitsEverProvider;
 import 'pet_settings.dart';
 import 'sprout.dart';
+import 'sprout_echo.dart';
 import 'sprout_mood.dart';
 import 'sprout_praise.dart';
 import 'sprout_signals.dart';
@@ -64,6 +65,8 @@ class DayCardSprout extends ConsumerStatefulWidget {
     this.clock = DateTime.now,
     this.drawsBubble = true,
     this.onBubble,
+    this.echo,
+    this.bodyAway = false,
   });
 
   final int greens;
@@ -93,6 +96,17 @@ class DayCardSprout extends ConsumerStatefulWidget {
   /// bubble goes, for a host that draws the bubble itself.
   final ValueChanged<String?>? onBubble;
 
+  /// A second body that stands in for this sprout elsewhere (above the
+  /// bottom bar, when the board's edge has scrolled away): told the pose
+  /// shown here, moved by the same moves, and a tap on it tickles this one.
+  /// This widget stays the only mind (see SproutEcho).
+  final SproutEcho? echo;
+
+  /// This body is out of sight while the stand-in is shown: it makes no
+  /// moves (a hop would lift its leaves back over the board's edge) and
+  /// resumes, with nothing replayed, when he is back.
+  final bool bodyAway;
+
   /// Whether this app launch has greeted yet. Reset between tests.
   static bool greetedThisLaunch = false;
 
@@ -112,7 +126,11 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
   /// bubble takes the later, bigger line.
   static const _oneMoment = Duration(milliseconds: 1500);
 
-  final _moves = SproutController();
+  final _ownMoves = SproutController();
+
+  /// The echo's controller when there is one, so the stand-in hops with
+  /// this body; this body's own otherwise.
+  SproutController get _moves => widget.echo?.moves ?? _ownMoves;
   Timer? _bubbleTimer;
   Timer? _laughTimer;
   String? _bubble;
@@ -136,6 +154,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
   @override
   void initState() {
     super.initState();
+    widget.echo?.attach(this, _tickle);
     _greetOnce();
   }
 
@@ -175,6 +194,10 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
   @override
   void didUpdateWidget(covariant DayCardSprout old) {
     super.didUpdateWidget(old);
+    if (!identical(old.echo, widget.echo)) {
+      old.echo?.detach(this);
+      widget.echo?.attach(this, _tickle);
+    }
     if (!old.live && widget.live) {
       // The week just landed: a hello if this launch has had none, and no
       // reaction to the jump from 0, which nobody did.
@@ -216,7 +239,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
     return _lastPraise;
   }
 
-  /// Whether the rise came from something DONE. A تخطّي, or a quota resting
+  /// Whether the rise came from something DONE. A راحة, or a quota resting
   /// on its day, takes a habit out of the day: the ring rises with nothing
   /// done, and praising that would be exactly the mistake the sprout must
   /// never make. So: a square more is green, or the ring rose on the same
@@ -332,7 +355,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
     _laughTimer?.cancel();
     setState(() => _laughing = true);
     _moves.hop();
-    _say(S.of(context).sproutTickle);
+    _say(pickTickle(S.of(context)));
     _laughTimer = Timer(_laughFor, () {
       if (mounted) setState(() => _laughing = false);
     });
@@ -342,7 +365,8 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
   void dispose() {
     _bubbleTimer?.cancel();
     _laughTimer?.cancel();
-    _moves.dispose();
+    widget.echo?.detach(this);
+    _ownMoves.dispose();
     super.dispose();
   }
 
@@ -356,6 +380,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
     final s = S.of(context);
     final mood = _mood();
     final pose = _laughing ? SproutPose.laugh : mood.pose;
+    widget.echo?.report(pose, mood: mood.pose);
     final box = Sprout.sizeOf(SproutPose.frontWave, widget.height);
     final reduced = prefersReducedMotion(context);
 
@@ -366,7 +391,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
         Sprout(
           pose: pose,
           height: widget.height,
-          controller: _moves,
+          controller: widget.bodyAway ? null : _moves,
           onTap: _tickle,
           semanticLabel: s.sproutName,
         ),

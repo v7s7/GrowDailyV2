@@ -21,10 +21,10 @@ void main() {
     expect(ids, isNot(contains('rose_ink')));
     expect(
       ids.indexOf('burgundy'),
-      2,
+      ids.indexOf('ocean') + 1,
       reason: 'right after Turquoise (ocean)',
     );
-    expect(ids, hasLength(11));
+    expect(ids, hasLength(12));
   });
 
   test('Burgundy is Premium, named as Aziz wrote it, and carries a label', () {

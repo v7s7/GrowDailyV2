@@ -38,6 +38,38 @@ double? todayColumnFromStart(
   return inset + habitCol + index * (gap + cell) + (rtl ? 0 : gap) + cell / 2;
 }
 
+/// Where the habit NAMES sit on a board [outerWidth] wide, border and padding
+/// included, measured from the board's start edge: [centre] is the middle of
+/// the name itself (the column keeps an 8pt pad at its end, toward the
+/// squares, see _habitRowBody) and [squaresFrom] is where the first square
+/// begins. In a right-to-left row the first square is flush against the
+/// column (its 5pt gap sits on its physical left, the far side); in a
+/// left-to-right row the gap comes first.
+///
+/// Doum stands over this column when the board's top edge has scrolled away
+/// and he waits above the bottom bar instead (SproutBottomPeek): the one
+/// place at the foot of the screen that is never a square. The same
+/// arithmetic as [todayColumnFromStart] and _GridTableState.build.
+///
+/// Null when the squares would fall under 30pt and the board scrolls
+/// sideways: the names scroll with it, so no place on screen is always
+/// theirs.
+({double centre, double squaresFrom})? namesColumnFromStart(
+  double outerWidth, {
+  required bool rtl,
+}) {
+  const inset = 12.0 + 0.5;
+  final avail = outerWidth - 2 * inset;
+  final habitCol =
+      (avail * 0.21).clamp(68.0, _GridTableState._habitCol).toDouble();
+  const gap = _GridTableState._gap;
+  if ((avail - habitCol - 7 * gap) / 7 < 30) return null;
+  return (
+    centre: inset + (habitCol - 8) / 2,
+    squaresFrom: inset + habitCol + (rtl ? 0 : gap),
+  );
+}
+
 // ─── The grid table itself ────────────────────────────────────────────────────
 
 class _GridTable extends ConsumerStatefulWidget {
@@ -59,6 +91,10 @@ class _GridTable extends ConsumerStatefulWidget {
   // row.
   final GlobalKey? todayCellKey;
 
+  /// Doum's stage: each row's tile and name are marked for him to keep clear
+  /// of when he waits above the bottom bar (SproutKeepClear).
+  final SproutStage? sproutStage;
+
   const _GridTable({
     required this.habits,
     required this.state,
@@ -67,6 +103,7 @@ class _GridTable extends ConsumerStatefulWidget {
     required this.onSelectionToggle,
     required this.onHabitLongPress,
     this.todayCellKey,
+    this.sproutStage,
   });
 
   @override
@@ -442,7 +479,20 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 // 8pt became a 1px RenderFlex overflow and Flutter drew its
                 // yellow-and-black stripe across the corner of the main screen.
                 padding: const EdgeInsetsDirectional.only(end: 8),
-                child: Row(
+                // The tile and the name, as tall as the taller of the two:
+                // what Doum, waiting above the bottom bar, never stands in
+                // front of once the page is still. A live room's 2x badge
+                // hovers 9pt over the tile (see below): kept clear of too.
+                child: SproutKeepClear(
+                  stage: widget.sproutStage,
+                  reachAbove: !widget.selectionMode &&
+                          habit.archivedAt == null &&
+                          ref
+                              .watch(roomBoostedHabitsProvider)
+                              .contains(habit.id)
+                      ? 9
+                      : 0,
+                  child: Row(
                   children: [
                     Builder(builder: (_) {
                       // Paused rows keep their pause tile even in
@@ -662,6 +712,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       ),
                     ),
                   ],
+                ),
                 ),
               ),
             ),

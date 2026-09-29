@@ -64,6 +64,7 @@ void main() {
           hasReminder: true,
           alarm: false,
           dueAt: picked,
+          lateAt: null,
         ),
       ],
       doneTodayCount: 0,
@@ -89,12 +90,47 @@ void main() {
           hasReminder: false,
           alarm: false,
           dueAt: null,
+          lateAt: null,
         ),
       ],
       doneTodayCount: 0,
     );
 
     expect(written().single.containsKey('dueAtMs'), isFalse);
+  });
+
+  // isLate is only true from the moment of the write, so the widget needs
+  // the moment itself to turn the red mark on when it passes
+  // (WidgetMatrixTask.lateAtMs / isLate(at:)). Until 2026-09-29 the mark
+  // waited for the next board change.
+  test('a task not late yet carries the moment it turns late', () async {
+    final last = DateTime(2026, 9, 29, 20, 0);
+    Future<void> push({required bool isLate}) =>
+        HomeWidgetService.instance.updateMatrixWidgetData(
+          [
+            (
+              id: 'dentist',
+              title: 'Book the dentist',
+              quadrant: 'doFirst',
+              isDone: false,
+              isFav: false,
+              isLate: isLate,
+              hasReminder: true,
+              alarm: false,
+              dueAt: last,
+              lateAt: last,
+            ),
+          ],
+          doneTodayCount: 0,
+        );
+
+    await push(isLate: false);
+    expect(written().single['lateAtMs'], last.millisecondsSinceEpoch);
+    expect(written().single['lateAtMs'], isA<int>());
+
+    await push(isLate: true);
+    expect(written().single.containsKey('lateAtMs'), isFalse,
+        reason: 'already late: isLate says it, nothing to wait for');
   });
 
   test('the list keeps the order the app sent, for the widget to re-sort',
@@ -116,6 +152,7 @@ void main() {
             hasReminder: false,
             alarm: false,
             dueAt: null,
+            lateAt: null,
           ),
       ],
       doneTodayCount: 0,
@@ -152,6 +189,7 @@ void main() {
                 hasReminder: t.hasReminder,
                 alarm: t.alarm,
                 dueAt: null,
+                lateAt: null,
               ),
           ],
           doneTodayCount: 0,

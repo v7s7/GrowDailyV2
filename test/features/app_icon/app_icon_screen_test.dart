@@ -1,4 +1,4 @@
-// Settings › التخصيص › أيقونة التطبيق (lib/features/app_icon/app_icon_screen.dart).
+// Settings › الشكل › أيقونة التطبيق (lib/features/app_icon/app_icon_screen.dart).
 //
 // Pinned: the page opens on what the phone shows; shapes still ahead are
 // locked and say how many full days off they are; a shape and a colour are

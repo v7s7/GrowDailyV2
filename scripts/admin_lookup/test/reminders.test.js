@@ -185,6 +185,31 @@ test('a quit habit answered «ما التزمت» today counts as answered', () 
   assert.strictEqual(slot.doneToday, true);
 });
 
+test('a habit resting today («راحة», stored skipped) rings from tomorrow, and says why', () => {
+  // The phone puts a rested day with the covered days (main.dart's
+  // _excusedDaysById): nothing is owed on it, so nothing rings on it.
+  const daily = [doc('2026-09-27', { squareStates: { walk: 'skipped' } })];
+  const m = model([habit('walk', { cueAfter: 'custom_time:21:00' })], { daily, now: bh(27, 12) });
+  const [slot] = slotsOf(m, 'walk');
+  assert.strictEqual(slot.next, bh(28, 21));
+  assert.strictEqual(slot.restingToday, true);
+  assert.ok(!slot.doneToday, 'resting is not done');
+  const { html } = renderRemindersSection(m);
+  assert.match(html, /resting today \(راحة\)/);
+  assert.doesNotMatch(html, /done today, so/);
+});
+
+test('a rest on another habit, or on another day, takes nothing down', () => {
+  const daily = [
+    doc('2026-09-27', { squareStates: { other: 'skipped' } }),
+    doc('2026-09-26', { squareStates: { walk: 'skipped' } }),
+  ];
+  const m = model([habit('walk', { cueAfter: 'custom_time:21:00' })], { daily, now: bh(27, 12) });
+  const [slot] = slotsOf(m, 'walk');
+  assert.strictEqual(slot.next, bh(27, 21));
+  assert.ok(!slot.restingToday);
+});
+
 test('a clock reminder inside quiet hours never rings, unless it is an alarm or allowed anyway', () => {
   const m = model([
     habit('early', { cueAfter: 'custom_time:05:00' }),

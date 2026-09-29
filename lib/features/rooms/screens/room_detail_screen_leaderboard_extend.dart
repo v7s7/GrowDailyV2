@@ -1555,10 +1555,15 @@ class _LeaderboardRow extends ConsumerWidget {
   ///
   /// Null when nothing is linked, or when no rule has been recorded yet —
   /// better to show nothing than to guess a cadence.
+  ///
+  /// Over the habits the plan has TODAY (countedHabitIdsOn): a habit the
+  /// leader removed stops counting on its stopsOn, and it used to go on
+  /// voting here, and into the mixed plan's habit count, for good.
   String? _cadenceLabel(S s) {
     final today = DateTime.now().effectiveDay.toDateKey();
+    final ids = participant.countedHabitIdsOn(room, today);
     final labels = <String>{};
-    for (final id in participant.countedHabitIds) {
+    for (final id in ids) {
       final rule = participant.ruleFor(id, today);
       if (rule == null) continue;
       labels.add(
@@ -1569,7 +1574,7 @@ class _LeaderboardRow extends ConsumerWidget {
     }
     if (labels.isEmpty) return null;
     if (labels.length == 1) return labels.first;
-    return s.roomCadenceMixed(participant.countedHabitIds.length);
+    return s.roomCadenceMixed(ids.length);
   }
 
   @override

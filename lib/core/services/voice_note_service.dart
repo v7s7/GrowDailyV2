@@ -79,8 +79,16 @@ class VoiceNoteService {
       position.value = Duration.zero;
       nowPlaying.value = null;
     });
+    nowPlaying.addListener(() => playerUp.value = nowPlaying.value != null);
   }
   static final instance = VoiceNoteService._();
+
+  /// Whether a note is loaded in the global player, so it is floating just
+  /// above the bottom bar (GlobalVoiceNotePlayerOverlay). A static rather
+  /// than a field so a screen can listen without touching [instance], whose
+  /// constructor wires real audio plugins: the Grid's Doum steps aside from
+  /// the foot of the screen while it is up (SproutBottomPeek).
+  static final ValueNotifier<bool> playerUp = ValueNotifier(false);
 
   final AudioRecorder _recorder = AudioRecorder();
   final AudioPlayer _player = AudioPlayer();

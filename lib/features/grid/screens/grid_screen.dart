@@ -16,6 +16,8 @@ import '../../../core/services/voice_note_service.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart' show authStateProvider;
+import '../../launch/launch_curtain.dart' show launchCurtainUpProvider;
+import '../../launch/launch_scene.dart' show LaunchMemory;
 import '../../matrix/models/matrix_task.dart' show VoiceNote;
 import '../../matrix/widgets/voice_note_player.dart'
     show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
@@ -32,7 +34,9 @@ import '../../../core/providers/day_clock_provider.dart'
     show dayClockSourceProvider;
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
-import '../../../core/providers/nav_layout_provider.dart' show NavTab;
+import '../../../core/providers/nav_bar_hint_provider.dart';
+import '../../../core/providers/nav_layout_provider.dart'
+    show NavTab, isDefaultNavTabs, navLayoutProvider;
 import '../../../shared/widgets/category_icon.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
 import '../../../shared/widgets/comeback_card.dart';
@@ -217,6 +221,17 @@ class _GridScreenState extends ConsumerState<GridScreen> {
   // square, not the whole row).
   final GlobalKey _addHabitKey = GlobalKey();
   final GlobalKey _todayCellKey = GlobalKey();
+
+  /// Where Doum is: on the board's top edge, or waiting above the bottom
+  /// bar while that edge is scrolled away (SproutLedge decides,
+  /// SproutBottomPeek follows).
+  final SproutStage _sproutStage = SproutStage();
+
+  @override
+  void dispose() {
+    _sproutStage.dispose();
+    super.dispose();
+  }
 
   /// Selection mode entered from the header with nothing selected yet.
   /// Without this, "selection mode" could only mean "something is already
@@ -794,6 +809,10 @@ class _GridScreenState extends ConsumerState<GridScreen> {
       ...ref.watch(habitsArchivedTodayProvider),
     ];
     final grid = ref.watch(weeklyGridProvider);
+    // What the day card and the board draw: the week, or while it is still on
+    // its way from the server, the squares this device last saw (see
+    // WeeklyGridState.preview). Everything that decides keeps reading grid.
+    final paint = grid.forPaint;
     final activeLesson = ref.watch(activeAppGuideLessonProvider);
 
     // Auto-dismiss App Guide's coach-mark the instant its real goal is
@@ -952,12 +971,21 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                 child: _GridEmptyState(addButtonKey: _addHabitKey),
               )
             else ...[
+              // Keyed, and so is the board below: the selection bar coming
+              // and going above them would otherwise shift them one slot and
+              // build them again from nothing, Doum's mind with them (his
+              // talking limit, the praise he said lately, his entrance).
               SliverToBoxAdapter(
+                key: const ValueKey('grid-summary'),
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                   child: _SummaryCard(
                     habits: habits,
-                    state: grid,
+                    state: paint,
+                    // Doum's hello and the day's celebrations wait for the
+                    // launch curtain to lift, so they happen where they can
+                    // be seen rather than behind it (see LaunchCurtain).
+                    onScreen: !ref.watch(launchCurtainUpProvider),
                     todayCounts: ref.watch(dashboardProvider).completions,
                     // A walk in progress: the card turns this into part-done
                     // credit for any habit linked to the step count, so the
@@ -975,6 +1003,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                             DateTime.now().effectiveDay.toDateKey()]
                         : null,
                     boardHasSections: showSplit,
+                    sproutStage: _sproutStage,
                   )
                       .animate()
                       .fadeIn(duration: 400.ms)
@@ -982,6 +1011,7 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                 ),
               ),
               SliverToBoxAdapter(
+                key: const ValueKey('grid-board'),
                 child: Padding(
                   // No top gap: the sprout's lane at the foot of the card
                   // above (SproutLedge) is the gap, and its bottom has to be
@@ -1004,99 +1034,106 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                         child: child,
                       ),
                     ),
-                    child: grid.isLoading
+                    child: !grid.canPaint
                         ? const _GridSkeleton()
                         : KeyedSubtree(
                             key: ValueKey(grid.weekStart),
-                            child: !showSplit
-                                ? _GridTable(
-                                    habits: habits,
-                                    state: grid,
-                                    selectionMode: _selectionMode,
-                                    selectedIds: _selectedIds,
-                                    onSelectionToggle: _toggleSelection,
-                                    onHabitLongPress: _onHabitLongPress,
-                                    todayCellKey: _todayCellKey,
-                                  )
-                                : Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      // todayCellKey rides on the FIRST
-                                      // board that actually has rows, never
-                                      // unconditionally on Build — it is what
-                                      // the App Guide's coach-mark points at,
-                                      // and an empty Build section would aim
-                                      // it at nothing.
-                                      if (buildHabits.isNotEmpty) ...[
-                                        _GridSectionHeader(
-                                          icon: Icons.bolt_rounded,
-                                          color: GameColors.gold,
-                                          label: s.gridSectionBuild,
-                                          count: buildHabits.length,
-                                        ),
-                                        _GridTable(
-                                          habits: buildHabits,
-                                          state: grid,
-                                          selectionMode: _selectionMode,
-                                          selectedIds: _selectedIds,
-                                          onSelectionToggle: _toggleSelection,
-                                          onHabitLongPress: _onHabitLongPress,
-                                          todayCellKey: _todayCellKey,
-                                        ),
+                            child: _BoardUntilLoaded(
+                              loading: grid.isLoading,
+                              child: !showSplit
+                                  ? _GridTable(
+                                      habits: habits,
+                                      state: paint,
+                                      selectionMode: _selectionMode,
+                                      selectedIds: _selectedIds,
+                                      onSelectionToggle: _toggleSelection,
+                                      onHabitLongPress: _onHabitLongPress,
+                                      sproutStage: _sproutStage,
+                                      todayCellKey: _todayCellKey,
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        // todayCellKey rides on the FIRST
+                                        // board that actually has rows, never
+                                        // unconditionally on Build — it is what
+                                        // the App Guide's coach-mark points at,
+                                        // and an empty Build section would aim
+                                        // it at nothing.
+                                        if (buildHabits.isNotEmpty) ...[
+                                          _GridSectionHeader(
+                                            icon: Icons.bolt_rounded,
+                                            color: GameColors.gold,
+                                            label: s.gridSectionBuild,
+                                            count: buildHabits.length,
+                                          ),
+                                          _GridTable(
+                                            habits: buildHabits,
+                                            state: paint,
+                                            selectionMode: _selectionMode,
+                                            selectedIds: _selectedIds,
+                                            onSelectionToggle: _toggleSelection,
+                                            onHabitLongPress: _onHabitLongPress,
+                                            sproutStage: _sproutStage,
+                                            todayCellKey: _todayCellKey,
+                                          ),
+                                        ],
+                                        // Shield + emerald, matching the quit
+                                        // pill's own visual language on
+                                        // HabitCard — the same "staying clean"
+                                        // identity everywhere it appears.
+                                        if (quitHabits.isNotEmpty) ...[
+                                          if (buildHabits.isNotEmpty)
+                                            const SizedBox(height: 18),
+                                          _GridSectionHeader(
+                                            icon: Icons.shield_rounded,
+                                            color: GameColors.emerald,
+                                            label: s.gridSectionQuit,
+                                            count: quitHabits.length,
+                                          ),
+                                          _GridTable(
+                                            habits: quitHabits,
+                                            state: paint,
+                                            selectionMode: _selectionMode,
+                                            selectedIds: _selectedIds,
+                                            onSelectionToggle: _toggleSelection,
+                                            onHabitLongPress: _onHabitLongPress,
+                                            sproutStage: _sproutStage,
+                                            todayCellKey: buildHabits.isEmpty
+                                                ? _todayCellKey
+                                                : null,
+                                          ),
+                                        ],
+                                        // Last, and in the palette's own quiet
+                                        // tertiary rather than an accent: this
+                                        // section is a record, not a demand, and
+                                        // giving it a colour of its own would
+                                        // put it back in competition with the
+                                        // two above it.
+                                        if (pausedHabits.isNotEmpty) ...[
+                                          if (buildHabits.isNotEmpty ||
+                                              quitHabits.isNotEmpty)
+                                            const SizedBox(height: 18),
+                                          _GridSectionHeader(
+                                            icon: Icons.pause_rounded,
+                                            color: gp.textTert,
+                                            label: s.habitPausedSection,
+                                            count: pausedHabits.length,
+                                          ),
+                                          _GridTable(
+                                            habits: pausedHabits,
+                                            state: paint,
+                                            selectionMode: _selectionMode,
+                                            selectedIds: _selectedIds,
+                                            onSelectionToggle: _toggleSelection,
+                                            onHabitLongPress: _onHabitLongPress,
+                                            sproutStage: _sproutStage,
+                                          ),
+                                        ],
                                       ],
-                                      // Shield + emerald, matching the quit
-                                      // pill's own visual language on
-                                      // HabitCard — the same "staying clean"
-                                      // identity everywhere it appears.
-                                      if (quitHabits.isNotEmpty) ...[
-                                        if (buildHabits.isNotEmpty)
-                                          const SizedBox(height: 18),
-                                        _GridSectionHeader(
-                                          icon: Icons.shield_rounded,
-                                          color: GameColors.emerald,
-                                          label: s.gridSectionQuit,
-                                          count: quitHabits.length,
-                                        ),
-                                        _GridTable(
-                                          habits: quitHabits,
-                                          state: grid,
-                                          selectionMode: _selectionMode,
-                                          selectedIds: _selectedIds,
-                                          onSelectionToggle: _toggleSelection,
-                                          onHabitLongPress: _onHabitLongPress,
-                                          todayCellKey: buildHabits.isEmpty
-                                              ? _todayCellKey
-                                              : null,
-                                        ),
-                                      ],
-                                      // Last, and in the palette's own quiet
-                                      // tertiary rather than an accent: this
-                                      // section is a record, not a demand, and
-                                      // giving it a colour of its own would
-                                      // put it back in competition with the
-                                      // two above it.
-                                      if (pausedHabits.isNotEmpty) ...[
-                                        if (buildHabits.isNotEmpty ||
-                                            quitHabits.isNotEmpty)
-                                          const SizedBox(height: 18),
-                                        _GridSectionHeader(
-                                          icon: Icons.pause_rounded,
-                                          color: gp.textTert,
-                                          label: s.habitPausedSection,
-                                          count: pausedHabits.length,
-                                        ),
-                                        _GridTable(
-                                          habits: pausedHabits,
-                                          state: grid,
-                                          selectionMode: _selectionMode,
-                                          selectedIds: _selectedIds,
-                                          onSelectionToggle: _toggleSelection,
-                                          onHabitLongPress: _onHabitLongPress,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                                    ),
+                            ),
                           ),
                   ),
                 ),
@@ -1141,6 +1178,34 @@ class _GridScreenState extends ConsumerState<GridScreen> {
           ],
         ),
         ),
+          // Doum at the foot of the page, above the bottom bar, while the
+          // board's top edge (his home) is scrolled away. Over the page and
+          // under the App Guide's dim below, and under the pop-ups and the
+          // bar itself, which HomeShell paints over this whole page. Draws
+          // nothing while he is at home.
+          Positioned(
+            key: const ValueKey('sprout-bottom'),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: kSproutBottomHostHeight,
+            child: SproutBottomPeek(
+              stage: _sproutStage,
+              namesFromStart: namesColumnFromStart,
+              stepAside: VoiceNoteService.playerUp,
+              // HomeShell's one-time spotlight on the bar: the same rule it
+              // shows it by.
+              hintShowing: shouldShowNavBarHint(
+                premium: ref.watch(premiumAccessProvider),
+                seen: ref.watch(navBarHintSeenProvider),
+                customised: !isDefaultNavTabs(ref.watch(navLayoutProvider)),
+                lessonActive: activeLesson != null,
+                completions: ref.watch(
+                  dashboardProvider.select((d) => d.totalCompletions),
+                ),
+              ),
+            ),
+          ),
           // App Guide's on-demand "Add a habit" / "Track a day" lessons -
           // deliberately the only thing that ever dims this screen, and only
           // ever because the person just asked for it: from Settings, from the

@@ -60,13 +60,69 @@ class WeeklyGridState {
 
   final bool isLoading;
 
+  /// Today's row as the board last knew it, held while another week is on
+  /// screen: [states] holds only the visible week, so a board parked on last
+  /// week forgot which habits are resting today, and the widget, the badge,
+  /// the evening note and today's reminders all counted them as owed again
+  /// until the board came back. Captured by [todayRowToHold] as the board
+  /// leaves a week, keyed by its day so it lapses by itself when the day
+  /// turns. Null when today has not been read yet. See [knownTodayRow].
+  final ({String key, Map<String, SquareState> row})? heldToday;
+
+  /// The visible week as this device last saw it, read from Firestore's own
+  /// on-device copy while the server read is still on its way. For PAINTING
+  /// only (see [forPaint]); null once nothing of the week was on the device,
+  /// and ignored once [isLoading] is false.
+  ///
+  /// The same line [HabitMirror] draws for the habit list: a picture of the
+  /// week in the first frame is harmless, deciding anything from it is not.
+  /// That copy can be behind the server (a square marked on the web, an
+  /// admin repair), so nothing that decides reads it: [states],
+  /// [currentWeekGreen], [knownTodayRow] and every reward, streak, reminder
+  /// and room path keep waiting for the real read exactly as before, and the
+  /// board takes no taps until it lands (GridScreen).
+  final ({
+    Map<String, Map<String, SquareState>> states,
+    Map<String, Map<String, String>> notes,
+  })? preview;
+
   const WeeklyGridState({
     required this.weekStart,
     required this.states,
     required this.notes,
     this.flatPaid = const {},
     this.isLoading = false,
+    this.heldToday,
+    this.preview,
   });
+
+  /// This state as the board and the day card draw it: itself once the week
+  /// has loaded, and while it loads, [preview] with anything written since
+  /// laid over it. Still [isLoading], so a widget handed this one keeps
+  /// treating the week as not yet read (the sprout does not greet, nothing
+  /// celebrates) while showing the squares the person last left.
+  WeeklyGridState get forPaint {
+    final p = preview;
+    if (!isLoading || p == null) return this;
+    return WeeklyGridState(
+      weekStart: weekStart,
+      states: {
+        for (final key in {...p.states.keys, ...states.keys})
+          key: {...?p.states[key], ...?states[key]},
+      },
+      notes: {
+        for (final key in {...p.notes.keys, ...notes.keys})
+          key: {...?p.notes[key], ...?notes[key]},
+      },
+      flatPaid: flatPaid,
+      isLoading: true,
+      heldToday: heldToday,
+    );
+  }
+
+  /// Whether the board has something to draw: the week itself, or the
+  /// device's copy of it while that loads.
+  bool get canPaint => !isLoading || preview != null;
 
   factory WeeklyGridState.initial() => WeeklyGridState(
         // The real calendar week, not the reward-day's (effectiveDay) week
@@ -128,7 +184,7 @@ class WeeklyGridState {
 
   /// [currentWeekGreen]'s twin for the whole mark, which the moved-session
   /// rule needs: a session on a day off a specific-days plan covers only a
-  /// planned day with nothing on it, never one marked فشل, تخطّي or جزئي
+  /// planned day with nothing on it, never one marked فشل, راحة or جزئي
   /// (see moved_day_plan.dart). Null exactly when [currentWeekGreen] is.
   MarkOnDay? get currentWeekMark =>
       isCurrentWeek ? markForWeekOf(DateTime.now().effectiveDay) : null;
@@ -200,20 +256,71 @@ class WeeklyGridState {
   /// other week is history, not a claim about today.
   Set<String> halfDoneTodayIds() => _todayIdsMarked(SquareState.partial);
 
-  /// Today's habits sitting on a تخطّي square, which leave the day's streak
-  /// count entirely (see [streakCreditOf]). Read exactly as
-  /// [halfDoneTodayIds] is.
+  /// Today's habits sitting on a «راحة» square, which leave the day's streak
+  /// count entirely (see [streakCreditOf]) and the widget's and the evening
+  /// note's counts (main.dart). Read exactly as [halfDoneTodayIds] is.
   Set<String> skippedTodayIds() => _todayIdsMarked(SquareState.skipped);
 
   Set<String> _todayIdsMarked(SquareState mark) {
-    final today = DateTime.now().effectiveDay;
-    if (!isCurrentWeek || !days.any((d) => d.isSameDayAs(today))) return const {};
-    final row = states[today.toDateKey()];
+    final row = knownTodayRow;
     if (row == null) return const {};
     return {
       for (final entry in row.entries)
         if (entry.value == mark) entry.key,
     };
+  }
+
+  /// Today's squares as far as this state knows them, or null when it does
+  /// not know, which every caller reads as nothing marked.
+  ///
+  /// The visible week's own row while that week is today's. On any other
+  /// week, and while today's week is still loading, the row [heldToday]
+  /// kept, with anything written into today since laid over it (a square
+  /// written off screen lands in [states] under its own day, see setSquare).
+  Map<String, SquareState>? get knownTodayRow {
+    final today = DateTime.now().effectiveDay;
+    final key = today.toDateKey();
+    final live = states[key];
+    if (isCurrentWeek &&
+        days.any((d) => d.isSameDayAs(today)) &&
+        (!isLoading || live != null)) {
+      return live;
+    }
+    final held = heldToday;
+    if (held == null || held.key != key) return live;
+    return {...held.row, ...?live};
+  }
+
+  /// [squareFor] with today's row as this state knows it ([knownTodayRow])
+  /// laid over it, so a board parked on another week still answers for
+  /// today. What the reminder pass reads its marks through (main.dart).
+  MarkOnDay get marksWithToday {
+    final todayKey = DateTime.now().effectiveDay.toDateKey();
+    final todayRow = knownTodayRow;
+    return (id, day) => day.toDateKey() == todayKey
+        ? (todayRow?[id] ?? SquareState.none)
+        : squareFor(id, day);
+  }
+
+  /// The day keys of the visible week on which [habitId] is marked «راحة»
+  /// ([SquareState.skipped]). A rest means the habit is not needed that day
+  /// (Aziz, 2026-09-28), so it is not reminded about either: main.dart puts
+  /// these with the covered days, where nothing is owed and so nothing
+  /// rings, and clearing the mark recomputes them. Only today's key can
+  /// still silence anything; the palette cannot mark a day ahead.
+  Set<String> restDayKeysFor(String habitId) => {
+        for (final day in days)
+          if (squareFor(habitId, day) == SquareState.skipped) day.toDateKey(),
+      };
+
+  /// What [heldToday] should be once the board leaves this week: today's
+  /// row, known to be empty when today's week has loaded with nothing on it
+  /// yet, or null when today is unknown here.
+  ({String key, Map<String, SquareState> row})? get todayRowToHold {
+    final key = DateTime.now().effectiveDay.toDateKey();
+    final row = knownTodayRow ??
+        (isCurrentWeek && !isLoading ? const <String, SquareState>{} : null);
+    return row == null ? null : (key: key, row: {...row});
   }
 
   /// Completion ratio for today's habit list in the visible week.
@@ -244,7 +351,7 @@ class WeeklyGridState {
     if (row == null) return 0;
 
     var completedUnits = 0.0;
-    // Habits that were actually owed today. A تخطّي leaves this entirely
+    // Habits that were actually owed today. A راحة leaves this entirely
     // rather than scoring zero inside it.
     //
     // It used to score zero and STAY in the denominator, which meant marking
@@ -262,6 +369,7 @@ class WeeklyGridState {
     var owed = 0;
     for (final id in ids) {
       final state = row[id] ?? SquareState.none;
+      // «راحة» (SquareState.skipped): the habit is not needed today.
       if (state == SquareState.skipped) continue;
       owed++;
       // A step count's measured share of its goal, when the caller knows it.
@@ -286,10 +394,14 @@ class WeeklyGridState {
         SquareState.failed || SquareState.skipped => 0.0,
       };
     }
-    // Nothing was owed, because everything was deliberately stood down. That
-    // is a finished day, not an empty one, which is the same answer
-    // RoomParticipant.creditFor gives when its scheduled count reaches zero.
-    if (owed == 0) return 1;
+    // Nothing was owed, because every habit is resting. That used to read
+    // 1.0, "a finished day, not an empty one", while the streak (Aziz,
+    // 2026-09-22: "skip a habit: fine, skip the whole day: no") counts the
+    // same day as earning nothing: the ring showed a full day on a day the
+    // streak was about to lose. Nothing done of nothing owed is the answer
+    // a day with no habit on it already gets (ids empty, above), and the
+    // reports' day score agrees (no rate).
+    if (owed == 0) return 0;
     return completedUnits / owed;
   }
 
@@ -331,6 +443,11 @@ class WeeklyGridState {
     Map<String, Map<String, String>>? notes,
     Map<String, Map<String, int>>? flatPaid,
     bool? isLoading,
+    ({
+      Map<String, Map<String, SquareState>> states,
+      Map<String, Map<String, String>> notes,
+    })? preview,
+    bool dropPreview = false,
   }) =>
       WeeklyGridState(
         weekStart: weekStart ?? this.weekStart,
@@ -338,6 +455,8 @@ class WeeklyGridState {
         notes: notes ?? this.notes,
         flatPaid: flatPaid ?? this.flatPaid,
         isLoading: isLoading ?? this.isLoading,
+        heldToday: heldToday,
+        preview: dropPreview ? null : preview ?? this.preview,
       );
 }
 
@@ -368,7 +487,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
   /// only shows those seven, and wrong for anything that has to DECIDE
   /// something about a day off screen. The steps back-fill is exactly that: on
   /// the first day of a grid week yesterday belongs to the week before, so an
-  /// unloaded تخطّي would have read as a blank day and been painted green.
+  /// unloaded راحة would have read as a blank day and been painted green.
   ///
   /// The null is the other half of the same care. An unreadable day (offline,
   /// a cold first run) must not be reported as an empty one, or a caller
@@ -430,13 +549,19 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
         // rest of the week is unaffected, exactly as the loop did. NOT a
         // range query over the seven: that would batch them back into a
         // single get() and bring the blanked-week bug straight back.
-        final snaps = await Future.wait([
-          for (final day in state.days)
+        final days = state.days;
+        final server = Future.wait([
+          for (final day in days)
             _dayRef(day).get().then<DocumentSnapshot<Map<String, dynamic>>?>(
                   (snap) => snap,
                   onError: (Object _) => null,
                 ),
         ]);
+        // Started after the server read, so it never holds that one up.
+        if (state.isLoading && state.preview == null) {
+          await _paintFromDevice(week, days);
+        }
+        final snaps = await server;
         for (final snap in snaps) {
           if (snap == null || !snap.exists) continue;
           _parseInto(snap.id, snap.data()!, states, notes, flatPaid);
@@ -453,7 +578,51 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
 
     if (!mounted || !state.weekStart.isSameDayAs(week)) return;
     state = state.copyWith(
-        states: states, notes: notes, flatPaid: flatPaid, isLoading: false);
+      states: states,
+      notes: notes,
+      flatPaid: flatPaid,
+      isLoading: false,
+      dropPreview: true,
+    );
+  }
+
+  /// Puts the visible week as this device last saw it into
+  /// [WeeklyGridState.preview], so the board draws the person's own squares
+  /// at once instead of a spinner for the length of a server round trip.
+  /// That round trip is the wait on every cold start (the connection and,
+  /// after an hour away, a fresh sign-in token come first), and on every
+  /// week the header arrows back to.
+  ///
+  /// Firestore's own on-device copy, read with Source.cache: it answers in
+  /// milliseconds and never goes to the network. It is whatever this device
+  /// last read or wrote, pending writes included. Paint only; see
+  /// [WeeklyGridState.preview] for who may believe it.
+  Future<void> _paintFromDevice(DateTime week, List<DateTime> days) async {
+    final snaps = await Future.wait([
+      for (final day in days)
+        _dayRef(day)
+            .get(const GetOptions(source: Source.cache))
+            .then<DocumentSnapshot<Map<String, dynamic>>?>(
+              (snap) => snap,
+              // A day this device has never read throws here rather than
+              // answering "no such day"; it simply draws as empty.
+              onError: (Object _) => null,
+            ),
+    ]);
+    // Nothing of this week on the device at all (a fresh install, a week
+    // never opened here): the skeleton stays, as it always did, rather than
+    // an empty board that fills in a moment later.
+    if (snaps.every((snap) => snap == null)) return;
+    if (!mounted || !state.isLoading || !state.weekStart.isSameDayAs(week)) {
+      return;
+    }
+    final states = <String, Map<String, SquareState>>{};
+    final notes = <String, Map<String, String>>{};
+    for (final snap in snaps) {
+      if (snap == null || !snap.exists) continue;
+      _parseInto(snap.id, snap.data()!, states, notes, {});
+    }
+    state = state.copyWith(preview: (states: states, notes: notes));
   }
 
   void _parseInto(
@@ -534,6 +703,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       states: const {},
       notes: const {},
       isLoading: true,
+      heldToday: state.todayRowToHold,
     );
     _loadWeek();
   }
@@ -650,7 +820,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
     // price, which only holds for a colour this method painted. The steps
     // link leaves a جزئي at half the goal without paying for it, and so does
     // the palette's مكتمل to جزئي correction on a done square; tapping either
-    // one empty, or picking فشل or تخطّي on it, docked five XP never paid.
+    // one empty, or picking فشل or راحة on it, docked five XP never paid.
     // The same colour picked again is not a new mark: it changes nothing,
     // where it used to write the colour's receipt over one that said zero.
     final paidBefore = state.flatPaidFor(habitId, day);
@@ -995,7 +1165,7 @@ class WeeklyGridNotifier extends StateNotifier<WeeklyGridState> {
       // Writer 3 of 3 for the report mirror — the one that covers PAST days,
       // since the complete/uncomplete pair only ever writes today. This is
       // also the ONLY writer that knows about the four non-green states, so
-      // it is what makes تخطّي, فشل and جزئي reportable at all.
+      // it is what makes راحة, فشل and جزئي reportable at all.
       final historyRef = FirebaseFirestore.instance
           .collection('users')
           .doc(_uid)
@@ -1360,7 +1530,7 @@ bool willCrossStreakThresholdOnPartial(
 ) =>
     _squaresCrossOnMark(ref, habit, day, SquareState.partial);
 
-/// The تخطّي twin of [willCompleteAllSquaresOn]: "does marking [habit] تخطّي
+/// The راحة twin of [willCompleteAllSquaresOn]: "does marking [habit] راحة
 /// finish the day?" It can: the skipped habit leaves the day's count, so
 /// three habits done of four, with the fourth then skipped, is three of
 /// three. Aziz, 2026-09-22, choosing "skip a habit: fine; skip the whole
@@ -1386,7 +1556,7 @@ bool _squaresCrossOnMark(
     ref.read(weeklyGridProvider.notifier)._crossesOnMark(habit, day, mark);
 
 /// What one square is worth toward its day's streak point: a green square
-/// 1, a جزئي half, anything else nothing, and a تخطّي NULL, meaning it
+/// 1, a جزئي half, anything else nothing, and a راحة NULL, meaning it
 /// leaves the day's count entirely. Aziz, 2026-09-22: skipping a habit is
 /// rest («لا تُحسب عليك»), so the other habits need their 80% without it.
 double? streakCreditOf(SquareState square) => switch (square) {
@@ -1401,7 +1571,7 @@ double? streakCreditOf(SquareState square) => switch (square) {
 /// ([squareOf]) over [dayHabits], every square worth [streakCreditOf].
 ///
 /// The one rule behind a مكتمل pick ([willCompleteAllSquaresOn]), a جزئي
-/// pick ([willCrossStreakThresholdOnPartial]) and a تخطّي pick
+/// pick ([willCrossStreakThresholdOnPartial]) and a راحة pick
 /// ([willCrossStreakThresholdOnSkip]). A day with nothing left to count, a
 /// day off or a day skipped whole, is never a completed day.
 bool squaresCrossStreakThreshold({

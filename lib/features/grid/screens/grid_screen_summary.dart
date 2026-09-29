@@ -676,12 +676,24 @@ class _SummaryCard extends StatelessWidget {
   /// behind (see SproutLedge.drawLine).
   final bool boardHasSections;
 
+  /// Where Doum is (see SproutStage): his home here, or the foot of the
+  /// screen while this card and the board's edge are scrolled away.
+  final SproutStage? sproutStage;
+
+  /// False while something covers the whole screen at launch (the
+  /// LaunchCurtain). The card still draws underneath, but it is not [live]:
+  /// the sprout's once-a-launch hello and a perfect day's celebration wait
+  /// until they can be seen instead of playing behind the curtain.
+  final bool onScreen;
+
   const _SummaryCard({
     required this.habits,
     required this.state,
     required this.stepsToday,
     required this.todayCounts,
     this.boardHasSections = false,
+    this.sproutStage,
+    this.onScreen = true,
   });
 
   /// Part-done credit for walking habits linked to the step count: the real
@@ -809,7 +821,7 @@ class _SummaryCard extends StatelessWidget {
         : scheduledTodayIds
             .where((id) => (todayRow[id] ?? SquareState.none).isGreen)
             .length;
-    // What today still ASKS for. A تخطّي square leaves the day entirely,
+    // What today still ASKS for. A راحة square leaves the day entirely,
     // exactly as it leaves todayCompletionRatio's denominator: without this
     // the ring could read 100% (the rest excluded) while the line beside it
     // said "7 of 8", and the card would be arguing with itself.
@@ -820,6 +832,10 @@ class _SummaryCard extends StatelessWidget {
                 (todayRow[id] ?? SquareState.none) != SquareState.skipped)
             .length;
     final perfectDay = owedTodayCount > 0 && greensToday >= owedTodayCount;
+    // Remembered for the next launch (LaunchMemory): the first open after a
+    // full day opens on yesterday's squares. Live numbers only, never the
+    // device's copy shown while the week loads.
+    if (perfectDay && !state.isLoading) LaunchMemory.recordFullDay(today);
 
     // The card's quieter words, lifted just far enough to read on it (4.5:1,
     // what text this small needs) and handed back untouched where they
@@ -990,11 +1006,13 @@ class _SummaryCard extends StatelessWidget {
     // the lane is what moved the board down, by the difference between the
     // lane and the 14pt gap it replaces.
     //
-    // Today's week, loaded: a rise the sprout may react to, and a perfect
-    // day the card may celebrate. Not while the week loads at launch, nor
-    // while another week is on screen.
-    final live =
-        !state.isLoading && state.days.any((d) => d.isSameDayAs(today));
+    // Today's week, loaded and in view: a rise the sprout may react to, and
+    // a perfect day the card may celebrate. Not while the week loads at
+    // launch, nor behind the launch curtain, nor while another week is on
+    // screen.
+    final live = onScreen &&
+        !state.isLoading &&
+        state.days.any((d) => d.isSameDayAs(today));
     return PerfectDayMoment(
       perfectDay: perfectDay,
       live: live,
@@ -1014,6 +1032,8 @@ class _SummaryCard extends StatelessWidget {
               rtl: Directionality.of(context) == ui.TextDirection.rtl,
             ),
             drawLine: boardHasSections,
+            stage: sproutStage,
+            namesFromStart: namesColumnFromStart,
           ),
         ],
       ),
@@ -1023,13 +1043,13 @@ class _SummaryCard extends StatelessWidget {
 
 class _RingStat extends StatelessWidget {
   final double ratio;
-  // Not `ratio >= 1.0`: todayCompletionRatio reads a day with nothing owed
-  // (every habit skipped or resting on its quota) as 1.0 too, "a finished
-  // day, not an empty one" by that function's own doc comment. A trophy is a
-  // claim of achievement, not of being off the hook, so it needs the SAME
-  // owedTodayCount > 0 guard the card's border and "Perfect day" text
-  // already use — otherwise a fully rested day showed a gold trophy next to
-  // a "0" and a plain tap hint, which is not what this ring is for.
+  // Not `ratio >= 1.0`: todayCompletionRatio read a day with nothing owed
+  // (every habit on «راحة») as 1.0 until 2026-09-28, and it reads 0 now. A
+  // trophy is a claim of achievement, not of being off the hook, so it keeps
+  // the SAME owedTodayCount > 0 guard the card's border and "Perfect day"
+  // text already use, whatever that function answers for an empty day: a
+  // fully rested day once showed a gold trophy next to a "0" and a plain tap
+  // hint, which is not what this ring is for.
   final bool perfectDay;
   const _RingStat({required this.ratio, required this.perfectDay});
 

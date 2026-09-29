@@ -113,7 +113,8 @@ struct PrayerCountdownFace: View {
     var body: some View {
         let compact = family == .systemSmall
         guard let prayer = entry.prayer else {
-            return AnyView(PrayerEmptyFace(isAr: entry.isAr, compact: compact))
+            return AnyView(PrayerEmptyFace(isAr: entry.isAr, compact: compact,
+                                           weekRanOut: entry.weekRanOut))
         }
         let isAr = entry.isAr
         let m = compact ? PrayerFaceMetrics.small : .medium

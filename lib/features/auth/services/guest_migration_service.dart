@@ -179,12 +179,7 @@ class GuestMigrationService {
     await section(() async => movedDays = await _migrateDailyDocs(uid));
     await section(
         () async => _migrateCustomHabits(uid, arrivePaused: arrivePaused));
-    await section(() async => _migrateCollection(
-          uid,
-          collection: 'matrix_tasks',
-          box: await LocalStoreService.settingsBox(),
-          key: LocalStoreService.guestMatrixTasksKey,
-        ));
+    await section(() async => _migrateMatrixTasks(uid));
     await section(() async => _migrateCollection(
           uid,
           collection: 'custom_rewards',
@@ -449,7 +444,71 @@ class GuestMigrationService {
     await _writeRecords(col, records);
   }
 
-  /// A guest list of `{id, ...}` maps into the matching subcollection.
+  /// Guest tasks into `matrix_tasks`, their dates made Timestamps.
+  ///
+  /// The same String-versus-Timestamp difference as lastActiveDate, five
+  /// fields wide: MatrixTask.toMap writes ISO strings for Hive, while the
+  /// signed-in side writes and reads Timestamps (toFirestore,
+  /// fromFirestore). Until 2026-09-28 these went across through
+  /// [_migrateCollection] unchanged, fromFirestore threw on the first String
+  /// createdAt, and MatrixNotifier._load's catch-all then showed an empty
+  /// Tasks page on every open: every task the guest had, gone from view
+  /// the moment they registered. fromFirestore reads a string now too, for
+  /// the accounts that said yes before this; this keeps new ones clean.
+  static Future<void> _migrateMatrixTasks(String uid) async {
+    final settings = await LocalStoreService.settingsBox();
+    final records = LocalStoreService.asMapList(
+      settings.get(LocalStoreService.guestMatrixTasksKey),
+    );
+    await _writeRecords(
+      _userRef(uid).collection('matrix_tasks'),
+      records.map(_taskDatesAsTimestamps).toList(),
+    );
+  }
+
+  /// [record] with each date MatrixTask.toMap writes as a string turned into
+  /// the Timestamp MatrixTask.toFirestore writes.
+  ///
+  /// A string that does not parse is dropped rather than carried across, the
+  /// way fromMap already skips one: a String is the one shape no signed-in
+  /// reader expects here, while every reader has a fallback for an absent
+  /// date. Anything that is not a String passes through untouched, so this
+  /// is a no-op on its own output and a retry writes the same document.
+  static Map<String, dynamic> _taskDatesAsTimestamps(
+    Map<String, dynamic> record,
+  ) {
+    Object? stamp(Object? value) {
+      if (value is! String) return value;
+      final parsed = DateTime.tryParse(value);
+      return parsed == null ? null : Timestamp.fromDate(parsed);
+    }
+
+    final out = Map<String, dynamic>.from(record);
+    for (final field in [
+      'createdAt',
+      'completedAt',
+      'reminderAt',
+      'reminderAnchorAt',
+    ]) {
+      if (!out.containsKey(field)) continue;
+      final value = stamp(out[field]);
+      if (value == null) {
+        out.remove(field);
+      } else {
+        out[field] = value;
+      }
+    }
+    final reminders = out['reminderAts'];
+    if (reminders is List) {
+      out['reminderAts'] = reminders.map(stamp).nonNulls.toList();
+    }
+    return out;
+  }
+
+  /// A guest list of `{id, ...}` maps into the matching subcollection,
+  /// unchanged. Only for records whose map is the same shape on both sides,
+  /// as custom_rewards is (CustomReward keeps its date an ISO string in
+  /// Firestore too); tasks are not, see [_migrateMatrixTasks].
   static Future<void> _migrateCollection(
     String uid, {
     required String collection,

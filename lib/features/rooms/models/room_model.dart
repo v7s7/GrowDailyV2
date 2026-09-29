@@ -1339,6 +1339,34 @@ class RoomParticipant {
   /// [scheduledCountFor] prefers it; [recordedScheduledCountFor] ignores it.
   final Map<String, int> inferredScheduledCount;
 
+  /// Due counts inferred at read time for days this member's phone has not
+  /// graded yet, in a plan the leader has edited: a habit removed, or a
+  /// stretch one spent out of the plan (see [unsyncedPlanInference]).
+  ///
+  /// Never read from or written to Firestore, exactly like
+  /// [inferredScheduledCount], so nothing the sync compares or writes can
+  /// see it. Filled only by [withUnsyncedPlanInferred], for the board.
+  /// Unlike the quota map, [asRecorded] KEEPS it: it only ever differs on a
+  /// day with nothing done, half done or rested, and never reaches zero, so
+  /// every score, place, streak and team day reads the same with it or
+  /// without it (leader_remove_habit_unsynced_day_test.dart pins that).
+  /// Dropping it would put the removed habits back into an ended room's day
+  /// cards. [scheduledCountFor] reads it after [inferredScheduledCount].
+  final Map<String, int> planInferredScheduledCount;
+
+  /// Days this member's phone has not graded yet that the record's own
+  /// met-week rest ([recordedScheduledCountFor]) would rest if it could see
+  /// the plan the leader left (see [unsyncedQuotaRestInference]).
+  ///
+  /// Never read from or written to Firestore, like the two maps above, so
+  /// nothing the sync compares or writes can see it. Filled only by
+  /// [withUnsyncedQuotaRestInferred], for the board. [asRecorded] KEEPS it,
+  /// and on purpose, although it pays: it is the record's arm asked of the
+  /// right plan, a payout already reads that arm, and the podium and team
+  /// milestones must read what the board beside them reads.
+  /// [scheduledCountFor] reads it as a 0, after [inferredScheduledCount].
+  final Set<String> unsyncedQuotaRestDays;
+
   /// When this member left the room - null while they are in it.
   ///
   /// A SOFT departure, deliberately, and it is the whole fix for the reset
@@ -1459,6 +1487,8 @@ class RoomParticipant {
     this.lastSyncedDay,
     this.lastSyncedAt,
     this.inferredScheduledCount = const {},
+    this.planInferredScheduledCount = const {},
+    this.unsyncedQuotaRestDays = const {},
     this.leftAt,
     this.awaySpans = const [],
     this.slotDeclinedFrom = const {},
@@ -1541,6 +1571,23 @@ class RoomParticipant {
   List<String> habitsInSlotsOn(String dateKey) => [
         for (var i = 0; i < linkedHabitIds.length; i++)
           if (habitInSlotOn(i, dateKey) case final String id) id,
+      ];
+
+  /// [habitsInSlotsOn] over the slots [room]'s plan held on [dateKey]
+  /// ([RoomModel.slotLiveOn]): a habit the leader removed leaves it from its
+  /// stopsOn, the first day it counts for nobody. This member's own document
+  /// still links it (the sync grades it on the days before, see
+  /// [gradedHabitIdsIn]), so [habitsInSlotsOn] still names it after, and a
+  /// question about a day's plan asked through that one answered for a plan
+  /// the room no longer had: a removed daily habit kept an all-quota plan
+  /// from resting its met week, and a removed quota could lose a week the
+  /// habits left in the plan could still make. What the quota gates ask
+  /// wherever the room is at hand. The same list as [habitsInSlotsOn] for a
+  /// plan nobody edited.
+  List<String> habitsInPlanOn(RoomModel room, String dateKey) => [
+        for (var i = 0; i < linkedHabitIds.length; i++)
+          if (room.slotLiveOn(i, dateKey))
+            if (habitInSlotOn(i, dateKey) case final String id) id,
       ];
 
   /// Every habit a shared slot OTHER than [slot] holds or has held: its
@@ -1831,6 +1878,13 @@ class RoomParticipant {
   /// two disagree and a written key says one thing while an absent key reads
   /// another - the exact shape of the withdrawn-slot bug (see
   /// test/features/rooms/withdrawn_slot_credit_test.dart).
+  ///
+  /// It cannot see the room, so a slot the leader removed stays in it after
+  /// its stopsOn. It must stay that way: the sync writes a day's count
+  /// whenever it differs from THIS number, and older builds, other phones,
+  /// room_health.js and the admin tool read those written keys. The board
+  /// reads a day no sync has written through [unsyncedPlanInference]
+  /// instead.
   int countedHabitCountOn(String dateKey) {
     var n = 0;
     var counted = 0;
@@ -1887,11 +1941,17 @@ class RoomParticipant {
 
   /// How many habits [dateKey] asked of this member: the inferred count for
   /// a closed quota week the member's phone has not regraded yet, when there
-  /// is one (see [inferredScheduledCount]), otherwise what the document
+  /// is one (see [inferredScheduledCount]), then nothing on a met week's
+  /// blank day the plan as the leader left it rests
+  /// ([unsyncedQuotaRestDays]), then that plan's count on a day no sync has
+  /// written yet ([planInferredScheduledCount]), otherwise what the document
   /// records ([recordedScheduledCountFor]). Every score and every drawn
   /// square reads this.
   int scheduledCountFor(String dateKey) =>
-      inferredScheduledCount[dateKey] ?? recordedScheduledCountFor(dateKey);
+      inferredScheduledCount[dateKey] ??
+      (unsyncedQuotaRestDays.contains(dateKey) ? 0 : null) ??
+      planInferredScheduledCount[dateKey] ??
+      recordedScheduledCountFor(dateKey);
 
   /// [scheduledCountFor] as the document itself records it, with nothing
   /// inferred on top. The anti-backdating clamp in syncLinkedHabitsProgress
@@ -1901,10 +1961,13 @@ class RoomParticipant {
   /// before, and was paid).
   ///
   /// Note the fallback can't know about a leader-withdrawn slot (that lives on
-  /// the room, not here) - it doesn't need to, because the sync writes a real
-  /// [dailyScheduledCount] entry whenever the true count differs from the
-  /// plain total, and this fallback only ever applies to a day no sync has
-  /// covered yet.
+  /// the room, not here). The sync writes a real [dailyScheduledCount] entry
+  /// whenever the true count differs from the plain total, so every day a
+  /// sync covered is right. A day no sync has covered yet is not: from a
+  /// removed habit's stopsOn until the member's phone next grades the room,
+  /// this still counts it. The board reads those days through
+  /// [planInferredScheduledCount] (see [unsyncedPlanInference]); this stays
+  /// as it is, because the sync compares against it.
   ///
   /// ...which used to mean "and therefore you missed it", and that was wrong
   /// in the one case it mattered most. The sync only writes a day while the
@@ -1988,10 +2051,16 @@ class RoomParticipant {
   ///
   /// Asked of the habits in the plan THAT day ([habitsInSlotsOn]): after a
   /// slot's habit was changed, a daily habit's days are not a weekly plan's
-  /// because a weekly habit fills the slot now.
-  bool _everyCountedHabitIsWeeklyOn(String dateKey) {
+  /// because a weekly habit fills the slot now. With [room], of the slots
+  /// its plan held that day too ([habitsInPlanOn]), so a habit the leader
+  /// removed stops speaking for the plan from its stopsOn. Without it, as
+  /// [recordedScheduledCountFor] asks: the sync compares against that, and
+  /// the board reads its room-aware answer through [unsyncedQuotaRestDays].
+  bool _everyCountedHabitIsWeeklyOn(String dateKey, {RoomModel? room}) {
     var sawOne = false;
-    for (final id in habitsInSlotsOn(dateKey)) {
+    for (final id in room == null
+        ? habitsInSlotsOn(dateKey)
+        : habitsInPlanOn(room, dateKey)) {
       sawOne = true;
       final rule = ruleFor(id, dateKey);
       if (rule == null || rule.frequencyType != HabitFrequencyType.weekly) {
@@ -2058,14 +2127,16 @@ class RoomParticipant {
     final day = DateTime.tryParse(dateKey);
     if (day == null) return false;
     if (quotaWeekWasMet(dateKey)) return false;
-    if (!_everyCountedHabitIsWeeklyOn(dateKey)) return false;
+    // The plan the room had that day: a quota the leader removed has no week
+    // left to lose, and a daily habit removed no longer holds the plan back.
+    if (!_everyCountedHabitIsWeeklyOn(dateKey, room: room)) return false;
 
     final weekStart = day.startOfDisplayWeek;
     final weekEnd = weekStart.add(const Duration(days: 6));
     final roomEnd = room.endDate;
     final today = room.lastCountedDayAt(clock);
 
-    for (final id in habitsInSlotsOn(dateKey)) {
+    for (final id in habitsInPlanOn(room, dateKey)) {
       final rule = ruleFor(id, dateKey);
       if (rule == null ||
           rule.frequencyType != HabitFrequencyType.weekly ||
@@ -2522,9 +2593,183 @@ class RoomParticipant {
   /// [recordedScheduledCountFor] again. What anything that pays grades,
   /// whichever roster it was handed: an inferred week can pick a different
   /// rest day from the member's own phone (see [closedQuotaWeekInference]).
+  ///
+  /// [planInferredScheduledCount] stays: it pays nothing either way (see
+  /// [unsyncedPlanInference]), and an ended room's day cards read this.
   RoomParticipant get asRecorded => inferredScheduledCount.isEmpty
       ? this
       : copyWith(inferredScheduledCount: const {});
+
+  /// What the leader's plan asked of this member on each day their phone has
+  /// not graded yet, where that differs from [recordedScheduledCountFor].
+  ///
+  /// That fallback, [countedHabitCountOn], cannot see the room, so a habit
+  /// the leader removed stays in it after its stopsOn. The member's next sync
+  /// writes the day without it; until then the board read the plan as it was
+  /// before the removal. Found on PBYAS5, 28 Sep 2026: two of seven habits
+  /// removed on the 26th, and the day card for the 28th of a member whose
+  /// phone had not synced that day said «0 من 7 عادات» and «ما أُنجز 7».
+  ///
+  /// Counts the slots in the plan that day ([RoomModel.slotLiveOn]), through
+  /// the same slot history and floors the fallback asks ([habitInSlotOn],
+  /// [slotOpenBy]), and only where nothing can pay differently:
+  ///  * a day no sync observed ([wasObservedOn]). An observed day with no
+  ///    key is a record the anti-backdating clamp compares against, so it
+  ///    keeps its count. Unobserved days are the newest ones, so the walk
+  ///    stops at the first observed day;
+  ///  * nothing stored for the day at all: no count, weight or marks, and
+  ///    nothing done, half done or rested. Every writer that stores work on a
+  ///    day decides its count in the same write, so a day with anything on it
+  ///    is the sync's to answer;
+  ///  * the record's own excuse stands: a met quota week's blank day that
+  ///    [recordedScheduledCountFor] already reads as 0 is left alone;
+  ///  * never zero. A member whose every link that day is gone keeps the
+  ///    fallback, which is also what the sync stores for them
+  ///    (gradedScheduledCount's planTotal): a zero would be full credit.
+  /// On every such day [creditFor] is 0, and [isFullyDone], [isRestDay] and
+  /// [isDeclaredRest] are false, whichever count it reads. So this changes
+  /// the words on the day card and the plan card, and nothing a place,
+  /// streak, prize or team day is decided by.
+  ///
+  /// Not [slotRemovedBeforeJoin]: joining holds such a slot as
+  /// [kDeclinedSlot], so [habitInSlotOn] already has nothing there, and
+  /// the sync never asks it either.
+  Map<String, int> unsyncedPlanInference(RoomModel room, {DateTime? now}) {
+    if (room.habitMode != RoomHabitMode.shared || room.isLobby) {
+      return const {};
+    }
+    // Nothing the leader edited on a slot this member holds: the fallback is
+    // the plan, which is almost every room.
+    final shared = room.sharedHabits;
+    var edited = false;
+    for (var i = 0; i < linkedHabitIds.length && i < shared.length; i++) {
+      if (shared[i].isRemoved || shared[i].offSpans.isNotEmpty) {
+        edited = true;
+        break;
+      }
+    }
+    if (!edited) return const {};
+    final start = countedStartIn(room);
+    final first = DateTime(start.year, start.month, start.day);
+    final out = <String, int>{};
+    for (var day = room.lastCountedDayAt(now ?? DateTime.now());
+        !day.isBefore(first);
+        day = DateTime(day.year, day.month, day.day - 1)) {
+      final key = day.toDateKey();
+      if (wasObservedOn(key)) break;
+      if (dailyScheduledCount.containsKey(key) ||
+          dailyScheduledWeight.containsKey(key) ||
+          dailyDoneWeight.containsKey(key) ||
+          dailyHabitMarks.containsKey(key) ||
+          (dailyDoneCount[key] ?? 0) != 0 ||
+          (dailyPartialCount[key] ?? 0) != 0 ||
+          (dailyRestedCount[key] ?? 0) != 0) {
+        continue;
+      }
+      final fallback = countedHabitCountOn(key);
+      if (recordedScheduledCountFor(key) != fallback) continue;
+      var live = 0;
+      for (var i = 0; i < linkedHabitIds.length; i++) {
+        if (!room.slotLiveOn(i, key)) continue;
+        final id = habitInSlotOn(i, key);
+        if (id == null || !slotOpenBy(id, key)) continue;
+        live++;
+      }
+      if (live == 0 || live >= fallback) continue;
+      out[key] = live;
+    }
+    return out;
+  }
+
+  /// This member with [unsyncedPlanInference] applied to every read built on
+  /// [scheduledCountFor]. For the board: gradedRoomParticipantsProvider and
+  /// gradedRoomRosterHistoryProvider call it. Nothing that writes a
+  /// participant document may read the result.
+  RoomParticipant withUnsyncedPlanInferred(
+    RoomModel room, {
+    DateTime? now,
+  }) {
+    final inferred = unsyncedPlanInference(room, now: now);
+    if (inferred.isEmpty && planInferredScheduledCount.isEmpty) return this;
+    return copyWith(planInferredScheduledCount: inferred);
+  }
+
+  /// The blank days of a met quota week this member's phone has not graded
+  /// yet that the record's own rest ([recordedScheduledCountFor]'s
+  /// quotaOkWeeks arm) leaves owed only because a habit the leader removed
+  /// is still linked on this member's document.
+  ///
+  /// That arm runs only on a plan made of weekly habits alone, and it asks
+  /// the plan through the member's own links, which cannot see the room: a
+  /// daily habit removed from a daily-plus-quota plan kept it from ever
+  /// running again. So the week the leader's edit left as a pure quota, met
+  /// by the Tuesday, read its Wednesday to Friday as owed on every board
+  /// until the member's phone graded them, and the phone then wrote them as
+  /// the rest they are (leader_remove_habit_quota_gate_test.dart: 88.2% and
+  /// second place, then 100% and a shared first, on the same squares).
+  ///
+  /// The arm's own conditions, one for one, asked of the plan [room] had
+  /// that day ([habitsInPlanOn]): nothing stored for the day, nothing done
+  /// or half done, the week in [quotaOkWeeks], every habit in that plan
+  /// weekly, and a day no sync observed ([wasObservedOn]; unobserved days
+  /// are the newest, so the walk stops at the first observed one). Only a
+  /// day the record does not already rest. [quotaOkWeeks] is written from
+  /// the quota habits alone, which is exactly the plan left here, so the
+  /// excuse speaks for everything it excuses, as the arm's gate requires.
+  ///
+  /// This one PAYS, unlike [unsyncedPlanInference]: a rested day leaves
+  /// both sides of the score, holds the streak and can complete a team day.
+  /// Kept apart from that inference so that one stays score-neutral.
+  Set<String> unsyncedQuotaRestInference(RoomModel room, {DateTime? now}) {
+    if (room.habitMode != RoomHabitMode.shared || room.isLobby) {
+      return const {};
+    }
+    // No slot this member holds was ever out of the plan: the two readings
+    // of the plan are the same list, which is almost every room.
+    final shared = room.sharedHabits;
+    var edited = false;
+    for (var i = 0; i < linkedHabitIds.length && i < shared.length; i++) {
+      if (shared[i].isRemoved || shared[i].offSpans.isNotEmpty) {
+        edited = true;
+        break;
+      }
+    }
+    if (!edited || quotaOkWeeks.isEmpty) return const {};
+    final start = countedStartIn(room);
+    final first = DateTime(start.year, start.month, start.day);
+    final out = <String>{};
+    for (var day = room.lastCountedDayAt(now ?? DateTime.now());
+        !day.isBefore(first);
+        day = DateTime(day.year, day.month, day.day - 1)) {
+      final key = day.toDateKey();
+      if (wasObservedOn(key)) break;
+      if (dailyScheduledCount.containsKey(key) ||
+          (dailyDoneCount[key] ?? 0) != 0 ||
+          (dailyPartialCount[key] ?? 0) != 0 ||
+          !quotaWeekWasMet(key) ||
+          !_everyCountedHabitIsWeeklyOn(key, room: room)) {
+        continue;
+      }
+      // The record rests it already.
+      if (_everyCountedHabitIsWeeklyOn(key)) continue;
+      out.add(key);
+    }
+    return out;
+  }
+
+  /// This member with [unsyncedQuotaRestInference] applied to every read
+  /// built on [scheduledCountFor]. For the board, beside
+  /// [withUnsyncedPlanInferred]: gradedRoomParticipantsProvider and
+  /// gradedRoomRosterHistoryProvider call both. Nothing that writes a
+  /// participant document may read the result.
+  RoomParticipant withUnsyncedQuotaRestInferred(
+    RoomModel room, {
+    DateTime? now,
+  }) {
+    final days = unsyncedQuotaRestInference(room, now: now);
+    if (days.isEmpty && unsyncedQuotaRestDays.isEmpty) return this;
+    return copyWith(unsyncedQuotaRestDays: days);
+  }
 
   /// How many habits were stood down on [dateKey]. Display only, see
   /// [dailyRestedCount].
@@ -3250,10 +3495,14 @@ class RoomParticipant {
   /// done) and [quotaOkWeeks] is an explicit allow-list (absent = not
   /// excused). So a participant whose device hasn't synced scores 0, never a
   /// phantom streak.
-  bool _keepsStreak(String dateKey, DateTime day) {
+  ///
+  /// Asked of the plan [room] had that day, so a daily habit the leader
+  /// removed stops holding a met quota week's days out of the streak from its
+  /// stopsOn, the day it stopped counting for anyone.
+  bool _keepsStreak(String dateKey, DateTime day, RoomModel room) {
     if (isFullyDone(dateKey)) return true;
     return quotaOkWeeks.contains(day.startOfDisplayWeek.toDateKey()) &&
-        _everyCountedHabitIsWeeklyOn(dateKey);
+        _everyCountedHabitIsWeeklyOn(dateKey, room: room);
   }
 
   /// Consecutive streak-keeping days counting backward from "now" (see
@@ -3314,7 +3563,7 @@ class RoomParticipant {
         day = day.subtract(const Duration(days: 1));
         continue;
       }
-      if (!_keepsStreak(key, day)) break;
+      if (!_keepsStreak(key, day, room)) break;
       count++;
       day = day.subtract(const Duration(days: 1));
     }
@@ -3592,6 +3841,8 @@ class RoomParticipant {
     String? lastSyncedDay,
     DateTime? lastSyncedAt,
     Map<String, int>? inferredScheduledCount,
+    Map<String, int>? planInferredScheduledCount,
+    Set<String>? unsyncedQuotaRestDays,
     DateTime? leftAt,
     bool clearLeftAt = false,
     List<({String from, String to})>? awaySpans,
@@ -3632,6 +3883,10 @@ class RoomParticipant {
         lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
         inferredScheduledCount:
             inferredScheduledCount ?? this.inferredScheduledCount,
+        planInferredScheduledCount:
+            planInferredScheduledCount ?? this.planInferredScheduledCount,
+        unsyncedQuotaRestDays:
+            unsyncedQuotaRestDays ?? this.unsyncedQuotaRestDays,
         leftAt: clearLeftAt ? null : (leftAt ?? this.leftAt),
         awaySpans: awaySpans ?? this.awaySpans,
         slotDeclinedFrom: slotDeclinedFrom ?? this.slotDeclinedFrom,
@@ -3752,9 +4007,12 @@ extension RoomLeaderboard on RoomModel {
   /// record, and an ended room's finale pays its podium from the places
   /// [standings] draws from this list: RoomsController.claimPodiumBonus
   /// re-checks the end, the flag, the member count and tenure, never the
-  /// rank. The inference returns nothing for a room that has ended on any
-  /// clock, but a list graded before the end is kept until a stream emits,
-  /// so the switch is made again here, where the places are drawn.
+  /// rank. The quota inference returns nothing for a room that has ended on
+  /// any clock, but a list graded before the end is kept until a stream
+  /// emits or the day clock turns, so the switch is made again here, where
+  /// the places are drawn. [RoomParticipant.planInferredScheduledCount]
+  /// survives it on purpose: it pays nothing (see
+  /// [RoomParticipant.unsyncedPlanInference]).
   List<RoomParticipant> scoringRoster(
     List<RoomParticipant> graded, {
     DateTime? now,

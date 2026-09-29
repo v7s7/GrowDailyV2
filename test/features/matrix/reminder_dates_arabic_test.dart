@@ -80,7 +80,10 @@ void main() {
   final anchor = day.add(const Duration(hours: 17));
   // Names only, no digits; read inside each test, after setUpAll has
   // loaded the locale data.
+  // The weekday name, then (between 29 and 31 December, when three days
+  // out is next year) nothing else changes but the year after the month.
   String weekday() => DateFormat('EEEE', 'ar').format(day);
+  String yr() => day.year == now.year ? '' : ' ${day.year}';
   String month() => DateFormat('MMMM', 'ar').format(day);
 
   testWidgets('the Add Task reminder section: row, chips and preview',
@@ -100,7 +103,10 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(find.text('${day.day} ${month()} · 5:00 م'), findsOneWidget,
+    // The weekday leads since 2026-09-29 (the same day words as the Tasks
+    // header), and the day comes before the month.
+    expect(find.text('${weekday()}، ${day.day} ${month()}${yr()} · 5:00 م'),
+        findsOneWidget,
         reason: 'the reminder row, day before month');
     for (final chip in ['5', '10', '15', '30']) {
       expect(find.text(chip), findsOneWidget, reason: 'the «$chip» chip');
@@ -108,11 +114,11 @@ void main() {
     expect(find.text('45 دقيقة'), findsOneWidget,
         reason: 'the hand-typed offset gets its own chip');
     expect(
-      find.text('${day.day} ${month()} · 4:15 م   ·   '
-          '${day.day} ${month()} · 4:45 م   ·   '
-          '${day.day} ${month()} · 5:00 م'),
+      find.text('${weekday()}، ${day.day} ${month()}${yr()} · 4:15 م   ·   '
+          '4:45 م   ·   '
+          '5:00 م'),
       findsOneWidget,
-      reason: 'the preview line',
+      reason: 'the preview line names the day once, where it changes',
     );
     expect(_arabicIndicText, findsNothing);
   });
@@ -148,7 +154,8 @@ void main() {
     await tester.enterText(find.byType(TextField), '20');
     await tester.pumpAndSettle();
 
-    expect(find.text('${day.day} ${month()} · 4:40 م'), findsOneWidget);
+    expect(find.text('${weekday()}، ${day.day} ${month()}${yr()} · 4:40 م'),
+        findsOneWidget);
     expect(_arabicIndicText, findsNothing);
   });
 
@@ -167,7 +174,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    expect(find.text('${weekday()}، ${day.day} ${month()}'), findsOneWidget);
+    expect(find.text('${weekday()}، ${day.day} ${month()}${yr()}'), findsOneWidget);
     expect(find.text('أقرب وقت: 3:05 م'), findsOneWidget);
     expect(_arabicIndicOutsideWheel, findsNothing);
   });

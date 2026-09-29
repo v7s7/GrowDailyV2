@@ -10,6 +10,8 @@ import '../../../core/theme/game_theme.dart';
 import '../../habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../models/notification_settings.dart';
 import '../notifiers/notification_settings_notifier.dart';
+import '../widgets/notification_summary.dart'
+    show systemNotificationPermissionProvider;
 import '../../../shared/widgets/app_snackbar.dart';
 
 /// Everything the app can notify someone about, and every knob to tune or
@@ -65,16 +67,20 @@ class NotificationSettingsScreen extends ConsumerWidget {
               onChanged: (v) => update((c) => c.copyWith(masterEnabled: v)),
             ),
           ]),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           AnimatedOpacity(
             opacity: settings.masterEnabled ? 1 : 0.4,
             duration: GameMotion.standard,
             child: IgnorePointer(
               ignoring: !settings.masterEnabled,
+              // Sections by what each switch feeds (2026-09-28). This was
+              // one card of six switches under «ما الذي تريد إشعاري به»,
+              // with the daily time alone in a «التوقيت» card at the very
+              // bottom, below the two switches that only ever add to it.
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _SectionLabel(s.notifWhatSection),
+                  _SectionLabel(s.notifHabitsSection),
                   _Card(children: [
                     _SwitchRow(
                       icon: Icons.notifications_active_rounded,
@@ -84,6 +90,26 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       onChanged: (v) =>
                           update((c) => c.copyWith(habitRemindersEnabled: v)),
                     ),
+                    const _RowDivider(),
+                    _SwitchRow(
+                      icon: Icons.layers_rounded,
+                      label: s.notifBundle,
+                      subtitle: s.notifBundleDesc,
+                      value: settings.bundleEnabled,
+                      onChanged: (v) =>
+                          update((c) => c.copyWith(bundleEnabled: v)),
+                    ),
+                  ]),
+                  const SizedBox(height: 24),
+                  // The daily reminder's time is the one daily note's only
+                  // clock, and the two switches under it only add lines to
+                  // that note, never a notification of their own, so they
+                  // sit with it. The "streak check time" row that used to
+                  // be a fallback clock is gone: nothing is sent without a
+                  // picked time (Aziz, 2026-09-24).
+                  _SectionLabel(s.notifDailySection),
+                  _Card(children: [
+                    const _DailyReminderRow(),
                     const _RowDivider(),
                     _SwitchRow(
                       icon: Icons.local_fire_department_rounded,
@@ -102,29 +128,10 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       onChanged: (v) =>
                           update((c) => c.copyWith(matrixNudgeEnabled: v)),
                     ),
-                    const _RowDivider(),
-                    _SwitchRow(
-                      icon: Icons.layers_rounded,
-                      label: s.notifBundle,
-                      subtitle: s.notifBundleDesc,
-                      value: settings.bundleEnabled,
-                      onChanged: (v) =>
-                          update((c) => c.copyWith(bundleEnabled: v)),
-                    ),
-                    const _RowDivider(),
-                    _SwitchRow(
-                      icon: Icons.calendar_view_week_rounded,
-                      label: s.notifWeeklyDigest,
-                      subtitle: s.notifWeeklyDigestDesc,
-                      value: settings.weeklyNoteOn,
-                      // Either way this is the person's answer, so the
-                      // recap card stops asking (weekly_note_offer_provider).
-                      onChanged: (v) {
-                        update((c) => c.copyWith(weeklyNoteOn: v));
-                        markWeeklyNoteOfferAnswered(ref);
-                      },
-                    ),
-                    const _RowDivider(),
+                  ]),
+                  const SizedBox(height: 24),
+                  _SectionLabel(s.notifRoomsWeekSection),
+                  _Card(children: [
                     // The one push category this app sends from a server
                     // rather than scheduling locally - see
                     // NotificationSettings.roomActivityEnabled's own doc
@@ -145,10 +152,23 @@ class NotificationSettingsScreen extends ConsumerWidget {
                     _RoomPushStatus(
                       roomActivityEnabled: settings.roomActivityEnabled,
                     ),
+                    const _RowDivider(),
+                    _SwitchRow(
+                      icon: Icons.calendar_view_week_rounded,
+                      label: s.notifWeeklyDigest,
+                      subtitle: s.notifWeeklyDigestDesc,
+                      value: settings.weeklyNoteOn,
+                      // Either way this is the person's answer, so the
+                      // recap card stops asking (weekly_note_offer_provider).
+                      onChanged: (v) {
+                        update((c) => c.copyWith(weeklyNoteOn: v));
+                        markWeeklyNoteOfferAnswered(ref);
+                      },
+                    ),
                   ]),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
                   // The prayer place moved to its own page on 2026-09-25
-                  // (Settings › موقع الصلاة, PrayerLocationScreen): it feeds
+                  // (Settings › اللغة وموقع الصلاة › موقع الصلاة): it feeds
                   // the prayer widget and prayer habits, not only reminders.
                   _SectionLabel(s.notifQuietHoursSection),
                   _Card(children: [
@@ -213,16 +233,6 @@ class NotificationSettingsScreen extends ConsumerWidget {
                       ),
                     ],
                   ]),
-                  const SizedBox(height: 20),
-                  _SectionLabel(s.notifTimingSection),
-                  // The daily reminder's time is the evening note's only
-                  // clock. The "streak check time" row beside it was a
-                  // fallback clock used when no time was picked; nothing is
-                  // sent without one now (Aziz, 2026-09-24), so it had
-                  // nothing left to set.
-                  const _Card(children: [
-                    _DailyReminderRow(),
-                  ]),
                 ],
               ),
             ),
@@ -263,6 +273,11 @@ Future<void> _sendTestNotification(BuildContext context) async {
 /// The original Daily Reminder row, moved here from Profile unchanged in
 /// behavior (same reminderTimeProvider, same permission-denied snackbar) —
 /// just relocated so every notification-related setting lives in one place.
+///
+/// Since 2026-09-28 it heads its own «التذكير اليومي» section: the picked
+/// time sits in a pill at the end, with a small × that clears it, and the
+/// line under the name says it is one notification a day. Before a time is
+/// picked the line asks for one, and the row ends in a chevron.
 class _DailyReminderRow extends ConsumerWidget {
   const _DailyReminderRow();
 
@@ -302,7 +317,8 @@ class _DailyReminderRow extends ConsumerWidget {
               await ref.read(reminderTimeProvider.notifier).clear();
             },
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: EdgeInsetsDirectional.fromSTEB(
+            16, 12, reminderTime == null ? 16 : 8, 12),
         child: Row(
           children: [
             Icon(Icons.notifications_rounded, size: 20, color: gp.textSec),
@@ -317,17 +333,56 @@ class _DailyReminderRow extends ConsumerWidget {
                           fontSize: 15,
                           color: gp.textPrimary,
                           fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 2),
                   Text(
                     reminderTime == null
                         ? s.tapToSetReminder
-                        : reminderTime.format(context),
-                    style: TextStyle(fontSize: 12, color: gp.textTert),
+                        : s.notifDailyReminderNote,
+                    style: TextStyle(
+                        fontSize: 12.5, color: gp.textSec, height: 1.4),
                   ),
                 ],
               ),
             ),
-            if (reminderTime != null)
-              Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
+            if (reminderTime == null)
+              Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert)
+            else ...[
+              const SizedBox(width: 8),
+              // The picked time, in a pill so it reads as the value the row
+              // sets. Part of the row: a tap on it opens the picker too.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: gp.surfaceHL,
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+                child: Text(
+                  reminderTime.format(context),
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: gp.textPrimary,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+              // Clearing used to be a long press that nothing on screen
+              // hinted at (2026-09-28). The long press still works.
+              // 44pt, the smallest target this app allows, and no taller:
+              // a stock 48pt button would make this row the tallest here.
+              IconButton(
+                tooltip: s.notifClearReminderTime,
+                constraints:
+                    const BoxConstraints.tightFor(width: 44, height: 44),
+                padding: EdgeInsets.zero,
+                iconSize: 18,
+                color: gp.textSec,
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () async {
+                  HapticFeedback.selectionClick();
+                  await ref.read(reminderTimeProvider.notifier).clear();
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -490,15 +545,16 @@ class _RoomPushStatusState extends ConsumerState<_RoomPushStatus>
 /// it, test button included). Re-checks on every app resume, because the fix
 /// this banner sends someone to make happens in system Settings — the moment
 /// they come back is exactly the moment it should disappear.
-class _SystemPermissionBanner extends StatefulWidget {
+class _SystemPermissionBanner extends ConsumerStatefulWidget {
   const _SystemPermissionBanner();
 
   @override
-  State<_SystemPermissionBanner> createState() =>
+  ConsumerState<_SystemPermissionBanner> createState() =>
       _SystemPermissionBannerState();
 }
 
-class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
+class _SystemPermissionBannerState
+    extends ConsumerState<_SystemPermissionBanner>
     with WidgetsBindingObserver {
   // null = unknown/not-yet-checked, which renders nothing: a wrong warning
   // is worse than a missing one, so only an explicit "false" shows it.
@@ -523,7 +579,14 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
   }
 
   Future<void> _check() async {
-    final enabled = await NotificationService.instance.checkSystemPermission();
+    // Through the same provider as Settings' «الإشعارات» line, so the two
+    // can never disagree about the phone. A failed check is no answer.
+    bool? enabled;
+    try {
+      enabled = await ref.read(systemNotificationPermissionProvider)();
+    } catch (_) {
+      enabled = null;
+    }
     if (mounted) setState(() => _enabled = enabled);
   }
 
@@ -599,25 +662,32 @@ class _SystemPermissionBannerState extends State<_SystemPermissionBanner>
   }
 }
 
+/// A section's heading: 13pt with NO letter spacing, the same heading as
+/// Settings' own cards (2026-09-28). It was 11pt with letterSpacing 1.5, and
+/// letter spacing pulls joined Arabic letters apart.
 class _SectionLabel extends StatelessWidget {
   final String text;
   const _SectionLabel(this.text);
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+        padding: const EdgeInsetsDirectional.fromSTEB(4, 0, 4, 8),
         child: Text(
           text,
           style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
             color: context.gp.textSec,
-            letterSpacing: 1.5,
           ),
         ),
       );
 }
 
+/// A MATERIAL, not a Container, for the reason Settings' _SettingsGroup
+/// gives: an InkWell paints its ripple on the nearest Material ancestor, and
+/// with a Container here that was the Scaffold's, under this card's opaque
+/// fill, so the daily reminder and quiet-hours time rows showed no pressed
+/// feedback at all. The clip keeps the ripple inside the rounded corners.
 class _Card extends StatelessWidget {
   final List<Widget> children;
   const _Card({required this.children});
@@ -625,11 +695,12 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return Container(
-      decoration: BoxDecoration(
-        color: gp.surface,
+    return Material(
+      color: gp.surface,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(GameSpacing.cardRadius),
-        border: Border.all(color: gp.border, width: 0.5),
+        side: BorderSide(color: gp.border, width: 0.5),
       ),
       child: Column(children: children),
     );
@@ -678,11 +749,14 @@ class _SwitchRow extends StatelessWidget {
                         fontSize: 15,
                         color: gp.textPrimary,
                         fontWeight: FontWeight.w500)),
+                // textSec, not textTert: the lightest grey measured about
+                // 2.4:1 on the light card, too faint for the one line that
+                // says what a switch does (2026-09-28).
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
                   Text(subtitle!,
                       style: TextStyle(
-                          fontSize: 12, color: gp.textTert, height: 1.3)),
+                          fontSize: 12.5, color: gp.textSec, height: 1.4)),
                 ],
               ],
             ),

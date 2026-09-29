@@ -45,7 +45,7 @@ void main() {
       final image = (contents['images'] as List).single as Map;
       expect(image['filename'], 'icon.png');
     }
-    expect(expected, hasLength(96), reason: '95 shape-and-colour, 1 Ramadan');
+    expect(expected, hasLength(100), reason: '99 shape-and-colour, 1 Ramadan');
     final onDisk = Directory(_sets)
         .listSync()
         .whereType<Directory>()

@@ -463,7 +463,7 @@ void main() {
 
     await tester.tap(find.byType(Sprout));
     await tester.pump(const Duration(milliseconds: 300));
-    expect(said(tester), ar.sproutTickle);
+    expect(tickleLines(ar), contains(said(tester)));
     await tester.pump(const Duration(seconds: 2));
 
     await tester.pumpWidget(app(card(greens: 2)));
@@ -528,7 +528,7 @@ void main() {
 
     await tester.tap(find.byType(Sprout));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text(ar.sproutTickle), findsOneWidget);
+    expect(tickleLines(ar), contains(said(tester)));
     expect(poseShown(tester), SproutPose.laugh.asset);
 
     await tester.pump(const Duration(milliseconds: 1600));

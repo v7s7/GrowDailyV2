@@ -371,6 +371,12 @@ function weekStartKey(key) {
         room, participant: p, dayKey: dk, offsetMinutes: ROOM_OFFSET_MINUTES,
       });
       const credited = stored.done + stored.partial * 0.5;
+      // A day their phone has not graded since the leader took a habit out
+      // of the plan reads the plan's count, as the board does
+      // (planInferredScheduledOn). It printed 0/7 for PBYAS5's 2026-09-28
+      // beside a board of 0 of 5. Marked, because nothing is stored.
+      const unsynced = stored.planInferred ?
+        `  not synced: the plan's count, the record alone says ${stored.recorded}` : '';
       let countsCell;
       if (!stored.running) {
         countsCell = 'paused, not graded';
@@ -380,7 +386,7 @@ function weekStartKey(key) {
         // is progress, not a verdict. Counting today as a zero-credit day is
         // the same mistake that had the report calling an unfinished today a
         // miss. Shown, and left out of the total below.
-        countsCell = `${num(credited)}/${stored.scheduled}  still open`;
+        countsCell = `${num(credited)}/${stored.scheduled}  still open${unsynced}`;
       } else if (stored.stoodDown) {
         countsCell = 'stood down, not graded';
       } else if (!roomDayVerdict(stored).counts) {
@@ -391,7 +397,7 @@ function weekStartKey(key) {
         countsCell = 'rest, left out of the score';
       } else {
         countsCell = `${num(credited)}/${stored.scheduled}` +
-            (stored.partial > 0 ? `  (${stored.partial} جزئي)` : '');
+            (stored.partial > 0 ? `  (${stored.partial} جزئي)` : '') + unsynced;
         storedTotal += stored.credit;
         gradedDays++;
       }

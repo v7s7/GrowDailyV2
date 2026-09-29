@@ -174,6 +174,21 @@ const List<String> kEditableWordingKeys = [
   'profileDashboardSection',
   'settings',
   'settingsScreenTitle',
+  'settingsPremiumUnlock',
+  'settingsPremiumManage',
+  'settingsNotifSummary',
+  'settingsNotifOff',
+  'settingsNotifPhoneOff',
+  'settingsLookTitle',
+  'settingsLookLight',
+  'settingsLookDark',
+  'settingsPagesSection',
+  'settingsLanguagePlaceTitle',
+  'settingsHelpTitle',
+  'settingsHelpSummary',
+  'appGuideRowTitle',
+  'settingsAccountTitle',
+  'settingsAccountSummary',
   'darkMode',
   'appearance',
   'appearanceSheetTitle',
@@ -425,6 +440,22 @@ const List<String> kEditableWordingKeys = [
   'matrixCarriedOverCount',
   'matrixUpcomingCount',
   'matrixAll',
+  'matrixPrevDay',
+  'matrixNextDay',
+  'matrixTodayWithDate',
+  'matrixOpenMonth',
+  'matrixBackToToday',
+  'matrixPickDay',
+  'matrixMoveToAnotherDay',
+  'matrixAddedForToday',
+  'matrixAddedForDay',
+  'matrixMovedToToday',
+  'matrixMovedToDay',
+  'matrixShowDay',
+  'matrixNoTasksThatDay',
+  'matrixDayHasTasks',
+  'matrixDayAllDone',
+  'matrixDayRowHint',
   'matrixTapToAdd',
   'matrixAddAnother',
   'matrixAddTask',
@@ -1257,7 +1288,11 @@ const List<String> kEditableWordingKeys = [
   'notificationsTitle',
   'notifMasterTitle',
   'notifMasterDesc',
-  'notifWhatSection',
+  'notifHabitsSection',
+  'notifDailySection',
+  'notifRoomsWeekSection',
+  'notifDailyReminderNote',
+  'notifClearReminderTime',
   'notifHabitReminders',
   'notifHabitRemindersDesc',
   'notifStreakRisk',
@@ -1281,7 +1316,6 @@ const List<String> kEditableWordingKeys = [
   'notifQuietEnd',
   'notifQuietAppliesToPrayer',
   'notifQuietAppliesToPrayerDesc',
-  'notifTimingSection',
   'notifSendTest',
   'notifTestSent',
   'prayerPlaceTitle',
@@ -1342,7 +1376,6 @@ const List<String> kEditableWordingKeys = [
   'roomReactionFinished',
   'matrixRewardFloatXp',
   'matrixRewardFloatGold',
-  'matrixAddedForLater',
   'monthlyStoryTitle',
   'monthlyStoryEmpty',
   'monthlyStoryHeadline',
@@ -2294,6 +2327,51 @@ class _EditedS extends S {
 
   @override
   String get settingsScreenTitle => plainWording(_edits['settingsScreenTitle']) ?? super.settingsScreenTitle;
+
+  @override
+  String get settingsPremiumUnlock => plainWording(_edits['settingsPremiumUnlock']) ?? super.settingsPremiumUnlock;
+
+  @override
+  String get settingsPremiumManage => plainWording(_edits['settingsPremiumManage']) ?? super.settingsPremiumManage;
+
+  @override
+  String get settingsNotifSummary => plainWording(_edits['settingsNotifSummary']) ?? super.settingsNotifSummary;
+
+  @override
+  String get settingsNotifOff => plainWording(_edits['settingsNotifOff']) ?? super.settingsNotifOff;
+
+  @override
+  String get settingsNotifPhoneOff => plainWording(_edits['settingsNotifPhoneOff']) ?? super.settingsNotifPhoneOff;
+
+  @override
+  String get settingsLookTitle => plainWording(_edits['settingsLookTitle']) ?? super.settingsLookTitle;
+
+  @override
+  String get settingsLookLight => plainWording(_edits['settingsLookLight']) ?? super.settingsLookLight;
+
+  @override
+  String get settingsLookDark => plainWording(_edits['settingsLookDark']) ?? super.settingsLookDark;
+
+  @override
+  String get settingsPagesSection => plainWording(_edits['settingsPagesSection']) ?? super.settingsPagesSection;
+
+  @override
+  String get settingsLanguagePlaceTitle => plainWording(_edits['settingsLanguagePlaceTitle']) ?? super.settingsLanguagePlaceTitle;
+
+  @override
+  String get settingsHelpTitle => plainWording(_edits['settingsHelpTitle']) ?? super.settingsHelpTitle;
+
+  @override
+  String get settingsHelpSummary => plainWording(_edits['settingsHelpSummary']) ?? super.settingsHelpSummary;
+
+  @override
+  String get appGuideRowTitle => plainWording(_edits['appGuideRowTitle']) ?? super.appGuideRowTitle;
+
+  @override
+  String get settingsAccountTitle => plainWording(_edits['settingsAccountTitle']) ?? super.settingsAccountTitle;
+
+  @override
+  String get settingsAccountSummary => plainWording(_edits['settingsAccountSummary']) ?? super.settingsAccountSummary;
 
   @override
   String get darkMode => plainWording(_edits['darkMode']) ?? super.darkMode;
@@ -3399,6 +3477,96 @@ class _EditedS extends S {
 
   @override
   String get matrixAll => plainWording(_edits['matrixAll']) ?? super.matrixAll;
+
+  @override
+  String get matrixPrevDay => plainWording(_edits['matrixPrevDay']) ?? super.matrixPrevDay;
+
+  @override
+  String get matrixNextDay => plainWording(_edits['matrixNextDay']) ?? super.matrixNextDay;
+
+  @override
+  String matrixTodayWithDate(String date) {
+    final wordingEdit = _edits['matrixTodayWithDate'];
+    if (wordingEdit == null) return super.matrixTodayWithDate(date);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'date': () => '$date',
+                }
+              : <String, String Function()>{
+                  'date': () => '$date',
+                },
+        ) ??
+        super.matrixTodayWithDate(date);
+  }
+
+  @override
+  String get matrixOpenMonth => plainWording(_edits['matrixOpenMonth']) ?? super.matrixOpenMonth;
+
+  @override
+  String get matrixBackToToday => plainWording(_edits['matrixBackToToday']) ?? super.matrixBackToToday;
+
+  @override
+  String get matrixPickDay => plainWording(_edits['matrixPickDay']) ?? super.matrixPickDay;
+
+  @override
+  String get matrixMoveToAnotherDay => plainWording(_edits['matrixMoveToAnotherDay']) ?? super.matrixMoveToAnotherDay;
+
+  @override
+  String get matrixAddedForToday => plainWording(_edits['matrixAddedForToday']) ?? super.matrixAddedForToday;
+
+  @override
+  String matrixAddedForDay(String day) {
+    final wordingEdit = _edits['matrixAddedForDay'];
+    if (wordingEdit == null) return super.matrixAddedForDay(day);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'day': () => '$day',
+                }
+              : <String, String Function()>{
+                  'day': () => '$day',
+                },
+        ) ??
+        super.matrixAddedForDay(day);
+  }
+
+  @override
+  String get matrixMovedToToday => plainWording(_edits['matrixMovedToToday']) ?? super.matrixMovedToToday;
+
+  @override
+  String matrixMovedToDay(String day) {
+    final wordingEdit = _edits['matrixMovedToDay'];
+    if (wordingEdit == null) return super.matrixMovedToDay(day);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'day': () => '$day',
+                }
+              : <String, String Function()>{
+                  'day': () => '$day',
+                },
+        ) ??
+        super.matrixMovedToDay(day);
+  }
+
+  @override
+  String get matrixShowDay => plainWording(_edits['matrixShowDay']) ?? super.matrixShowDay;
+
+  @override
+  String get matrixNoTasksThatDay => plainWording(_edits['matrixNoTasksThatDay']) ?? super.matrixNoTasksThatDay;
+
+  @override
+  String get matrixDayHasTasks => plainWording(_edits['matrixDayHasTasks']) ?? super.matrixDayHasTasks;
+
+  @override
+  String get matrixDayAllDone => plainWording(_edits['matrixDayAllDone']) ?? super.matrixDayAllDone;
+
+  @override
+  String get matrixDayRowHint => plainWording(_edits['matrixDayRowHint']) ?? super.matrixDayRowHint;
 
   @override
   String get matrixTapToAdd => plainWording(_edits['matrixTapToAdd']) ?? super.matrixTapToAdd;
@@ -7911,7 +8079,19 @@ class _EditedS extends S {
   String get notifMasterDesc => plainWording(_edits['notifMasterDesc']) ?? super.notifMasterDesc;
 
   @override
-  String get notifWhatSection => plainWording(_edits['notifWhatSection']) ?? super.notifWhatSection;
+  String get notifHabitsSection => plainWording(_edits['notifHabitsSection']) ?? super.notifHabitsSection;
+
+  @override
+  String get notifDailySection => plainWording(_edits['notifDailySection']) ?? super.notifDailySection;
+
+  @override
+  String get notifRoomsWeekSection => plainWording(_edits['notifRoomsWeekSection']) ?? super.notifRoomsWeekSection;
+
+  @override
+  String get notifDailyReminderNote => plainWording(_edits['notifDailyReminderNote']) ?? super.notifDailyReminderNote;
+
+  @override
+  String get notifClearReminderTime => plainWording(_edits['notifClearReminderTime']) ?? super.notifClearReminderTime;
 
   @override
   String get notifHabitReminders => plainWording(_edits['notifHabitReminders']) ?? super.notifHabitReminders;
@@ -7981,9 +8161,6 @@ class _EditedS extends S {
 
   @override
   String get notifQuietAppliesToPrayerDesc => plainWording(_edits['notifQuietAppliesToPrayerDesc']) ?? super.notifQuietAppliesToPrayerDesc;
-
-  @override
-  String get notifTimingSection => plainWording(_edits['notifTimingSection']) ?? super.notifTimingSection;
 
   @override
   String get notifSendTest => plainWording(_edits['notifSendTest']) ?? super.notifSendTest;
@@ -8320,9 +8497,6 @@ class _EditedS extends S {
         ) ??
         super.matrixRewardFloatGold(gold);
   }
-
-  @override
-  String get matrixAddedForLater => plainWording(_edits['matrixAddedForLater']) ?? super.matrixAddedForLater;
 
   @override
   String get monthlyStoryTitle => plainWording(_edits['monthlyStoryTitle']) ?? super.monthlyStoryTitle;

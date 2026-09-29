@@ -55,6 +55,18 @@ class QuadrantCard extends StatelessWidget {
   // recolor). Its own callback rather than folded into onExpand's tap, so
   // a long-press never also fires the tap gesture underneath it.
   final VoidCallback onEditQuadrant;
+  // The line under a row's title (its time, or its date where the board
+  // mixes days), or null for none: MatrixScreen's matrixRowMeta, computed
+  // by the screen so every surface agrees on it. Handed down to
+  // _AnimatedTaskStack, which both sizes the row by it and draws it.
+  final String? Function(MatrixTask task)? metaFor;
+  // The board is a day that has gone (the day lens on a past day). Its
+  // quadrants are a record, not a plan: no pending-count pill (on Do First
+  // it is tinted and would read as an overdue count), a quiet empty body
+  // that says there were no tasks instead of pulsing "tap to add", and no
+  // «+ أضف مهمة أخرى» under the rows. The header's + still adds, for
+  // today (MatrixScreen decides the day). Nothing red, no "late".
+  final bool pastDay;
 
   const QuadrantCard({
     super.key,
@@ -75,15 +87,16 @@ class QuadrantCard extends StatelessWidget {
     required this.title,
     required this.color,
     required this.onEditQuadrant,
+    this.metaFor,
+    this.pastDay = false,
   });
 
-  // `tasks` now holds pending tasks plus anything finished today — a done
-  // task stays right here, struck through, for the rest of the day it was
-  // finished on (see doneToday/visible in MatrixScreen) instead of
-  // vanishing the instant it's checked off. It only drops out of this list
-  // for good once the day rolls over, at which point it's still reachable
-  // in Completed history via the screen header. This badge counts only the
-  // still-pending ones, not the already-done-today ones sitting below them.
+  // `tasks` holds pending tasks plus done ones: a done task stays right
+  // here, struck through, on its day's board (and the day it was finished
+  // on, see task_day.dart's showsOnDay) instead of vanishing the instant
+  // it's checked off, and it is always reachable in Completed history via
+  // the screen header. This badge counts only the still-pending ones, not
+  // the done ones sitting below them.
   int get _pending => tasks.where((t) => !t.isDone).length;
 
   @override
@@ -181,7 +194,7 @@ class QuadrantCard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                            if (_pending > 0) ...[
+                            if (_pending > 0 && !pastDay) ...[
                               const SizedBox(width: 4),
                               Container(
                                 padding: const EdgeInsets.symmetric(
@@ -244,9 +257,10 @@ class QuadrantCard extends StatelessWidget {
               ),
               child: tasks.isEmpty
                 ? _EmptyQuadrantBody(
-                    key: const ValueKey('empty'),
+                    key: ValueKey(pastDay ? 'empty-past' : 'empty'),
                     color: color,
                     onTap: onAddTapped,
+                    quiet: pastDay,
                   )
                 // Keyed on a stable constant, not on the task ids — this key
                 // only needs to change when AnimatedSwitcher should actually
@@ -270,6 +284,8 @@ class QuadrantCard extends StatelessWidget {
                     onToggleFav: onToggleFav,
                     onAddTapped: onAddTapped,
                     onOpenDetails: onOpenDetails,
+                    metaFor: metaFor,
+                    showAddAnother: !pastDay,
                   ),
             ),
           ),

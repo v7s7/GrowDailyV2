@@ -253,17 +253,14 @@ void main() {
 
       // Set an anchor, which is what makes the section grow at all: until
       // one exists the picker is a single row and nothing can overflow.
-      // The calendar, then the time wheel, each accepted at its default
-      // (the wheel starts an hour out, so it's comfortably in the future).
-      // The calendar's button reads "OK" because the stand-in delegates
-      // above are English; the wheel's Done is the app's own string.
+      // The time wheel, accepted at its default (it starts an hour out, so
+      // it's comfortably in the future). There is no calendar step any
+      // more: the sheet's day row has already chosen the day, so the
+      // reminder row opens the wheel on it directly.
       await tester.tap(find.text(ar.matrixReminderLabel));
       await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.text('OK'));
-      await tester.pump(const Duration(milliseconds: 400));
-      // The wheel is a bottom sheet, pushed only once the calendar's future
-      // has completed, so its slide-in starts a frame later than the dial's
-      // fade used to: one more frame before Done is on screen to tap.
+      // The wheel is a bottom sheet and slides in a frame later than a
+      // dialog fades: one more frame before Done is on screen to tap.
       await tester.pump(const Duration(milliseconds: 400));
       await tester.tap(find.text(ar.matrixDone));
       await tester.pump(const Duration(milliseconds: 400));

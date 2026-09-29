@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/game_constants.dart';
+import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/l10n/app_strings.dart' show localeProvider;
 import '../../../core/services/local_store_service.dart';
 import '../../../core/services/notification_service.dart';
@@ -11,6 +12,7 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
 import '../models/matrix_task.dart';
+import '../task_day.dart';
 
 /// Parses a `growdaily://matrix/add` deep link — the Matrix home-screen
 /// widget's "+" button (see ios/GrowDailyWidget/GrowDailyWidget.swift's
@@ -84,6 +86,113 @@ DateTime? latestMissedTaskReminder(
   // most recent one that's passed.
   final passed = task.reminderAts.where((r) => !r.isAfter(at));
   return passed.isEmpty ? null : passed.last;
+}
+
+/// [task] moved to [day], or null when the move is refused. Pure, with the
+/// clock passed in, for the same reason as [futureTaskReminders]: the rules
+/// are what matter and they can be tested without Riverpod, Hive or the
+/// notification plugin. [MatrixNotifier.moveToDay] is the only caller.
+///
+/// A timed task keeps its clock time (or takes [time], when given) and its
+/// whole stack of offsets, rebuilt around the new anchor, so a 17:00 task
+/// with a "1 hour before" warning is still exactly that on the new day. The
+/// alarm choice is untouched. Offset moments that have already passed are
+/// dropped: moving a task to today at 17:00 at 16:30 must not store a 16:00
+/// warning that could only ever fire as an overdue catch-up. The anchor
+/// itself in the past is a refusal (null), not a drop, because that would
+/// store a task whose time has already gone; the move sheet answers it by
+/// asking for a time on the wheel and calling again with [time].
+///
+/// An untimed task just takes [day] as its plannedDay; [time] is ignored,
+/// since there is no clock time to replace and adding a reminder nobody
+/// asked for is not a move. A done task is never moved (null): its board
+/// is history. A task already on [day] with no new [time] comes back
+/// unchanged (the same instance), so the caller can skip the write.
+@visibleForTesting
+MatrixTask? taskMovedToDay(
+  MatrixTask task,
+  DateTime day, {
+  TimeOfDay? time,
+  required DateTime now,
+}) {
+  if (task.isDone) return null;
+  final anchor = MatrixTask.resolveAnchor(
+    task.reminderAnchorAt,
+    task.reminderAts,
+  )?.toLocal();
+  if (anchor == null) {
+    if (taskDay(task).isSameDayAs(day)) return task;
+    return task.copyWith(plannedDay: dayKey(day));
+  }
+  if (time == null && taskDay(task).isSameDayAs(day)) return task;
+  final newAnchor = DateTime(
+    day.year,
+    day.month,
+    day.day,
+    time?.hour ?? anchor.hour,
+    time?.minute ?? anchor.minute,
+  );
+  if (!newAnchor.isAfter(now)) return null;
+  final offsets = offsetsFrom(anchor: anchor, reminders: task.reminderAts);
+  final moments = remindersFor(anchor: newAnchor, offsets: offsets)
+      .where((r) => r.isAfter(now))
+      .toList();
+  return task.copyWith(
+    reminderAts: moments,
+    reminderAnchorAt: newAnchor,
+    alarm: task.alarm,
+    plannedDay: dayKey(newAnchor),
+  );
+}
+
+/// [task] with the schedule it had before a move put back, for the move's
+/// Undo ([MatrixNotifier.restoreSchedule]). Pure, clock passed in, like
+/// [taskMovedToDay].
+///
+/// The previous [reminderAts] come back minus every moment that has passed
+/// by [now]. Undo is pressed seconds after a move, but the schedule it
+/// restores can be an overdue one (a task from yesterday moved to next
+/// week), and putting a passed moment back would hand it straight to the
+/// overdue catch-up: pressing Undo would ring about a task the person was
+/// looking at a second ago.
+///
+/// When the previous anchor itself has passed, nothing timed comes back,
+/// not even a follow-up still ahead of [now]. Kept on its own, that
+/// follow-up would be re-read as the picked moment (resolveAnchor falls
+/// back to the last reminder), so the row would show a time the person
+/// never chose, and a follow-up past midnight would move the task to the
+/// next day, the one thing an Undo must never do. It is the same line
+/// [taskMovedToDay] draws: a time that has gone is not stored.
+///
+/// The day comes back even when the time does not. A timed task's day was
+/// its anchor's day, so that day is stored as its plannedDay (the same
+/// write rule as setReminders); without it a task whose every moment has
+/// passed would fall back to the day it was created instead of the day it
+/// was on before the move. An untimed task gets [plannedDay] back as given,
+/// null included (a task that was on its created day stays that way).
+@visibleForTesting
+MatrixTask taskWithRestoredSchedule(
+  MatrixTask task, {
+  required List<DateTime> reminderAts,
+  DateTime? anchor,
+  String? plannedDay,
+  required DateTime now,
+}) {
+  final previous = MatrixTask.normalizeReminders(reminderAts);
+  final previousAnchor = MatrixTask.resolveAnchor(anchor, previous);
+  final day = previousAnchor != null
+      ? dayKey(previousAnchor.toLocal())
+      : plannedDay;
+  final timeKept = previousAnchor != null && previousAnchor.isAfter(now);
+  return task.copyWith(
+    reminderAts: timeKept
+        ? previous.where((r) => r.isAfter(now)).toList()
+        : const [],
+    reminderAnchorAt: timeKept ? previousAnchor : null,
+    clearReminderAnchorAt: !timeKept,
+    plannedDay: day,
+    clearPlannedDay: day == null,
+  );
 }
 
 // Hive settings-box key for "task id -> the ISO8601 reminderAt this task's
@@ -213,9 +322,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       }
 
       if (mounted && !_mutatedBeforeLoad) {
-        final tasks = colSnap.docs
-            .map((d) => MatrixTask.fromFirestore(d))
-            .toList()
+        // Per document: one unreadable task must not blank the page through
+        // the catch-all below. See MatrixTask.listFromFirestore.
+        final tasks = MatrixTask.listFromFirestore(colSnap.docs)
           ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
         state = MatrixState(
           tasks: tasks,
@@ -234,7 +343,10 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
           quadrantColors: quadrantColors,
         );
       }
-    } catch (_) {
+    } catch (e) {
+      // Logged, not swallowed: a silent catch here is what kept an empty
+      // Tasks page after a guest migration invisible.
+      debugPrint('[MatrixNotifier] load failed: $e');
       if (mounted && !_mutatedBeforeLoad) {
         state = MatrixState(
           tasks: state.tasks,
@@ -353,7 +465,20 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
   }
 
-  void add(
+  /// Adds a task and returns it (null for an empty title, which adds
+  /// nothing), so the caller can tell whether the new task is on the board
+  /// it is looking at and, if not, say which day it went to.
+  ///
+  /// [day] is the day the task is for, stored as its plannedDay: the Add
+  /// sheet always passes one, today included, so a task added on the
+  /// Wednesday board at 23:59 is Wednesday's even if the write lands after
+  /// midnight. With reminders, the picked moment's day wins instead (the
+  /// write rule in plannedDayOnWrite): the reminders decide the day while
+  /// they exist, and storing it too keeps the task there if the time is
+  /// removed later. With neither, plannedDay stays null and the task is on
+  /// the day it was created, as every task was before plannedDay existed
+  /// (the widget quick-add and one-tap suggestions still add that way).
+  MatrixTask? add(
     String title,
     MatrixQuadrant quadrant, {
     String? description,
@@ -361,9 +486,14 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
     bool alarm = false,
+    DateTime? day,
   }) {
-    if (title.trim().isEmpty) return;
+    if (title.trim().isEmpty) return null;
     _mutatedBeforeLoad = true;
+    final anchor = MatrixTask.resolveAnchor(
+      reminderAnchorAt,
+      MatrixTask.normalizeReminders(reminderAts),
+    );
     final task = MatrixTask.create(
       title,
       quadrant,
@@ -372,6 +502,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       reminderAts: reminderAts,
       reminderAnchorAt: reminderAnchorAt,
       alarm: alarm,
+      plannedDay: anchor != null
+          ? dayKey(anchor.toLocal())
+          : (day == null ? null : dayKey(day)),
     );
     state = MatrixState(
       tasks: [...state.tasks, task],
@@ -381,6 +514,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     );
     _persist(task);
     _syncReminderSchedule(task);
+    return task;
   }
 
   void toggle(String id) {
@@ -520,6 +654,15 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// null clears it, which is right for the one caller that passes an empty
   /// list. The model re-validates it either way (MatrixTask.resolveAnchor),
   /// so a caller can't store an anchor the task doesn't fire at.
+  ///
+  /// Also writes the task's plannedDay by plannedDayOnWrite, so no edit here
+  /// moves a task by accident: new reminders store the new anchor's day
+  /// (picking another date in TaskDetailSheet is how a task changes day
+  /// there), and clearing them keeps the task on the day it shows on now
+  /// instead of dropping it back to the day it was typed.
+  ///
+  /// Does not refuse a past moment; the pickers that feed it already do.
+  /// The day-move paths ([moveToDay], [restoreSchedule]) filter their own.
   void setReminders(
     String id,
     List<DateTime> reminderAts, {
@@ -536,7 +679,84 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       reminderAnchorAt: reminderAnchorAt,
       clearReminderAnchorAt: reminderAnchorAt == null,
       alarm: alarm,
+      plannedDay: plannedDayOnWrite(
+        before: tasks[idx],
+        newReminders: reminderAts,
+        newAnchor: reminderAnchorAt,
+      ),
     );
+    tasks[idx] = updated;
+    state = MatrixState(
+      tasks: tasks,
+      isLoading: false,
+      quadrantTitles: state.quadrantTitles,
+      quadrantColors: state.quadrantColors,
+    );
+    _persist(updated);
+    _syncReminderSchedule(updated);
+  }
+
+  /// Moves a task to another day: the move sheet's «نقل ليوم ثاني».
+  ///
+  /// A timed task keeps its clock time, its offsets and its alarm choice on
+  /// the new day, minus any offset moment that has already passed; an
+  /// untimed one just changes day. All the rules are in [taskMovedToDay].
+  /// Returns false, changing nothing, when the task is done or when its
+  /// time on [day] has already gone (moving a 9:00 task to today at noon).
+  /// The sheet answers that one by asking for a time on today's wheel and
+  /// calling again with [time], which replaces the clock time. True when the
+  /// task is now on [day], including when it already was.
+  ///
+  /// Re-arms through [_syncReminderSchedule] like every other reminder
+  /// change, which sweeps the old day's slots in the same call.
+  bool moveToDay(String id, DateTime day, {TimeOfDay? time}) {
+    final current = _taskById(id);
+    if (current == null) return false;
+    final moved =
+        taskMovedToDay(current, day, time: time, now: DateTime.now());
+    if (moved == null) return false;
+    if (!identical(moved, current)) _commitTask(moved);
+    return true;
+  }
+
+  /// The move's Undo: puts back the schedule a task had before
+  /// [moveToDay], which the caller captured from the task just before it
+  /// moved (its reminderAts, reminderAnchorAt and plannedDay). Every moment
+  /// that has passed since is dropped rather than restored, so Undo can
+  /// never set off an overdue catch-up; see [taskWithRestoredSchedule].
+  void restoreSchedule(
+    String id, {
+    required List<DateTime> reminderAts,
+    DateTime? anchor,
+    String? plannedDay,
+  }) {
+    final current = _taskById(id);
+    if (current == null) return;
+    final restored = taskWithRestoredSchedule(
+      current,
+      reminderAts: reminderAts,
+      anchor: anchor,
+      plannedDay: plannedDay,
+      now: DateTime.now(),
+    );
+    _commitTask(restored);
+  }
+
+  MatrixTask? _taskById(String id) {
+    for (final t in state.tasks) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
+  /// Swaps [updated] in for the task with its id, saves it and resettles its
+  /// reminders: the tail every schedule edit shares. Used by the day moves
+  /// only; the older methods above keep their own copies of it.
+  void _commitTask(MatrixTask updated) {
+    final tasks = state.tasks.toList();
+    final idx = tasks.indexWhere((t) => t.id == updated.id);
+    if (idx < 0) return;
+    _mutatedBeforeLoad = true;
     tasks[idx] = updated;
     state = MatrixState(
       tasks: tasks,
@@ -785,7 +1005,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// The one place that decides whether [task] should actually have a
   /// live local-notification schedule right now, and makes it so — called
   /// after every mutation that could change the answer: [add], [toggle],
-  /// [setReminder], [restore]/[restoreMany], and [_resyncAllReminders] on
+  /// [setReminders], [moveToDay]/[restoreSchedule] (through [_commitTask]),
+  /// [restore]/[restoreMany], and [_resyncAllReminders] on
   /// every fresh load ([delete]/[deleteMany] instead call NotificationService.
   /// cancelTaskReminder directly, since there's no task left to reason
   /// about by that point). Three possible outcomes:

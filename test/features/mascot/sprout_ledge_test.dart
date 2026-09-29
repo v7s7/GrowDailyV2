@@ -21,6 +21,10 @@ void main() {
   // name and the pop-up's wording follow Aziz's pick (see sproutName).
   const ar = S(Locale('ar'));
 
+  /// A tap's line on screen: any row of the tap list («هههه», «اوبس»).
+  Finder tickled() => find.byWidgetPredicate(
+      (w) => w is Text && tickleLines(ar).contains(w.data));
+
   // Half the front pose's width at the ledge's height: the closest the
   // sprout's centre comes to either end of the line.
   final half = Sprout.sizeOf(SproutPose.frontWave, kLedgeSproutHeight).width / 2;
@@ -383,7 +387,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       final bubble = find.byType(SproutBubble);
       expect(bubble, findsOneWidget);
-      expect(find.text(ar.sproutTickle), findsOneWidget);
+      expect(tickled(), findsOneWidget);
       final b = tester.getRect(bubble);
       final s = sprout(tester);
       // On the reading side (right, in Arabic), bottom just above the line.
@@ -440,7 +444,7 @@ void main() {
       }
       await g.up();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text(ar.sproutTickle), findsOneWidget);
+      expect(tickled(), findsOneWidget);
       // Not slid: the same place along the line (mid-hop, it is higher for a
       // moment, which is the laugh), and nothing saved.
       expect(sprout(tester).center.dx, rest.center.dx);
@@ -456,7 +460,7 @@ void main() {
       final s = sprout(tester);
       await tester.tapAt(Offset(s.left + 8, lane(tester).top + 30));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text(ar.sproutTickle), findsOneWidget);
+      expect(tickled(), findsOneWidget);
       await tester.pumpAndSettle(const Duration(seconds: 4));
     });
 
@@ -510,7 +514,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
       await g.up();
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.text(ar.sproutTickle), findsOneWidget);
+      expect(tickled(), findsOneWidget);
       expect(sprout(tester).center.dx, rest.center.dx);
       await tester.pumpAndSettle(const Duration(seconds: 4));
       expect(sprout(tester), rest);

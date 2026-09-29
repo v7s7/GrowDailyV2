@@ -133,6 +133,106 @@ The widget's two images (`SproutHappy`, `SproutSleeping` in
 `ios/GrowDailyWidget/Assets.xcassets`) are written by step 3 too, from the
 app copies at one shared scale; see upscale_poses.py's docstring.
 
+## The second sheet (2026-09-29)
+
+Aziz generated a second ChatGPT sheet on 2026-09-29, drawn from the first
+package and already in its colours. Its files are in `sheet-2/`:
+
+- `mascot-sheet-2-original.png` (1536x1024, byte-identical to the download):
+  24 poses in four rows of six, on a transparent background.
+- `mascot-sheet-2-final.png`: the same sheet with its paint matched to the
+  palette (below). The poses are cut from this one.
+- `poses-native/`: the 24 poses at the sheet's own size (193 to 332 px
+  wide). `poses-4x/`: the 4x masters, not bundled.
+
+What was done, in the same three steps as the first sheet:
+
+1. Colour (`recolor_sheet_2.py`). The body came out lighter than the
+   palette: L 0.800 against #74C878's 0.76, measured on the interior. Every
+   pixel of green paint moves by that difference, keeping its offsets, so
+   the drawing and its shading are untouched. The leaves, stem and belly
+   differ by under 0.01 and are left alone, as are the cheeks and the
+   outline. The green effects (the "?", music notes, "zZ", the calm pose's
+   small leaves) take the first sheet's deeper green for the "?" and "zZ",
+   so they stay legible on light cards. The one green confetti piece keeps
+   its colour.
+2. Cut (`cut_poses.py --sheet 2`), with the first sheet's rules. One
+   piece needs placing by hand: the cheering pose's upper right-hand line
+   sits nearer the magnifier pose's leaf. The headphones pose's two music
+   notes are dropped here (Aziz, 2026-09-29), so the sheet still has them
+   and the pose does not.
+   Then `fix_poses_2.py`: ChatGPT drew the idea pose with one leaf. It gets
+   the waving pose's pair (same row, same size, same head angle), set on its
+   stem, and its bulb floats 70 px right and 18 px up to clear the new leaf
+   (Aziz, 2026-09-29). The step cuts both poses again from the sheet, so it
+   is safe to rerun.
+3. Upscale (`upscale_poses.py --sheet 2`): the same model, clamp and alpha
+   cleanup. The sheet drew two sizes, rows 1 and 2 about 11% bigger than
+   rows 3 and 4, and each row is scaled so the character matches the first
+   package's app copies (2.90, 2.93, 3.25 and 3.25 app px per sheet px; how
+   they were measured is in upscale_poses.py's docstring). Show them with
+   the same shared scale as the first 18.
+
+### Repeats
+
+Five poses repeat the first package. They keep a master in `poses-4x/` and
+get no app copy; the first package's versions stay. Four more come close
+with a new gesture and are in the app folder with the rest.
+
+| Sheet 2 master | Sheet # | Repeats | Kept |
+| --- | --- | --- | --- |
+| `mascot_front_wave_2.png` | 6 | `mascot_front_wave` | the first package's |
+| `mascot_confused_2.png` | 7 | `mascot_confused` | the first package's |
+| `mascot_laptop_2.png` | 10 | `mascot_laptop` | the first package's |
+| `mascot_love_heart_2.png` | 22 | `mascot_love_heart` | the first package's |
+| `mascot_sleeping_2.png` | 23 | `mascot_sleeping` | the first package's |
+
+### The new poses (`assets/images/mascot/`)
+
+NOT in pubspec.yaml: add a file there, one line per pose, when a screen
+draws it (sprout_assets_test checks the ones `Sprout` knows).
+
+| File | Sheet # | Pose | Size |
+| --- | --- | --- | --- |
+| `mascot_cheer.webp` | 1 | cheering, one arm high, gold lines (close to `mascot_happy_sparkles`) | 699x789 |
+| `mascot_magnifier.webp` | 2 | looking through a magnifying glass, one brow up | 716x783 |
+| `mascot_idea.webp` | 3 | hand up, a light bulb above (leaves fixed) | 943x851 |
+| `mascot_confetti.webp` | 4 | laughing, eyes shut, arms up, confetti | 748x789 |
+| `mascot_thumbs_up.webp` | 5 | winking, thumbs up, one gold sparkle | 730x815 |
+| `mascot_sunglasses.webp` | 8 | sunglasses, arms crossed, one gold sparkle | 640x792 |
+| `mascot_mug.webp` | 9 | holding a steaming mug, eyes shut | 698x781 |
+| `mascot_headphones.webp` | 11 | headphones on, eyes shut | 669x768 |
+| `mascot_note.webp` | 12 | reading a sheet of paper, one arm up, gold lines (close to `mascot_checklist`) | 686x754 |
+| `mascot_running.webp` | 13 | running, speed lines, a sweat drop | 790x725 |
+| `mascot_megaphone.webp` | 14 | calling through a megaphone, gold lines | 887x752 |
+| `mascot_shrug.webp` | 15 | arms out, frowning, blue question mark (close to `mascot_confused`) | 720x743 |
+| `mascot_pointer.webp` | 16 | pointing with a stick, gold lines | 767x760 |
+| `mascot_chart.webp` | 17 | presenting a rising bar chart on an easel | 1044x745 |
+| `mascot_peek.webp` | 18 | peeking out from behind a post | 596x682 |
+| `mascot_calm.webp` | 19 | sitting, eyes shut, hands folded, small leaves | 706x722 |
+| `mascot_cookie.webp` | 20 | sitting, eating a cookie | 667x741 |
+| `mascot_books.webp` | 21 | carrying a tall stack of books, straining | 724x732 |
+| `mascot_wink_jump.webp` | 24 | winking, jumping, one arm high, gold sparkles (close to `mascot_wink`) | 856x798 |
+
+Before placing one:
+
+- `mascot_mug` and `mascot_cookie` eat and drink: never on a fasting habit
+  or during Ramadan's day.
+- `mascot_calm` sits cross-legged with its eyes shut, which reads as
+  meditation: keep it for rest and calm, and away from worship moments like
+  every other pose (never in tasbih or prayer times).
+- `mascot_shrug` frowns. The app's rule is that Doum never looks sad at the
+  reader, so it suits "nothing found", never a missed day.
+- `mascot_peek`'s post is cut flat at the top and bottom: place it where
+  the post meets an edge.
+- `mascot_running` has a sweat drop: fine for "let's go", not for a streak
+  at risk (reminders never press or blame).
+
+Rebuilding: `recolor_sheet_2.py`, then `cut_poses.py --sheet 2`, then
+`fix_poses_2.py`, then `upscale_poses.py --sheet 2`. Checked 2026-09-29, after the `--sheet`
+option went in: the first sheet's cut still reproduces all 18 poses byte for
+byte, and its upscale the two poses checked (front wave, laptop).
+
 ## Where the sprout lives in the app (built 2026-09-27)
 
 From the design canvas Aziz approved (https://claude.ai/artifact/9pn6TiQQ448663K6WRCJVi).
@@ -152,7 +252,7 @@ the mood rules in `sprout_mood.dart`).
 | First run offer | side, three-quarter, front | Turns to face the reader, then waves. |
 | Empty Rooms | wave | Replaces the grey people icon. |
 | Premium, active | love heart | Replaces the verified tick; a plain pop, as the card shows on every visit. |
-| Habits widget (small, medium) | happy, sleeping | Only in the "nothing left" slot, never beside open habits. |
+| Habits widget (small, medium) | happy, sleeping | REMOVED 2026-09-29 (Aziz: "make it without doum for now"); the seal and leaf are back. The two imagesets stay in the widget's catalog for his return. |
 
 Rules the code keeps: it moves when something happens, breathes a few
 times and goes still (no endless loop on the home screen); Reduce Motion

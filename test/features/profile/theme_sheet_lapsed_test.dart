@@ -46,7 +46,8 @@ void main() {
             GlobalCupertinoLocalizations.delegate,
           ],
           theme: GameTheme.light,
-          home: const SettingsScreen(),
+          // Appearance lives on Settings › Look since 2026-09-28.
+          home: const SettingsLookScreen(),
         ),
       ),
     );

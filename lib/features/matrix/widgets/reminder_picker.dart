@@ -18,7 +18,7 @@ import '../../../core/services/notification_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
-import '../models/matrix_task.dart';
+import '../task_day.dart' show remindersFor;
 import '../../../shared/widgets/overlay_notice.dart';
 import '../../../shared/widgets/reminder_style_choice.dart';
 import 'custom_offset_sheet.dart';
@@ -29,6 +29,11 @@ import 'custom_offset_sheet.dart';
 // here (test/features/matrix/matrix_reminder_test.dart).
 export '../../../core/l10n/reminder_copy.dart'
     show arabicDigits, kReminderOffsetPresets, reminderOffsetLabel;
+
+// remindersFor and offsetsFrom live in task_day.dart, so MatrixNotifier can
+// rebuild a moved task's stack without importing a widget file. Re-exported
+// so the sheets and tests that import them from here keep working.
+export '../task_day.dart' show remindersFor, offsetsFrom;
 
 /// Formats [dt] for display on [ReminderRow] / anywhere else a task's
 /// reminder needs a human label — "Today · 5:00 PM" / "Tomorrow · 9:00 AM"
@@ -52,64 +57,18 @@ export '../../../core/l10n/reminder_copy.dart'
 /// Through westernDate, like every date and time in this file: in the app
 /// the raw patterns drew «سبتمبر ١٨ · ٩:٠٥ م», month first and in
 /// Arabic-Indic digits. Arabic puts the day before the month.
+///
+/// The day half is [formatReminderDay]'s: «اليوم» on today, and the weekday
+/// with the date on any other day, so «غدًا · 9:00 ص» is now «الأربعاء، 30
+/// سبتمبر · 9:00 ص». Aziz, 2026-09-29: one set of day words everywhere,
+/// the same the Tasks header and the Add sheet's day row use, and no word
+/// for tomorrow (the row right above it names the day by its date).
 String formatReminderMoment(DateTime dt, bool isAr, {DateTime? now}) {
-  final today = now ?? DateTime.now();
   final locale = isAr ? 'ar' : 'en';
   final time = westernDate(dt, 'h:mm a', locale);
-  if (dt.isSameDayAs(today)) {
-    return isAr ? 'اليوم · $time' : 'Today · $time';
-  }
-  if (dt.isSameDayAs(today.add(const Duration(days: 1)))) {
-    return isAr ? 'غدًا · $time' : 'Tomorrow · $time';
-  }
-  final date = westernDate(dt, isAr ? 'd MMMM' : 'MMM d', locale);
-  return '$date · $time';
+  return '${formatReminderDay(dt, isAr, now: now)} · $time';
 }
 
-
-/// Every moment a task will nudge at: the anchor itself, plus one reminder
-/// per selected offset.
-///
-/// The anchor is always included — it's the time the user actually picked,
-/// and both TickTick and Todoist treat "at the time" as a reminder in its
-/// own right rather than something you have to ask for separately. Offsets
-/// are signed: negative is before, positive is after.
-List<DateTime> remindersFor({
-  required DateTime? anchor,
-  required Set<int> offsets,
-}) {
-  if (anchor == null) return const [];
-  return MatrixTask.normalizeReminders([
-    anchor,
-    for (final o in offsets) anchor.add(Duration(minutes: o)),
-  ]);
-}
-
-/// Inverse of [remindersFor], for reopening a task whose reminders were
-/// saved on a previous visit.
-///
-/// Takes the anchor as an input rather than guessing it, which is the whole
-/// fix: the arithmetic genuinely cannot be inverted, so an earlier version
-/// that assumed `reminders.last` was the anchor reframed every "after" stack
-/// on reopen. A 12:00 anchor with a +15 offset came back claiming 12:15 was
-/// the moment you'd picked and 12:00 was a warning about it — the same
-/// alarms telling a story the user never wrote. Which entry was really
-/// chosen now lives on the task (MatrixTask.reminderAnchorAt), and
-/// MatrixTask.resolveAnchor supplies the old `reminders.last` guess only for
-/// tasks saved before that field existed.
-///
-/// The anchor's own entry contributes no offset (it would be zero), so a
-/// task with a single reminder comes back with an empty set.
-Set<int> offsetsFrom({
-  required DateTime? anchor,
-  required List<DateTime> reminders,
-}) {
-  if (anchor == null) return <int>{};
-  return {
-    for (final r in reminders)
-      if (r.difference(anchor).inMinutes != 0) r.difference(anchor).inMinutes,
-  };
-}
 
 /// Arabic-Indic digits (٠-٩) mapped to plain ASCII, so [int.tryParse] can
 /// read a number typed on an Arabic keypad. Mirrors room_model.dart's
@@ -136,9 +95,11 @@ String normalizeArabicDigits(String input) => toWesternDigits(input);
 /// A task reminder is an absolute, one-off moment (see MatrixTask.
 /// reminderAt's doc comment) rather than a recurring wall-clock time, which
 /// is exactly why this asks for a full date *and* time instead of just a
-/// TimeOfDay the way habit reminders do — a Matrix task can sit carried
-/// over for days (see MatrixScreen._carriedOverOnly), so "remind me" has to
-/// be able to point at a day other than today or tomorrow.
+/// TimeOfDay the way habit reminders do: in TaskDetailSheet, changing the
+/// date here is how a task moves to another day (MatrixNotifier.
+/// setReminders stores the new anchor's day). The Add sheet no longer comes
+/// through here: its day row has already chosen the day, so its reminder
+/// row opens the wheel alone ([pickReminderTimeOnDay]).
 ///
 /// Returns null if the user backs out of either picker, or if the combined
 /// result isn't actually in the future. With the floor that can only
@@ -160,11 +121,17 @@ Future<DateTime?> pickReminderMoment(
   final suggested = initial != null && initial.isAfter(now)
       ? initial
       : now.add(const Duration(hours: 1));
+  // A year ahead, and never short of the day the calendar opens on. The
+  // Tasks month sheet plans to the last day of the month a year ahead,
+  // which can be a few days past now + 365, and showDatePicker asserts
+  // on an initialDate after lastDate: a task planned for that day could
+  // not have been given a time.
+  final yearAhead = now.add(const Duration(days: 365));
   final date = await showDatePicker(
     context: context,
     initialDate: suggested,
     firstDate: now,
-    lastDate: now.add(const Duration(days: 365)),
+    lastDate: suggested.isAfter(yearAhead) ? suggested : yearAhead,
   );
   if (date == null || !context.mounted) return null;
 
@@ -198,6 +165,74 @@ Future<DateTime?> pickReminderMoment(
     return null;
   }
   return picked;
+}
+
+/// The time half of [pickReminderMoment] alone, on a [day] the caller has
+/// already settled: the Add sheet's reminder row (its day row above chose
+/// the day, so a calendar step would ask the same question twice and could
+/// answer it differently) and the move sheet, when a task's own time has
+/// already gone on the day it is moving to.
+///
+/// The same floor and the same past-moment guard as [pickReminderMoment],
+/// so a time that has passed can be neither landed on nor returned; the
+/// guard's overlay notice explains a null when the clock crosses the picked
+/// minute while the wheel is open. [initial] is the time already set, whose
+/// clock time the wheel starts on (see [reminderSuggestedTime]).
+Future<DateTime?> pickReminderTimeOnDay(
+  BuildContext context, {
+  required DateTime day,
+  DateTime? initial,
+}) async {
+  final now = DateTime.now();
+  final floor = reminderWheelFloor(day: day, now: now);
+  final time = await showReminderTimeSheet(
+    context,
+    day: day,
+    initial: reminderWheelInitial(
+      day: day,
+      suggested: reminderSuggestedTime(day: day, initial: initial, now: now),
+      floor: floor,
+    ),
+    floor: floor,
+  );
+  if (time == null || !context.mounted) return null;
+
+  final picked =
+      DateTime(day.year, day.month, day.day, time.hour, time.minute);
+  if (!picked.isAfter(DateTime.now())) {
+    // Overlay, not SnackBar: the hosts are modal sheets (see
+    // pickReminderMoment).
+    showOverlayNotice(
+      context,
+      S.of(context).matrixReminderPast,
+      icon: Icons.history_toggle_off_rounded,
+    );
+    return null;
+  }
+  return picked;
+}
+
+/// The time the wheel should start on for [day], before the floor lifts it
+/// ([reminderWheelInitial] does that and places it on [day]).
+///
+///  * A time already set ([initial]) keeps its clock time, when that time
+///    is still ahead on [day]: reopening a set reminder starts where it is.
+///  * Otherwise, on today, an hour from now: the same default
+///    [pickReminderMoment] has always used.
+///  * Otherwise, on a later day, 9:00 AM. "An hour from now" means nothing
+///    for next Tuesday, and 9 in the morning is where a day's plan starts.
+DateTime reminderSuggestedTime({
+  required DateTime day,
+  DateTime? initial,
+  required DateTime now,
+}) {
+  if (initial != null) {
+    final onDay =
+        DateTime(day.year, day.month, day.day, initial.hour, initial.minute);
+    if (onDay.isAfter(now)) return onDay;
+  }
+  if (day.isSameDayAs(now)) return now.add(const Duration(hours: 1));
+  return DateTime(day.year, day.month, day.day, 9);
 }
 
 /// The first whole minute after [now]: 3:04:30 PM becomes 3:05:00 PM, and
@@ -238,16 +273,23 @@ DateTime reminderWheelInitial({
   return onDay;
 }
 
-/// The day the wheel is choosing a time for, as a person would say it:
-/// "اليوم", "غدًا", or the date. Same day-naming as [formatReminderMoment],
-/// minus the time, which is what the wheel is there to supply.
+/// The day the wheel is choosing a time for: «اليوم» / "Today" on today,
+/// otherwise the weekday and date the Tasks header uses («الأربعاء، 30
+/// سبتمبر» / "Wednesday, Sep 30"), with the year only when it is not
+/// [now]'s. No «غدًا»: Aziz asked for the same day words everywhere
+/// (2026-09-29). [formatReminderMoment] is this plus the time.
+///
+/// Through weekdayDateLabel, which puts the Arabic comma in Arabic and a
+/// plain one in English; the raw 'EEEE، d MMMM' this used before printed
+/// "Wednesday، 30 September" in English.
 String formatReminderDay(DateTime day, bool isAr, {DateTime? now}) {
   final today = now ?? DateTime.now();
   if (day.isSameDayAs(today)) return isAr ? 'اليوم' : 'Today';
-  if (day.isSameDayAs(today.add(const Duration(days: 1)))) {
-    return isAr ? 'غدًا' : 'Tomorrow';
-  }
-  return westernDate(day, 'EEEE، d MMMM', isAr ? 'ar' : 'en');
+  final locale = isAr ? 'ar' : 'en';
+  final label = weekdayDateLabel(day, isAr: isAr, locale: locale);
+  if (day.year == today.year) return label;
+  final year = toWesternDigits(day.year.toString());
+  return isAr ? '$label $year' : '$label, $year';
 }
 
 /// The time half of [pickReminderMoment]: an hour / minute / AM-PM wheel in
@@ -532,7 +574,9 @@ class ReminderRow extends StatelessWidget {
 /// 4:00, 4:30 and 5:00, where a habit fires once.
 ///
 /// Flow is anchor-first by design. Tapping an unset reminder goes straight
-/// to the date+time picker, because when the thing happens is the one piece
+/// to the host's picker (TaskDetailSheet's date and time, the Add sheet's
+/// time wheel on the day its day row holds), because when the thing
+/// happens is the one piece
 /// of information only the user has; everything after that is arithmetic
 /// the app can do for them. Until an anchor exists there is nothing for
 /// "before" or "after" to mean, so the offsets don't appear at all.
@@ -1044,9 +1088,19 @@ class _ReminderPreview extends StatelessWidget {
     if (all.length <= 1) return const SizedBox.shrink();
     // formatReminderMoment, not a bare time: once day-scale offsets exist a
     // stack can span dates, and "10:31 AM · 10:31 AM" for two reminders two
-    // days apart is worse than no preview at all. This carries Today /
-    // Tomorrow / a date, so every entry is distinguishable.
-    String label(DateTime d) => formatReminderMoment(d, isAr);
+    // days apart is worse than no preview at all. But the day only where it
+    // changes: since the day half names the weekday too (2026-09-29), three
+    // reminders on one day read «الجمعة، 2 أكتوبر · 4:15 م   ·   4:45 م   ·
+    // 5:00 م» instead of repeating the whole date three times. The list is
+    // sorted (remindersFor), so "where it changes" is simply "differs from
+    // the one before".
+    final locale = isAr ? 'ar' : 'en';
+    final labels = <String>[
+      for (var i = 0; i < all.length; i++)
+        i > 0 && all[i].isSameDayAs(all[i - 1])
+            ? westernDate(all[i], 'h:mm a', locale)
+            : formatReminderMoment(all[i], isAr),
+    ];
     return Semantics(
       button: true,
       child: InkWell(
@@ -1064,7 +1118,7 @@ class _ReminderPreview extends StatelessWidget {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  all.map(label).join('   ·   '),
+                  labels.join('   ·   '),
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w700,

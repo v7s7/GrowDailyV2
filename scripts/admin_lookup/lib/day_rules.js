@@ -47,7 +47,7 @@
  * Everything that takes a clock says which of the two it wants.
  */
 
-const { keyAtOffset, APP_FALLBACK_OFFSET_MINUTES } = require('./day_key');
+const { keyAtOffset, storedDateKey, APP_FALLBACK_OFFSET_MINUTES } = require('./day_key');
 
 // lib/core/extensions/datetime_ext.dart's kDayCutoffHour. A day runs from
 // its own 00:00 until this hour the NEXT morning, so between midnight and
@@ -832,6 +832,21 @@ function wasObservedOn({ participant, dayKey, offsetMinutes }) {
  * app's own inference for a day no sync ever reached, and it only runs on a
  * purely weekly plan, because quotaOkWeeks attests to quota habits and to
  * nothing else.
+ *
+ * RoomParticipant.recordedScheduledCountFor, but for one thing: the
+ * quotaOkWeeks arm asks the plan the room had that day
+ * (everyCountedHabitIsWeeklyOn), so a daily habit the leader removed no
+ * longer keeps a met week's blank day owed. The app's record cannot see the
+ * room and still owes it; its board rests it
+ * (RoomParticipant.unsyncedQuotaRestInference), the podium and team
+ * milestones read that, and the member's phone writes 0 there when it next
+ * grades the day. So this is what pays, and it is 0 exactly where the
+ * repair must not write a key (room_day_repair.js).
+ *
+ * Its fallback cannot see a habit the leader removed either, so a day no
+ * sync has written since still counts it. What the board reads there is
+ * planInferredScheduledOn, which roomDayCounts applies; the fallback stays
+ * the record's, because the anti-backdating clamp compares against it.
  */
 function storedScheduledOn({ room, participant, dayKey, offsetMinutes }) {
   const p = participant || {};
@@ -849,13 +864,121 @@ function storedScheduledOn({ room, participant, dayKey, offsetMinutes }) {
   return countedHabitCountOn({ participant: p, dayKey });
 }
 
-/** RoomParticipant._everyCountedHabitIsWeeklyOn. */
+/**
+ * How many habits the leader's plan asked of this member on [dayKey]: the
+ * slots countedHabitCountOn counts, less those slotLiveOnDay has out of the
+ * plan that day (a habit removed from its stopsOn, a stretch in offSpans).
+ * The same per-day test functions/room_health.js countingHabitIds asks.
+ *
+ * countedHabitCountOn cannot see the room, so after a removal it still
+ * counts the removed habit, and that is deliberate: the sync writes a day's
+ * dailyScheduledCount exactly when its own count differs from THAT number.
+ * This is the number such a key should carry when nothing else about the
+ * day is known.
+ *
+ * Never zero, and never above the fallback: a member whose every link that
+ * day is gone keeps countedHabitCountOn, which is what the sync stores for
+ * them too (gradedScheduledCount's planTotal), because a zero is full
+ * credit. The walk is countedHabitCountOn's own, one slot at a time, so the
+ * two differ only by the slots the plan had out that day.
+ */
+function liveHabitCountOn({ room, participant, dayKey }) {
+  const fallback = countedHabitCountOn({ participant, dayKey });
+  if ((room || {}).habitMode !== 'shared') return fallback;
+  const linked = Array.isArray((participant || {}).linkedHabitIds)
+    ? participant.linkedHabitIds : [];
+  let live = 0;
+  linked.forEach((id, i) => {
+    if (id === DECLINED_SLOT) return;
+    if (!slotLiveOnDay(room, i, dayKey)) return;
+    const floor = slotFloorFor(participant, id);
+    if (floor && dayKey < floor) return;
+    live++;
+  });
+  return live === 0 || live >= fallback ? fallback : live;
+}
+
+/**
+ * RoomParticipant.unsyncedPlanInference for one day: what the board reads
+ * for a day this member's phone has not graded yet, in a plan the leader
+ * has edited, or null where it reads storedScheduledOn.
+ *
+ * Found on PBYAS5, 28 Sep 2026: two of seven habits removed on the 26th
+ * (stopsOn the 27th), and a member whose phone had not synced since. The
+ * app's day card said «0 من 7 عادات» until the app learned to infer; this
+ * tool's day card and diagnose_room.js still said "0 of 7" beside a board
+ * reading 0 of 5.
+ *
+ * Every gate is the app's, because each is what makes the inference pay
+ * nothing: the credit on such a day is 0 whichever count it reads, so
+ * this moves a denominator on the page and no score.
+ *  - the room is shared, not a lobby, and a slot this member holds was
+ *    removed or spent a stretch out of the plan;
+ *  - the day is in their window (countedStartIn .. the room's end);
+ *  - no sync observed it (wasObservedOn);
+ *  - nothing is stored for it at all: no count, weight or marks, nothing
+ *    done, half done or rested. Every writer that stores work on a day
+ *    decides its count in the same write;
+ *  - the record's own excuse stands: a met quota week's blank day, which
+ *    storedScheduledOn already reads as 0, is left alone;
+ *  - the plan's count is not zero and is below the fallback
+ *    (liveHabitCountOn).
+ */
+function planInferredScheduledOn({ room, participant, dayKey, offsetMinutes }) {
+  const r = room || {};
+  const p = participant || {};
+  if (r.habitMode !== 'shared' || r.status === 'lobby') return null;
+  const shared = Array.isArray(r.sharedHabits) ? r.sharedHabits : [];
+  const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
+  let edited = false;
+  for (let i = 0; i < linked.length && i < shared.length; i++) {
+    const t = shared[i] || {};
+    if (t.removedAt || (Array.isArray(t.offSpans) && t.offSpans.length > 0)) {
+      edited = true;
+      break;
+    }
+  }
+  if (!edited) return null;
+  const off = typeof offsetMinutes === 'number' && Number.isFinite(offsetMinutes)
+    ? offsetMinutes : APP_FALLBACK_OFFSET_MINUTES;
+  const start = storedDateKey(r.startDate, off);
+  const joined = storedDateKey(p.joinedAt, off);
+  const end = storedDateKey(r.endDate, off);
+  if (start && dayKey < start) return null;
+  if (joined && dayKey < joined) return null;
+  if (end && dayKey > end) return null;
+  if (wasObservedOn({ participant: p, dayKey, offsetMinutes })) return null;
+  const has = (field) => Object.prototype.hasOwnProperty.call(p[field] || {}, dayKey);
+  if (has('dailyScheduledCount') || has('dailyScheduledWeight') ||
+      has('dailyDoneWeight') || has('dailyHabitMarks') ||
+      ((p.dailyDoneCount || {})[dayKey] || 0) !== 0 ||
+      ((p.dailyPartialCount || {})[dayKey] || 0) !== 0 ||
+      ((p.dailyRestedCount || {})[dayKey] || 0) !== 0) {
+    return null;
+  }
+  const fallback = countedHabitCountOn({ participant: p, dayKey });
+  if (storedScheduledOn({ room: r, participant: p, dayKey, offsetMinutes }) !== fallback) {
+    return null;
+  }
+  const live = liveHabitCountOn({ room: r, participant: p, dayKey });
+  return live === fallback ? null : live;
+}
+
+/**
+ * RoomParticipant._everyCountedHabitIsWeeklyOn, asked of the plan the room
+ * had on [dayKey] (RoomParticipant.habitsInPlanOn): a slot the leader
+ * removed stops speaking for it from its stopsOn, and a legacy removal on
+ * every day, so a daily habit taken out of a daily-plus-quota plan no longer
+ * keeps the met week's rest from running.
+ */
 function everyCountedHabitIsWeeklyOn({ room, participant, dayKey }) {
   const p = participant || {};
   const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
   let sawOne = false;
-  for (const id of linked) {
+  for (let i = 0; i < linked.length; i++) {
+    const id = linked[i];
     if (id === DECLINED_SLOT) continue;
+    if (!slotLiveOnDay(room, i, dayKey)) continue;
     sawOne = true;
     const rule = ruleForOn(p, id, dayKey);
     if (!rule || rule.frequencyType !== 'weekly') return false;
@@ -909,18 +1032,30 @@ function creditForStored({ done, partial, scheduled, demand, credit }) {
  * only ever answer for the one day it was last computed. The card read it
  * for every day and said "the room did not count this day" about days the
  * room had scored 2 of 3.
+ *
+ * `scheduled` is what the board reads (RoomParticipant.scheduledCountFor,
+ * short of the closed-quota-week inference): on a day no sync has written
+ * after the leader edited the plan, the plan's own count
+ * (planInferredScheduledOn), with `planInferred` true and `recorded`
+ * keeping what the document alone falls back to, so a caller can say the
+ * number is the plan's and not a stored one. Everywhere else `recorded`
+ * equals `scheduled`.
  */
 function roomDayCounts({ room, participant, dayKey, offsetMinutes }) {
   const p = participant || {};
   const stoodDown = (Array.isArray(p.standDownDays) ? p.standDownDays : []).includes(dayKey);
   const done = (p.dailyDoneCount || {})[dayKey] || 0;
   const partial = (p.dailyPartialCount || {})[dayKey] || 0;
-  const scheduled = storedScheduledOn({ room, participant: p, dayKey, offsetMinutes });
+  const recorded = storedScheduledOn({ room, participant: p, dayKey, offsetMinutes });
+  const inferred = planInferredScheduledOn({ room, participant: p, dayKey, offsetMinutes });
+  const scheduled = inferred === null ? recorded : inferred;
   const running = roomWasRunningOn(room, dayKey);
   return {
     done,
     partial,
     scheduled,
+    recorded,
+    planInferred: inferred !== null,
     stoodDown,
     running,
     // A day the whole plan was stood down is worth nothing and is excluded
@@ -1005,6 +1140,8 @@ module.exports = {
   countedHabitCountOn,
   wasObservedOn,
   storedScheduledOn,
+  liveHabitCountOn,
+  planInferredScheduledOn,
   ruleForOn,
   creditForStored,
   roomDayCounts,

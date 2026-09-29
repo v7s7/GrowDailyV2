@@ -18,15 +18,46 @@ import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../task_day.dart' show taskDay;
 import '../../../shared/widgets/overlay_notice.dart';
 import 'quadrant_card.dart' show ActionRow;
 import 'reminder_picker.dart'
-    show ReminderPicker, pickReminderMoment, remindersFor, offsetsFrom;
+    show
+        ReminderPicker,
+        pickReminderMoment,
+        reminderSuggestedTime,
+        remindersFor,
+        offsetsFrom;
 import 'voice_note_player.dart'
     show VoiceNoteRecordRow, VoiceNoteRow, showRenameVoiceNoteSheet;
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../premium/notifiers/voice_note_allowance.dart';
 import '../../../shared/widgets/app_snackbar.dart';
+
+/// Where the date-and-time picker opens when [task] is given a time: its
+/// own time ([anchor], the sheet's current pick) when it has one, else, for
+/// an untimed task planned for a later day, 9:00 on that day
+/// (reminderSuggestedTime, the Add sheet's start for a later day).
+///
+/// Null leaves pickReminderMoment to open on today, an hour from now: right
+/// for today's and carried-over tasks, and it was right for every untimed
+/// task while an untimed task always sat on the day it was made. With
+/// plannedDay it is not. An untimed task planned for Thursday opened on
+/// today, someone who came to set a time tapped OK on the date step, and
+/// setReminders filed the task on its anchor's day: off Thursday's board,
+/// ringing today, with nothing to say it had moved. Opening on its own day
+/// makes the day an explicit change rather than a default nobody chose.
+@visibleForTesting
+DateTime? taskDetailPickerInitial(
+  MatrixTask task, {
+  DateTime? anchor,
+  required DateTime now,
+}) {
+  if (anchor != null) return anchor;
+  final day = taskDay(task);
+  if (!day.isAfter(DateTime(now.year, now.month, now.day))) return null;
+  return reminderSuggestedTime(day: day, now: now);
+}
 
 /// Opened from a task's pencil icon (see quadrant_card.dart's _TaskTile) —
 /// the richer counterpart to AddTaskSheet's title-only quick add: this is
@@ -335,9 +366,27 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   }
 
   Future<void> _pickAnchor() async {
-    final picked = await pickReminderMoment(context, initial: _anchorAt);
+    final picked = await pickReminderMoment(
+      context,
+      initial: taskDetailPickerInitial(
+        _liveTask,
+        anchor: _anchorAt,
+        now: DateTime.now(),
+      ),
+    );
     if (picked == null || !mounted) return;
     await _commit(anchor: picked, offsets: _offsets);
+  }
+
+  /// The task as the board holds it now. It can be ahead of widget.task:
+  /// this sheet saves reminder changes as they happen, and clearing a time
+  /// freezes the task's day into plannedDay (MatrixNotifier.setReminders).
+  /// widget.task when the task is gone from the board.
+  MatrixTask get _liveTask {
+    for (final t in ref.read(matrixProvider).tasks) {
+      if (t.id == widget.task.id) return t;
+    }
+    return widget.task;
   }
 
   void _clearReminders() {

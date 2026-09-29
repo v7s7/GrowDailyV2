@@ -147,13 +147,23 @@ abstract final class NotificationActionRules {
   /// True when the answer cannot be known (no list, habit absent, counts
   /// missing): the app's own rule is that a done habit is never nagged
   /// about, and the next app open re-arms whatever is genuinely still owed.
-  static bool finishesDay(String? todayHabitsJson, String habitId) {
+  ///
+  /// [listIsForDay] false means the list is an older day's (the app has not
+  /// been opened since): its perDay still holds, its count does not, so the
+  /// tap is the day's first. Until 2026-09-29 a three-a-day habit left at
+  /// 2 of 3 last night read as finished by this morning's first tap, and
+  /// its reminders for the rest of the day were taken down.
+  static bool finishesDay(
+    String? todayHabitsJson,
+    String habitId, {
+    bool listIsForDay = true,
+  }) {
     final list = _decodeTodayList(todayHabitsJson);
     if (list == null) return true;
     for (final entry in list) {
       if (entry['id'] != habitId) continue;
       final perDay = entry['perDay'];
-      final count = entry['count'];
+      final count = listIsForDay ? entry['count'] : 0;
       if (perDay is int && count is int) return count + 1 >= perDay;
       return true;
     }

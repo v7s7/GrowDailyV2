@@ -14,10 +14,19 @@ import '../../../core/theme/game_theme.dart';
 ///              doc comment)
 ///   failed   → red     (attempted but failed)
 ///   bonus    → blue    (bonus achievement)
-///   skipped  → gray    (intentionally skipped)
+///   skipped  → gray    (a rest the person chose: «راحة»)
 ///
 /// A tap cycles white → yellow → complete → white. A long-press opens the
 /// full palette (including the red / blue / gray "advanced" states).
+///
+/// [skipped] is shown as «راحة» / "Rest". It was «تخطّي» until 2026-09-28,
+/// when Aziz renamed it: the person found the habit is not needed today,
+/// which is a rest, not a dodge. The stored name stays `skipped`, so every
+/// square marked before the rename keeps its meaning. A rest leaves every
+/// personal count (the day's rate, the map, insights), keeps the habit's own
+/// streak (runsOnExcusing), and stands down that day's reminders. It never
+/// adds to anything: a room still scores it 0 in its slot, and a day where
+/// every habit rests earns no streak point (squaresCrossStreakThreshold).
 enum SquareState {
   none,
   partial,
@@ -72,7 +81,7 @@ enum SquareState {
         complete => isAr ? 'مكتمل' : 'done',
         failed => isAr ? 'لم يتم' : 'missed',
         bonus => isAr ? 'مكافأة' : 'bonus',
-        skipped => isAr ? 'متخطى' : 'skipped',
+        skipped => isAr ? 'راحة' : 'rest',
       };
 
   /// A filled green (or better) square — what the user is chasing.
@@ -112,7 +121,7 @@ enum SquareState {
         complete => 'Completed',
         failed => 'Failed',
         bonus => 'Bonus',
-        skipped => 'Skipped',
+        skipped => 'Rest',
       };
 
   String get labelAr => switch (this) {
@@ -121,7 +130,7 @@ enum SquareState {
         complete => 'مكتمل',
         failed => 'فشل',
         bonus => 'إنجاز إضافي',
-        skipped => 'تخطّي',
+        skipped => 'راحة',
       };
 
   /// The accent color that identifies this state. The HUE is
