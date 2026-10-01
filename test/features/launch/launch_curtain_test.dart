@@ -15,26 +15,39 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:grow_daily_v2/core/l10n/wording_edits.dart';
 import 'package:grow_daily_v2/core/providers/onboarding_provider.dart';
 import 'package:grow_daily_v2/core/theme/status_bar_style.dart';
 import 'package:grow_daily_v2/features/launch/launch_curtain.dart';
 import 'package:grow_daily_v2/features/launch/launch_scene.dart';
 import 'package:grow_daily_v2/features/launch/launch_scenes.dart';
+import 'package:grow_daily_v2/features/launch/launch_settings.dart';
 import 'package:grow_daily_v2/features/mascot/sprout.dart';
 
 final _progress = StateProvider<double>((ref) => 0);
 final _fasting = StateProvider<bool?>((ref) => null);
 final _walker = StateProvider<bool?>((ref) => null);
+final _dataReady = StateProvider<bool>((ref) => true);
 
 void main() {
   late ProviderContainer container;
 
   setUp(() {
     LaunchMemory.debugReset();
+    // Every moment plays every day it can: which days a moment's chance
+    // skips is pinned in launch_scene_test.dart, not here.
+    WordingEditsStore.live.value = WordingEdits(
+      splash: SplashEdits(
+        chance: {
+          for (final name in kSplashDailyChance.keys) name: 100,
+        },
+      ),
+    );
     container = ProviderContainer(overrides: [
       launchProgressProvider.overrideWith((ref) => ref.watch(_progress)),
       launchFastingPlannedProvider.overrideWith((ref) => ref.watch(_fasting)),
       launchWalkerProvider.overrideWith((ref) => ref.watch(_walker)),
+      launchDataReadyProvider.overrideWith((ref) => ref.watch(_dataReady)),
       launchCurtainUpProvider.overrideWith((ref) => true),
       // Someone who has been here before: the very first launch has its
       // own scene (see "the very first launch" below).
@@ -42,7 +55,10 @@ void main() {
     ]);
   });
 
-  tearDown(() => container.dispose());
+  tearDown(() {
+    container.dispose();
+    WordingEditsStore.live.value = WordingEdits.empty;
+  });
 
   Future<void> pumpCurtain(
     WidgetTester tester, {
@@ -200,6 +216,80 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
+    // Aziz, 2026-10-01: "the connection one should appear if the network
+    // is slow and the wifi mark should appear".
+    Finder wifi() => find.byKey(kLaunchWifiKey);
+
+    Future<void> untilSlow(WidgetTester tester) async {
+      await untilDoum(tester);
+      await tester.pump(LaunchCurtain.slowAfter);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump();
+    }
+
+    testWidgets('a slow connection: the magnifier and the Wi-Fi mark, in '
+        'every scene', (tester) async {
+      container.read(_dataReady.notifier).state = false;
+      await pumpCurtain(tester, scene: LaunchScene.morningCoffee);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(wifi(), findsNothing, reason: 'not slow yet');
+      await tester.pump(LaunchCurtain.slowAfter);
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      expect(wifi(), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(line(tester), 'Slow or fast we\nGrow Daily');
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('slow on the work here, not the network: no Wi-Fi mark',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.fullDay);
+      await untilSlow(tester);
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      expect(wifi(), findsNothing);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('the data comes in: the mark lights whole and goes',
+        (tester) async {
+      container.read(_dataReady.notifier).state = false;
+      await pumpCurtain(tester, scene: LaunchScene.eid);
+      await untilSlow(tester);
+      expect(wifi(), findsOneWidget);
+      container.read(_dataReady.notifier).state = true;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(wifi(), findsOneWidget, reason: 'lit whole, fading');
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(wifi(), findsNothing);
+      expect(doum(tester)!.pose, SproutPose.magnifier,
+          reason: 'the home screen is not ready yet: still looking');
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('the night: asleep, with the mark over him', (tester) async {
+      container.read(_dataReady.notifier).state = false;
+      await pumpCurtain(tester, scene: LaunchScene.nightAsleep);
+      await untilSlow(tester);
+      expect(doum(tester)!.pose, SproutPose.sleeping);
+      expect(wifi(), findsOneWidget);
+      expect(tester.getRect(wifi()).bottom,
+          lessThan(tester.getRect(find.byType(Sprout)).top + 4),
+          reason: 'over him, not on him');
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('every scene but the night brings the magnifier', (tester) async {
+      expect(LaunchCurtain.searchingScenes,
+          {...LaunchScene.values}..remove(LaunchScene.nightAsleep));
+      for (final scene in LaunchScene.values) {
+        expect(launchScenePoses(scene).contains(SproutPose.magnifier),
+            scene != LaunchScene.nightAsleep,
+            reason: '${scene.name} decodes it before it starts');
+      }
+    });
+
     testWidgets('a quick load never brings the magnifier out',
         (tester) async {
       await pumpCurtain(tester, scene: LaunchScene.turnaround);
@@ -331,6 +421,7 @@ void main() {
         launchProgressProvider.overrideWith((ref) => ref.watch(_progress)),
         launchFastingPlannedProvider.overrideWith((ref) => ref.watch(_fasting)),
         launchWalkerProvider.overrideWith((ref) => ref.watch(_walker)),
+        launchDataReadyProvider.overrideWith((ref) => ref.watch(_dataReady)),
         launchCurtainUpProvider.overrideWith((ref) => true),
         onboardingSeenProvider.overrideWith((ref) => false),
       ]);
@@ -362,6 +453,7 @@ void main() {
       container.read(_fasting.notifier).state = true;
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
+      await untilDoum(tester);
       expect(doum(tester)!.pose, isNot(SproutPose.mug));
       await tester.pump(const Duration(seconds: 3));
     });
@@ -370,6 +462,7 @@ void main() {
       await pumpCurtain(tester, scene: null, now: morning);
       await tester.pump(LaunchCurtain.fastingWait);
       await tester.pump(const Duration(milliseconds: 300));
+      await untilDoum(tester);
       expect(doum(tester)!.pose, isNot(SproutPose.mug));
       await tester.pump(const Duration(seconds: 3));
     });
@@ -397,7 +490,7 @@ void main() {
         ),
       );
       final seen = <SproutPose>{};
-      for (var t = 0; t < 4500; t += 50) {
+      for (var t = 0; t < 5500; t += 50) {
         if (t == 800) ready();
         await tester.pump(const Duration(milliseconds: 50));
         final d = doum(tester);
@@ -423,15 +516,19 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
-    test('at least 3 s for his scene, at most 8 s for a slow load', () {
+    test('at least 4 s for his scene, at most 9 s for a slow load', () {
       // Aziz, 2026-09-30: "let the splash screen take their time to 3 sec,
-      // or the needed time so that when grid open, its fully ready".
+      // or the needed time so that when grid open, its fully ready"; then
+      // 2026-10-01: "add 1 sec for each screen".
       const curtain = LaunchCurtain();
-      expect(curtain.minShow, const Duration(milliseconds: 3000));
-      expect(curtain.maxShow, const Duration(milliseconds: 8000));
+      // Unset, they follow the admin's splash settings: 4 s and 9 s built in.
+      expect(curtain.minShow, isNull);
+      expect(curtain.maxShow, isNull);
+      expect(LaunchSettings.builtIn.minShow, const Duration(milliseconds: 4000));
+      expect(LaunchSettings.builtIn.maxShow, const Duration(milliseconds: 9000));
       expect(curtain.settle, const Duration(milliseconds: 300));
       expect(curtain.replay, isFalse);
-      expect(LaunchCurtain.slowAfter, lessThan(curtain.maxShow));
+      expect(LaunchCurtain.slowAfter, lessThan(LaunchSettings.builtIn.maxShow));
     });
 
     testWidgets('a moment of ready is not ready: it waits to settle',
@@ -631,7 +728,7 @@ void main() {
           reason: 'the launch screen\'s own picture, no fade');
       expect(tester.widget<LaunchCurtain>(find.byType(LaunchCurtain)).replay,
           isFalse);
-      await frames(tester, 4200);
+      await frames(tester, 5200);
       expect(up(), isFalse);
 
       // main.dart, on a return after 30 minutes or more.
@@ -650,8 +747,8 @@ void main() {
       expect(curtainOpacity(tester), 1);
       expect(lifting(), isFalse);
 
-      // Its own 3 s, then it goes as the launch's does.
-      await frames(tester, 2500);
+      // Its own 4 s, then it goes as the launch's does.
+      await frames(tester, 3500);
       expect(lifting(), isFalse);
       await frames(tester, 1000);
       expect(lifting(), isTrue);
@@ -678,7 +775,7 @@ void main() {
         (tester) async {
       ready();
       await pumpHost(tester);
-      await frames(tester, 4200);
+      await frames(tester, 5200);
       expect(up(), isFalse);
       container.read(_progress.notifier).state = .8;
       container.read(launchCurtainUpProvider.notifier).state = true;
@@ -845,6 +942,8 @@ void main() {
 
     testWidgets('chosen for an October afternoon\'s first open',
         (tester) async {
+      // Not a walker: a walker's 16:00 is the walk's first.
+      container.read(_walker.notifier).state = false;
       await pumpCurtain(tester, scene: null, now: DateTime(2026, 10, 5, 16));
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
@@ -949,7 +1048,9 @@ void main() {
       await pumpCurtain(tester, scene: LaunchScene.walk);
       await untilDoum(tester);
       await tester.pump(const Duration(milliseconds: 1000));
-      expect(doumPicture(SproutPose.treadmill), findsOneWidget);
+      expect(doumPicture(SproutPose.treadmill), findsNWidgets(3),
+          reason: 'the machine still, him by the console as drawn, and him '
+              'cut out of it, running');
       ready();
       await tester.pump();
       await tester.pump();
@@ -972,8 +1073,19 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
     });
 
+    // Every anytime scene seen, the walk last: the anytime list cannot
+    // draw the walk on its own, so only the walkers' hour can.
+    void walkJustPlayed() => LaunchMemory.debugReset(
+          shown: {
+            for (final s in kSplashPoolWeights.keys)
+              LaunchScene.values.byName(s): DateTime(2026, 12, 6, 21),
+          },
+          lastScene: LaunchScene.walk,
+        );
+
     testWidgets('a walker\'s afternoon waits to know the habits',
         (tester) async {
+      walkJustPlayed();
       // A Monday in December: no winter, no summer.
       await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
       await tester.pump(const Duration(milliseconds: 200));
@@ -986,19 +1098,27 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
     });
 
-    testWidgets('no walking habit: an ordinary scene', (tester) async {
+    testWidgets('no walking habit: the anytime list', (tester) async {
+      walkJustPlayed();
       await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
       container.read(_walker.notifier).state = false;
       await tester.pump();
       await untilDoum(tester);
+      // The ring, the turn, the run or the seed: never the walk just played.
       expect(
         doum(tester)!.pose,
-        isIn([SproutPose.threeQuarterWave, SproutPose.back]),
+        isIn([
+          SproutPose.threeQuarterWave,
+          SproutPose.back,
+          SproutPose.running,
+          SproutPose.pointer,
+        ]),
       );
       await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('not known in time: not a walker', (tester) async {
+      walkJustPlayed();
       await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
       await tester.pump(LaunchCurtain.fastingWait);
       await untilDoum(tester);
@@ -1026,30 +1146,46 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
     });
 
-    testWidgets('a slow load keeps him the same Sprout, and no print is cut '
-        'once the machine has gone', (tester) async {
-      // The trail's painter: where the deck's back end is, and whether the
-      // machine stands there to cut the prints (without it each shows
-      // whole, faded by how much of it is out).
-      ({double? edge, bool machine}) trail() {
-        final painter = tester
-            .widgetList<CustomPaint>(find.byType(CustomPaint))
-            .map((p) => p.painter)
-            .firstWhere((p) => p.runtimeType.toString() == '_TrailPainter');
-        return (
-          edge: (painter as dynamic).edge as double?,
-          machine: (painter as dynamic).machine as bool,
-        );
-      }
+    testWidgets('he runs on the belt and sweats, and leaves no footprints',
+        (tester) async {
+      // Aziz, 2026-10-01: "it should not show footsteps, it should be
+      // animation running on the treadmill, and the sweating".
+      await pumpCurtain(tester, scene: LaunchScene.walk);
+      await untilDoum(tester);
+      // His moving half: the picture cut to him alone, under a transform.
+      Matrix4 stride() => tester
+          .widgetList<Transform>(find.descendant(
+            of: find.byType(Sprout),
+            matching: find.byType(Transform),
+          ))
+          .firstWhere((t) =>
+              t.child is ClipPath &&
+              (t.child! as ClipPath).clipper.runtimeType.toString() ==
+                  '_RunnerClipper')
+          .transform;
+      bool painted(String name) => tester
+          .widgetList<CustomPaint>(find.byType(CustomPaint))
+          .any((p) => p.painter.runtimeType.toString() == name);
 
+      await tester.pump(const Duration(milliseconds: 700));
+      final a = stride().getTranslation().y;
+      await tester.pump(const Duration(milliseconds: 150));
+      final b = stride().getTranslation().y;
+      expect((a - b).abs(), greaterThan(.5), reason: 'a step later he dips');
+      expect(a, inInclusiveRange(0, 2.8), reason: 'down only: feet on belt');
+      expect(b, inInclusiveRange(0, 2.8));
+      expect(painted('_SweatPainter'), isTrue);
+      expect(painted('_TrailPainter'), isFalse);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a slow load keeps him the same Sprout', (tester) async {
       await pumpCurtain(tester, scene: LaunchScene.walk);
       // Frame by frame to him (a cold decode holds him back up to 600
       // ms), then past both marks a slow load waits for.
       await untilDoum(tester);
       await tester.pump(const Duration(milliseconds: 800));
       final him = tester.state(find.byType(Sprout));
-      expect(trail().edge, isNotNull);
-      expect(trail().machine, isTrue);
       await tester.pump(const Duration(milliseconds: 800));
       await tester.pump();
       // The deck's shadow leaves the Stack and the lens joins it in this
@@ -1066,12 +1202,6 @@ void main() {
         ),
         reason: 'swapped in, not popping up again',
       );
-      expect(
-        trail().machine,
-        isFalse,
-        reason: 'no machine to cut a print in open sand',
-      );
-      expect(trail().edge, isNotNull, reason: 'the rest still to come out');
       // Ready well inside this test's 2.6 s cap, which leaves without it.
       await tester.pump(const Duration(milliseconds: 100));
       ready();
@@ -1079,14 +1209,13 @@ void main() {
       await tester.pump();
       expect(doum(tester)!.pose, SproutPose.winkJump);
       expect(identical(tester.state(find.byType(Sprout)), him), isTrue);
-      expect(trail().edge, isNull, reason: 'the whole trail, once ready');
       await tester.pump(const Duration(seconds: 2));
     });
 
-    testWidgets('Reduce Motion: standing by his seedlings from the start',
+    testWidgets('Reduce Motion: his wink from the start, no running',
         (tester) async {
       await pumpCurtain(tester, scene: LaunchScene.walk, reduced: true);
-      await tester.pump(const Duration(milliseconds: 200));
+      await untilDoum(tester);
       expect(doum(tester)!.pose, SproutPose.winkJump);
       expect(
         tester.getRect(find.byType(Sprout)).bottom,
@@ -1115,26 +1244,35 @@ void main() {
       );
     });
 
-    test('the walking hour\'s, and the ordinary pair with them', () {
+    test('the walking hour\'s, and the one anytime scene this launch draws',
+        () {
       // The habits are not known yet: walker or not.
       LaunchMemory.debugReset(lastOpen: DateTime(2026, 12, 7, 9));
       final now = DateTime(2026, 12, 7, 16, 30);
-      expect(
-        LaunchCurtain.likelyScenes(now),
-        containsAll(const [
-          LaunchScene.walk,
-          LaunchScene.dayRing,
-          LaunchScene.turnaround,
-        ]),
+      final scenes = LaunchCurtain.likelyScenes(now);
+      final drawn = pickAnytimeScene(
+        now: now,
+        rules: LaunchSettings.builtIn,
+        random: math.Random(LaunchCurtain.launchSeed),
       );
+      expect(scenes, containsAll({LaunchScene.walk, drawn}));
+      expect(scenes.length, lessThanOrEqualTo(2),
+          reason: 'not every anytime scene: the draw is made already');
       expect(
         LaunchCurtain.likelyPoses(now),
         containsAll([SproutPose.treadmill, SproutPose.winkJump]),
       );
     });
 
-    test('neither, outside their hours', () {
-      LaunchMemory.debugReset(lastOpen: DateTime(2026, 12, 7, 9));
+    test('neither, outside their hours and not drawn', () {
+      LaunchMemory.debugReset(
+        lastOpen: DateTime(2026, 12, 7, 9),
+        shown: {
+          for (final s in kSplashPoolWeights.keys)
+            LaunchScene.values.byName(s): DateTime(2026, 12, 7, 9),
+        },
+        lastScene: LaunchScene.walk,
+      );
       final scenes = LaunchCurtain.likelyScenes(DateTime(2026, 12, 7, 13));
       expect(scenes, isNot(contains(LaunchScene.walk)));
       expect(scenes, isNot(contains(LaunchScene.winterWait)));

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,10 +16,13 @@ import '../dashboard/notifiers/dashboard_notifier.dart';
 import '../grid/notifiers/weekly_grid_notifier.dart';
 import '../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, habitsHydratedProvider, habitsStillLoadingProvider;
+import '../mascot/doum_language_look.dart' show kDoumFeetCentre;
 import '../mascot/sprout.dart';
 import 'launch_curtain_up.dart';
+import 'launch_doum_handoff.dart';
 import 'launch_scene.dart';
 import 'launch_scenes.dart';
+import 'launch_settings.dart';
 
 export 'launch_curtain_up.dart';
 
@@ -50,6 +55,27 @@ final launchDataReadyProvider = Provider<bool>((ref) {
   return data == null || data == 4;
 });
 
+/// Set with `--dart-define=GD_LAUNCH_SLOW_NETWORK_S=7` to see a slow
+/// connection on a debug build: the account's data counts as still on its
+/// way for that many seconds after launch, so the magnifier and the Wi-Fi
+/// mark come out, and the mark lights up when it "arrives". 0, and dropped by
+/// the compiler, in a profile or release build, the way GD_LAUNCH_SCENE is.
+const int kLaunchSlowNetworkS =
+    kDebugMode ? int.fromEnvironment('GD_LAUNCH_SLOW_NETWORK_S') : 0;
+
+/// True while [kLaunchSlowNetworkS] holds the data back.
+final launchFakeSlowNetworkProvider = StateProvider<bool>((ref) {
+  if (kLaunchSlowNetworkS <= 0) return false;
+  final timer = Timer(
+    // 0 while the define is unset, which the analyser reads as the default.
+    // ignore: avoid_redundant_argument_values
+    const Duration(seconds: kLaunchSlowNetworkS),
+    () => ref.controller.state = false,
+  );
+  ref.onDispose(timer.cancel);
+  return true;
+});
+
 /// The data steps done, out of 4, or null for a screen that loads nothing.
 int? _launchData(Ref ref) {
   if (!ref.watch(guestModeProvider)) {
@@ -61,6 +87,7 @@ int? _launchData(Ref ref) {
       !ref.watch(firstRunOfferAskedProvider)) {
     return null;
   }
+  if (ref.watch(launchFakeSlowNetworkProvider)) return 1;
   var steps = 1;
   // The habit list as the server has it, not only the phone's copy
   // (habitsHydratedProvider): the copy holds no paused or archived habits,
@@ -161,9 +188,9 @@ final launchWalkerProvider = Provider<bool?>((ref) {
 class LaunchCurtain extends ConsumerStatefulWidget {
   const LaunchCurtain({
     super.key,
-    this.minShow = const Duration(milliseconds: 3000),
+    this.minShow,
     this.minShowReduced = const Duration(milliseconds: 350),
-    this.maxShow = const Duration(milliseconds: 8000),
+    this.maxShow,
     this.settle = const Duration(milliseconds: 300),
     this.replay = false,
     this.scene,
@@ -176,7 +203,9 @@ class LaunchCurtain extends ConsumerStatefulWidget {
   /// (Aziz: "let the splash screen take their time to 3 sec, or the needed
   /// time so that when grid open, its fully ready"); 1.6 s read as the app
   /// opening straight onto the Grid.
-  final Duration minShow;
+  ///
+  /// Null follows the admin's splash settings (LaunchSettings), 3 s built in.
+  final Duration? minShow;
 
   /// How long the home screen has to have been ready before the curtain
   /// believes it. Covers the moment between one piece of work ending and the
@@ -198,7 +227,9 @@ class LaunchCurtain extends ConsumerStatefulWidget {
   /// opens, so it is never slow in the app"; a slow load brings out the
   /// magnifier, see [slowAfter]), short enough that no one is kept out.
   /// Eight seconds since the hold grew to 3 s and to the reminder pass.
-  final Duration maxShow;
+  ///
+  /// Null follows the admin's splash settings (LaunchSettings), 8 s built in.
+  final Duration? maxShow;
 
   /// A fixed scene instead of [pickLaunchScene]'s choice (tests).
   final LaunchScene? scene;
@@ -219,16 +250,14 @@ class LaunchCurtain extends ConsumerStatefulWidget {
   /// his magnifier (LaunchSceneView.searching).
   static const Duration slowAfter = Duration(milliseconds: 1500);
 
-  /// The scenes a slow load brings the magnifier out in: the two ordinary
-  /// ones, and the afternoon's two, whose arrival pose would otherwise be
-  /// held through the whole wait (worried by his hourglass, running in
-  /// place). Their ready moment still plays its own payoff after it. The
-  /// other scenes keep their pose through a slow load, as they always have.
-  static const searchingScenes = {
-    LaunchScene.dayRing,
-    LaunchScene.turnaround,
-    LaunchScene.winterWait,
-    LaunchScene.walk,
+  /// The scenes a slow load brings the magnifier out in: every one but the
+  /// night's, which keeps him asleep and shows only the Wi-Fi mark (Aziz,
+  /// 2026-10-01: "the connection one should appear if the network is
+  /// slow"; it was the two ordinary scenes and the afternoon's two). Each
+  /// ready moment still plays its own payoff after it.
+  static final Set<LaunchScene> searchingScenes = {
+    for (final scene in LaunchScene.values)
+      if (scene != LaunchScene.nightAsleep) scene,
   };
 
   /// Readies the curtain. Awaited in main.dart just before runApp, while
@@ -238,6 +267,13 @@ class LaunchCurtain extends ConsumerStatefulWidget {
   /// over an empty box and no pose change shows a blank frame. Bounded, and
   /// never throws: a slow decode costs his entrance a moment, never the
   /// launch.
+  /// This launch's roll of the anytime list (see [likelyScenes]); a return
+  /// that plays the curtain again rolls afresh ([reroll]).
+  static int launchSeed = math.Random().nextInt(1 << 31);
+
+  /// A new roll for a return's curtain.
+  static void reroll() => launchSeed = math.Random().nextInt(1 << 31);
+
   static Future<void> prepare() async {
     await LaunchMemory.load();
     try {
@@ -247,9 +283,10 @@ class LaunchCurtain extends ConsumerStatefulWidget {
   }
 
   /// Every scene this open can pick at [now]: with or without a fast on
-  /// the plan and a walking habit (neither known yet), a first launch when
-  /// no open is recorded, and both ordinary scenes when it comes down to
-  /// the coin. Only the fixed one when a build's switch fixes it
+  /// the plan and a walking habit (neither known yet), and a first launch
+  /// when no open is recorded. The anytime list's pick is rolled with
+  /// [launchSeed], the same roll the curtain makes, so only the scene it
+  /// will draw is decoded. Only the fixed one when a build's switch fixes it
   /// (launchSceneFixed).
   @visibleForTesting
   static Set<LaunchScene> likelyScenes(DateTime now) {
@@ -269,19 +306,20 @@ class LaunchCurtain extends ConsumerStatefulWidget {
                 lastOpen: LaunchMemory.lastOpen,
                 fastingPlanned: fasting,
                 freshInstall: fresh,
+                installedAt: LaunchMemory.installedAt,
                 updated: updated,
+                updateSince: LaunchMemory.updateSince,
                 lastFullDay: LaunchMemory.lastFullDay,
                 lastStepsGoal: LaunchMemory.lastStepsGoal,
                 walker: walker,
+                lastShown: LaunchMemory.lastShown,
+                lastScene: LaunchMemory.lastScene,
+                random: math.Random(launchSeed),
               ),
             );
           }
         }
       }
-    }
-    if (scenes.contains(LaunchScene.dayRing) ||
-        scenes.contains(LaunchScene.turnaround)) {
-      scenes.addAll(const [LaunchScene.dayRing, LaunchScene.turnaround]);
     }
     return scenes;
   }
@@ -373,11 +411,32 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
   bool _exiting = false;
   bool _gone = false;
   bool _searching = false;
+
+  /// The very first open's scene, which may hand Doum to the sign-in
+  /// screen under it (LaunchDoumHandoff), whether it will (decided at the
+  /// ready moment: a sign-in screen is there to land on), and the flight
+  /// itself, drawn by [_flyingDoum] while the ground fades.
+  bool _handoff = false;
+  bool _willFly = false;
+  bool _flying = false;
+  LaunchDoumHandoff? _handoffTo;
+
+  /// Measured as the flight starts, in the curtain's own frame: its size,
+  /// the sign-in screen's landing box, and the size he lands at.
+  Size _flightSize = Size.zero;
+  Rect _flightTarget = Rect.zero;
+  double _flightHeight = kLaunchDoumHeight;
+
+  /// A slow load in any scene, the night's included: what the Wi-Fi mark
+  /// waits on (see [build]).
+  bool _slow = false;
   bool _slowByClock = false;
   bool _slowByArrival = false;
   LaunchScene? _scene;
 
-  Duration get _minShow => _reduced ? widget.minShowReduced : widget.minShow;
+  Duration get _minShow => _reduced
+      ? widget.minShowReduced
+      : widget.minShow ?? LaunchSettings.current.minShow;
 
   @override
   void initState() {
@@ -474,7 +533,10 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
       _minShown = true;
       _maybeLeave();
     });
-    _after(widget.maxShow, () => _maybeLeave(force: true));
+    _after(
+      widget.maxShow ?? LaunchSettings.current.maxShow,
+      () => _maybeLeave(force: true),
+    );
     // The earliest a load counts as slow: well past Doum's own second, so a
     // home screen that is ready by then simply lifts (see [_maybeSearch]).
     _after(_minShow + const Duration(milliseconds: 600), () {
@@ -511,17 +573,26 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
     // Nothing seen yet on this phone: the very first launch. An account
     // that has been here before but not since this was built is not.
     final seenBefore = ref.read(onboardingSeenProvider);
+    final fresh = LaunchMemory.lastOpen == null && !seenBefore;
+    if (fresh) LaunchMemory.recordInstall(now);
+    // One roll for every pick below, so asking again once the habits are
+    // known never draws a different anytime scene.
+    final seed = widget.random?.nextInt(1 << 31) ?? LaunchCurtain.launchSeed;
     LaunchScene pick({required bool fasting, required bool walker}) =>
         pickLaunchScene(
           now: now,
           lastOpen: LaunchMemory.lastOpen,
           fastingPlanned: fasting,
-          freshInstall: LaunchMemory.lastOpen == null && !seenBefore,
+          freshInstall: fresh,
+          installedAt: LaunchMemory.installedAt,
           updated: seenBefore && LaunchMemory.updated,
+          updateSince: LaunchMemory.updateSince,
           lastFullDay: LaunchMemory.lastFullDay,
           lastStepsGoal: LaunchMemory.lastStepsGoal,
           walker: walker,
-          random: widget.random,
+          lastShown: LaunchMemory.lastShown,
+          lastScene: LaunchMemory.lastScene,
+          random: math.Random(seed),
         );
     // No fast and a walker: only ever wrong in the two scenes that hang on
     // the habits, and each of those waits to know.
@@ -538,13 +609,15 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
           ),
         );
       case LaunchScene.walk:
+        // The anytime list drew the walk: it plays for anyone, no need to
+        // know.
+        final without = pick(fasting: true, walker: false);
+        if (without == LaunchScene.walk) return _begin(hopeful);
         // Not known in time: not a walker, and an ordinary scene.
         _whenKnown(
           launchWalkerProvider,
           unknown: false,
-          (walker) => _begin(
-            walker ? hopeful : pick(fasting: true, walker: false),
-          ),
+          (walker) => _begin(walker ? hopeful : without),
         );
       default:
         _begin(hopeful);
@@ -582,6 +655,16 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
   void _begin(LaunchScene scene) {
     if (!mounted || _leaving) return;
     _scene = scene;
+    // The very first open: the sign-in screen under it holds its own Doum
+    // back for this one (not on a return's curtain, which plays over a
+    // page already seen, and not under Reduce Motion, which flies nothing).
+    if (scene == LaunchScene.firstOpen && !widget.replay && !_reduced) {
+      _handoff = true;
+      final handoff = ref.read(launchDoumHandoffProvider);
+      handoff.expect();
+      _handoffTo = handoff;
+    }
+    LaunchMemory.recordShown(scene, widget.clock());
     final scale = sproutScaleFor(kLaunchDoumHeight);
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
     var arrived = false;
@@ -589,14 +672,12 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
       if (arrived || !mounted || _leaving) return;
       arrived = true;
       setState(() => _doumIn = true);
-      // Still loading well after he arrived: in an ordinary scene, or an
-      // afternoon's, he takes out his magnifier.
-      if (LaunchCurtain.searchingScenes.contains(scene)) {
-        _after(LaunchCurtain.slowAfter, () {
-          _slowByArrival = true;
-          _maybeSearch();
-        });
-      }
+      // Still loading well after he arrived: he takes out his magnifier
+      // (asleep, the Wi-Fi mark alone).
+      _after(LaunchCurtain.slowAfter, () {
+        _slowByArrival = true;
+        _maybeSearch();
+      });
       // The status bar turns light once the dark has mostly fallen, not
       // before it, when light text would sit on the cream.
       if (scene == LaunchScene.nightAsleep) {
@@ -622,10 +703,13 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
   /// load said, so a launch ready at 1.6 s swapped to the magnifier and
   /// back in a tenth of a second, on most daytime opens.
   void _maybeSearch() {
-    if (!mounted || _leaving || _searching) return;
+    if (!mounted || _leaving || _slow) return;
     if (!_slowByClock || !_slowByArrival) return;
     if (ref.read(launchHomeReadyProvider)) return;
-    setState(() => _searching = true);
+    setState(() {
+      _slow = true;
+      _searching = LaunchCurtain.searchingScenes.contains(_scene);
+    });
   }
 
   /// Follows [launchHomeReadyProvider]: ready for [LaunchCurtain.settle]
@@ -666,6 +750,10 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
     // the home screen really is ready: the cap and a tap leave without
     // claiming it. The hop and the pause for it, only where there is
     // something to watch: not at night, not under Reduce Motion.
+    // A sign-in screen under the first open's scene: his ready moment is
+    // the wave he will fly in. Not for the cap or a tap, which leave
+    // without the ready moment.
+    _willFly = !force && _handoff && (_handoffTo?.canLand ?? false);
     if (!force) setState(() => _beat = true);
     final beat = !force &&
         !_reduced &&
@@ -697,14 +785,86 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
     // Not from a curtain a long return has already replaced: its overdue
     // timers can fire in the frame before it is gone, while the fresh one
     // covers the page.
+    final handoff = _handoffTo;
+    if (handoff != null) {
+      if (_willFly && _measureFlight(handoff)) {
+        _flying = true;
+        handoff.fly();
+      } else {
+        handoff.cancel();
+      }
+    }
     if (ref.read(launchCurtainRunProvider) == _run) {
       ref.read(launchCurtainUpProvider.notifier).state = false;
     }
     _exit
       ..duration = Duration(milliseconds: _reduced ? 250 : 480)
       ..forward().whenComplete(() {
-        if (mounted) setState(() => _gone = true);
+        if (!mounted) return;
+        // He is on the sign-in screen's spot: its Doum takes over in this
+        // frame, the one the curtain stops drawing.
+        if (_flying) _handoffTo?.land();
+        setState(() => _gone = true);
       });
+  }
+
+  /// Where the flight goes, measured once as it starts (outside any
+  /// layout, where reading another box's size is not allowed). False when
+  /// there is nothing laid out to land on.
+  bool _measureFlight(LaunchDoumHandoff handoff) {
+    final stand = handoff.stand?.currentContext?.findRenderObject();
+    final me = context.findRenderObject();
+    if (stand is! RenderBox ||
+        !stand.attached ||
+        !stand.hasSize ||
+        me is! RenderBox ||
+        !me.hasSize) {
+      return false;
+    }
+    _flightSize = me.size;
+    _flightTarget =
+        me.globalToLocal(stand.localToGlobal(Offset.zero)) & stand.size;
+    _flightHeight = handoff.height;
+    return true;
+  }
+
+  /// Doum on his way from the curtain's middle to the sign-in screen's
+  /// head, at [t] of the exit: from where the scene drew him (his body on
+  /// the screen's middle, his feet [kLaunchFeetBelowCentre] under it) to
+  /// where that screen's Doum stands (his feet's middle on its stand's,
+  /// on its floor, at its size), along a small arc. Drawn over the fading
+  /// ground, so he never fades.
+  Widget _flyingDoum(double t) {
+    const pose = SproutPose.frontWave;
+    final box = Sprout.sizeOf(pose, kLaunchDoumHeight);
+    final end = _flightHeight / kLaunchDoumHeight;
+    final fromLeft =
+        _flightSize.width / 2 - (kLaunchBodyCentre[pose] ?? .5) * box.width;
+    final fromFeet = _flightSize.height / 2 + kLaunchFeetBelowCentre;
+    final toLeft = _flightTarget.center.dx -
+        (kDoumFeetCentre[pose] ?? .5) * box.width * end;
+    final toFeet = _flightTarget.bottom;
+    final e = Curves.easeInOutCubic.transform(t);
+    final scale = lerpDouble(1, end, e)!;
+    final feet =
+        lerpDouble(fromFeet, toFeet, e)! - math.sin(math.pi * e) * 28;
+    return Positioned(
+      key: kLaunchFlyingDoumKey,
+      left: lerpDouble(fromLeft, toLeft, e),
+      top: feet - box.height * scale,
+      width: box.width,
+      height: box.height,
+      child: Transform.scale(
+        scale: scale,
+        alignment: Alignment.topLeft,
+        child: const Sprout(
+          pose: pose,
+          height: kLaunchDoumHeight,
+          entrance: SproutEntrance.none,
+          idleBreaths: 0,
+        ),
+      ),
+    );
   }
 
   @override
@@ -715,6 +875,9 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
     _beatTimer?.cancel();
     _settleTimer?.cancel();
     _lifecycle?.dispose();
+    // Gone before he could land (a return's fresh curtain replaced this
+    // one): the sign-in screen shows its own Doum.
+    _handoffTo?.cancel();
     _pace.removeListener(_follow);
     _enter.dispose();
     _exit.dispose();
@@ -727,13 +890,16 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
   Widget build(BuildContext context) {
     if (_gone) return const SizedBox.shrink();
     final appIcons = statusIconsOver(Theme.of(context).brightness);
+    // The Wi-Fi mark: a slow load still waiting on the account's data from
+    // the server, not on the work run on it here (the reminder pass).
+    final waitingOnNetwork = _slow && !ref.watch(launchDataReadyProvider);
     return BlockSemantics(
       child: Semantics(
         label: _scene == null
             ? 'Grow Daily'
             : _searching
-                ? kLaunchSlowLine
-                : launchLine(_scene!),
+                ? LaunchSettings.current.slowLine
+                : LaunchSettings.current.line(_scene!),
         child: AnimatedBuilder(
           animation: Listenable.merge([_enter, _exit, _shown]),
           builder: (context, _) {
@@ -772,20 +938,33 @@ class _LaunchCurtainState extends ConsumerState<LaunchCurtain>
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: _skip,
-                  child: Opacity(
-                    opacity: arrived * (1 - ground),
-                    child: ColoredBox(
-                      color: kLaunchGround,
-                      child: LaunchSceneView(
-                        scene: _scene ?? LaunchScene.dayRing,
-                        started: _doumIn && _scene != null,
-                        progress: _shown.value,
-                        leaving: _beat,
-                        away: away,
-                        reduced: _reduced,
-                        searching: _searching,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: arrived * (1 - ground),
+                          child: ColoredBox(
+                            color: kLaunchGround,
+                            child: LaunchSceneView(
+                              scene: _scene ?? LaunchScene.dayRing,
+                              started: _doumIn && _scene != null,
+                              progress: _shown.value,
+                              leaving: _beat,
+                              away: away,
+                              reduced: _reduced,
+                              searching: _searching,
+                              waitingOnNetwork: waitingOnNetwork,
+                              handoff: _willFly,
+                              holdStill: _handoff,
+                              doumFlying: _flying,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      // On his way to the sign-in screen, over the fading
+                      // ground (see _flyingDoum).
+                      if (_flying) _flyingDoum(t),
+                    ],
                   ),
                 ),
               ),

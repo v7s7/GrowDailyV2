@@ -11,7 +11,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/core/l10n/wording_edits.dart';
 import 'package:grow_daily_v2/features/launch/launch_scene.dart';
+import 'package:grow_daily_v2/features/launch/launch_settings.dart';
 
 LaunchScene at(
   DateTime now, {
@@ -23,8 +25,19 @@ LaunchScene at(
   DateTime? stepsGoal,
   bool walker = false,
   int seed = 1,
+  SplashEdits? edits,
+  bool everyDay = true,
+  Map<LaunchScene, DateTime> shown = const {},
+  LaunchScene? lastScene,
+  DateTime? installedAt,
+  DateTime? updateSince,
 }) =>
     pickLaunchScene(
+      settings: LaunchSettings.from(everyDay ? onEveryDay(edits) : edits),
+      lastShown: shown,
+      lastScene: lastScene,
+      installedAt: installedAt,
+      updateSince: updateSince,
       now: now,
       lastOpen: lastOpen,
       fastingPlanned: fasting,
@@ -36,7 +49,41 @@ LaunchScene at(
       random: math.Random(seed),
     );
 
-const ordinary = {LaunchScene.dayRing, LaunchScene.turnaround};
+/// [edits] with every moment playing every day it can, so a rule's test is
+/// never about which days its chance skips (pinned in its own group).
+SplashEdits onEveryDay(SplashEdits? edits) => SplashEdits(
+      numbers: edits?.numbers ?? const {},
+      order: edits?.order,
+      off: edits?.off ?? const [],
+      hours: edits?.hours ?? const {},
+      months: edits?.months ?? const {},
+      forceScene: edits?.forceScene,
+      forceFrom: edits?.forceFrom,
+      forceTo: edits?.forceTo,
+      pool: edits?.pool ?? const {},
+      onceADay: edits?.onceADay ?? const {},
+      chance: {
+        for (final name in kSplashDailyChance.keys) name: 100,
+        ...?edits?.chance,
+      },
+      lines: edits?.lines ?? const {},
+      slowLine: edits?.slowLine,
+    );
+
+/// Every scene the anytime list can draw, built in (kSplashPoolWeights).
+const anytime = {
+  LaunchScene.dayRing,
+  LaunchScene.turnaround,
+  LaunchScene.walk,
+  LaunchScene.stepsGoal,
+  LaunchScene.firstOpen,
+  LaunchScene.winterWait,
+};
+
+/// Every anytime scene played already (none is new any more).
+Map<LaunchScene, DateTime> allSeen(DateTime at) => {
+      for (final s in anytime) s: at,
+    };
 
 IslamicHabitTemplate custom(String name, {List<int> days = const []}) =>
     IslamicHabitTemplate(
@@ -72,11 +119,29 @@ void main() {
       expect(at(on(monday, 8)), LaunchScene.morningCoffee);
     });
 
-    test('not the second open of the morning', () {
+    test('once a morning: not after it played', () {
       for (var seed = 0; seed < 8; seed++) {
-        expect(at(on(monday, 9), lastOpen: on(monday, 7), seed: seed),
-            isIn(ordinary));
+        expect(
+          at(on(monday, 9),
+              lastOpen: on(monday, 7),
+              shown: {LaunchScene.morningCoffee: on(monday, 7)},
+              seed: seed),
+          isIn(anytime),
+        );
       }
+    });
+
+    test('owed: a bigger moment took the first open, the mug the next', () {
+      final yday = DateTime(2026, 10, 4);
+      expect(at(on(monday, 7), lastOpen: yesterday, fullDay: yday),
+          LaunchScene.fullDay);
+      expect(
+        at(on(monday, 8),
+            lastOpen: on(monday, 7),
+            fullDay: yday,
+            shown: {LaunchScene.fullDay: on(monday, 7)}),
+        LaunchScene.morningCoffee,
+      );
     });
 
     test('an open after midnight still belongs to the night before', () {
@@ -91,7 +156,7 @@ void main() {
       for (var seed = 0; seed < 8; seed++) {
         expect(
           at(on(monday, 7), lastOpen: yesterday, fasting: true, seed: seed),
-          isIn(ordinary),
+          isIn(anytime),
         );
       }
     });
@@ -100,7 +165,7 @@ void main() {
       final eve = DateTime(2027, 2, 7); // 1448 starts 2027-02-08
       for (var seed = 0; seed < 8; seed++) {
         expect(at(on(eve, 7), lastOpen: on(DateTime(2027, 2, 6), 21), seed: seed),
-            isIn(ordinary));
+            isIn(anytime));
       }
       expect(at(on(DateTime(2027, 2, 8), 7), lastOpen: on(eve, 21)),
           LaunchScene.ramadanLantern);
@@ -125,19 +190,73 @@ void main() {
           LaunchScene.nightAsleep);
     });
 
-    test('the checklist from 18:00 to 22:00', () {
+    test('the checklist from 18:00 to 22:00, once an evening', () {
       expect(at(on(monday, 18), lastOpen: on(monday, 9)),
           LaunchScene.eveningChecklist);
       expect(at(on(monday, 21, 59), lastOpen: on(monday, 9)),
           LaunchScene.eveningChecklist);
+      for (var seed = 0; seed < 12; seed++) {
+        expect(
+          at(on(monday, 20),
+              lastOpen: on(monday, 18, 30),
+              shown: {LaunchScene.eveningChecklist: on(monday, 18, 30)},
+              seed: seed),
+          isIn(anytime),
+          reason: 'the evening\'s other opens go to the anytime list',
+        );
+      }
     });
 
-    test('otherwise the ring or the turn, and both come up', () {
+    test('otherwise the anytime list, and each of its scenes comes up', () {
       final seen = {
-        for (var seed = 0; seed < 20; seed++)
+        for (var seed = 0; seed < 60; seed++)
           at(on(monday, 14), lastOpen: on(monday, 9), seed: seed),
       };
-      expect(seen, ordinary);
+      // Missing winter only inside its own hours, from 15:00.
+      expect(seen, {
+        LaunchScene.dayRing,
+        LaunchScene.turnaround,
+        LaunchScene.walk,
+        LaunchScene.stepsGoal,
+        LaunchScene.firstOpen,
+      });
+    });
+
+    test('a scene never seen on this phone comes first', () {
+      final seen = {...allSeen(on(monday, 8))}..remove(LaunchScene.walk);
+      for (var seed = 0; seed < 12; seed++) {
+        expect(
+          at(on(monday, 14), lastOpen: on(monday, 9), shown: seen, seed: seed),
+          LaunchScene.walk,
+        );
+      }
+    });
+
+    test('never the scene the last launch played', () {
+      for (var seed = 0; seed < 30; seed++) {
+        expect(
+          at(on(monday, 14),
+              lastOpen: on(monday, 9),
+              shown: allSeen(on(monday, 8)),
+              lastScene: LaunchScene.dayRing,
+              seed: seed),
+          isNot(LaunchScene.dayRing),
+        );
+      }
+    });
+
+    test('walking and steps come up most', () {
+      final counts = <LaunchScene, int>{};
+      for (var seed = 0; seed < 1200; seed++) {
+        final s = at(on(monday, 14),
+            lastOpen: on(monday, 9), shown: allSeen(on(monday, 8)), seed: seed);
+        counts[s] = (counts[s] ?? 0) + 1;
+      }
+      // Shares 3, 3, 2, 2, 2 of 12: a quarter each for the two.
+      expect(counts[LaunchScene.walk]!, greaterThan(counts[LaunchScene.dayRing]!));
+      expect(counts[LaunchScene.stepsGoal]!,
+          greaterThan(counts[LaunchScene.turnaround]!));
+      expect(counts[LaunchScene.walk]!, inInclusiveRange(240, 360));
     });
   });
 
@@ -206,11 +325,63 @@ void main() {
           reason: 'over the morning mug');
     });
 
-    test('Ramadan and night keep their place over everything new', () {
-      expect(at(on(monday, 23), fresh: true), LaunchScene.nightAsleep);
+    test('the very first launch leads, at night and in Ramadan too', () {
+      expect(at(on(monday, 23), fresh: true), LaunchScene.firstOpen);
       expect(at(on(DateTime(2027, 2, 20), 14), fresh: true),
-          LaunchScene.ramadanLantern);
+          LaunchScene.firstOpen);
+    });
+
+    test('the seed stays owed for three days if something took it', () {
+      final installed = on(monday, 8);
+      final next = on(DateTime(2026, 10, 7), 13);
+      expect(at(next, lastOpen: on(monday, 9), installedAt: installed),
+          LaunchScene.firstOpen);
+      expect(
+        at(next,
+            lastOpen: on(monday, 9),
+            installedAt: installed,
+            shown: allSeen(installed),
+            edits: const SplashEdits(pool: {'firstOpen': 0})),
+        isNot(LaunchScene.firstOpen),
+        reason: 'it played',
+      );
+      final late = on(DateTime(2026, 10, 8), 13);
+      expect(
+        at(late,
+            lastOpen: on(DateTime(2026, 10, 7), 9),
+            installedAt: installed,
+            shown: {...allSeen(installed)}..remove(LaunchScene.firstOpen),
+            edits: const SplashEdits(pool: {'firstOpen': 0})),
+        isNot(LaunchScene.firstOpen),
+        reason: 'three days have passed',
+      );
+    });
+
+    test('a new version waits out the night, and comes before Ramadan', () {
       expect(at(on(monday, 23), updated: true), LaunchScene.nightAsleep);
+      expect(at(on(monday, 3), lastOpen: yesterday, updated: true),
+          LaunchScene.nightAsleep);
+      final r = DateTime(2027, 2, 20);
+      expect(at(on(r, 14), lastOpen: on(r, 9), updated: true),
+          LaunchScene.update);
+    });
+
+    test('the bulb stays owed for a week, then is dropped', () {
+      final since = on(monday, 23);
+      expect(
+        at(on(DateTime(2026, 10, 11), 14),
+            lastOpen: on(DateTime(2026, 10, 11), 9),
+            updated: true,
+            updateSince: since),
+        LaunchScene.update,
+      );
+      expect(
+        at(on(DateTime(2026, 10, 12), 14),
+            lastOpen: on(DateTime(2026, 10, 12), 9),
+            updated: true,
+            updateSince: since),
+        isNot(LaunchScene.update),
+      );
     });
 
     test('a new version: the bulb, unless back after days away', () {
@@ -238,6 +409,31 @@ void main() {
       }
     });
 
+    test('three moments one morning: the bulb, the squares, then the mug', () {
+      final yday = DateTime(2026, 10, 4);
+      expect(at(on(monday, 7), lastOpen: yesterday, updated: true, fullDay: yday),
+          LaunchScene.update);
+      expect(
+        at(on(monday, 8),
+            lastOpen: on(monday, 7),
+            fullDay: yday,
+            shown: {LaunchScene.update: on(monday, 7)}),
+        LaunchScene.fullDay,
+        reason: 'not lost to the bulb',
+      );
+      expect(
+        at(on(monday, 9),
+            lastOpen: on(monday, 8),
+            fullDay: yday,
+            shown: {
+              LaunchScene.update: on(monday, 7),
+              LaunchScene.fullDay: on(monday, 8),
+            }),
+        LaunchScene.morningCoffee,
+        reason: 'not lost to the squares',
+      );
+    });
+
     test('yesterday full: the squares, on the first open of today', () {
       final yday = DateTime(2026, 10, 4);
       expect(at(on(monday, 8), lastOpen: yesterday, fullDay: yday),
@@ -246,8 +442,13 @@ void main() {
           LaunchScene.fullDay);
       // 14:30, not 15:00: an October afternoon's first open from 15:00 is
       // missing winter's.
-      expect(at(on(monday, 14, 30), lastOpen: on(monday, 14), fullDay: yday),
-          isIn(ordinary), reason: 'once, not every open of the day');
+      expect(
+          at(on(monday, 14, 30),
+              lastOpen: on(monday, 14),
+              fullDay: yday,
+              shown: {LaunchScene.fullDay: on(monday, 14)}),
+          isIn(anytime),
+          reason: 'once, not every open of the day');
       expect(at(on(monday, 8), lastOpen: yesterday, fullDay: DateTime(2026, 10, 2)),
           LaunchScene.morningCoffee, reason: 'an older full day is not yesterday');
     });
@@ -260,6 +461,15 @@ void main() {
         at(on(monday, 14), lastOpen: yesterday, fullDay: yday, stepsGoal: yday),
         LaunchScene.fullDay,
       );
+      expect(
+        at(on(monday, 14, 40),
+            lastOpen: on(monday, 14),
+            fullDay: yday,
+            stepsGoal: yday,
+            shown: {LaunchScene.fullDay: on(monday, 14)}),
+        LaunchScene.stepsGoal,
+        reason: 'the run on the next open',
+      );
     });
 
     test('Saturday once the recap is ready: the page turns, once', () {
@@ -267,8 +477,19 @@ void main() {
       expect(saturday.weekday, DateTime.saturday);
       expect(at(on(saturday, 10, 30), lastOpen: on(saturday, 9)),
           LaunchScene.saturday);
-      expect(at(on(saturday, 12), lastOpen: on(saturday, 10, 45)),
-          isIn(ordinary));
+      expect(
+          at(on(saturday, 12),
+              lastOpen: on(saturday, 10, 45),
+              shown: {LaunchScene.saturday: on(saturday, 10, 45)}),
+          isIn(anytime));
+      expect(
+        at(on(saturday, 12),
+            lastOpen: on(saturday, 10, 45),
+            fullDay: DateTime(2026, 10, 9),
+            shown: {LaunchScene.fullDay: on(saturday, 10, 45)}),
+        LaunchScene.saturday,
+        reason: 'the squares took 10:45, the page turns on the next open',
+      );
       expect(at(on(saturday, 9, 30), lastOpen: on(DateTime(2026, 10, 9), 21)),
           LaunchScene.morningCoffee, reason: 'the recap is not ready yet');
     });
@@ -277,8 +498,15 @@ void main() {
       final july = DateTime(2026, 7, 13);
       expect(at(on(july, 13), lastOpen: on(july, 9)), LaunchScene.summerNoon);
       expect(at(on(july, 15, 59), lastOpen: on(july, 9)), LaunchScene.summerNoon);
-      expect(at(on(july, 16), lastOpen: on(july, 9)), isIn(ordinary));
-      expect(at(on(monday, 13), lastOpen: on(monday, 9)), isIn(ordinary),
+      expect(
+          at(on(july, 15, 30),
+              lastOpen: on(july, 13),
+              shown: {LaunchScene.summerNoon: on(july, 13)}),
+          isIn(anytime),
+          reason: 'once a day');
+      expect(at(on(july, 16), lastOpen: on(july, 9)), LaunchScene.winterWait,
+          reason: 'from 16:00 a July afternoon misses winter');
+      expect(at(on(monday, 13), lastOpen: on(monday, 9)), isIn(anytime),
           reason: 'October');
     });
   });
@@ -336,45 +564,66 @@ void main() {
       );
     });
 
-    test('a new version plays its bulb once, not on every return', () {
+    test('a new version plays its bulb once, on a return if it was owed', () {
+      final since = DateTime(2026, 10, 12, 7);
       LaunchMemory.debugReset(
-        lastOpen: DateTime(2026, 10, 12, 7),
-        loaded: true,
-        lastVersion: '1.1.0+84',
+        lastOpen: since,
+        lastVersion: '1.1.0+85',
         version: '1.1.0+85',
+        newVersion: '1.1.0+85',
+        newVersionSince: since,
       );
-      expect(LaunchMemory.updated, isTrue, reason: 'the launch after it');
+      expect(LaunchMemory.updated, isTrue, reason: 'owed until it plays');
+      expect(LaunchMemory.updateSince, since);
       LaunchMemory.beginReturn(since: DateTime(2026, 10, 12, 8));
+      expect(LaunchMemory.updated, isTrue, reason: 'the night took the launch');
+      LaunchMemory.recordShown(LaunchScene.update, DateTime(2026, 10, 12, 9));
+      expect(LaunchMemory.updated, isFalse);
+      expect(LaunchMemory.lastScene, LaunchScene.update);
+      expect(LaunchMemory.lastShown[LaunchScene.update],
+          DateTime(2026, 10, 12, 9));
+    });
+
+    test('a fresh install has no bulb owed', () {
+      LaunchMemory.debugReset(version: '1.1.0+86');
       expect(LaunchMemory.updated, isFalse);
     });
   });
 
   // Aziz, 2026-09-30: two new scenes, "Missing winter while we Grow Daily"
-  // and "Every step helps us Grow Daily", after the summer noon and before
-  // the coin, every earlier rule keeping its place.
-  group('missing winter: October and November, 15:00 to 17:59', () {
+  // and "Every step helps us Grow Daily", after the summer noon, every
+  // earlier rule keeping its place. 2026-10-01: winter in every month but
+  // Bahrain's winter, December to February.
+  group('missing winter: every month but winter, 15:00 to 17:59', () {
     final oct1 = DateTime(2026, 10); // 1 October, a Thursday
     final morning = on(oct1, 9);
     const winter = LaunchScene.winterWait;
 
-    test('from 1 October to 30 November, and neither side of it', () {
-      final sep30 = DateTime(2026, 9, 30);
-      final nov30 = DateTime(2026, 11, 30);
-      final dec1 = DateTime(2026, 12);
-      for (var seed = 0; seed < 8; seed++) {
-        final before = at(on(sep30, 16), lastOpen: on(sep30, 9), seed: seed);
-        final after = at(on(dec1, 16), lastOpen: on(dec1, 9), seed: seed);
-        expect(before, isIn(ordinary), reason: '30 September');
-        expect(after, isIn(ordinary), reason: '1 December');
+    test('March to November, never December to February', () {
+      for (final d in [
+        DateTime(2026, 4, 15),
+        DateTime(2026, 7, 13),
+        oct1,
+        DateTime(2026, 11, 30),
+      ]) {
+        expect(at(on(d, 16), lastOpen: on(d, 9)), winter, reason: '$d');
       }
-      expect(at(on(oct1, 16), lastOpen: morning), winter);
-      expect(at(on(nov30, 16), lastOpen: on(nov30, 9)), winter);
+      for (final d in [
+        DateTime(2026, 12),
+        DateTime(2027, 1, 12),
+        DateTime(2027, 2, 2),
+      ]) {
+        for (var seed = 0; seed < 12; seed++) {
+          expect(at(on(d, 16), lastOpen: on(d, 9), seed: seed), isNot(winter),
+              reason: '$d');
+        }
+      }
     });
 
     test('from 15:00, until the evening takes over at 18:00', () {
-      for (var seed = 0; seed < 8; seed++) {
+      for (var seed = 0; seed < 12; seed++) {
         final early = at(on(oct1, 14, 59), lastOpen: morning, seed: seed);
-        expect(early, isIn(ordinary));
+        expect(early, isNot(winter));
       }
       expect(at(on(oct1, 15), lastOpen: morning), winter);
       expect(at(on(oct1, 17, 59), lastOpen: morning), winter);
@@ -382,18 +631,32 @@ void main() {
       expect(evening, LaunchScene.eveningChecklist);
     });
 
-    test('the first open from 15:00 only, as Saturday\'s recap', () {
+    test('once a day as the afternoon\'s moment', () {
       expect(at(on(oct1, 16), lastOpen: on(oct1, 14, 59)), winter);
       final afterMidnight = at(on(oct1, 16), lastOpen: on(oct1, 1));
       expect(afterMidnight, winter, reason: 'not this afternoon\'s open');
       final noRecord = at(on(oct1, 15, 30));
       expect(noRecord, winter, reason: 'nothing recorded, not a fresh install');
-      for (var seed = 0; seed < 8; seed++) {
-        final again = at(on(oct1, 16), lastOpen: on(oct1, 15), seed: seed);
-        final later = at(on(oct1, 17, 30), lastOpen: on(oct1, 16), seed: seed);
-        expect(again, isIn(ordinary), reason: 'opened at 15:00 already');
-        expect(later, isIn(ordinary));
+      for (var seed = 0; seed < 12; seed++) {
+        final again = at(on(oct1, 16),
+            lastOpen: on(oct1, 15),
+            shown: {winter: on(oct1, 15)},
+            lastScene: winter,
+            seed: seed);
+        expect(again, isNot(winter), reason: 'played at 15:00 already');
       }
+    });
+
+    test('later opens may still draw it from the anytime list', () {
+      final seen = {
+        for (var seed = 0; seed < 60; seed++)
+          at(on(oct1, 17),
+              lastOpen: on(oct1, 16),
+              shown: allSeen(on(oct1, 15)),
+              lastScene: LaunchScene.dayRing,
+              seed: seed),
+      };
+      expect(seen, contains(winter));
     });
 
     test('a fast on the plan does not keep it away (nothing to drink)', () {
@@ -434,7 +697,9 @@ void main() {
           LaunchScene.saturday,
         ),
         'the recap already seen': (
-          at(on(saturday, 16), lastOpen: on(saturday, 10, 30)),
+          at(on(saturday, 16),
+              lastOpen: on(saturday, 10, 30),
+              shown: {LaunchScene.saturday: on(saturday, 10, 30)}),
           winter,
         ),
         'the night': (
@@ -465,18 +730,53 @@ void main() {
 
     test('from 16:00, until the evening takes over at 18:00', () {
       for (var seed = 0; seed < 8; seed++) {
-        expect(walker(on(dec7, 15, 59), seed: seed), isIn(ordinary));
+        expect(walker(on(dec7, 15, 59), seed: seed), isIn(anytime));
       }
       expect(walker(on(dec7, 16)), walk);
       expect(walker(on(dec7, 17, 59)), walk);
       expect(walker(on(dec7, 18)), LaunchScene.eveningChecklist);
     });
 
-    test('only for a walker', () {
-      for (var seed = 0; seed < 8; seed++) {
-        final other = at(on(dec7, 17), lastOpen: morning, seed: seed);
-        expect(other, isIn(ordinary));
+    test('once a day for a walker; for anyone else, only by the draw', () {
+      final lastNight = on(DateTime(2026, 12, 6), 21);
+      for (var seed = 0; seed < 12; seed++) {
+        final other = at(on(dec7, 17),
+            lastOpen: morning,
+            shown: allSeen(lastNight),
+            lastScene: walk,
+            seed: seed);
+        expect(other, isNot(walk), reason: 'just played: not drawn again');
+        expect(
+          at(on(dec7, 17),
+              lastOpen: morning,
+              walker: true,
+              shown: allSeen(lastNight),
+              lastScene: walk,
+              seed: seed),
+          walk,
+        );
+        expect(
+          at(on(dec7, 17, 30),
+              lastOpen: on(dec7, 17),
+              walker: true,
+              shown: {...allSeen(lastNight), walk: on(dec7, 17)},
+              lastScene: walk,
+              seed: seed),
+          isNot(walk),
+          reason: 'played at 17:00: once a day',
+        );
       }
+    });
+
+    test('every open again when the admin turns once a day off', () {
+      expect(
+        at(on(dec7, 17, 30),
+            lastOpen: on(dec7, 17),
+            walker: true,
+            shown: {walk: on(dec7, 17)},
+            edits: const SplashEdits(onceADay: {'walk': 0})),
+        walk,
+      );
     });
 
     test('every open in the hour, not only the first', () {
@@ -493,15 +793,19 @@ void main() {
       expect(fasting, walk);
     });
 
-    test('the summer noon keeps its hours, winter its first open', () {
+    test('the summer noon keeps its hours; the walk comes before winter', () {
       final july = DateTime(2026, 7, 13);
       final oct1 = DateTime(2026, 10);
       expect(walker(on(july, 15, 59)), LaunchScene.summerNoon);
-      expect(walker(on(july, 16)), walk);
-      final first = walker(on(oct1, 16, 30), last: on(oct1, 9));
-      final next = walker(on(oct1, 16, 45), last: on(oct1, 16, 30));
-      expect(first, LaunchScene.winterWait, reason: 'the afternoon\'s first');
-      expect(next, walk, reason: 'the opens after it');
+      for (final d in [july, oct1]) {
+        final first = walker(on(d, 16, 30), last: on(d, 9));
+        final next = at(on(d, 16, 45),
+            lastOpen: on(d, 16, 30),
+            walker: true,
+            shown: {walk: on(d, 16, 30)});
+        expect(first, walk, reason: '$d afternoon\'s first');
+        expect(next, LaunchScene.winterWait, reason: '$d the open after it');
+      }
     });
 
     test('every scene above it keeps its place', () {
@@ -636,6 +940,257 @@ void main() {
       final want = raw.isEmpty ? null : LaunchScene.values.byName(raw);
       expect(kLaunchSceneForced, want);
       expect(launchSceneFixed(), kLaunchSceneForced);
+    });
+  });
+  group('the admin\'s splash settings', () {
+    final wed = DateTime(2026, 10, 7);
+    DateTime when(DateTime d, int h) => DateTime(d.year, d.month, d.day, h);
+
+    test('nothing edited is the built-in rules', () {
+      expect(LaunchSettings.from(null).describe(),
+          LaunchSettings.builtIn.describe());
+      expect(at(when(monday, 7), lastOpen: yesterday),
+          LaunchScene.morningCoffee);
+    });
+
+    test('a scene switched off falls to the next rule', () {
+      const off = SplashEdits(off: ['morningCoffee']);
+      expect(at(when(monday, 7), lastOpen: yesterday, edits: off),
+          isIn(anytime));
+    });
+
+    test('its hours move: the evening checklist from 17:00', () {
+      const e = SplashEdits(hours: {'eveningChecklist': [17, 22]});
+      expect(at(when(monday, 17), lastOpen: yesterday, edits: e),
+          LaunchScene.eveningChecklist);
+      expect(at(when(monday, 16), lastOpen: yesterday, edits: e),
+          isNot(LaunchScene.eveningChecklist));
+    });
+
+    test('its months move: summer noon in May too', () {
+      final may = DateTime(2026, 5, 12);
+      const e = SplashEdits(months: {'summerNoon': [5, 6, 7, 8, 9]});
+      expect(at(when(may, 13), lastOpen: when(may, 9), edits: e),
+          LaunchScene.summerNoon);
+      expect(at(when(may, 13), lastOpen: when(may, 9)), isIn(anytime));
+    });
+
+    test('an empty month list is every month', () {
+      final may = DateTime(2026, 5, 12);
+      const e = SplashEdits(months: {'summerNoon': []});
+      expect(at(when(may, 13), lastOpen: when(may, 9), edits: e),
+          LaunchScene.summerNoon);
+    });
+
+    test('the order decides: Eid above a new version, then below it', () {
+      // 2026-03-20 is the first day of Eid al-Fitr 1447.
+      final eid = DateTime(2026, 3, 20);
+      expect(at(when(eid, 10), lastOpen: when(eid, 8), updated: true),
+          LaunchScene.update);
+      const e = SplashEdits(order: ['eid', 'update']);
+      expect(at(when(eid, 10), lastOpen: when(eid, 8), updated: true, edits: e),
+          LaunchScene.eid);
+    });
+
+    test('a stale order keeps every scene it left out', () {
+      const e = SplashEdits(order: ['walk', 'nonsense', 'walk']);
+      final s = LaunchSettings.from(e);
+      expect(s.order.first, LaunchScene.walk);
+      expect(s.order.length, kSplashSceneOrder.length);
+      expect(s.order.toSet().length, s.order.length);
+    });
+
+    test('away days move: coming back after 5 days, not 3', () {
+      final back = when(monday, 12);
+      final last = back.subtract(const Duration(days: 4));
+      expect(at(back, lastOpen: last), LaunchScene.welcomeBack);
+      const e = SplashEdits(numbers: {'awayDays': 5});
+      expect(at(back, lastOpen: last, edits: e), isNot(LaunchScene.welcomeBack));
+    });
+
+    test('the anytime list follows the shares', () {
+      const none = {
+        'dayRing': 0,
+        'turnaround': 0,
+        'walk': 0,
+        'stepsGoal': 0,
+        'firstOpen': 0,
+        'winterWait': 0,
+      };
+      final walkOnly = SplashEdits(pool: {...none, 'walk': 4});
+      final turnOnly = SplashEdits(pool: {...none, 'turnaround': 1});
+      for (var seed = 0; seed < 12; seed++) {
+        expect(
+            at(when(monday, 11),
+                lastOpen: when(monday, 9), seed: seed, edits: walkOnly),
+            LaunchScene.walk);
+        expect(
+            at(when(monday, 11),
+                lastOpen: when(monday, 9), seed: seed, edits: turnOnly),
+            LaunchScene.turnaround);
+      }
+      expect(
+          at(when(monday, 11),
+              lastOpen: when(monday, 9), edits: const SplashEdits(pool: none)),
+          LaunchScene.dayRing,
+          reason: 'nothing in the list: the ring');
+      // Only the seven anytime scenes take a share: Eid outside its days
+      // would say something untrue.
+      final s = LaunchSettings.from(const SplashEdits(pool: {'eid': 5}));
+      expect(s.pool.containsKey(LaunchScene.eid), isFalse);
+    });
+
+    test('a switched-off scene leaves the anytime list too', () {
+      for (var seed = 0; seed < 20; seed++) {
+        expect(
+            at(when(monday, 11),
+                lastOpen: when(monday, 9),
+                seed: seed,
+                edits: const SplashEdits(off: ['walk'])),
+            isNot(LaunchScene.walk));
+      }
+    });
+
+    test('new first and no repeat can be turned off', () {
+      final s = LaunchSettings.from(
+          const SplashEdits(numbers: {'newFirst': 0, 'noRepeat': 0}));
+      expect(s.newFirst, isFalse);
+      expect(s.noRepeat, isFalse);
+      expect(LaunchSettings.builtIn.newFirst, isTrue);
+      expect(LaunchSettings.builtIn.noRepeat, isTrue);
+    });
+
+    test('the lines: rewritten, trimmed, too long dropped', () {
+      final s = LaunchSettings.from(const SplashEdits(
+        lines: {
+          'walk': '  Walk   with us and Grow Daily ',
+          'eid': '',
+          'dayRing': 'This line is far far far far far far too long to fit under him',
+        },
+        slowLine: 'Hold on, we Grow Daily',
+      ));
+      expect(s.line(LaunchScene.walk), 'Walk with us and Grow Daily');
+      expect(s.line(LaunchScene.eid), launchLine(LaunchScene.eid));
+      expect(s.line(LaunchScene.dayRing), launchLine(LaunchScene.dayRing));
+      expect(s.slowLine, 'Hold on, we Grow Daily');
+      expect(LaunchSettings.builtIn.slowLine, kLaunchSlowLine);
+    });
+
+    test('one second more than before: 4 s at least, 9 s at most', () {
+      expect(LaunchSettings.builtIn.minShowMs, 4000);
+      expect(LaunchSettings.builtIn.maxShowMs, 9000);
+    });
+
+    test('one scene for everyone, between its days, over every rule', () {
+      const e = SplashEdits(
+        forceScene: 'eid',
+        forceFrom: '2026-10-06',
+        forceTo: '2026-10-08',
+      );
+      // Night, a fresh install: still the forced scene.
+      expect(at(when(wed, 23), fresh: true, edits: e), LaunchScene.eid);
+      expect(at(when(DateTime(2026, 10, 8), 9), edits: e), LaunchScene.eid);
+      expect(at(when(DateTime(2026, 10, 9), 9), lastOpen: yesterday, edits: e),
+          isNot(LaunchScene.eid));
+      expect(at(when(DateTime(2026, 10, 5), 9), lastOpen: yesterday, edits: e),
+          isNot(LaunchScene.eid));
+    });
+
+    test('a bad edit costs that edit only', () {
+      const e = SplashEdits(
+        numbers: {'minShowMs': 5, 'awayDays': 5},
+        hours: {'winterWait': [9, 9], 'nonsense': [1, 2]},
+        forceScene: 'walk',
+        forceFrom: '2026-10-09',
+        forceTo: '2026-10-01',
+      );
+      final s = LaunchSettings.from(e);
+      expect(s.minShowMs, 4000);
+      expect(s.awayDays, 5);
+      expect(s.hours[LaunchScene.winterWait]!.from, 15);
+      expect(s.forceScene, isNull);
+    });
+
+    test('the cap always leaves a second after the minimum', () {
+      const e = SplashEdits(numbers: {'minShowMs': 9000, 'maxShowMs': 9500});
+      expect(LaunchSettings.from(e).maxShowMs, 10000);
+    });
+
+    test('a night wrapping midnight, and 24 as its end', () {
+      expect(const LaunchWindow(22, 4).contains(23), isTrue);
+      expect(const LaunchWindow(22, 4).contains(3), isTrue);
+      expect(const LaunchWindow(22, 4).contains(4), isFalse);
+      expect(const LaunchWindow(10, 24).contains(23), isTrue);
+    });
+  });
+
+  group('how often a moment plays', () {
+    test('the same answer all day, and its share of days', () {
+      final start = DateTime(2026, 10, 1);
+      var days = 0;
+      for (var d = 0; d < 1000; d++) {
+        final day = DateTime(start.year, start.month, start.day + d);
+        if (LaunchSettings.builtIn.playsOn(LaunchScene.eveningChecklist, day)) {
+          days++;
+        }
+      }
+      // 60% built in.
+      expect(days, inInclusiveRange(540, 660));
+    });
+
+    test('a skipped evening hands every evening open to the anytime list', () {
+      final start = DateTime(2026, 10, 1);
+      final skipped = [
+        for (var d = 0; d < 30; d++)
+          DateTime(start.year, start.month, start.day + d),
+      ].firstWhere((day) =>
+          !LaunchSettings.builtIn.playsOn(LaunchScene.eveningChecklist, day));
+      for (final h in [18, 19, 21]) {
+        expect(
+          at(DateTime(skipped.year, skipped.month, skipped.day, h),
+              lastOpen: DateTime(skipped.year, skipped.month, skipped.day, 9),
+              everyDay: false),
+          isIn(anytime),
+        );
+      }
+    });
+
+    test('the walkers, the squares and the night play every day', () {
+      for (final s in [
+        LaunchScene.walk,
+        LaunchScene.fullDay,
+        LaunchScene.nightAsleep,
+        LaunchScene.ramadanLantern,
+      ]) {
+        expect(LaunchSettings.builtIn.chance.containsKey(s), isFalse,
+            reason: s.name);
+      }
+    });
+
+    test('the roll the admin page computes too', () {
+      // Pinned values: scripts/admin_lookup/wording/splash_rules.js must
+      // give the same.
+      final rolls = [
+        for (final s in [
+          LaunchScene.morningCoffee,
+          LaunchScene.eveningChecklist,
+          LaunchScene.winterWait,
+        ])
+          for (var d = 1; d <= 3; d++) launchDayRoll(s, DateTime(2026, 10, d)),
+      ];
+      expect(rolls, [87, 26, 65, 20, 59, 45, 15, 1, 40]);
+    });
+
+    test('100 is every day, 0 is never', () {
+      final never = LaunchSettings.from(
+          const SplashEdits(chance: {'eveningChecklist': 0}));
+      final always = LaunchSettings.from(
+          const SplashEdits(chance: {'eveningChecklist': 100}));
+      for (var d = 1; d <= 30; d++) {
+        final day = DateTime(2026, 10, d);
+        expect(never.playsOn(LaunchScene.eveningChecklist, day), isFalse);
+        expect(always.playsOn(LaunchScene.eveningChecklist, day), isTrue);
+      }
     });
   });
 }

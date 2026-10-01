@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../../core/constants/game_constants.dart';
 import '../../../core/extensions/datetime_ext.dart';
@@ -26,7 +26,7 @@ import '../../../shared/widgets/victory_burst.dart';
 import '../../settings/models/notification_settings.dart';
 import '../../settings/notifiers/notification_settings_notifier.dart';
 import '../../settings/widgets/city_search_sheet.dart';
-import '../catalog/goal_suggestions.dart';
+import '../catalog/habit_ideas.dart';
 import '../catalog/habit_plans.dart' show activeCatalogProvider;
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/catalog_overrides_notifier.dart';
@@ -34,14 +34,19 @@ import '../models/habit_cadence.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_reminder_stack.dart';
 import '../models/habit_model.dart';
+import '../models/own_category.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
+import '../../mascot/sprout.dart';
 import '../../rooms/notifiers/rooms_notifier.dart';
 import '../notifiers/custom_habits_notifier.dart';
 import '../notifiers/newly_added_habit_provider.dart';
 import '../../../shared/widgets/choice_chip_grid.dart';
 import 'habit_color_picker.dart';
 import 'habit_offset_sheet.dart';
+import 'reminder_kind_card.dart';
+import 'habit_ideas_page.dart';
+import 'own_category_sheet.dart';
 import 'quiet_hours_conflict_dialog.dart';
 import '../../../shared/widgets/app_snackbar.dart';
 import '../../../shared/widgets/overlay_notice.dart';
@@ -67,18 +72,24 @@ class AddHabitSheet extends ConsumerStatefulWidget {
   /// editing an existing habit.
   final bool embedded;
 
-  /// Fires with the form's step index whenever it changes (0 = What, 1 = When).
+  /// Fires with the form's step index whenever it changes (0 = the habit,
+  /// 1 = how often, 2 = the reminder).
   ///
   /// [AddHabitHub] listens so it can hide the Plans / Add Goal switcher once
   /// the user has committed to Add Goal and moved on — past that point the
   /// choice is already made and the pills are just noise above the form.
   final ValueChanged<int>? onStepChanged;
 
-  /// Fires when the first habit's "or pick a ready-made plan" link is
-  /// tapped (see [_AddHabitSheetState._isFirstHabit]). [AddHabitHub] passes
-  /// this so the link can switch the hub to its Plans tab; standalone there
-  /// is no Plans tab, and the link is not drawn.
+  /// Fires when the ideas door's Plans card is tapped. [AddHabitHub] passes
+  /// this so the card can switch the hub to its Plans tab; standalone there
+  /// is no Plans tab, and the card is not drawn.
   final VoidCallback? onBrowsePlans;
+
+  /// Fires with a plan's id when one is picked on the ideas page.
+  /// [AddHabitHub] passes this so the plan opens on its Plans tab; without
+  /// it [onBrowsePlans] is called, and with neither the ideas page shows no
+  /// plans.
+  final ValueChanged<String>? onOpenPlan;
 
   /// Fires with the Build / Quit choice whenever it changes, and once on
   /// mount. [AddHabitHub] listens so its own heading can follow: the switch
@@ -93,6 +104,7 @@ class AddHabitSheet extends ConsumerStatefulWidget {
     this.embedded = false,
     this.onStepChanged,
     this.onBrowsePlans,
+    this.onOpenPlan,
     this.onGoalTypeChanged,
   });
 
@@ -118,11 +130,23 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   final _nameCtrl = TextEditingController();
   final _cueCtrl = TextEditingController();
   final _limitCtrl = TextEditingController();
+  /// The quit limit's unit box. Typed, not picked (canvas v8, Aziz
+  /// 2026-09-30: "custom only no need for chips"); [_typedUnit] reads it back
+  /// into a [LimitUnit] on save.
   final _customUnitCtrl = TextEditingController();
   final _focus = FocusNode();
-  final _cueFocus = FocusNode();
+  final _scroll = ScrollController();
   GoalType _goalType = GoalType.build;
   HabitCategory _category = HabitCategory.custom;
+
+  /// A category of the person's own, picked or made in this sheet (see
+  /// OwnCategory). Set only alongside [_category] custom; picking one of the
+  /// app's categories clears it.
+  OwnCategory? _ownCategory;
+
+  /// Categories made in this sheet and not yet saved with a habit, so the
+  /// row keeps offering one after a switch to another category.
+  final List<OwnCategory> _madeHere = [];
 
   /// Daily / Weekly / Specific days, or null while nobody has picked one.
   ///
@@ -160,7 +184,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// them. A reminder's side never writes it: that is [_reminderLean].
   _CueRelation _cueRelation = _CueRelation.after;
   ReductionType _reductionType = ReductionType.avoid;
-  LimitUnit _limitUnit = LimitUnit.minutes;
   bool _hasName = false;
   bool _didPickCategory = false;
   bool _cueLabelResolved = false;
@@ -218,43 +241,80 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   static const _stepGoalMin = 100;
   static const _stepGoalMax = 100000;
 
-  // ── Two-step flow: 0 = What (name/category), 1 = When (timing) ──────────
+  // ── Three steps (canvas v8, built 2026-10-01) ───────────────────────────
+  //
+  // 0 «العادة»: the name, typed first. 1 «كم مرة»: one question in one row.
+  // 2 «التذكير (اختياري)»: a clock time or a prayer, or nothing, and the
+  // habit is added there. Users had found the old two-step form "too
+  // complex": its second page grew after every tap, up to nine choices with
+  // one of them required.
   int _step = 0;
 
+  /// An edit opens on an overview of the three answers (canvas board
+  /// "Edit a habit"), and each row opens its step. Saving happens there.
+  bool _editOverview = false;
+
   /// Every step change goes through here so [AddHabitSheet.onStepChanged]
-  /// stays in sync — there are three places that move between steps.
+  /// stays in sync.
   void _goToStep(int step, {required bool forward}) {
-    if (_step == step) return;
+    if (_step == step && !_editOverview) return;
     setState(() {
       _forward = forward;
       _step = step;
+      _editOverview = false;
     });
+    _toTop();
     widget.onStepChanged?.call(step);
   }
+
+  /// Back to the edit overview from one of its step pages.
+  void _backToOverview() {
+    setState(() {
+      _forward = false;
+      _editOverview = true;
+    });
+    _toTop();
+  }
+
+  /// Each step opens at its top, not at the scroll offset the last one was
+  /// left at.
+  void _toTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
+  }
+
   // Direction of the last step change, so the transition slides the right
   // way (forward = new content enters from the trailing edge, back = from
   // the leading edge) instead of always sliding one direction.
   bool _forward = true;
 
-  // ── Timing (Step 2) ───────────────────────────────────────────────────
+  /// Set once an idea from the ideas page has filled the form, so step 2
+  /// says the answers are a suggestion to change, not a choice made.
+  bool _fromIdea = false;
 
-  /// Whether this habit is being given a moment at all — the switch above
-  /// the time/prayer/text picker (see [_timingToggleRow]).
-  ///
-  /// Off for every new habit, and off is a real answer rather than an
-  /// unanswered one: plenty of habits have no single checkable minute, and
-  /// that shape used to be reachable only by leaving a pre-selected picker
-  /// alone and believing the small print that said you could. Cadence is
-  /// one question, having a moment is another, and they are asked
-  /// separately now.
-  bool _timingEnabled = false;
+  /// Whether «تغيير» on the category line has opened the category row.
+  bool _categoryRowOpen = false;
 
-  /// Which kind of moment, once the switch is on. Null means the switch is
-  /// on and nothing has been picked yet — deliberately the opening state,
-  /// so the mode a habit ends up with is always one somebody chose rather
-  /// than one the category guessed on their behalf.
+  // ── The reminder (step 3) ─────────────────────────────────────────────
+
+  /// Which kind of moment, or null for none: the step's resting answer, so
+  /// the mode a habit ends up with is always one somebody chose rather than
+  /// one the category guessed on their behalf. Text is never offered any
+  /// more; it only arrives with an edited habit that already has words.
   _TimingMode? _timingMode;
   String? _selectedPrayer;
+
+  /// A prayer per time, for a habit counted several times a day (Aziz,
+  /// 2026-10-01: "30 min before fajr, and 30 after fajr"): each row's prayer
+  /// and signed shift, or null while that row has none.
+  ///
+  /// Index 0 is never read. The FIRST row is [_selectedPrayer] with
+  /// [_reminderOffset], the one prayer a habit counted once a day has, so
+  /// stepping 1 → 3 → 1 times a day keeps one first prayer rather than two
+  /// answers to the same question. Grows but never shrinks, like
+  /// [_pickedTimes]: rows past the count come back when it does.
+  List<PrayerSlot?> _prayerRows = [null];
   /// One picked time per occurrence of a habit counted several times a day,
   /// index-aligned with the reminder slot each will own.
   ///
@@ -429,17 +489,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
 
   // Where the confetti burst on submit fires from — see _submit().
   final GlobalKey _createButtonKey = GlobalKey();
-  // Locates the smart-suggestions section so _revealSuggestions() can
-  // scroll it into view — see that method.
-  final GlobalKey _suggestionsKey = GlobalKey();
-
   /// The Repeat chips, so a refused Create can scroll back to them.
   final GlobalKey _repeatSectionKey = GlobalKey();
-
-  /// The timing section, so turning the switch on can scroll it into view.
-  /// It opens directly above the preview card and the footer, which on a
-  /// small phone is exactly where "below the fold" starts.
-  final GlobalKey _timingSectionKey = GlobalKey();
 
   bool get _isEditing => widget.existing != null;
 
@@ -511,18 +562,26 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       } else if (parsed.isPrayer) {
         _timingMode = _TimingMode.prayer;
         _selectedPrayer = parsed.prayerKey;
+      } else if (parsed.prayerSlots case [final first, ...final rest]) {
+        // A prayer per time: the first row is the habit's one prayer (see
+        // _prayerRows), its shift set below once the habit-level one has
+        // been read.
+        _timingMode = _TimingMode.prayer;
+        _selectedPrayer = first.prayer;
+        _prayerRows = [null, ...rest];
       } else if (!parsed.isEmpty) {
         _timingMode = _TimingMode.text;
         _cueCtrl.text = storedCue;
       }
-      // A habit that already carries a cue opens with the section open and
-      // that cue showing; one saved without a moment opens closed, which is
-      // exactly the state it was saved in. Editing is the only way the
-      // switch is ever on to begin with.
-      _timingEnabled = _timingMode != null;
+      _editOverview = true;
       final storedOffset = existing.reminderOffsetMinutes;
       _reminderOffset = storedOffset;
       _extraOffsets = {...existing.extraReminderOffsets}..remove(storedOffset);
+      // A prayer per time keeps its first row's shift in the cue.
+      if (parsed.prayerSlots case [final first, ...]) {
+        _reminderOffset = first.offset;
+        _extraOffsets = {};
+      }
       // A prayer cue is stored as the bare key, so the side its offset sheet
       // leans to can only come from the reminders' signs: صلاة التهجد, 45
       // before Fajr, set back on time still opens its sheet on «قبل». All on
@@ -533,6 +592,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _ignoreQuietHours = existing.ignoreQuietHours;
       _alarm = existing.alarm;
       _category = _canonicalCategory(existing.category);
+      _ownCategory = existing.ownCategory;
       _freqType = existing.frequencyType;
       _freqTarget = existing.frequencyTarget;
       // Only a daily habit's target is a per-day count; a weekly one's is
@@ -543,17 +603,20 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       // stored times until it is saved — and the larger one wins, so a
       // document holding three times never renders only two pickers and
       // silently drops the third on save.
+      // A prayer per time counts its rows the same way.
+      final storedCount = storedTimes.isNotEmpty
+          ? storedTimes.length
+          : parsed.prayerSlots.length;
       _timesPerDay = existing.frequencyType == HabitFrequencyType.daily
-          ? (existing.frequencyTarget > storedTimes.length
+          ? (existing.frequencyTarget > storedCount
                   ? existing.frequencyTarget
-                  : storedTimes.length)
+                  : storedCount)
               .clamp(1, kMaxTimesPerDay)
           : 1;
       _selectedWeekdays = existing.scheduledWeekdays.toSet();
       _goalType = existing.goalType;
       _reductionType = existing.reductionType;
       _limitCtrl.text = existing.limitAmount?.toString() ?? '';
-      _limitUnit = existing.limitUnit ?? LimitUnit.minutes;
       _customUnitCtrl.text = existing.customUnitLabel ?? '';
       _iconColorHex = existing.iconColorHex;
       final storedStepGoal = existing.stepGoal;
@@ -650,22 +713,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         if (appearing) _revealStepCard();
       }
     });
-    _cueCtrl.addListener(() {
-      if (_hasName) setState(() {});
-    });
-    // Drives the live reminder-time preview (_reminderTimePreview) as a
-    // custom lead-minutes value is typed — without this, only the preset
-    // pills (_selectLeadPreset, which already calls setState) would ever
-    // trigger a rebuild, and the preview would silently go stale the moment
-    // "Custom" is picked.
-
-    // Only the standalone "edit existing habit" sheet autofocuses the name
-    // field on open. The embedded Add Goal tab (opened via the + button /
-    // Add Habit Hub) is the very first screen of the creation flow — popping
-    // the keyboard open before anything else on the sheet is even visible
-    // was more disruptive than helpful, so it now waits for a deliberate tap
-    // on the field instead.
-    if (!widget.embedded) {
+    // Only a standalone NEW habit (a room's habit picker, Create Room)
+    // autofocuses the name field: the page is type-first and there is
+    // nothing else on it to read first. An edit opens on its overview with
+    // the keyboard down, and the embedded Add Goal tab (the + button / Add
+    // Habit Hub) waits for a deliberate tap, since popping the keyboard open
+    // before the sheet is even visible was more disruptive than helpful.
+    if (!widget.embedded && !_isEditing) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
     }
     // Tell the host what kind of goal this opens on. Only an edited habit
@@ -704,8 +758,35 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     // person's habit to a language they did not choose. Seeding the same
     // string the comparison uses makes "I changed nothing" compare equal and
     // store nothing.
-    final localized = existing.localName(S.of(context).isAr);
+    final s = S.of(context);
+    final localized = existing.localName(s.isAr);
     if (_nameCtrl.text != localized) _nameCtrl.text = localized;
+    // The unit box is typed now, so a stock unit is shown as its word
+    // («أكواب») for [_typedUnit] to read back as the same unit.
+    if (existing.limitUnit case final LimitUnit unit
+        when unit != LimitUnit.custom) {
+      _customUnitCtrl.text = s.limitUnitLabel(unit.name);
+    }
+  }
+
+  /// The quit limit's unit, read back from the typed box: a stock unit when
+  /// the word is one of theirs in either language («أكواب», "cups», a
+  /// singular «كوب» too), otherwise the person's own word as a custom unit.
+  /// An empty box is «مرات», the box's own placeholder.
+  (LimitUnit, String?) _typedUnit() {
+    final typed = _customUnitCtrl.text.trim();
+    if (typed.isEmpty) return (LimitUnit.times, null);
+    final word = typed.toLowerCase();
+    const stock = <LimitUnit, List<String>>{
+      LimitUnit.minutes: ['دقائق', 'دقيقة', 'دقايق', 'minutes', 'minute', 'mins', 'min'],
+      LimitUnit.times: ['مرات', 'مرة', 'times', 'time'],
+      LimitUnit.cups: ['أكواب', 'اكواب', 'كوب', 'cups', 'cup'],
+      LimitUnit.money: ['مال', 'money'],
+    };
+    for (final entry in stock.entries) {
+      if (entry.value.contains(word)) return (entry.key, null);
+    }
+    return (LimitUnit.custom, typed);
   }
 
   @override
@@ -716,7 +797,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _limitCtrl.dispose();
     _customUnitCtrl.dispose();
     _focus.dispose();
-    _cueFocus.dispose();
+    _scroll.dispose();
     _offsetNoticeTimer?.cancel();
     super.dispose();
   }
@@ -733,6 +814,41 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               i < _pickedOffsets.length ? _pickedOffsets[i] : 0,
             ),
       ];
+
+  /// Row [i] of a prayer per time, see [_prayerRows].
+  PrayerSlot? _prayerRow(int i) {
+    if (i == 0) {
+      final prayer = _selectedPrayer;
+      return prayer == null ? null : (prayer: prayer, offset: _reminderOffset);
+    }
+    return i < _prayerRows.length ? _prayerRows[i] : null;
+  }
+
+  /// Sets row [i], or takes its reminder off with null. Inside the caller's
+  /// setState.
+  void _setPrayerRow(int i, PrayerSlot? row) {
+    if (i == 0) {
+      _selectedPrayer = row?.prayer;
+      _reminderOffset = row?.offset ?? 0;
+      return;
+    }
+    while (_prayerRows.length <= i) {
+      _prayerRows.add(null);
+    }
+    _prayerRows[i] = row;
+  }
+
+  /// Whether step 3 is asking for a prayer per time.
+  bool get _isMultiPrayer =>
+      _timingMode == _TimingMode.prayer && _isMultiTime;
+
+  /// The prayer-per-time rows that are set, in row order, each once: two
+  /// rows on the same prayer and side are one reminder (the later row says
+  /// so), the same rule a clock time on one minute keeps.
+  List<PrayerSlot> get _multiPrayerEntries => {
+        for (var i = 0; i < _effectiveTimeCount; i++)
+          if (_prayerRow(i) case final row?) row,
+      }.toList();
 
   /// Resolves whichever timing mode is active right now into the single
   /// [HabitCue] that gets saved and previewed — the one place that turns
@@ -783,9 +899,21 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         // resolved against the prayer's real clock time. Only the freeform
         // Custom-text mode needs the relation baked into the string, because
         // there is no resolvable moment to offset from.
-        _TimingMode.prayer => _selectedPrayer == null
-            ? HabitCue.empty
-            : HabitCue.preset(_selectedPrayer!),
+        //
+        // A prayer per time carries every row's prayer and shift inside the
+        // cue. With ONE row set it collapses to the bare key, the shift going
+        // to the habit-level field (see _effectiveReminderOffset), which is
+        // the shape a habit with one prayer has always been saved in, and the
+        // one every reader of a prayer habit already understands.
+        _TimingMode.prayer => _isMultiTime
+            ? switch (_multiPrayerEntries) {
+                [] => HabitCue.empty,
+                [final one] => HabitCue.preset(one.prayer),
+                final rows => HabitCue.prayerSlots(rows),
+              }
+            : _selectedPrayer == null
+                ? HabitCue.empty
+                : HabitCue.preset(_selectedPrayer!),
         _TimingMode.text => HabitCue.fromStoredValue(_cueWithRelation(_cueCtrl.text)),
       };
 
@@ -814,6 +942,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       final entries = _multiTimeEntries;
       return entries.length == 1 ? entries.single.$2 : 0;
     }
+    // A prayer per time, the same way: its shifts live in the cue, except
+    // the lone row's, which _currentCue saves as the bare prayer.
+    if (_isMultiPrayer) {
+      final entries = _multiPrayerEntries;
+      return entries.length == 1 ? entries.single.offset : 0;
+    }
     // One number, one home. The custom value used to live as a magnitude in a
     // text controller plus a direction in a bool, re-derived here on every
     // read — so the field and the toggle could disagree, and a stray "-"
@@ -840,6 +974,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     if (_timingMode == null) return const [];
     if (_timingMode == _TimingMode.text) return const [];
     if (_timingMode == _TimingMode.time && _isMultiTime) return const [];
+    if (_isMultiPrayer) return const [];
     final primary = _effectiveReminderOffset;
     return _extraOffsets.where((o) => o != primary).toList()..sort();
   }
@@ -978,7 +1113,8 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _ensureNotificationPermission();
     }
     final cue = currentCue.toStorageValue();
-    final limitAmount = int.tryParse(_limitCtrl.text.trim());
+    final limitAmount = int.tryParse(toWesternDigits(_limitCtrl.text.trim()));
+    final (limitUnit, customUnitLabel) = _typedUnit();
     final notifier = ref.read(customHabitsProvider.notifier);
     // Only the create path hands anything back - callers that open this
     // sheet to build a brand-new habit from somewhere other than the
@@ -1087,12 +1223,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _isLimitHabit ? limitAmount : null,
-        limitUnit: _isLimitHabit ? _limitUnit : null,
-        customUnitLabel: _isLimitHabit
-            ? _customUnitCtrl.text.trim()
-            : null,
+        limitUnit: _isLimitHabit ? limitUnit : null,
+        customUnitLabel: _isLimitHabit ? customUnitLabel : null,
         iconColorHex: _iconColorHex,
         clearIconColor: _iconColorHex == null,
+        ownCategory: _ownCategory,
+        clearOwnCategory: _ownCategory == null,
         reminderOffsetMinutes: _effectiveReminderOffset,
         extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
@@ -1111,11 +1247,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         goalType: _goalType,
         reductionType: _reductionType,
         limitAmount: _isLimitHabit ? limitAmount : null,
-        limitUnit: _isLimitHabit ? _limitUnit : null,
-        customUnitLabel: _isLimitHabit
-            ? _customUnitCtrl.text.trim()
-            : null,
+        limitUnit: _isLimitHabit ? limitUnit : null,
+        customUnitLabel: _isLimitHabit ? customUnitLabel : null,
         iconColorHex: _iconColorHex,
+        ownCategory: _ownCategory,
         reminderOffsetMinutes: _effectiveReminderOffset,
         extraReminderOffsets: _effectiveExtraOffsets,
         ignoreQuietHours: _ignoreQuietHours,
@@ -1324,17 +1459,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  /// Header + two-step form + footer nav, so [embedded] mode can drop
-  /// straight into a host that already supplies the drag handle and outer
-  /// card (see [AddHabitHub]). Step 1 (What) is name/category/goal-style —
-  /// the minimum to know what's being created. Step 2 (When) is timing and
-  /// frequency, with a live preview at the end. Editing always starts on
-  /// Step 1 too, so the flow never branches into two different shapes.
-  /// A set-a-limit quit habit needs its number: picking «ضع حدًا» and leaving
+  /// A set-a-limit quit habit needs its number: picking «أحدّه» and leaving
   /// the field blank used to save `reductionType: limit` with no amount, so
   /// every "within the limit" question had nothing to compare against.
   bool get _limitMissing =>
-      _isLimitHabit && (int.tryParse(_limitCtrl.text.trim()) ?? 0) < 1;
+      _isLimitHabit &&
+      (int.tryParse(toWesternDigits(_limitCtrl.text.trim())) ?? 0) < 1;
 
   /// The limit trio (amount, unit, custom label) belongs to a QUIT habit
   /// with a limit. Guarding on the reduction type alone let a build habit
@@ -1349,9 +1479,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// The other two required answers (a limit habit's number, and the
   /// cadence) do NOT grey it. They are checked when it is pressed, and only
   /// then does the control that owes the answer say so: see [_tryContinue],
-  /// [_tryCreate] and [_limitErrorShown] / [_repeatErrorShown]. A form that
-  /// points at a field before anybody has had a go at it is nagging, and a
-  /// dead button with a note beside it says the same thing twice.
+  /// [_tryContinueOften] and [_limitErrorShown] / [_repeatErrorShown]. A
+  /// form that points at a field before anybody has had a go at it is
+  /// nagging, and a dead button with a note beside it says the same thing
+  /// twice.
   bool get _canProceed => _hasName;
 
   /// Set the first time somebody presses the button with a limit habit whose
@@ -1362,52 +1493,86 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// The cadence half of the same idea, for [S.repeatPickOne].
   bool _repeatErrorShown = false;
 
-  /// Continue, with the step's own required answer checked at the moment of
-  /// the press rather than in advance.
+  /// Step 1's «متابعة», with its own required answer (a limit habit's
+  /// number) checked at the moment of the press rather than in advance.
   ///
   /// Shared by the footer button and the name field's return key, so the
-  /// keyboard cannot walk past a check the button enforces. Refusing here
-  /// rather than in [_canProceed] is what keeps a limit habit from reaching
-  /// step two with no number, which would be saved as no limit at all.
+  /// keyboard cannot walk past a check the button enforces.
   void _tryContinue() {
-    if (!_hasName) return;
-    if (_limitMissing) {
-      HapticFeedback.lightImpact();
-      setState(() => _limitErrorShown = true);
-      return;
-    }
+    if (!_stepWhatDone()) return;
     HapticFeedback.selectionClick();
     FocusScope.of(context).unfocus();
     _goToStep(1, forward: true);
   }
 
-  /// Create / Save changes, same contract as [_tryContinue].
-  ///
-  /// An unpicked cadence scrolls its own chips back into view before saying
-  /// anything: the press happens at the bottom of the sheet and the chips
-  /// can be above the fold by then, and an answer demanded from off screen
-  /// is a dead end however politely it is worded.
+  /// Step 1's answers, checked: a name, and a limit habit's number. Says
+  /// what is missing where it is owed.
+  bool _stepWhatDone() {
+    if (!_hasName) return false;
+    if (_limitMissing) {
+      HapticFeedback.lightImpact();
+      setState(() => _limitErrorShown = true);
+      return false;
+    }
+    return true;
+  }
+
+  /// Step 2's «متابعة». The one required answer on the step is how often,
+  /// and nothing is lit until somebody picks it: cadence decides which days
+  /// the Grid asks about, what the streak counts and which days a room
+  /// scores, so the form never answers it for them.
+  void _tryContinueOften() {
+    if (!_stepOftenDone()) return;
+    HapticFeedback.selectionClick();
+    _goToStep(2, forward: true);
+  }
+
+  bool _stepOftenDone() {
+    if (_freqType != null) return true;
+    HapticFeedback.lightImpact();
+    setState(() => _repeatErrorShown = true);
+    _revealRepeatSection();
+    return false;
+  }
+
+  /// «أضف العادة» on step 3, and «احفظ التغييرات» on the edit overview.
+  /// The cadence is checked again here as the belt to [_tryContinueOften]'s
+  /// braces: there is no "no cadence" to store.
   void _tryCreate() {
     if (!_hasName) return;
     if (_freqType == null) {
       HapticFeedback.lightImpact();
       setState(() => _repeatErrorShown = true);
-      _revealRepeatSection();
+      if (_isEditing) {
+        _goToStep(1, forward: true);
+      } else {
+        _revealRepeatSection();
+      }
       return;
     }
     _submit();
   }
 
-  /// Scrolls the Repeat chips fully into view, the way
-  /// [_revealTimingSection] does for the section below them.
+  /// «تم» on an edited habit's step page: the step's own answer checked,
+  /// then back to the overview, where saving happens.
+  void _editStepDone() {
+    final ok = switch (_step) {
+      0 => _stepWhatDone(),
+      1 => _stepOftenDone(),
+      _ => true,
+    };
+    if (!ok) return;
+    HapticFeedback.selectionClick();
+    FocusScope.of(context).unfocus();
+    _backToOverview();
+  }
+
+  /// Scrolls the how-often row fully into view.
   void _revealRepeatSection() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final target = _repeatSectionKey.currentContext;
       if (target == null) return;
-      // Aligned to the top of the viewport (the default), not the bottom the
-      // way _revealTimingSection does it: the chips are what has to be read
-      // and answered now, so they go where the eye starts.
       Scrollable.ensureVisible(
         target,
         duration: GameMotion.slow,
@@ -1416,35 +1581,31 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
+  /// Heading (standalone only), the step bar, the page, then the footer, so
+  /// [embedded] mode can drop straight into a host that already supplies
+  /// the drag handle and outer card (see [AddHabitHub]).
   Widget _content(BuildContext context, S s) {
     final gp = context.gp;
+    final onOverview = _isEditing && _editOverview;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Embedded, this form has no heading of its own. The host that
-        // embeds it (AddHabitHub) already writes «إضافة عادة» directly
-        // above, so «إضافة هدف» under it was the same word twice on two
-        // lines, pushing the step's own question («متى وكيف ستتابع؟») a
-        // heading further down for nothing.
-        //
+        // Embedded, this form has no heading of its own: the host that
+        // embeds it (AddHabitHub) already writes «إضافة عادة» directly above.
         // Standalone it is the only heading there is: three callers open
         // this sheet with no chrome of their own above it (the Grid's edit
-        // sheet, the room habit picker, Create Room), so the condition is
-        // about who is hosting the form, not about how many habits the
-        // account has. It used to be the latter, which is why only a very
-        // first habit escaped the duplicate.
+        // sheet, the room habit picker, Create Room).
         if (!widget.embedded)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
             child: Text(
               // Standalone, this is the only heading there is, so it has to
-              // follow the switch too — see AddHabitHub's copy of this.
+              // follow the switch too — see AddHabitHub's copy of this. One
+              // noun, «عادة», where it used to say «هدف» on this sheet.
               _isEditing
                   ? s.editHabit
-                  : (_goalType == GoalType.quit
-                      ? s.hubTitleQuit
-                      : s.addGoalTitle),
+                  : (_goalType == GoalType.quit ? s.hubTitleQuit : s.hubTitle),
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -1452,9 +1613,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ),
           ),
+        // Where you are, for a new habit. An edit is not a walk through the
+        // steps: its overview names all three answers at once.
+        if (!_isEditing) _stepBar(s),
         Flexible(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+            controller: _scroll,
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: AnimatedSwitcher(
               duration: GameMotion.relaxed,
               switchInCurve: Curves.easeOutCubic,
@@ -1480,8 +1645,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 ],
               ),
               child: KeyedSubtree(
-                key: ValueKey(_step),
-                child: _step == 0 ? _stepWhat(s) : _stepWhen(s),
+                key: ValueKey(onOverview ? -1 : _step),
+                child: onOverview
+                    ? _editOverviewPage(s)
+                    : switch (_step) {
+                        0 => _stepWhat(s),
+                        1 => _stepOften(s),
+                        _ => _stepReminder(s),
+                      },
               ),
             ),
           ),
@@ -1491,46 +1662,11 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             20,
             10,
             20,
-            _isEditing ? 4 : 20 + MediaQuery.of(context).padding.bottom,
+            onOverview ? 4 : 20 + MediaQuery.of(context).padding.bottom,
           ),
-          child: Row(
-            children: [
-              if (_step == 1) ...[
-                TextButton(
-                  onPressed: () {
-                    HapticFeedback.selectionClick();
-                    FocusScope.of(context).unfocus();
-                    _goToStep(0, forward: false);
-                  },
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(64, 50),
-                    foregroundColor: gp.textSec,
-                  ),
-                  child: Text(s.back),
-                ),
-                const SizedBox(width: 10),
-              ],
-              Expanded(
-                child: FilledButton(
-                  key: _step == 1 ? _createButtonKey : null,
-                  onPressed: !_canProceed
-                      ? null
-                      : (_step == 0 ? _tryContinue : _tryCreate),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  child: Text(
-                    _step == 0 ? s.continueAction : (_isEditing ? s.saveChanges : s.createGoal),
-                  ),
-                ),
-              ),
-            ],
-          ),
+          child: _footer(s),
         ),
-        if (_isEditing)
+        if (onOverview)
           Padding(
             padding: EdgeInsets.fromLTRB(
               20,
@@ -1551,17 +1687,316 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  // ── Step 1: What ─────────────────────────────────────────────────────
+  /// The buttons under the page. A new habit: «متابعة» on step 1, «رجوع»
+  /// and «متابعة» on step 2, «رجوع» and «أضف العادة» on step 3. An edit:
+  /// «احفظ التغييرات» on the overview and «تم» on a step page.
+  Widget _footer(S s) {
+    final gp = context.gp;
+    final String label;
+    final VoidCallback onPressed;
+    var showBack = false;
+    if (_isEditing) {
+      label = _editOverview ? s.saveChanges : s.habitEditStepDone;
+      onPressed = _editOverview ? _tryCreate : _editStepDone;
+    } else {
+      switch (_step) {
+        case 0:
+          label = s.continueAction;
+          onPressed = _tryContinue;
+        case 1:
+          label = s.continueAction;
+          onPressed = _tryContinueOften;
+          showBack = true;
+        default:
+          label = s.addHabitAction;
+          onPressed = _tryCreate;
+          showBack = true;
+      }
+    }
+    final creates = _isEditing ? _editOverview : _step == 2;
+    return Row(
+      children: [
+        if (showBack) ...[
+          TextButton(
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              FocusScope.of(context).unfocus();
+              _goToStep(_step - 1, forward: false);
+            },
+            style: TextButton.styleFrom(
+              minimumSize: const Size(64, 50),
+              foregroundColor: gp.textSec,
+            ),
+            child: Text(s.back),
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: FilledButton(
+            key: creates ? _createButtonKey : null,
+            onPressed: _canProceed ? onPressed : null,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+            child: Text(label),
+          ),
+        ),
+      ],
+    );
+  }
 
+  /// Three bars with the step names under them: lit up to the step you are
+  /// on, the current name in bold. A step already passed can be tapped to go
+  /// back to it. All three are solid: the third was dashed to say it is
+  /// optional, which its name «(اختياري)» already says (Aziz, 2026-10-01).
+  Widget _stepBar(S s) {
+    final gp = context.gp;
+    final labels = [
+      s.addHabitStepWhat,
+      s.addHabitStepOften,
+      s.addHabitStepReminder,
+    ];
+    Widget bar(int i) {
+      final lit = i <= _step;
+      return AnimatedContainer(
+        duration: GameMotion.quick,
+        height: 4,
+        decoration: BoxDecoration(
+          color: lit ? GameColors.gold : gp.border,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 2, 20, 0),
+      child: Row(
+        children: [
+          for (var i = 0; i < 3; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: Semantics(
+                button: i < _step,
+                selected: i == _step,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: i < _step
+                      ? () {
+                          HapticFeedback.selectionClick();
+                          FocusScope.of(context).unfocus();
+                          _goToStep(i, forward: false);
+                        }
+                      : null,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        bar(i),
+                        const SizedBox(height: 6),
+                        Text(
+                          labels[i],
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight:
+                                i == _step ? FontWeight.w800 : FontWeight.w600,
+                            color: i == _step
+                                ? context.gp.goldInk
+                                : (i < _step ? gp.textSec : gp.textTert),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// What an edit opens on: the three answers as rows, each opening its
+  /// step (canvas board "Edit a habit"). It used to open on the name box
+  /// with the keyboard up and walk through both pages to save.
+  Widget _editOverviewPage(S s) {
+    final settings = ref.watch(notificationSettingsProvider);
+    final cue = _currentCue();
+    final anchor = _reminderAnchorTime(settings);
+    String? reminderLine;
+    if (!cue.isEmpty && _timingMode != _TimingMode.text) {
+      final sentences = [
+        for (final offset in _remindersForSummary())
+          _offsetRowLabel(s, offset),
+        // A prayer per time says each row, «قبل الفجر بـ30 دقيقة، بعد الفجر
+        // بـ30 دقيقة»: the label above names each prayer only once.
+        if (_isMultiPrayer)
+          for (final row in _multiPrayerEntries)
+            habitReminderSentence(
+              row.offset,
+              s,
+              prayer: HabitCue.preset(row.prayer).labelForLocale(s.isAr),
+            ),
+      ];
+      String? time;
+      if (anchor != null && !_isMultiTime) {
+        final at = anchor.add(Duration(minutes: _effectiveReminderOffset));
+        time = HabitCue.time(at.hour, at.minute).labelForLocale(s.isAr);
+      }
+      reminderLine = [
+        if (sentences.isNotEmpty) sentences.join(s.isAr ? '، ' : ', '),
+        if (time != null) time,
+      ].join(' · ');
+      if (reminderLine.isEmpty) reminderLine = null;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _overviewRow(
+          label: s.addHabitStepWhat,
+          value: _nameCtrl.text.trim(),
+          leading: _categoryBadge(),
+          onTap: () => _goToStep(0, forward: true),
+        ),
+        const SizedBox(height: 8),
+        _overviewRow(
+          label: s.addHabitStepOften,
+          value: _oftenSummary(s) ?? s.repeatPickOne,
+          onTap: () => _goToStep(1, forward: true),
+        ),
+        const SizedBox(height: 8),
+        _overviewRow(
+          label: s.addHabitStepReminderShort,
+          value: cue.isEmpty ? s.noReminder : cue.labelForLocale(s.isAr),
+          detail: reminderLine,
+          onTap: () => _goToStep(2, forward: true),
+        ),
+        if (_stepCardVisible && _stepLinkEnabled) ...[
+          const SizedBox(height: 10),
+          _stepLinkRecap(s),
+        ],
+      ],
+    ).animate().fadeIn(duration: 240.ms).slideY(begin: 0.04, curve: Curves.easeOutCubic);
+  }
+
+  /// The reminders an overview or a summary names: a multi-time habit's are
+  /// per occurrence and live with its times, so it names none.
+  List<int> _remindersForSummary() {
+    if (_timingMode == null || _timingMode == _TimingMode.text) return const [];
+    if (_timingMode == _TimingMode.time && _isMultiTime) return const [];
+    if (_isMultiPrayer) return const [];
+    return [_effectiveReminderOffset, ..._effectiveExtraOffsets];
+  }
+
+  Widget _overviewRow({
+    required String label,
+    required String value,
+    String? detail,
+    Widget? leading,
+    required VoidCallback onTap,
+  }) {
+    final gp = context.gp;
+    final radius = BorderRadius.circular(14);
+    return Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: radius,
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: InkWell(
+          borderRadius: radius,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            onTap();
+          },
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(14, 14, 10, 14),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: gp.textTert,
+                    ),
+                  ),
+                ),
+                if (leading != null) ...[
+                  leading,
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        value,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                          height: 1.3,
+                        ),
+                      ),
+                      if (detail != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: gp.textSec,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 20,
+                  color: context.gp.goldInk,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Step 1: the habit ────────────────────────────────────────────────
+
+  /// Type-first: the Build / Quit switch, the name box and «متابعة». The
+  /// category is picked from the name and shown as one line that can be
+  /// changed; suggestions and Plans wait behind one optional door, so
+  /// somebody who knows what they want never meets them (canvas v8, Aziz
+  /// 2026-09-30: "user may feel he must click first before type").
   Widget _stepWhat(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // The kind of habit, as a two-way switch right above the box it
-          // changes: the box's own question follows it («ما العادة التي
-          // تريد بناءها؟» / «ما الذي تريد تقليله؟»). It was a quiet text link
-          // under the whole form, and Aziz found nobody saw it there
-          // (2026-09-08). With Build already selected it is a mode, not a
-          // question: typing straight into the box works exactly as before.
+          // changes. It was a quiet text link under the whole form, and Aziz
+          // found nobody saw it there (2026-09-08). With Build already
+          // selected it is a mode, not a question: typing straight into the
+          // box works.
           // Not for a catalog preset: its goal type and quit limit are part
           // of what the preset IS, and the override an edit stores cannot
           // change them (see _submit). Showing the switch there let an edit
@@ -1574,59 +2009,28 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 .slideY(begin: 0.06, curve: Curves.easeOutCubic),
             const SizedBox(height: 12),
           ],
-          // The steps card lives inside the name section, directly under the
-          // field that triggers it. See _nameAndCategorySection and
-          // _revealStepCard for the measurement that moved it.
-          _nameAndCategorySection(s)
+          _nameSection(s)
               .animate(delay: 40.ms)
               .fadeIn(duration: 240.ms)
               .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          // Right under the name: a limit typed in the old form sat under
+          // nine categories and the ideas, below the keyboard.
           if (_goalType == GoalType.quit && !_isPresetEdit) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             _quitStyleSection(s)
                 .animate(delay: 60.ms)
                 .fadeIn(duration: 240.ms)
                 .slideY(begin: 0.06, curve: Curves.easeOutCubic),
           ],
-          const SizedBox(height: 8),
-          _belowFormLinks(s)
-              .animate(delay: 100.ms)
-              .fadeIn(duration: 240.ms),
+          // The way to ideas and plans: one card that opens a page of its
+          // own (the "Habit ideas page" canvas). An edit already has its
+          // habit; ideas would only replace it.
+          if (!_isEditing) ...[
+            const SizedBox(height: 14),
+            _ideasCard(s).animate(delay: 80.ms).fadeIn(duration: 240.ms),
+          ],
         ],
       );
-
-  /// The one quiet link left under the form: the hub's Plans tab, while a
-  /// first habit hides the hub's pills. The Build / Quit switch that used to
-  /// be the first link here moved above the name box on 2026-09-08 (see
-  /// [_goalTypeToggle]): as a link under everything, it went unseen.
-  Widget _belowFormLinks(S s) {
-    if (widget.onBrowsePlans == null) return const SizedBox.shrink();
-    final gp = context.gp;
-    // shrinkWrap, so the row is 36 tall on screen and in layout: the default
-    // padded target makes it 48, and on a 730-point phone that alone pushed
-    // it below the fold.
-    final style = TextButton.styleFrom(
-      foregroundColor: gp.textSec,
-      minimumSize: const Size(0, 36),
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-    );
-    return TextButton(
-      style: style,
-      onPressed: () {
-        HapticFeedback.selectionClick();
-        FocusScope.of(context).unfocus();
-        widget.onBrowsePlans!();
-      },
-      // The size on the label, never as the button's textStyle: that
-      // replaces the theme's whole style, typeface included, and the label
-      // falls back to the phone's own font.
-      child: Text(
-        s.readyPlansLink,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-      ),
-    );
-  }
 
   /// The "this looks like a walking habit" card — the visible half of the
   /// steps link (step_habit_detector.dart is the detection half). Explains
@@ -1954,7 +2358,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
             _setGoalType(first ? GoalType.build : GoalType.quit),
       );
 
-  Widget _nameAndCategorySection(S s) => Column(
+  Widget _nameSection(S s) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
@@ -1967,9 +2371,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               color: context.gp.textPrimary,
             ),
             textCapitalization: TextCapitalization.sentences,
-            onSubmitted: (_) => _tryContinue(),
+            onSubmitted: (_) => _isEditing ? _editStepDone() : _tryContinue(),
             decoration: InputDecoration(
-              hintText: _goalType == GoalType.build ? s.whatHabitBuild : s.whatReduce,
+              // An example rather than a question: the step bar above
+              // already says «العادة».
+              hintText: _goalType == GoalType.build
+                  ? s.habitNameHintBuild
+                  : s.habitNameHintQuit,
               prefixIcon: const Icon(Icons.edit_note_rounded, size: 20),
               // Right there while typing the name rather than a separate
               // section below — one tap opens the full picker (drag +
@@ -2011,10 +2419,15 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
               ),
             ),
           ),
-          // Right under the field whose text summoned it, above the
-          // category grid, because the question it asks is about the name
-          // that was just typed. It is also the only place in this step
-          // that is still on screen with the keyboard open.
+          if (_hasName) _categoryLine(s),
+          if (_hasName && _categoryRowOpen) ...[
+            const SizedBox(height: 6),
+            _categoryChipRow(s),
+          ],
+          // Right under the field whose text summoned it, because the
+          // question it asks is about the name that was just typed. It is
+          // also the only place in this step that is still on screen with
+          // the keyboard open.
           if (_stepCardVisible) ...[
             const SizedBox(height: 12),
             _stepLinkCard(s)
@@ -2023,492 +2436,888 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
                 .slideY(begin: 0.08, curve: Curves.easeOutCubic)
                 .scaleXY(begin: 0.97, curve: Curves.easeOutBack),
           ],
-          const SizedBox(height: 16),
-          _SectionLabel(s.category),
-          // While nothing is picked and nothing typed, say why the space
-          // under the grid is empty: the suggestions wait for a category.
-          if (!_didPickCategory && !_hasName) ...[
-            const SizedBox(height: 4),
-            Text(
-              s.categoryPickHint,
-              style: TextStyle(fontSize: 12, color: context.gp.textTert),
+        ],
+      );
+
+  /// «الفئة: الإيمان · تغيير», under the box once there is a name: the
+  /// category the name reads as, or the one picked. It used to be a 3x3
+  /// grid every habit walked past. A catalog preset keeps its own, so it
+  /// gets the line without «تغيير».
+  Widget _categoryLine(S s) {
+    final gp = context.gp;
+    final style = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: gp.textTert,
+    );
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 4, top: 4),
+      child: Row(
+        children: [
+          Flexible(
+            child: Text(
+              s.habitCategoryLine(
+                _ownCategory?.name ?? _category.localizedName(s.isAr),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
             ),
-          ],
-          const SizedBox(height: 8),
-          // Fixed 3-column grid (9 categories = an exact 3×3) instead of a
-          // content-hugging Wrap — the old version sized every chip to its
-          // own label ("Faith" vs "Learning" vs "Custom"), so rows never
-          // lined up and the count-per-row wandered between 2 and 4. Each
-          // cell is now the same width, so the grid reads as a grid.
-          _ChipGrid(
-            columns: 3,
-            items: _broadCategories.map((cat) {
-              // No chip lit until the person picks one or the typed name
-              // says which (Aziz, 2026-09-08: unchosen by default). Before
-              // this «مخصص» sat highlighted as if it had been chosen.
-              final selected =
-                  (_didPickCategory || _hasName) && _category == cat;
-              return _PlainChoiceChip(
-                selected: selected,
-                label: cat.localizedName(s.isAr),
-                icon: CategoryIcon(
-                  category: cat,
-                  size: 15,
-                  color: selected ? GameColors.gold : context.gp.textSec,
-                ),
+          ),
+          if (!_isPresetEdit) ...[
+            Text(' · ', style: style),
+            Semantics(
+              button: true,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  setState(() {
-                    _didPickCategory = true;
-                    _category = cat;
-                  });
-                  // Picking a category before typing anything means the
-                  // suggestions below are about to become the most useful
-                  // thing on screen (re-filtered to this category) — but
-                  // they can easily sit below the fold, especially with
-                  // the name field's keyboard still open eating half the
-                  // sheet. See _revealSuggestions().
-                  if (!_hasName) _revealSuggestions();
+                  setState(() => _categoryRowOpen = !_categoryRowOpen);
                 },
-              );
-            }).toList(),
-          ),
-          // Below the categories, and only once one has been picked: the
-          // suggestions are filtered by category, so before a pick they were
-          // six «مخصص» chips nobody had asked for. Typing a name puts them
-          // away as before. On a first habit they are labelled as the
-          // quickest way in rather than as a shortcut (see _isFirstHabit).
-          if (!_hasName && _didPickCategory && _suggestions().isNotEmpty)
-            _suggestionsSection(s, lead: _isFirstHabit),
-        ],
-      );
-
-  /// True when this account has no habits at all yet.
-  ///
-  /// The page reads the same for everyone (name box, categories,
-  /// suggestions, the links; see [_stepWhat]), so this only sets what a
-  /// first habit does differently: the suggestions are labelled as the
-  /// quickest way in rather than as a shortcut, the hub hides its Plans /
-  /// Add Goal pills and its "choose one" card and hands the form a Plans
-  /// link instead (AddHabitHub's `_pillsHidden`). Dropping the form's own
-  /// heading used to be on this list too; it is not a first-habit trimming
-  /// any more, it is what every embedded host gets (see [_content]).
-  ///
-  /// A first habit used to open on a grid of suggestions and an "or write
-  /// your own" label before the box, all under the hub's pills and their
-  /// "choose one" card: three things to answer before the one thing to do,
-  /// on a phone screen the keyboard then halves (reported from Android,
-  /// 2026-09-08). That lead block is gone for good; the Build / Quit switch
-  /// above the box stayed, as a mode rather than a question (Build is
-  /// already selected, so typing straight into the box works). The order is
-  /// the same for every habit now and only the trimmings above differ.
-  bool get _isFirstHabit => ref.read(habitListProvider).isEmpty;
-
-  Widget _suggestionsSection(S s, {bool lead = false}) => Column(
-        key: _suggestionsKey,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 16),
-          _SectionLabel(lead ? s.quickestStart : s.smartSuggestions),
-          const SizedBox(height: 8),
-          // 2 columns, not 3 — these labels are full phrases ("Fast
-          // Monday/Thursday", "Less phone before Quran"), so 3 equal
-          // columns would force ellipsis far more often than 2 does.
-          _ChipGrid(
-            columns: 2,
-            items: _suggestions().map((item) {
-              return _PlainActionChip(
-                label: item.name(s.isAr),
-                xp: GameConstants.categoryXpRewards[item.category.name] ?? 10,
-                onTap: () => _applySuggestion(item),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 4),
-        ],
-      );
-
-  Widget _quitStyleSection(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SectionLabel(s.goalStyle),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _SmallPick(
-                  label: s.avoidCompletely,
-                  selected: _reductionType == ReductionType.avoid,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _reductionType = ReductionType.avoid);
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallPick(
-                  label: s.setLimit,
-                  selected: _reductionType == ReductionType.limit,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() => _reductionType = ReductionType.limit);
-                  },
-                ),
-              ),
-            ],
-          ),
-          if (_reductionType == ReductionType.limit) ...[
-            const SizedBox(height: 12),
-            // ── One line, and the same two columns as the picks above ─────
-            //
-            // The amount field carries a helperText for as long as the number
-            // is missing, which is the state this row OPENS in — so it is
-            // taller than the dropdown next to it nearly every time it is
-            // seen. A Row centres its children by default, and that sank the
-            // dropdown by half the helper's height (11.5pt, measured) against
-            // a field whose box had not moved: two boxes, two different
-            // lines. Aligning the tops puts the helper where it belongs,
-            // under its own field, and leaves the boxes level.
-            //
-            // The gap is the picks' 8, not 10, so the seam between the two
-            // columns runs straight down both rows.
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextField(
-                    selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-                    controller: _limitCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: s.maxAmount,
-                      // A limit habit without a number has nothing to be
-                      // within; the form waits for one (see _canProceed).
-                      helperText:
-                          // Only after somebody has actually tried to move
-                          // on with it empty. It used to be on screen from
-                          // the moment the row opened, telling people off
-                          // for not having typed yet.
-                          _limitMissing && _limitErrorShown
-                              ? s.limitAmountRequired
-                              : null,
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                  child: Text(
+                    s.habitCategoryChange,
+                    style: style.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: context.gp.goldInk,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<LimitUnit>(
-                    value: _limitUnit,
-                    items: LimitUnit.values
-                        .map((u) => DropdownMenuItem(value: u, child: Text(s.limitUnitLabel(u.name))))
-                        .toList(),
-                    onChanged: (v) => setState(() => _limitUnit = v ?? LimitUnit.minutes),
-                  ),
-                ),
-              ],
-            ),
-            // Only LimitUnit.custom needs this — every other unit already
-            // has a stock translated label (cups/minutes/times/money), so
-            // asking again here would just be noise for those.
-            if (_limitUnit == LimitUnit.custom) ...[
-              const SizedBox(height: 10),
-              TextField(
-                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-                controller: _customUnitCtrl,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  labelText: s.customUnitPrompt,
-                  hintText: s.customUnitHint,
-                ),
               ),
-            ],
+            ),
           ],
         ],
-      );
+      ),
+    );
+  }
 
-  // ── Step 2: When ─────────────────────────────────────────────────────
-
-  Widget _stepWhen(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  /// The categories «تغيير» opens, as one row that scrolls sideways:
+  /// «فئة جديدة» first, which makes one, then the person's own
+  /// (OwnCategory), then the app's, the current one lit. Their own lead
+  /// because a row that scrolls hides its far end, and a choice nobody sees
+  /// is not one (Aziz found that of a link under the form, 2026-09-08).
+  /// Ideas are not here: they have a page of their own ([_ideasCard]), and
+  /// a category of one's own has none.
+  Widget _categoryChipRow(S s) {
+    final own = {...ref.watch(ownCategoriesProvider), ..._madeHere};
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const ClampingScrollPhysics(),
+      child: Row(
         children: [
-          Text(
-            _goalType == GoalType.quit ? s.timingQuitTitle : s.timingBuildTitle,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: context.gp.textPrimary,
-            ),
-          ).animate().fadeIn(duration: 240.ms).slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          const SizedBox(height: 10),
-          // ── Cadence FIRST, then the times ────────────────────────────────
-          //
-          // These two were the other way round, and that ordering is the whole
-          // reason a habit counted twice a day could only ever be given one
-          // time: the form asked WHEN before it asked HOW MANY TIMES, so there
-          // was nowhere to put the second time — the screen did not yet know
-          // there was one. The count is what decides the shape of everything
-          // under it, so it has to be answered first.
-          //
-          // It also keeps the stepper reachable. With the pickers above it,
-          // every extra occurrence pushed the plus button it came from further
-          // down the sheet, and past a few taps out of the viewport entirely.
-          _frequencySection(s)
-              .animate(delay: 40.ms)
-              .fadeIn(duration: 240.ms)
-              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-          // ── One question at a time, downward ────────────────────────────
-          //
-          // Whether the habit has a MOMENT is a separate question from how
-          // often it repeats, and it is not asked until the first one is
-          // answered: no switch, no chips, nothing. Cadence is what shapes
-          // everything below it (a daily habit counted three times a day can
-          // hold three clock times; a weekly one cannot hold any of that),
-          // so offering the timing question first was offering it before the
-          // form knew what it could offer.
-          //
-          // The whole block only ever appears, never disappears: nothing
-          // sets the cadence back to null once it is picked, and an edit
-          // always arrives with one, so no answer given here can be stranded
-          // behind a section that went away.
-          //
-          // One AnimatedSize covers both reveals, this one and the picker's
-          // own inside it, because it animates to whatever its subtree
-          // measures rather than to a particular child.
-          AnimatedSize(
-            duration: GameMotion.standard,
-            curve: Curves.easeOutCubic,
-            // Grows downward from the chips above rather than around its own
-            // middle, so each section opens under the control that opened it.
-            alignment: Alignment.topCenter,
-            child: _freqType == null
-                ? const SizedBox.shrink()
-                : Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 14),
-                      _timingToggleRow(s)
-                          .animate(delay: 70.ms)
-                          .fadeIn(duration: 240.ms)
-                          .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-                      if (_timingEnabled)
-                        Padding(
-                          key: _timingSectionKey,
-                          padding: const EdgeInsets.only(top: 14),
-                          // Behind the switch row's own 70ms, not before it:
-                          // on a habit that opens with the section already on
-                          // (an edit with a cue), an unanimated picker painted
-                          // at full opacity while the heading, the chips and
-                          // the switch that governs it were still fading in.
-                          // On the frame it was 100 percent, that switch was
-                          // at 0.
-                          //
-                          // It sits on the child rather than on the
-                          // AnimatedSize so it also runs when somebody opens
-                          // the section by hand later, instead of popping in.
-                          child: _timingModeSection(s)
-                              .animate(delay: 100.ms)
-                              .fadeIn(duration: 240.ms)
-                              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
-                        ),
-                    ],
-                  ),
+          _CategoryPill(
+            category: HabitCategory.custom,
+            iconData: Icons.add_rounded,
+            label: s.ownCategoryNew,
+            selected: false,
+            action: true,
+            onTap: () async {
+              final made = await showOwnCategorySheet(context);
+              if (made == null || !mounted) return;
+              setState(() {
+                if (!own.contains(made)) _madeHere.add(made);
+                _pickOwnCategory(made);
+                _categoryRowOpen = false;
+              });
+            },
           ),
-          const SizedBox(height: 16),
-          _goalPreviewCard(s)
-              .animate(delay: 130.ms)
-              .fadeIn(duration: 240.ms)
-              .slideY(begin: 0.08, curve: Curves.easeOutCubic),
-        ],
-      );
-
-  Widget _timingModeSection(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: _SmallPick(
-                  label: s.customTime,
-                  selected: _timingMode == _TimingMode.time,
-                  onTap: () => _selectTimingMode(_TimingMode.time),
-                ),
-              ),
-              // ── Prayer and free text are single-moment cues ──────────────
-              //
-              // Hidden, not disabled, once the habit is counted more than once
-              // a day. A prayer is ONE moment — "five times a day" anchored to
-              // prayers means five DIFFERENT prayers, which is a different
-              // feature and not what this chip does — and free text has no
-              // resolvable moment at all, so neither can express a second
-              // occurrence. Offering a chip that silently collapses the count
-              // back to one time is worse than not offering it: the person
-              // sets two times, taps «وقت الصلاة», and one of them is gone
-              // with nothing said.
-              //
-              // Disabled-but-visible was the other option and reads as a
-              // paywall. There is nothing to unlock here — the choice simply
-              // does not apply while the count is above one, and it comes
-              // straight back when the count returns to one.
-              if (!_isMultiTime) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SmallPick(
-                    label: s.cuePrayerOption,
-                    selected: _timingMode == _TimingMode.prayer,
-                    onTap: () => _selectTimingMode(_TimingMode.prayer),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SmallPick(
-                    label: s.customText,
-                    selected: _timingMode == _TimingMode.text,
-                    onTap: () => _selectTimingMode(_TimingMode.text),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          // Nothing under the chips until one of them is picked. The
-          // gap goes with it, so an opened section with no answer yet is
-          // three chips and nothing else — which is the question.
-          if (_timingMode != null) const SizedBox(height: 12),
-          AnimatedSwitcher(
-            duration: GameMotion.standard,
-            child: KeyedSubtree(
-              key: ValueKey(_timingMode),
-              child: switch (_timingMode) {
-                null => const SizedBox.shrink(),
-                _TimingMode.time => _timeModeContent(s),
-                _TimingMode.prayer => _prayerModeContent(s),
-                _TimingMode.text => _textModeContent(s),
+          for (final mine in own) ...[
+            const SizedBox(width: 6),
+            _CategoryPill(
+              category: HabitCategory.custom,
+              iconData: mine.iconData,
+              label: mine.name,
+              selected: _ownCategory == mine,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _pickOwnCategory(mine);
+                  _categoryRowOpen = false;
+                });
               },
             ),
-          ),
-        ],
-      );
-
-  /// The switch that opens the time/prayer/text picker.
-  ///
-  /// Shaped like Notification Settings' rows (icon, label, Switch) rather
-  /// than like the steps-link card above it: this is a plain yes or no about
-  /// the section under it, not an offer that has to explain itself first.
-  /// The whole row is the target, not just the switch.
-  ///
-  /// It replaced a line of small print saying the picker below could be
-  /// skipped. A sentence asking someone not to use a control is a control
-  /// that should not have been open, and off is now the resting state, so
-  /// the sentence has nothing left to say.
-  ///
-  /// Not drawn at all until a cadence is picked (see [_stepWhen]): what this
-  /// switch opens depends on the answer above it, so it waits for it.
-  Widget _timingToggleRow(S s) {
-    final gp = context.gp;
-    final on = _timingEnabled;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => _setTimingEnabled(!on),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          children: [
-            Icon(
-              on ? Icons.alarm_on_rounded : Icons.alarm_rounded,
-              size: 19,
-              color: on ? gp.goldInk : gp.textTert,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                // A quit habit is watching for a moment, not scheduling one
-                // (its own reminder is the evening check-in, which this
-                // switch has never governed), so it names the thing its
-                // field below already names: a time or a situation.
-                _goalType == GoalType.quit
-                    ? s.timingToggleQuit
-                    : s.timingToggle,
-                style: TextStyle(
-                  fontSize: 14.5,
-                  fontWeight: FontWeight.w700,
-                  color: on ? gp.textPrimary : gp.textSec,
-                ),
-              ),
-            ),
-            Switch.adaptive(
-              value: on,
-              activeTrackColor: GameColors.emerald,
-              onChanged: _setTimingEnabled,
+          ],
+          for (final cat in _broadCategories) ...[
+            const SizedBox(width: 6),
+            _CategoryPill(
+              category: cat,
+              label: cat.localizedName(s.isAr),
+              selected: _ownCategory == null && _category == cat,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _didPickCategory = true;
+                  _category = cat;
+                  _ownCategory = null;
+                  _categoryRowOpen = false;
+                });
+              },
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  /// A category of the person's own, picked: underneath it is «مخصص».
+  void _pickOwnCategory(OwnCategory category) {
+    _didPickCategory = true;
+    _category = HabitCategory.custom;
+    _ownCategory = category;
+  }
+
+  /// Whether the ideas page can offer ready-made plans: only inside the Add
+  /// Habit hub, which is where the Plans tab lives.
+  bool get _hasPlans =>
+      widget.onOpenPlan != null || widget.onBrowsePlans != null;
+
+  /// «أفكار وخطط جاهزة»: the one way to ideas and plans on step 1, a card
+  /// with Doum holding his idea that opens the ideas page. It replaced an
+  /// inline door Aziz found hard to read (2026-10-01: "I don't like the
+  /// design"); the page is the "Habit ideas page" canvas he approved.
+  Widget _ideasCard(S s) {
+    final gp = context.gp;
+    final plans = _hasPlans && _goalType == GoalType.build;
+    final radius = BorderRadius.circular(18);
+    return Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: GameColors.gold.withOpacity(0.10),
+          borderRadius: radius,
+          border: Border.all(color: GameColors.gold.withOpacity(0.35)),
+        ),
+        child: InkWell(
+          borderRadius: radius,
+          onTap: _openIdeas,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(10, 10, 12, 10),
+            child: Row(
+              children: [
+                const Sprout(pose: SproutPose.idea, height: 52),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        plans ? s.ideasEntryTitle : s.ideasEntryTitleNoPlans,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: gp.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        plans ? s.ideasEntryBody : s.ideasEntryBodyNoPlans,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: gp.textSec,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(Icons.chevron_right_rounded,
+                    size: 22, color: gp.goldInk),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  /// Opens or closes the timing section.
-  ///
-  /// Turning it OFF clears the mode rather than remembering it, and takes
-  /// with it everything that only means anything beside a cue: the alarm
-  /// choice and the quiet-hours override. Both are written on save, so
-  /// leaving either behind would store an answer about a reminder this
-  /// habit is no longer getting — the same class of bug the steps-link
-  /// switch already documents in [_setGoalType].
-  ///
-  /// What it does NOT clear is the picked times and the typed cue text.
-  /// Those are the person's own input, they are only ever saved through a
-  /// selected mode, and a switch flicked off and back on should ask for the
-  /// choice again, not for the typing again.
-  void _setTimingEnabled(bool on) {
-    HapticFeedback.selectionClick();
-    if (_cueFocus.hasFocus) _cueFocus.unfocus();
+  /// Opens the ideas page on the side the switch is on. A plan opens on the
+  /// hub's Plans tab; an idea fills the form, then is added at once («+»,
+  /// «أضفها لعاداتي») or shown on step 2 to change first («عدّلها قبل
+  /// الإضافة»), so nothing is typed twice.
+  Future<void> _openIdeas() async {
+    FocusScope.of(context).unfocus();
+    final isAr = S.of(context).isAr;
+    // In the hub the page adds ideas itself, as many as the person likes
+    // (Aziz, 2026-10-01). A room's picker links the one habit this sheet
+    // returns, so there an idea still comes back to the form.
+    final added = <String>{};
+    final pick = await showHabitIdeasPage(
+      context,
+      goalType: _goalType,
+      withPlans: _hasPlans,
+      onAdd: _hasPlans ? _addIdeaNow : null,
+      added: added,
+      haveNames: {
+        for (final h in ref.read(habitListProvider)) ...[
+          h.name.trim().toLowerCase(),
+          h.localName(isAr).trim().toLowerCase(),
+        ],
+      },
+    );
+    if (!mounted) return;
+    // Ideas added and nothing typed here: the job is done, so the sheet
+    // closes onto the board, where the last one added is lit (see
+    // newlyAddedHabitIdProvider). A name typed before the ideas were opened
+    // keeps the form open for it.
+    if (pick == null && added.isNotEmpty && !_hasName) {
+      Navigator.pop(context);
+      return;
+    }
+    if (pick == null) return;
+    switch (pick) {
+      case PlanPicked(:final planId):
+        if (widget.onOpenPlan case final open?) {
+          open(planId);
+        } else {
+          widget.onBrowsePlans?.call();
+        }
+      case IdeaPicked(:final idea, :final addNow):
+        _applyIdea(idea);
+        if (addNow) {
+          _tryCreate();
+        } else {
+          if (idea.reminderPrayer != null) _ensureLocationForPrayerCue();
+          _goToStep(1, forward: true);
+        }
+    }
+  }
+
+  /// «أضفها لعاداتي» on the ideas page, in the hub: the idea saved as one
+  /// of the person's habits as suggested, without leaving the page, so the
+  /// next one can be picked. The free tier's habit limit is the one bar,
+  /// and it says why. A reminder asks for notifications, and a prayer for
+  /// the place its times are worked out from, the same two asks a save here
+  /// makes.
+  Future<bool> _addIdeaNow(HabitIdea idea) async {
+    if (!canAddHabits(ref)) {
+      showHabitLimitGate(context, ref);
+      return false;
+    }
+    final s = S.of(context);
+    final often = idea.often;
+    final hour = idea.reminderHour;
+    final cue = idea.reminderPrayer ??
+        (hour == null
+            ? null
+            : HabitCue.time(hour, idea.reminderMinute ?? 0).toStorageValue());
+    final created = ref.read(customHabitsProvider.notifier).add(
+          name: idea.name(s.isAr),
+          category: _canonicalCategory(idea.category),
+          cueAfter: cue,
+          frequencyType: often.type,
+          frequencyTarget: often.isDaily ? idea.timesPerDay : often.target,
+          scheduledWeekdays: [...often.weekdays],
+          goalType: idea.type,
+          reductionType: idea.limitAmount == null
+              ? ReductionType.avoid
+              : ReductionType.limit,
+          limitAmount: idea.limitAmount,
+          limitUnit: idea.limitUnit,
+        );
+    ref.read(newlyAddedHabitIdProvider.notifier).state = created.id;
+    if (idea.type == GoalType.quit || cue != null) {
+      _ensureNotificationPermission();
+    }
+    if (idea.reminderPrayer != null) _ensureLocationForPrayerCue();
+    return true;
+  }
+
+  /// Fills the form from [idea]: its side, name and category, how often,
+  /// a quit idea's limit, and its suggested reminder. Every answer stays
+  /// the person's to change on the steps that follow.
+  void _applyIdea(HabitIdea idea) {
+    final s = S.of(context);
+    if (idea.type != _goalType) _setGoalType(idea.type);
+    // Picked, so the name below does not move the category.
+    _didPickCategory = true;
+    _category = _canonicalCategory(idea.category);
+    _ownCategory = null;
+    _nameCtrl.text = idea.name(s.isAr);
     setState(() {
-      _timingEnabled = on;
-      if (!on) {
+      _hasName = true;
+      _categoryRowOpen = false;
+      final often = idea.often;
+      _freqType = often.type;
+      _selectedWeekdays = {...often.weekdays};
+      if (often.isDaily) {
+        _timesPerDay = idea.timesPerDay;
+        _freqTarget = idea.timesPerDay;
+      } else {
+        _freqTarget = often.target;
+      }
+      if (idea.type == GoalType.quit) {
+        _reductionType = idea.limitAmount == null
+            ? ReductionType.avoid
+            : ReductionType.limit;
+        _limitCtrl.text = idea.limitAmount?.toString() ?? '';
+        _customUnitCtrl.text = idea.limitUnit == null
+            ? ''
+            : s.limitUnitLabel(idea.limitUnit!.name);
+      }
+      _openOffsetRow = -1;
+      _reminderOffset = 0;
+      _extraOffsets = {};
+      _prayerRows = [null];
+      // A prayer idea counted several times a day starts its first row on
+      // that prayer; the rows after it are left to the person.
+      if (idea.reminderPrayer != null) {
+        _timingMode = _TimingMode.prayer;
+        _selectedPrayer = idea.reminderPrayer;
+      } else if (idea.reminderHour != null) {
+        _timingMode = _TimingMode.time;
+        _pickedTimes = [
+          TimeOfDay(hour: idea.reminderHour!, minute: idea.reminderMinute ?? 0),
+        ];
+        _pickedOffsets = [0];
+      } else {
+        _timingMode = null;
+      }
+      _fromIdea = true;
+    });
+  }
+
+  /// A quit habit's question, right under its name: quit fully, or limit
+  /// it, and the limit typed as a number and a unit (canvas v8, Aziz
+  /// 2026-09-30: "custom only no need for chips, user set what he wants").
+  Widget _quitStyleSection(S s) {
+    final gp = context.gp;
+    final limit = _reductionType == ReductionType.limit;
+    final error = _limitMissing && _limitErrorShown;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            s.quitStyleQuestion,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: FontWeight.w800,
+              color: gp.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _SegmentedRow(
+            labels: [s.quitFullyOption, s.quitLimitOption],
+            selected: limit ? 1 : 0,
+            onChanged: (i) {
+              HapticFeedback.selectionClick();
+              setState(() => _reductionType =
+                  i == 1 ? ReductionType.limit : ReductionType.avoid);
+            },
+          ),
+          if (limit) ...[
+            const SizedBox(height: 12),
+            // [amount] [unit] «في اليوم», one line, the boxes level.
+            Row(
+              children: [
+                SizedBox(
+                  width: 76,
+                  child: TextField(
+                    selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                    controller: _limitCtrl,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    // Arabic-Indic digits let through (٢), folded on save.
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(
+                        RegExp(r'[0-9٠-٩۰-۹]'),
+                      ),
+                      LengthLimitingTextInputFormatter(5),
+                    ],
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
+                    ),
+                    // No hint: «الحد الأقصى» does not fit a box sized for a
+                    // number, and the line under the row says what to type.
+                    decoration: InputDecoration(
+                      isDense: true,
+                      enabledBorder: error
+                          ? OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                color: GameColors.error.withOpacity(0.7),
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                    controller: _customUnitCtrl,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: TextStyle(
+                      // The amount box's size, so the two boxes are one height.
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: s.limitUnitLabel(LimitUnit.times.name),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  s.limitPerDay,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textSec,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            // Only after somebody has actually tried to move on with the
+            // number empty does the line under the boxes turn into the
+            // refusal: before that it says what the unit box is for.
+            Text(
+              error ? s.limitAmountRequired : s.limitUnitHelp,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.35,
+                fontWeight: error ? FontWeight.w700 : FontWeight.w500,
+                color: error ? context.gp.errorInk : gp.textTert,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Step 2: how often ────────────────────────────────────────────────
+
+  Widget _stepOften(S s) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _summaryStrip(s, withXp: true)
+              .animate()
+              .fadeIn(duration: 240.ms)
+              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          // Filled from an idea: say so, so the lit answer below reads as a
+          // suggestion to change rather than a choice somebody made.
+          if (_fromIdea && !_isEditing) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: GameColors.gold.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.auto_awesome_rounded,
+                      size: 16, color: context.gp.goldInk),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      s.ideasFromIdeaNote,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color: context.gp.textSec,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Text(
+            _goalType == GoalType.quit
+                ? s.howOftenQuestionQuit
+                : s.howOftenQuestion,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: context.gp.textPrimary,
+            ),
+          ).animate(delay: 30.ms).fadeIn(duration: 240.ms),
+          const SizedBox(height: 12),
+          _oftenSection(s)
+              .animate(delay: 60.ms)
+              .fadeIn(duration: 240.ms)
+              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+        ],
+      );
+
+  /// Which of the three is lit, or null while nobody has picked one.
+  int? get _oftenIndex {
+    if (_freqType == null) return null;
+    if (_selectedWeekdays.isNotEmpty) return 2;
+    return _freqType == HabitFrequencyType.weekly ? 1 : 0;
+  }
+
+  /// One choice in one row, «كل يوم | مرات بالأسبوع | أيام معيّنة», and what
+  /// that choice needs next in its own panel under it, so it never looks
+  /// like a fourth option (Aziz, 2026-09-30: "make it not a list... user may
+  /// think it's another option").
+  Widget _oftenSection(S s) => Column(
+        key: _repeatSectionKey,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SegmentedRow(
+            labels: [s.oftenEveryDay, s.oftenTimesAWeek, s.oftenSetDays],
+            selected: _oftenIndex,
+            onChanged: _pickOften,
+          ),
+          // Only once «متابعة» has been pressed with nothing picked, and in
+          // the error colour, where the answer is owed. It used to be a small
+          // grey «اختر وحدة» beside a button that looked ready.
+          if (_freqType == null && _repeatErrorShown) ...[
+            const SizedBox(height: 8),
+            Text(
+              s.repeatPickOne,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: context.gp.errorInk,
+              ),
+            ),
+          ],
+          AnimatedSize(
+            duration: GameMotion.standard,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: _oftenPanel(s) ?? const SizedBox(width: double.infinity),
+          ),
+        ],
+      );
+
+  void _pickOften(int index) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      switch (index) {
+        case 0:
+          _freqType = HabitFrequencyType.daily;
+          // Not a flat 1: for a daily habit this field IS the per-day count
+          // (effectiveDailyTarget), and the stepper owns it. Coming from a
+          // number a week, that number is meaningless here, so only a count
+          // this mode itself could have produced survives the switch.
+          _freqTarget = _dailyTargetInRange;
+          _selectedWeekdays.clear();
+        case 1:
+          _freqType = HabitFrequencyType.weekly;
+          // Keeps an already-reasonable target (switching back from set
+          // days, say) instead of always resetting to 1.
+          _freqTarget = _weeklyTargetInRange;
+          _selectedWeekdays.clear();
+        default:
+          _freqType = HabitFrequencyType.weekly;
+          if (_selectedWeekdays.isEmpty) {
+            _selectedWeekdays.add(DateTime.now().effectiveDay.weekday);
+          }
+          _freqTarget = _selectedWeekdays.length;
+      }
+    });
+  }
+
+  /// What the picked choice needs next, in its own box: times a day for a
+  /// daily build habit, the 1 to 6 count for a number a week, the days for
+  /// set days. Null when the choice needs nothing more (a daily quit habit,
+  /// which is kept or slipped once a day) or nothing is picked.
+  Widget? _oftenPanel(S s) {
+    final gp = context.gp;
+    Widget panel(Widget child) => Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: gp.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: child,
+          ),
+        );
+    Widget question(String text) => Text(
+          text,
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w800,
+            color: gp.textPrimary,
+          ),
+        );
+    switch (_oftenIndex) {
+      case 0 when _goalType == GoalType.build:
+        // Daily's own count, see _TimesPerDayRow. On screen at its resting
+        // 1 too, which is how anyone finds out the setting exists at all.
+        return panel(_TimesPerDayRow(
+          count: _dailyTargetInRange,
+          onChanged: (v) => setState(() {
+            _timesPerDay = v.clamp(1, kMaxTimesPerDay);
+            // Mirrored immediately because _submit persists _freqTarget;
+            // this mode is the one where the two are the same number.
+            _freqTarget = _timesPerDay;
+            // A prayer stays a prayer: with more times a day it becomes the
+            // first of a prayer per time (see _prayerRows), and back at once
+            // a day the first row is the prayer again. Words typed for the
+            // moment are one moment, so several times move them onto the
+            // clock, the mode that can hold several.
+            if (_timesPerDay > 1 && _timingMode == _TimingMode.text) {
+              _timingMode = _TimingMode.time;
+            }
+          }),
+        ));
+      case 1:
+        // Capped at 6: seven a week is every day.
+        return panel(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            question(s.oftenWeekQuestion),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                for (var n = 1; n <= 6; n++) ...[
+                  if (n > 1) const SizedBox(width: 6),
+                  Expanded(
+                    child: _EqualPill(
+                      selected: _weeklyTargetInRange == n,
+                      label: '$n',
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _freqTarget = n);
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ));
+      case 2:
+        return panel(Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            question(s.oftenDaysQuestion),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                for (final entry in _weekdays(context).asMap().entries) ...[
+                  if (entry.key > 0) const SizedBox(width: 6),
+                  Expanded(
+                    child: _EqualPill(
+                      selected: _selectedWeekdays.contains(entry.value.$1),
+                      label: entry.value.$2,
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          if (!_selectedWeekdays.remove(entry.value.$1)) {
+                            _selectedWeekdays.add(entry.value.$1);
+                          }
+                          // Never no days: the last one stays lit.
+                          if (_selectedWeekdays.isEmpty) {
+                            _selectedWeekdays.add(entry.value.$1);
+                          }
+                          _freqType = HabitFrequencyType.weekly;
+                          _freqTarget = _selectedWeekdays.length;
+                        });
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ));
+      default:
+        return null;
+    }
+  }
+
+  // ── Step 3: the reminder (optional) ──────────────────────────────────
+
+  /// Starts clean: two choices, a clock time or a prayer, and nothing picked
+  /// is a real answer («اختياري، تقدر تضيف العادة بدون تذكير.»). The
+  /// prayers appear only after «مع وقت صلاة» (Aziz, 2026-09-30: prayers are
+  /// "not the main"), then the reminder rows. Writing the moment in words
+  /// is gone ("the custom text, maybe no need"); a habit that already has
+  /// words keeps them (see [_writtenMomentCard]).
+  Widget _stepReminder(S s) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _summaryStrip(s, withXp: false)
+              .animate()
+              .fadeIn(duration: 240.ms)
+              .slideY(begin: 0.06, curve: Curves.easeOutCubic),
+          // The link, named on the last screen before the button that
+          // creates it, so the OS permission sheet does not arrive out of
+          // nowhere two steps after the card.
+          if (_stepCardVisible && _stepLinkEnabled) ...[
+            const SizedBox(height: 8),
+            _stepLinkRecap(s),
+          ],
+          const SizedBox(height: 18),
+          Text(
+            s.reminderQuestion,
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: context.gp.textPrimary,
+            ),
+          ).animate(delay: 30.ms).fadeIn(duration: 240.ms),
+          const SizedBox(height: 4),
+          Text(
+            s.reminderOptionalNote,
+            style: TextStyle(fontSize: 12, color: context.gp.textTert),
+          ).animate(delay: 30.ms).fadeIn(duration: 240.ms),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: ReminderKindCard(
+                  kind: ReminderKind.clock,
+                  label: s.reminderAtClock,
+                  selected: _timingMode == _TimingMode.time,
+                  onTap: () => _pickReminderKind(_TimingMode.time),
+                ),
+              ),
+              // Offered at any count: a habit counted several times a day
+              // takes a prayer per time (Aziz, 2026-10-01), see
+              // _multiPrayerContent.
+              const SizedBox(width: 10),
+              Expanded(
+                child: ReminderKindCard(
+                  kind: ReminderKind.prayer,
+                  label: s.reminderWithPrayer,
+                  selected: _timingMode == _TimingMode.prayer,
+                  onTap: () => _pickReminderKind(_TimingMode.prayer),
+                ),
+              ),
+            ],
+          ).animate(delay: 60.ms).fadeIn(duration: 240.ms),
+          AnimatedSize(
+            duration: GameMotion.standard,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedSwitcher(
+              duration: GameMotion.standard,
+              child: KeyedSubtree(
+                key: ValueKey(_timingMode),
+                child: switch (_timingMode) {
+                  null => const SizedBox(width: double.infinity),
+                  _TimingMode.time => Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: _timeModeContent(s),
+                    ),
+                  _TimingMode.prayer => Padding(
+                      padding: const EdgeInsets.only(top: 14),
+                      child: _prayerModeContent(s),
+                    ),
+                  _TimingMode.text => Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: _writtenMomentCard(s),
+                    ),
+                },
+              ),
+            ),
+          ),
+        ],
+      );
+
+  /// A choice tapped. Tapped again it is taken back, and no reminder is the
+  /// answer again; that also takes with it what only means anything beside
+  /// a cue, the alarm choice and the quiet-hours override, since both are
+  /// written on save. The picked times and the prayer are kept: they are
+  /// only ever saved through a picked mode, and a choice taken back and
+  /// made again should not ask for them again.
+  ///
+  /// A clock time with none picked yet opens the time picker straight away:
+  /// the time is what was just asked for.
+  void _pickReminderKind(_TimingMode mode) {
+    HapticFeedback.selectionClick();
+    if (_timingMode == mode) {
+      setState(() {
         _timingMode = null;
         _openOffsetRow = -1;
         _alarm = false;
         _ignoreQuietHours = false;
-      }
-      // Counted more than once a day, the clock time is the ONLY mode the
-      // row can offer (prayer and free text are single moments, see
-      // _timingModeSection), so opening the section would show one unlit
-      // full-width chip above empty space, which reads as a section that
-      // failed to draw rather than as a choice. Picking the only option on
-      // somebody's behalf takes nothing away from them: there is nothing
-      // else to pick.
-      if (on && _isMultiTime) _timingMode = _TimingMode.time;
-    });
-    if (on) _revealTimingSection();
-  }
-
-  /// Scrolls the freshly opened timing section fully into view. Same
-  /// treatment [_revealStepCard] gives the steps card, and for the same
-  /// reason: the section opens near the bottom of the sheet, so on a small
-  /// phone the chips somebody just asked for can land under the footer.
-  void _revealTimingSection() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final target = _timingSectionKey.currentContext;
-      if (target == null) return;
-      Scrollable.ensureVisible(
-        target,
-        alignment: 1.0,
-        duration: GameMotion.slow,
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
-  void _selectTimingMode(_TimingMode mode) {
-    HapticFeedback.selectionClick();
+      });
+      return;
+    }
     setState(() {
       _timingMode = mode;
       // The reminders carry over from a clock time, so the side the offset
       // sheet leans to comes with them (see _followReminderSide).
       _followReminderSide();
     });
+    if (mode == _TimingMode.time && !_isMultiTime && _pickedTime == null) {
+      _pickTime();
+    }
+    if (mode == _TimingMode.prayer && _selectedPrayer != null) {
+      _ensureLocationForPrayerCue();
+    }
+  }
+
+  /// A habit saved with its moment in words («بعد العمل»), kept as it is
+  /// when the habit is edited (Aziz, 2026-10-01, "pick the simple option").
+  /// The × takes it off; a clock time or a prayer picked above replaces it.
+  Widget _writtenMomentCard(S s) {
+    final gp = context.gp;
+    return Container(
+      padding: const EdgeInsetsDirectional.fromSTEB(14, 10, 4, 10),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.notes_rounded, size: 18, color: context.gp.goldInk),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  s.habitWrittenMoment,
+                  style: TextStyle(fontSize: 11, color: gp.textTert),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _cueCtrl.text.trim(),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: gp.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: s.habitReminderRemove,
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              setState(() {
+                _timingMode = null;
+                _alarm = false;
+                _ignoreQuietHours = false;
+              });
+            },
+            icon: Icon(Icons.close_rounded, size: 18, color: gp.textTert),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _timeModeContent(S s) {
@@ -2823,34 +3632,266 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// reminders' side, while the offset sheet every row opens asked the same
   /// question again, so Aziz had it taken off this step (2026-09-12). A
   /// prayer reminder's side is chosen in that sheet and read back on its
-  /// row, «قبل الفجر بـ15 دقيقة». Custom text keeps its pair: there it writes
-  /// the typed words, and nothing else asks.
-  Widget _prayerModeContent(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SectionLabel(s.pickAPrayer),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              for (final key in _prayerKeys) ...[
-                if (key != _prayerKeys.first) const SizedBox(width: 6),
-                Expanded(
-                  child: _EqualPill(
-                    selected: _selectedPrayer == key,
-                    label: HabitCue.preset(key).labelFor(context),
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _selectedPrayer = key);
-                      _ensureLocationForPrayerCue();
-                    },
-                  ),
+  /// row, «قبل الفجر بـ15 دقيقة».
+  ///
+  /// Each prayer carries today's time under its name once a place is known
+  /// (canvas v8), so picking one is picking a time, not a word.
+  Widget _prayerModeContent(S s) {
+    if (_isMultiTime) return _multiPrayerContent(s);
+    final settings = ref.watch(notificationSettingsProvider);
+    final loc = settings.location;
+    // Offline and today only, the same source the reminder rows' times use
+    // (see _reminderAnchorTime).
+    final today = loc == null
+        ? null
+        : PrayerTimesService.calculateOfflineCorrected(
+            latitude: loc.lat,
+            longitude: loc.lng,
+            date: DateTime.now(),
+            countryCode: settings.resolvedCountryCode,
+          );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            for (final key in _prayerKeys) ...[
+              if (key != _prayerKeys.first) const SizedBox(width: 6),
+              Expanded(
+                child: _EqualPill(
+                  selected: _selectedPrayer == key,
+                  label: HabitCue.preset(key).labelFor(context),
+                  sublabel: switch (today?.forKey(key)) {
+                    final at? =>
+                      HabitCue.time(at.hour, at.minute).labelForLocale(s.isAr),
+                    null => null,
+                  },
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    setState(() => _selectedPrayer = key);
+                    _ensureLocationForPrayerCue();
+                  },
                 ),
-              ],
+              ),
             ],
-          ),
-          if (_selectedPrayer != null) _reminderOffsetSection(s),
+          ],
+        ),
+        if (_selectedPrayer != null) _reminderOffsetSection(s),
+      ],
+    );
+  }
+
+  /// A prayer per time, for a habit counted several times a day (Aziz,
+  /// 2026-10-01: "option 2, but user can set like 30 min before fajr, and 30
+  /// after fajr, so it should be well designed to do that").
+  ///
+  /// One row per time, the shape the clock times have: its number, then the
+  /// whole reminder in words, «قبل الفجر بـ30 دقيقة», and where that lands
+  /// today. A row opens one sheet that asks the prayer and the side together
+  /// (showPrayerSlotSheet), so a row is set in two taps: a prayer, an
+  /// amount. Above the rows, one line says the thing nobody would guess,
+  /// that one prayer can take two.
+  ///
+  /// A row left empty is no reminder for that time, never a block: the
+  /// habit saves with the rows that are set, as a clock time left unpicked
+  /// always has.
+  Widget _multiPrayerContent(S s) {
+    final gp = context.gp;
+    final count = _effectiveTimeCount;
+    final anySet = _multiPrayerEntries.isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          s.prayerPerTimeNote,
+          style: TextStyle(fontSize: 12, color: gp.textTert, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        for (var i = 0; i < count; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          _prayerRowTile(s, i, count),
         ],
-      );
+        _reminderLocationNotice(s),
+        if (anySet && _goalType == GoalType.build) _reminderStyleRow(s),
+        if (anySet) _quietHoursWarning(s),
+      ],
+    );
+  }
+
+  /// One time's row in [_multiPrayerContent], the whole box one tap target.
+  /// A later row set to the same prayer and side as an earlier one is
+  /// outlined and says it would be kept once, the way a clock row on the
+  /// same minute does.
+  Widget _prayerRowTile(S s, int i, int count) {
+    final gp = context.gp;
+    final row = _prayerRow(i);
+    final settings = ref.watch(notificationSettingsProvider);
+    final name = row == null
+        ? null
+        : HabitCue.preset(row.prayer).labelForLocale(s.isAr);
+    final sentence = row == null
+        ? s.pickAPrayer
+        : habitReminderSentence(row.offset, s, prayer: name);
+    final anchor = row == null ? null : _prayerToday(row.prayer, settings);
+    final landsAt = anchor?.add(Duration(minutes: row!.offset));
+    final time = landsAt == null
+        ? null
+        : HabitCue.time(landsAt.hour, landsAt.minute).labelForLocale(s.isAr);
+    final duplicate = row != null &&
+        [for (var j = 0; j < i; j++) _prayerRow(j)].contains(row);
+    final radius = BorderRadius.circular(14);
+    return Material(
+      type: MaterialType.transparency,
+      child: Ink(
+        decoration: BoxDecoration(
+          color: gp.surface,
+          borderRadius: radius,
+          border: Border.all(
+            color: duplicate ? GameColors.error.withOpacity(0.55) : gp.border,
+            width: duplicate ? 1 : 0.5,
+          ),
+        ),
+        child: Semantics(
+          container: true,
+          button: true,
+          label: [
+            s.prayerSlotTitle(i + 1),
+            if (time == null) sentence else s.habitReminderRowSemantics(sentence, time),
+          ].join('، '),
+          child: InkWell(
+            borderRadius: radius,
+            onTap: () => _editPrayerRow(i),
+            child: ExcludeSemantics(
+              child: Padding(
+                padding: const EdgeInsetsDirectional.fromSTEB(14, 13, 12, 13),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.mosque_outlined,
+                          size: 18,
+                          color: row == null ? gp.textTert : context.gp.goldInk,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '${i + 1}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: gp.textTert,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            sentence,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              height: 1.3,
+                              fontWeight:
+                                  row == null ? FontWeight.w600 : FontWeight.w800,
+                              color: row == null ? gp.textTert : gp.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (time != null) ...[
+                          const SizedBox(width: 8),
+                          Text(
+                            time,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: gp.textSec,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          size: 20,
+                          color: context.gp.goldInk,
+                        ),
+                      ],
+                    ),
+                    if (duplicate) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.error_outline_rounded,
+                              size: 13, color: context.gp.errorInk),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              s.habitDuplicateTime,
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                height: 1.4,
+                                color: context.gp.errorInk,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A row tapped: the sheet opens on its prayer and side, or for an empty
+  /// row on the one most people mean next. After a row set BEFORE a prayer
+  /// that is the same prayer, after it: «30 before Fajr» then «30 after
+  /// Fajr» is two taps. After any other, the next prayer of the day. The
+  /// first row with nothing above it opens on Fajr. The side leans «بعد»,
+  /// the side a prayer habit's sheet has always opened on.
+  Future<void> _editPrayerRow(int i) async {
+    final s = S.of(context);
+    final settings = ref.read(notificationSettingsProvider);
+    final row = _prayerRow(i);
+    PrayerSlot? above;
+    for (var j = i - 1; j >= 0 && above == null; j--) {
+      above = _prayerRow(j);
+    }
+    final lean = switch (above) {
+      null => _prayerKeys.first,
+      (prayer: final p, offset: < 0) => p,
+      (prayer: final p, offset: _) =>
+        _prayerKeys[(_prayerKeys.indexOf(p) + 1) % _prayerKeys.length],
+    };
+    final picked = await showPrayerSlotSheet(
+      context,
+      title: s.prayerSlotTitle(i + 1),
+      prayers: [
+        for (final key in _prayerKeys)
+          (
+            key: key,
+            label: HabitCue.preset(key).labelForLocale(s.isAr),
+            at: switch (_prayerToday(key, settings)) {
+              final at? => TimeOfDay(hour: at.hour, minute: at.minute),
+              null => null,
+            },
+          ),
+      ],
+      prayer: row?.prayer ?? lean,
+      current: row?.offset,
+      clearable: row != null,
+    );
+    if (picked == null || !mounted) return;
+    HapticFeedback.selectionClick();
+    setState(() => _setPrayerRow(i, picked.slot));
+    // The first prayer set is what the rows' times need a place for, asked
+    // now rather than at save, the way a single prayer asks on its tap.
+    if (picked.slot != null) _ensureLocationForPrayerCue();
+  }
 
   /// «ذكّرني», under Time and Prayer mode once a concrete anchor is picked
   /// (see the two call sites above). Custom Text mode never shows this: a
@@ -3369,21 +4410,25 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     }
     if (_timingMode == _TimingMode.prayer) {
       final prayer = _selectedPrayer;
-      final loc = settings.location;
-      if (prayer == null || loc == null) return null;
-      // Offline-only and today-only on purpose — see
-      // PrayerTimesService.calculateOfflineCorrected's doc comment for why
-      // a live-API round trip isn't worth it for an in-form preview that
-      // can recompute on every keystroke.
-      final today = PrayerTimesService.calculateOfflineCorrected(
-        latitude: loc.lat,
-        longitude: loc.lng,
-        date: DateTime.now(),
-        countryCode: settings.resolvedCountryCode,
-      );
-      return today.forKey(prayer);
+      return prayer == null ? null : _prayerToday(prayer, settings);
     }
     return null;
+  }
+
+  /// Today's time of [prayer] where the person is, or null with no place
+  /// saved. Offline-only and today-only on purpose — see
+  /// PrayerTimesService.calculateOfflineCorrected's doc comment for why a
+  /// live-API round trip isn't worth it for an in-form preview that can
+  /// recompute on every keystroke.
+  DateTime? _prayerToday(String prayer, NotificationSettings settings) {
+    final loc = settings.location;
+    if (loc == null) return null;
+    return PrayerTimesService.calculateOfflineCorrected(
+      latitude: loc.lat,
+      longitude: loc.lng,
+      date: DateTime.now(),
+      countryCode: settings.resolvedCountryCode,
+    ).forKey(prayer);
   }
 
   /// Under the reminder rows in Prayer mode with no saved location: the
@@ -3394,9 +4439,10 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   Widget _reminderLocationNotice(S s) {
     final gp = context.gp;
     final settings = ref.watch(notificationSettingsProvider);
-    final anchor = _reminderAnchorTime(settings);
-    if (anchor == null) {
-      if (_timingMode != _TimingMode.prayer) return const SizedBox.shrink();
+    // A prayer with no place to work its time out from. Asked of the place
+    // itself rather than of a resolved anchor: with a prayer per time the
+    // first row can be empty while the others are set.
+    if (_timingMode == _TimingMode.prayer && settings.location == null) {
       return Padding(
         padding: const EdgeInsets.only(top: 10),
         child: Align(
@@ -3457,6 +4503,13 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   /// does not.
   List<int> _reminderFireMinutes(NotificationSettings settings) {
     int wrap(int m) => (m % 1440 + 1440) % 1440;
+    if (_isMultiPrayer) {
+      return [
+        for (final row in _multiPrayerEntries)
+          if (_prayerToday(row.prayer, settings) case final at?)
+            wrap(at.hour * 60 + at.minute + row.offset),
+      ];
+    }
     if (_timingMode == _TimingMode.time &&
         _isMultiTime &&
         _multiTimeEntries.length > 1) {
@@ -3627,364 +4680,155 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     );
   }
 
-  Widget _textModeContent(S s) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _relationToggle(s),
-          const SizedBox(height: 10),
-          TextField(
-            selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-            controller: _cueCtrl,
-            focusNode: _cueFocus,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: InputDecoration(
-              labelText: _goalType == GoalType.build ? s.afterWhatRoutine : s.customTriggerOptional,
-              hintText: s.routineHint,
-              prefixIcon: const Icon(Icons.notes_rounded, size: 18),
-            ),
-          ),
-        ],
-      );
-
-  /// Custom text's «قبل | بعد» pair, قبل first. A Row's first child lays out
-  /// on the start side, so in Arabic قبل sits on the right, where the offset
-  /// sheet and the Tasks picker already put it (Aziz, 2026-09-11: "In arabic
-  /// قبل should be first and on right"). Prayer mode draws no pair (see
-  /// [_prayerModeContent]).
-  Widget _relationToggle(S s) => Row(
-        children: [
-          Expanded(
-            child: _SmallPick(
-              label: s.cueBeforeOption,
-              selected: _cueRelation == _CueRelation.before,
-              onTap: () => _setCueRelation(_CueRelation.before),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _SmallPick(
-              label: s.cueAfterOption,
-              selected: _cueRelation == _CueRelation.after,
-              onTap: () => _setCueRelation(_CueRelation.after),
-            ),
-          ),
-        ],
-      );
-
-  Widget _frequencySection(S s) => Column(
-        key: _repeatSectionKey,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SectionLabel(s.repeat),
-          // Only once Create has been pressed with nothing picked, and then
-          // where the answer is owed rather than beside the button that
-          // refused. Not before: three chips under a label that says
-          // «التكرار» are already the question, and a line telling somebody
-          // to answer a question they have not reached yet is nagging.
-          if (_freqType == null && _repeatErrorShown) ...[
-            const SizedBox(height: 3),
-            Text(
-              s.repeatPickOne,
-              style: TextStyle(fontSize: 11, color: context.gp.textTert),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _SmallPick(
-                  label: s.daily,
-                  selected: _freqType == HabitFrequencyType.daily,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _freqType = HabitFrequencyType.daily;
-                      // Not a flat 1 any more: for a daily habit this field
-                      // IS the per-day count (effectiveDailyTarget), and the
-                      // stepper below owns it. Coming from Weekly, whose
-                      // target means times per WEEK, that number is
-                      // meaningless here — so only a count this mode itself
-                      // could have produced survives the switch.
-                      _freqTarget = _dailyTargetInRange;
-                      _selectedWeekdays.clear();
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallPick(
-                  label: s.weekly,
-                  selected: _freqType == HabitFrequencyType.weekly && _selectedWeekdays.isEmpty,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _freqType = HabitFrequencyType.weekly;
-                      // Keeps an already-reasonable target (e.g. switching
-                      // back from Specific Days) instead of always
-                      // resetting to 1 — the dropdown below is what lets
-                      // this go up to 6 for someone who wants "gym 4x a
-                      // week" without picking which days.
-                      _freqTarget = _weeklyTargetInRange;
-                      _selectedWeekdays.clear();
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _SmallPick(
-                  label: s.specificDays,
-                  selected: _selectedWeekdays.isNotEmpty,
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _freqType = HabitFrequencyType.weekly;
-                      if (_selectedWeekdays.isEmpty) {
-                        _selectedWeekdays
-                            .add(DateTime.now().effectiveDay.weekday);
-                      }
-                      _freqTarget = _selectedWeekdays.length;
-                    });
-                  },
-                ),
-              ),
-            ],
-          ),
-          // Daily's own count — see _TimesPerDayRow. Always on screen while
-          // Daily is selected (Option A), including at its resting 1, which
-          // is how anyone finds out the setting exists at all.
-          if (_freqType == HabitFrequencyType.daily &&
-              _selectedWeekdays.isEmpty &&
-              _goalType == GoalType.build) ...[
-            const SizedBox(height: 12),
-            _TimesPerDayRow(
-              count: _dailyTargetInRange,
-              onChanged: (v) => setState(() {
-                _timesPerDay = v.clamp(1, kMaxTimesPerDay);
-                // Mirrored immediately because _submit persists _freqTarget;
-                // this mode is the one where the two genuinely are the
-                // same number.
-                _freqTarget = _timesPerDay;
-                // Stepping up while a single-moment cue is selected has to
-                // carry the mode with it, or the chips vanish and leave the
-                // form sitting in a mode nothing on screen can reach or
-                // change. Only ever onto the clock-time mode, and only ever
-                // upward: stepping back down to 1 restores the chips and lets
-                // the person pick a prayer again if that is what they wanted.
-                // A section that was never opened has no mode to carry:
-                // stepping the count up on a habit with no time at all
-                // must not hand it one.
-                if (_timesPerDay > 1 &&
-                    _timingMode != null &&
-                    _timingMode != _TimingMode.time) {
-                  _timingMode = _TimingMode.time;
-                }
-              }),
-            ),
-          ],
-          // Weekly (flexible — any days) is the one mode where the target
-          // isn't already implied by something else on screen: Daily's is
-          // the stepper above, and Specific Days' target *is* however many days
-          // are picked below. So it's the only one that needs its own
-          // control — how many times this week, days unspecified, e.g.
-          // "gym 4x/week." Capped at 6, not 7: 7x/week is just Daily.
-          if (_freqType == HabitFrequencyType.weekly && _selectedWeekdays.isEmpty) ...[
-            const SizedBox(height: 10),
-            DropdownButtonFormField<int>(
-              value: _weeklyTargetInRange,
-              decoration: InputDecoration(labelText: s.timesPerWeek),
-              items: [
-                for (var n = 1; n <= 6; n++)
-                  DropdownMenuItem(value: n, child: Text(s.habitWeeklyTimes(n))),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                HapticFeedback.selectionClick();
-                setState(() => _freqTarget = v);
-              },
-            ),
-          ],
-          if (_selectedWeekdays.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                for (final entry in _weekdays(context).asMap().entries) ...[
-                  if (entry.key > 0) const SizedBox(width: 6),
-                  Expanded(
-                    child: _EqualPill(
-                      selected: _selectedWeekdays.contains(entry.value.$1),
-                      label: entry.value.$2,
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        setState(() {
-                          if (!_selectedWeekdays.remove(entry.value.$1)) {
-                            _selectedWeekdays.add(entry.value.$1);
-                          }
-                          if (_selectedWeekdays.isEmpty) {
-                            _selectedWeekdays.add(entry.value.$1);
-                          }
-                          _freqType = HabitFrequencyType.weekly;
-                          _freqTarget = _selectedWeekdays.length;
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ],
-      );
-
-  /// The preview card's second line, or null when there is nothing true to
-  /// put on it yet.
-  ///
-  /// Null, not an empty string: an empty Text still takes its line box, and
-  /// a blank row under the habit's name reads as a rendering fault. The
-  /// card drops the line instead (see [_goalPreviewCard]).
-  ///
-  /// The unanswered cadence is the reason this can be null at all. Before
-  /// the chips opened unlit, the else-branch below was always reachable and
-  /// always true; now, printing «يومياً» here for a chip nobody has touched
-  /// would be the form making the claim two lines above the button that
-  /// commits it, which is the whole thing the unlit chips exist to stop.
-  String? _summary(S s) {
-    final freq = _freqType == null
-        ? null
-        : (_selectedWeekdays.isNotEmpty ||
-                _freqType == HabitFrequencyType.weekly
-            ? s.habitWeeklyTimes(_freqTarget)
-            // A counted daily habit says how many, because "Daily" alone is
-            // the one thing this preview would then be getting wrong.
-            : (_dailyTargetInRange > 1
-                // The whole phrase, not a numeral glued to a unit: Arabic
-                // says "مرتين في اليوم" for two, where the number IS the
-                // noun's form.
-                ? '${s.daily} · ${s.timesPerDayPhrase(_dailyTargetInRange)}'
-                : s.daily));
-    final cue = _currentCue();
-    final cueLabel = cue.isEmpty ? null : cue.labelForLocale(s.isAr);
-    // Whatever HAS been answered, and only that: a cue with no cadence
-    // still says the cue.
-    if (freq == null) return cueLabel;
-    return cueLabel == null ? freq : '$freq · $cueLabel';
+  /// How often, in words, or null while nobody has picked it: printing
+  /// «كل يوم» for a choice nobody made would be the form making the claim
+  /// the unlit row exists to stop.
+  String? _oftenSummary(S s) {
+    if (_freqType == null) return null;
+    if (_selectedWeekdays.isNotEmpty) {
+      final sep = s.isAr ? '، ' : ', ';
+      return [
+        for (final (weekday, name) in _weekdays(context))
+          if (_selectedWeekdays.contains(weekday)) name,
+      ].join(sep);
+    }
+    if (_freqType == HabitFrequencyType.weekly) {
+      return s.timesAWeekPhrase(_weeklyTargetInRange);
+    }
+    // A counted daily habit says how many: «كل يوم» alone would be the one
+    // thing this line then got wrong. The whole phrase, since Arabic says
+    // «مرتين في اليوم» for two.
+    return _dailyTargetInRange > 1 && _goalType == GoalType.build
+        ? '${s.oftenEveryDay} · ${s.timesPerDayPhrase(_dailyTargetInRange)}'
+        : s.oftenEveryDay;
   }
 
-  /// A running "here's what you're about to create" confirmation — icon,
-  /// name, frequency, and the XP it'll pay out, so the reward is visible
-  /// before you commit, not just after.
-  ///
-  /// It used to end in an «بعد الفجر، سأقوم بـ ...» sentence for a build goal
-  /// with a cue. Aziz removed it on 2026-09-11 ("no goal from it"): it said
-  /// «بعد» whatever the chips above it said. The cue itself is still named on
-  /// the summary line.
-  Widget _goalPreviewCard(S s) {
-    final gp = context.gp;
-    // A picked icon color takes over the whole preview card's accent (not
-    // just the icon glyph) — this card is one small, single-color unit, so
-    // splitting it into two different colors would look mismatched rather
-    // than showing a clean "here's what you're about to create."
-    final color = _iconColorHex != null
-        ? (_iconColor ?? context.gp.textTert)
-        : (_goalType == GoalType.build ? GameColors.gold : GameColors.iconXp);
-    final name = _nameCtrl.text.trim();
+  /// The accent the habit's own icon is drawn in: its picked colour, or the
+  /// build or quit default.
+  Color get _accent => _iconColorHex != null
+      ? (_iconColor ?? context.gp.textTert)
+      : (_goalType == GoalType.build ? GameColors.gold : GameColors.iconXp);
+
+  /// The habit's category icon in a small tinted square.
+  Widget _categoryBadge() {
+    final color = _accent;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      width: 30,
+      height: 30,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.22)),
+        color: color.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(9),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Center(
+        // Ink for the glyph only, so it reads on the 16% wash.
+        child: CategoryIcon(
+          category: _category,
+          ownIcon: _ownCategory?.icon,
+          size: 16,
+          color: context.gp.ink(color),
+        ),
+      ),
+    );
+  }
+
+  /// The strip at the top of steps 2 and 3: what has been picked so far,
+  /// the name first, then how often and the reminder once answered. On
+  /// step 2 it ends in the points the habit pays, so the reward is visible
+  /// before anything is committed.
+  Widget _summaryStrip(S s, {required bool withXp}) {
+    final gp = context.gp;
+    final cue = _currentCue();
+    final parts = [
+      if (_oftenSummary(s) case final often?) often,
+      if (!cue.isEmpty) cue.labelForLocale(s.isAr),
+    ];
+    final color = _accent;
+    return Container(
+      padding: const EdgeInsetsDirectional.fromSTEB(8, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: gp.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  // Ink for the glyph only - the 8% wash and 22% border
-                  // above keep the true colour, so the card still reads as
-                  // one unit.
-                  child: CategoryIcon(
-                      category: _category, size: 17, color: gp.ink(color)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: gp.textPrimary),
-                    ),
-                    if (_summary(s) case final summary?) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        summary,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 11.5, color: gp.textSec),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.18),
-                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
-                ),
-                child: Text(
-                  '+$_categoryXp XP',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color),
-                ),
-              ),
-            ],
-          ),
-          // The link, named on the last screen before the button that
-          // creates it. Step 2 is a different screen from the card, so
-          // without this the last mention of health was one Continue tap
-          // ago and the OS permission sheet arrived out of nowhere.
-          if (_stepCardVisible && _stepLinkEnabled) ...[
-            const SizedBox(height: 10),
-            Container(height: 0.5, color: color.withOpacity(0.18)),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Icon(Icons.directions_walk_rounded,
-                    size: 15, color: GameColors.success),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    s.stepLinkRecap(_stepGoal),
+          _categoryBadge(),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(
+                    text: _nameCtrl.text.trim(),
                     style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                      color: GameColors.success,
-                      height: 1.3,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      color: gp.textPrimary,
                     ),
                   ),
+                  if (parts.isNotEmpty)
+                    TextSpan(
+                      text: ' · ${parts.join(' · ')}',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: gp.textSec,
+                      ),
+                    ),
+                ],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (withXp) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+              ),
+              // Left to right whatever the page's direction: in Arabic the
+              // plain string drew as «XP 20+».
+              child: Text(
+                '+$_categoryXp XP',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: gp.ink(color),
                 ),
-              ],
+              ),
             ),
           ],
         ],
       ),
     );
   }
+
+  /// The steps link, said back in one line once it is on.
+  Widget _stepLinkRecap(S s) => Padding(
+        padding: const EdgeInsetsDirectional.only(start: 4),
+        child: Row(
+          children: [
+            Icon(Icons.directions_walk_rounded,
+                size: 15, color: GameColors.success),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                s.stepLinkRecap(_stepGoal),
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: GameColors.success,
+                  height: 1.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
 
   /// The chosen icon colour, or null when the stored hex is unusable.
   ///
@@ -4022,25 +4866,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     return S.of(context).isAr ? 'قبل $trimmed' : 'Before $trimmed';
   }
 
-  /// «قبل» or «بعد» tapped in custom text mode, the one mode that draws the
-  /// pair.
-  ///
-  /// It writes the typed cue's relation and nothing else. Prayer mode drew
-  /// this pair too, as its reminders' side, until the offset sheet became
-  /// the one place that side is chosen (see [_prayerModeContent]), and
-  /// [_reminderLean] follows the reminders alone.
-  void _setCueRelation(_CueRelation relation) {
-    HapticFeedback.selectionClick();
-    setState(() {
-      _cueRelation = relation;
-      // Custom Text keeps the relation in the cue's own words, so its live
-      // field is rewritten to match.
-      if (_timingMode == _TimingMode.text && _cueCtrl.text.trim().isNotEmpty) {
-        _cueCtrl.text = _cueWithRelation(_cueCtrl.text);
-      }
-    });
-  }
-
   List<(int, String)> _weekdays(BuildContext context) {
     final locale = Localizations.localeOf(context).languageCode;
     final monday = DateTime(2024, 1, 1);
@@ -4076,47 +4901,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  void _applySuggestion(GoalSuggestion suggestion) {
-    HapticFeedback.selectionClick();
-    _nameCtrl.text = suggestion.name(S.of(context).isAr);
-    setState(() {
-      _category = suggestion.category;
-      _didPickCategory = true;
-      _hasName = true;
-    });
-  }
-
-  /// Scrolls the sheet so the (freshly re-filtered) suggestions section is
-  /// fully visible, and drops the keyboard to reclaim the space it was
-  /// using. Called right after picking a category with no name typed yet —
-  /// the moment the suggestions are the most useful thing on screen, and
-  /// the most likely to be sitting below the fold under an open keyboard.
-  ///
-  /// Deliberately uses Scrollable.ensureVisible instead of a fixed pixel
-  /// offset: it measures the suggestions section's actual on-screen
-  /// position at call time, so this lands correctly on a small phone or a
-  /// tablet, portrait or landscape, keyboard up or down — a hardcoded
-  /// offset would only ever be correct on whichever single device it was
-  /// tuned against.
-  void _revealSuggestions() {
-    FocusScope.of(context).unfocus();
-    // Waits a frame so this scrolls to where the suggestions section
-    // actually lands *after* the setState above (new category => a
-    // different, re-filtered chip grid => a possibly different height),
-    // not to its stale pre-rebuild position.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final target = _suggestionsKey.currentContext;
-      if (target == null) return;
-      Scrollable.ensureVisible(
-        target,
-        alignment: 0.1,
-        duration: GameMotion.slow,
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
   /// Scrolls the steps card fully into view the frame it first appears.
   ///
   /// Measured on an iPhone 17 Pro before this existed: with the Arabic
@@ -4129,8 +4913,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   ///
   /// [alignment] 1.0 puts the card's BOTTOM edge at the bottom of the
   /// viewport rather than its top, so the switch and the goal chips under
-  /// it come with it. Unlike [_revealSuggestions] this deliberately does
-  /// not drop the keyboard: the person is mid-word in the name field, and
+  /// it come with it. This deliberately does not drop the keyboard: the person is mid-word in the name field, and
   /// closing it under them to show a card they did not ask for would be
   /// its own kind of rude.
   void _revealStepCard() {
@@ -4146,14 +4929,6 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       );
     });
   }
-
-  /// The chips for the picked category on the current side, and nothing
-  /// else. This used to fall back to "the first six of this type" when a
-  /// category had none, so a person who had just tapped «التعلّم» was shown
-  /// prayer and sugar (Aziz, 2026-09-08). Every offered category now has
-  /// four on each side (goal_suggestions_test.dart), so the fallback is
-  /// gone; an empty answer simply hides the section.
-  List<GoalSuggestion> _suggestions() => suggestionsFor(_goalType, _category);
 
   /// Splits into whole words, after stripping common punctuation, rather
   /// than the plain substring match this replaced. Deliberately doesn't use

@@ -140,6 +140,7 @@ class _HabitReorderSheetState extends ConsumerState<_HabitReorderSheet> {
                             ),
                             child: CategoryIcon(
                               category: habit.category,
+                              ownIcon: habit.ownCategory?.icon,
                               size: 15,
                               color: color,
                             ),

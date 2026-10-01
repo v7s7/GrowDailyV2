@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "ideas": [
+    {
+      "id": "daily_charity",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "صدقة يومية",
+      "nameEn": "Daily charity",
+      "shortAr": "كل يوم ملكان يدعوان للي يعطي",
+      "shortEn": "Every day two angels pray for the one who gives",
+      "benefitAr": "ما من يوم يصبح العباد فيه إلا ملكان ينزلان، فيقول أحدهما: اللهم أعط منفقا خلفا.",
+      "benefitEn": "Every day two angels come down. One says: O Allah, give the one who spends a replacement.",
+      "sourceAr": "متفق عليه",
+      "sourceEn": "Bukhari and Muslim",
+      "waysAr": ["ولو بريال، المهم تكون كل يوم.", "حط حصالة صغيرة وتصدق باللي فيها آخر الأسبوع."],
+      "waysEn": ["Even one coin counts, as long as it is every day.", "Keep a small box and give what is in it each week."],
+      "often": "daily",
+      "reminder": "prayer:fajr",
+      "featured": true
+    },
+    {
+      "id": "drink_water",
+      "type": "build",
+      "category": "health",
+      "nameAr": "اشرب ماء",
+      "nameEn": "Drink water",
+      "shortAr": "جسمك يحتاج الماء طول اليوم",
+      "shortEn": "Your body needs water all day long, from the morning to the night",
+      "benefitAr": "الماء يساعدك تركز وتحس بنشاط أكثر.",
+      "benefitEn": "Water helps you focus and feel more awake.",
+      "waysAr": ["خل قارورة على مكتبك", "كوب مع كل وجبة"],
+      "waysEn": ["Keep a bottle on your desk", "A glass with every meal"],
+      "often": "daily",
+      "timesPerDay": 8,
+      "featured": true
+    },
+    {
+      "id": "less_coffee",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "قلل القهوة",
+      "nameEn": "Less coffee",
+      "shortAr": "نومك يصير أهدأ",
+      "shortEn": "Calmer sleep at night",
+      "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+      "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+      "waysAr": ["آخر كوب قبل العصر", "بدل الثالث بماء"],
+      "waysEn": ["Last cup before Asr", "Swap the third for water"],
+      "often": "daily",
+      "limit": { "amount": 2, "unit": "cups" },
+      "featured": false
+    },
+    {
+      "id": "read_book",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "اقرأ كتاب",
+      "nameEn": "Read a book",
+      "shortAr": "صفحات قليلة تفتح لك أبواب",
+      "shortEn": "A few pages open new doors",
+      "benefitAr": "القراءة تزيد علمك وتهدي بالك.",
+      "benefitEn": "Reading grows what you know and calms your mind.",
+      "waysAr": ["عشر صفحات قبل النوم", "خل الكتاب جنب السرير"],
+      "waysEn": ["Ten pages before bed", "Keep the book by your bed"],
+      "often": "weekly:3",
+      "reminder": "time:21:00",
+      "featured": false
+    }
+  ]
+}

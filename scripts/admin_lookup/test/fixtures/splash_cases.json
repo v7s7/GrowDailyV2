@@ -1,0 +1,743 @@
+{
+  "about": "The launch splash's settings: what the admin's Splash page writes to wording/live.splash, and what is in force once the app lays it over its built-in values. Run by test/splash.test.js here (wording/splash_rules.js resolve) and by test/features/launch/launch_settings_test.dart in the app (LaunchSettings.from(...).describe()), so the page shows before Save what phones do after it. `expect` lists only the values a case is about; the first case lists every one, the built-in values themselves.",
+  "cases": [
+    {
+      "name": "nothing edited: the built-in values",
+      "edits": null,
+      "expect": {
+        "minShowMs": 4000,
+        "maxShowMs": 9000,
+        "replayAfterMinutes": 30,
+        "awayDays": 3,
+        "firstOpenDays": 3,
+        "updateDays": 7,
+        "newFirst": 1,
+        "noRepeat": 1,
+        "order": [
+          "firstOpen",
+          "welcomeBack",
+          "update",
+          "ramadanLantern",
+          "nightAsleep",
+          "eid",
+          "fullDay",
+          "stepsGoal",
+          "saturday",
+          "morningCoffee",
+          "summerNoon",
+          "eveningChecklist",
+          "walk",
+          "winterWait"
+        ],
+        "off": [],
+        "hours": {
+          "update": [
+            4,
+            22
+          ],
+          "nightAsleep": [
+            22,
+            4
+          ],
+          "saturday": [
+            10,
+            24
+          ],
+          "morningCoffee": [
+            4,
+            11
+          ],
+          "summerNoon": [
+            12,
+            16
+          ],
+          "eveningChecklist": [
+            18,
+            22
+          ],
+          "winterWait": [
+            15,
+            18
+          ]
+        },
+        "months": {
+          "summerNoon": [
+            6,
+            7,
+            8,
+            9
+          ],
+          "winterWait": [
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        },
+        "pool": {
+          "dayRing": 2,
+          "turnaround": 2,
+          "firstOpen": 2,
+          "stepsGoal": 4,
+          "winterWait": 2,
+          "walk": 4
+        },
+        "onceADay": [
+          "eveningChecklist",
+          "summerNoon",
+          "walk"
+        ],
+        "chance": {
+          "morningCoffee": 70,
+          "summerNoon": 60,
+          "eveningChecklist": 60,
+          "winterWait": 50
+        },
+        "lines": {},
+        "slowLine": "Slow or fast we Grow Daily",
+        "force": null,
+        "walkerFromHour": 16,
+        "walkerToHour": 18
+      }
+    },
+    {
+      "name": "an empty field is no edit at all",
+      "edits": {},
+      "expect": {
+        "minShowMs": 4000,
+        "maxShowMs": 9000,
+        "replayAfterMinutes": 30,
+        "awayDays": 3,
+        "firstOpenDays": 3,
+        "updateDays": 7,
+        "newFirst": 1,
+        "noRepeat": 1,
+        "order": [
+          "firstOpen",
+          "welcomeBack",
+          "update",
+          "ramadanLantern",
+          "nightAsleep",
+          "eid",
+          "fullDay",
+          "stepsGoal",
+          "saturday",
+          "morningCoffee",
+          "summerNoon",
+          "eveningChecklist",
+          "walk",
+          "winterWait"
+        ],
+        "off": [],
+        "pool": {
+          "dayRing": 2,
+          "turnaround": 2,
+          "firstOpen": 2,
+          "stepsGoal": 4,
+          "winterWait": 2,
+          "walk": 4
+        },
+        "onceADay": [
+          "eveningChecklist",
+          "summerNoon",
+          "walk"
+        ],
+        "chance": {
+          "morningCoffee": 70,
+          "summerNoon": 60,
+          "eveningChecklist": 60,
+          "winterWait": 50
+        },
+        "lines": {},
+        "slowLine": "Slow or fast we Grow Daily",
+        "force": null,
+        "walkerFromHour": 16,
+        "walkerToHour": 18
+      }
+    },
+    {
+      "name": "numbers are taken inside their ranges",
+      "edits": {
+        "minShowMs": 2000,
+        "maxShowMs": 6000,
+        "replayAfterMinutes": 5,
+        "awayDays": 7,
+        "firstOpenDays": 10,
+        "updateDays": 2,
+        "newFirst": 0,
+        "noRepeat": 0,
+        "walkerFromHour": 6,
+        "walkerToHour": 9
+      },
+      "expect": {
+        "minShowMs": 2000,
+        "maxShowMs": 6000,
+        "replayAfterMinutes": 5,
+        "awayDays": 7,
+        "firstOpenDays": 10,
+        "updateDays": 2,
+        "newFirst": 0,
+        "noRepeat": 0,
+        "walkerFromHour": 6,
+        "walkerToHour": 9
+      }
+    },
+    {
+      "name": "numbers at the edges of their ranges are kept",
+      "edits": {
+        "minShowMs": 1000,
+        "maxShowMs": 20000,
+        "replayAfterMinutes": 1440,
+        "awayDays": 1,
+        "firstOpenDays": 14,
+        "updateDays": 30,
+        "newFirst": 1,
+        "noRepeat": 0,
+        "walkerFromHour": 23,
+        "walkerToHour": 24
+      },
+      "expect": {
+        "minShowMs": 1000,
+        "maxShowMs": 20000,
+        "replayAfterMinutes": 1440,
+        "awayDays": 1,
+        "firstOpenDays": 14,
+        "updateDays": 30,
+        "newFirst": 1,
+        "noRepeat": 0,
+        "walkerFromHour": 23,
+        "walkerToHour": 24
+      }
+    },
+    {
+      "name": "the same walkers' hour twice is kept: no walkers' hour",
+      "edits": {
+        "walkerFromHour": 0,
+        "walkerToHour": 0
+      },
+      "expect": {
+        "walkerFromHour": 0,
+        "walkerToHour": 0
+      }
+    },
+    {
+      "name": "walk hours set by the admin limit it, and are kept",
+      "edits": {
+        "hours": {
+          "walk": [
+            6,
+            22
+          ]
+        }
+      },
+      "expect": {
+        "hours": {
+          "update": [
+            4,
+            22
+          ],
+          "nightAsleep": [
+            22,
+            4
+          ],
+          "saturday": [
+            10,
+            24
+          ],
+          "morningCoffee": [
+            4,
+            11
+          ],
+          "summerNoon": [
+            12,
+            16
+          ],
+          "eveningChecklist": [
+            18,
+            22
+          ],
+          "winterWait": [
+            15,
+            18
+          ],
+          "walk": [
+            6,
+            22
+          ]
+        }
+      }
+    },
+    {
+      "name": "numbers outside their range, or not whole, keep the built-in value",
+      "edits": {
+        "minShowMs": 999,
+        "maxShowMs": 20001,
+        "replayAfterMinutes": 0,
+        "awayDays": 2.5,
+        "firstOpenDays": 15,
+        "updateDays": 0,
+        "newFirst": 2,
+        "noRepeat": -1,
+        "walkerFromHour": 24,
+        "walkerToHour": 25
+      },
+      "expect": {
+        "minShowMs": 4000,
+        "maxShowMs": 9000,
+        "replayAfterMinutes": 30,
+        "awayDays": 3,
+        "firstOpenDays": 3,
+        "updateDays": 7,
+        "newFirst": 1,
+        "noRepeat": 1,
+        "walkerFromHour": 16,
+        "walkerToHour": 18
+      }
+    },
+    {
+      "name": "the old coin's numbers mean nothing now",
+      "edits": {
+        "ringWeight": 3,
+        "turnaroundWeight": 0
+      },
+      "expect": {
+        "minShowMs": 4000,
+        "maxShowMs": 9000,
+        "replayAfterMinutes": 30,
+        "awayDays": 3,
+        "firstOpenDays": 3,
+        "updateDays": 7,
+        "newFirst": 1,
+        "noRepeat": 1,
+        "pool": {
+          "dayRing": 2,
+          "turnaround": 2,
+          "firstOpen": 2,
+          "stepsGoal": 4,
+          "winterWait": 2,
+          "walk": 4
+        },
+        "walkerFromHour": 16,
+        "walkerToHour": 18
+      }
+    },
+    {
+      "name": "an order keeps each known scene once, then the rest in the built-in order",
+      "edits": {
+        "order": [
+          "walk",
+          "walk",
+          "dayRing",
+          "bogus",
+          "eid"
+        ]
+      },
+      "expect": {
+        "order": [
+          "walk",
+          "eid",
+          "firstOpen",
+          "welcomeBack",
+          "update",
+          "ramadanLantern",
+          "nightAsleep",
+          "fullDay",
+          "stepsGoal",
+          "saturday",
+          "morningCoffee",
+          "summerNoon",
+          "eveningChecklist",
+          "winterWait"
+        ]
+      }
+    },
+    {
+      "name": "scenes switched off, unknown names ignored, listed in the app's scene order",
+      "edits": {
+        "off": [
+          "eid",
+          "bogus",
+          "dayRing",
+          "eid"
+        ]
+      },
+      "expect": {
+        "off": [
+          "dayRing",
+          "eid"
+        ]
+      }
+    },
+    {
+      "name": "hours: a valid window is taken, an invalid one keeps the built-in",
+      "edits": {
+        "hours": {
+          "morningCoffee": [
+            5,
+            9
+          ],
+          "nightAsleep": [
+            0,
+            24
+          ],
+          "walk": [
+            3,
+            3
+          ],
+          "saturday": [
+            10
+          ],
+          "eveningChecklist": [
+            18,
+            25
+          ],
+          "winterWait": [
+            16.5,
+            18
+          ],
+          "update": [
+            24,
+            3
+          ],
+          "summerNoon": [
+            22,
+            2
+          ],
+          "dayRing": [
+            6,
+            18
+          ],
+          "bogus": [
+            1,
+            2
+          ]
+        }
+      },
+      "expect": {
+        "hours": {
+          "update": [
+            4,
+            22
+          ],
+          "morningCoffee": [
+            5,
+            9
+          ],
+          "nightAsleep": [
+            0,
+            24
+          ],
+          "saturday": [
+            10,
+            24
+          ],
+          "eveningChecklist": [
+            18,
+            22
+          ],
+          "winterWait": [
+            15,
+            18
+          ],
+          "summerNoon": [
+            22,
+            2
+          ],
+          "dayRing": [
+            6,
+            18
+          ]
+        }
+      }
+    },
+    {
+      "name": "months: an empty list is every month, a list is sorted and de-duplicated, out-of-range months are dropped",
+      "edits": {
+        "months": {
+          "summerNoon": [],
+          "winterWait": [
+            12,
+            1,
+            1,
+            13,
+            0
+          ],
+          "walk": [
+            3,
+            2
+          ],
+          "eid": [
+            7
+          ],
+          "bogus": [
+            1
+          ],
+          "nightAsleep": [
+            1.5
+          ]
+        }
+      },
+      "expect": {
+        "months": {
+          "winterWait": [
+            1,
+            12
+          ],
+          "walk": [
+            2,
+            3
+          ],
+          "eid": [
+            7
+          ]
+        }
+      }
+    },
+    {
+      "name": "months: a list with no valid month is every month",
+      "edits": {
+        "months": {
+          "winterWait": [
+            0,
+            13
+          ]
+        }
+      },
+      "expect": {
+        "months": {
+          "summerNoon": [
+            6,
+            7,
+            8,
+            9
+          ]
+        }
+      }
+    },
+    {
+      "name": "the anytime list: shares inside the range for its own scenes, 0 takes a scene out",
+      "edits": {
+        "pool": {
+          "dayRing": 5,
+          "update": 4,
+          "walk": 0,
+          "eid": 3,
+          "turnaround": 11,
+          "firstOpen": 2.5,
+          "stepsGoal": -1,
+          "bogus": 2
+        }
+      },
+      "expect": {
+        "pool": {
+          "dayRing": 5,
+          "turnaround": 2,
+          "firstOpen": 2,
+          "update": 4,
+          "stepsGoal": 4,
+          "winterWait": 2
+        }
+      }
+    },
+    {
+      "name": "the anytime list: every share 0 leaves it empty",
+      "edits": {
+        "pool": {
+          "dayRing": 0,
+          "turnaround": 0,
+          "firstOpen": 0,
+          "stepsGoal": 0,
+          "winterWait": 0,
+          "walk": 0
+        }
+      },
+      "expect": {
+        "pool": {}
+      }
+    },
+    {
+      "name": "once a day: only its six scenes may be switched, 0 or 1, whole numbers only",
+      "edits": {
+        "onceADay": {
+          "nightAsleep": 1,
+          "walk": 0,
+          "eid": 2,
+          "morningCoffee": 1,
+          "summerNoon": 0.5,
+          "bogus": 1
+        }
+      },
+      "expect": {
+        "onceADay": [
+          "eveningChecklist",
+          "nightAsleep",
+          "summerNoon"
+        ]
+      }
+    },
+    {
+      "name": "once a day: every one switched off",
+      "edits": {
+        "onceADay": {
+          "summerNoon": 0,
+          "eveningChecklist": 0,
+          "walk": 0
+        }
+      },
+      "expect": {
+        "onceADay": []
+      }
+    },
+    {
+      "name": "how often: a percent from 0 to 100 for any scene, 100 is every day and leaves the map",
+      "edits": {
+        "chance": {
+          "morningCoffee": 100,
+          "eveningChecklist": 0,
+          "walk": 30,
+          "dayRing": 50,
+          "winterWait": 101,
+          "summerNoon": 45.5,
+          "bogus": 20
+        }
+      },
+      "expect": {
+        "chance": {
+          "dayRing": 50,
+          "eveningChecklist": 0,
+          "summerNoon": 60,
+          "winterWait": 50,
+          "walk": 30
+        }
+      }
+    },
+    {
+      "name": "lines: tidied, kept up to the longest length, dropped when empty, too long or not text",
+      "edits": {
+        "lines": {
+          "walk": "  Every   step,\n we Grow Daily  ",
+          "eid": "   ",
+          "fullDay": "Sixty characters exactly, ending as we always Grow Daily ok.!",
+          "turnaround": "No brand here",
+          "bogus": "x",
+          "dayRing": 42,
+          "saturday": "Sixty characters exactly, ending as we always Grow Daily ok."
+        }
+      },
+      "expect": {
+        "lines": {
+          "turnaround": "No brand here",
+          "saturday": "Sixty characters exactly, ending as we always Grow Daily ok.",
+          "walk": "Every step, we Grow Daily"
+        },
+        "slowLine": "Slow or fast we Grow Daily"
+      }
+    },
+    {
+      "name": "the slow line, tidied",
+      "edits": {
+        "slowLine": "  Still   loading, we Grow Daily "
+      },
+      "expect": {
+        "slowLine": "Still loading, we Grow Daily",
+        "lines": {}
+      }
+    },
+    {
+      "name": "a slow line too long keeps the built-in",
+      "edits": {
+        "slowLine": "Sixty characters exactly, ending as we always Grow Daily ok.x"
+      },
+      "expect": {
+        "slowLine": "Slow or fast we Grow Daily"
+      }
+    },
+    {
+      "name": "a slow line that is not text keeps the built-in",
+      "edits": {
+        "slowLine": 42
+      },
+      "expect": {
+        "slowLine": "Slow or fast we Grow Daily"
+      }
+    },
+    {
+      "name": "one scene for everyone, between two days",
+      "edits": {
+        "force": {
+          "scene": "walk",
+          "from": "2026-12-01",
+          "to": "2026-12-31"
+        }
+      },
+      "expect": {
+        "force": {
+          "scene": "walk",
+          "from": "2026-12-01",
+          "to": "2026-12-31"
+        }
+      }
+    },
+    {
+      "name": "one scene for everyone with no days is open ended",
+      "edits": {
+        "force": {
+          "scene": "eid"
+        }
+      },
+      "expect": {
+        "force": {
+          "scene": "eid",
+          "from": null,
+          "to": null
+        }
+      }
+    },
+    {
+      "name": "a forced scene's day that is not a day is left open",
+      "edits": {
+        "force": {
+          "scene": "fullDay",
+          "from": "2026-02-31",
+          "to": "2026-03-05"
+        }
+      },
+      "expect": {
+        "force": {
+          "scene": "fullDay",
+          "from": null,
+          "to": "2026-03-05"
+        }
+      }
+    },
+    {
+      "name": "a forced scene that ends before it starts plays nothing",
+      "edits": {
+        "force": {
+          "scene": "walk",
+          "from": "2026-12-31",
+          "to": "2026-12-01"
+        }
+      },
+      "expect": {
+        "force": null
+      }
+    },
+    {
+      "name": "a forced scene the app does not know plays nothing",
+      "edits": {
+        "force": {
+          "scene": "bogus"
+        }
+      },
+      "expect": {
+        "force": null
+      }
+    }
+  ]
+}

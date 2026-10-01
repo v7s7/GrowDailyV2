@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'launch_settings.dart';
+
 /// True while the LaunchCurtain (launch_curtain.dart) covers the app. Seeded
 /// true by main.dart on the platforms that show one, false everywhere else
 /// (tests, the web), set false by the curtain the moment it starts to fade
@@ -32,6 +34,15 @@ const kLaunchSettle = Duration(milliseconds: 700);
 const kLaunchReplayAfter = Duration(
   seconds: int.fromEnvironment('GD_LAUNCH_REPLAY_AFTER_S', defaultValue: 1800),
 );
+
+/// [kLaunchReplayAfter], or what the admin's splash page set (minutes). The
+/// simulator's define wins when it is given, so a check can still shorten it.
+Duration launchReplayAfter() {
+  if (const bool.hasEnvironment('GD_LAUNCH_REPLAY_AFTER_S')) {
+    return kLaunchReplayAfter;
+  }
+  return Duration(minutes: LaunchSettings.current.replayAfterMinutes);
+}
 
 /// Bumped by main.dart each time a return plays the curtain again, so the
 /// host builds a fresh one (LaunchCurtainHost). 0 is the launch's own.

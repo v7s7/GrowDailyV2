@@ -33,11 +33,19 @@ class NotificationLocation {
   ///    it was the only way a location got saved without a search.
   final bool? auto;
 
+  /// A picked city's own time zone (IANA, e.g. "Europe/London"), from the
+  /// city search. Null for the phone's own location, which is where the
+  /// phone's clock already is, and for anything saved before 2026-10-01.
+  /// Every prayer time stays on the phone's clock; this is only read to say
+  /// so when the city's clock is a different one (PrayerTodayCard).
+  final String? zone;
+
   const NotificationLocation({
     required this.lat,
     required this.lng,
     required this.label,
     this.auto,
+    this.zone,
   });
 
   Map<String, dynamic> toMap() => {
@@ -45,6 +53,10 @@ class NotificationLocation {
         'lng': lng,
         'label': label,
         if (auto != null) 'auto': auto,
+        // Written even when null: the account copy is saved with a merge,
+        // which leaves alone every key a write does not name, so a city's
+        // zone would otherwise outlive it under the next place.
+        'zone': zone,
       };
 
   static NotificationLocation? fromMap(Object? raw) {
@@ -56,11 +68,13 @@ class NotificationLocation {
       return null;
     }
     final auto = raw['auto'];
+    final zone = raw['zone'];
     return NotificationLocation(
       lat: lat,
       lng: lng,
       label: label,
       auto: auto is bool ? auto : null,
+      zone: zone is String && zone.isNotEmpty ? zone : null,
     );
   }
 
@@ -71,10 +85,11 @@ class NotificationLocation {
           lat == other.lat &&
           lng == other.lng &&
           label == other.label &&
-          auto == other.auto;
+          auto == other.auto &&
+          zone == other.zone;
 
   @override
-  int get hashCode => Object.hash(lat, lng, label, auto);
+  int get hashCode => Object.hash(lat, lng, label, auto, zone);
 }
 
 String _timeToMap(TimeOfDay t) => '${t.hour}:${t.minute}';

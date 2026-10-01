@@ -1715,6 +1715,16 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         remindersPerOccurrence: expanded.perOccurrence,
         extraReminderOffsets: habit.extraReminderOffsets,
         prayerKey: cue.prayerKey,
+        // A prayer per time, each with its own shift and its own prayer's
+        // name for the reminder's words. Empty for every other cue.
+        prayerSlots: [
+          for (final slot in cue.prayerSlots)
+            (
+              prayerKey: slot.prayer,
+              offset: slot.offset,
+              label: HabitCue.preset(slot.prayer).labelForLocale(isAr),
+            ),
+        ],
         // On the habit's own days: a Wed/Sat habit done Wednesday still has
         // its streak on Saturday. See DashboardState.habitStreak.
         // A day stood in for by a session on another day of this week is not
@@ -2026,7 +2036,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
           awayAt != null &&
           (dayTurned ||
               !now.effectiveDay.isSameDayAs(awayAt.effectiveDay) ||
-              now.difference(awayAt) >= kLaunchReplayAfter)) {
+              now.difference(awayAt) >= launchReplayAfter())) {
         _replayLaunchCurtain(since: awayAt, replaceStale: leftDuringCurtain);
       }
       // Back from the background is when the phone may be somewhere new, or
@@ -2194,6 +2204,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // and take what is typed unseen. The draft stays in its field.
     FocusManager.instance.primaryFocus?.unfocus();
     LaunchMemory.beginReturn(since: since);
+    LaunchCurtain.reroll();
     ref.read(launchRemindersArmingProvider.notifier).state = true;
     ref.read(launchCurtainUpProvider.notifier).state = true;
     ref.read(launchCurtainRunProvider.notifier).state++;

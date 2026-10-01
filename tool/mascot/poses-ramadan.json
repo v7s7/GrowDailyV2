@@ -1,0 +1,14 @@
+[
+  {"name": "ramadan_lantern", "row": 1, "sheet_row": 1, "shows": "holding up a glowing golden Ramadan lantern (fanous), soft warm glow, gold lines", "app": true, "scale": 2.45},
+  {"name": "ramadan_crescent", "row": 1, "sheet_row": 1, "shows": "sitting on a big golden crescent moon, gold stars", "app": true, "scale": 2.6},
+  {"name": "ramadan_telescope", "row": 1, "sheet_row": 1, "shows": "looking through a navy and gold telescope on a tripod (moon sighting), gold stars", "app": true, "scale": 2.65},
+  {"name": "ramadan_lights", "row": 1, "sheet_row": 1, "shows": "hanging a string of glowing festive bulbs (gold and green), gold lines", "app": true, "scale": 2.65},
+  {"name": "ramadan_dates", "row": 1, "sheet_row": 2, "shows": "holding a wooden bowl of dates, not eating, gold lines", "app": true, "caution": "food: iftar, suhoor or Eid only, never during a fast's daytime", "scale": 2.64},
+  {"name": "ramadan_eid_thobe", "row": 1, "sheet_row": 2, "shows": "wearing a white thobe, no head cover, both leaves showing, waving, gold lines", "app": true, "scale": 2.5},
+  {"name": "ramadan_envelope", "row": 1, "sheet_row": 2, "shows": "holding a plain cream envelope (Eidiya), gold lines", "app": true, "scale": 2.52},
+  {"name": "ramadan_maamoul", "row": 1, "sheet_row": 2, "shows": "holding a white plate of maamoul cookies, not eating, gold lines", "app": true, "caution": "food: iftar, suhoor or Eid only, never during a fast's daytime", "scale": 2.63},
+  {"name": "ramadan_confetti", "row": 1, "sheet_row": 3, "shows": "throwing festive confetti (red, green, gold), eyes shut happy, arms up (Eid)", "app": true, "scale": 2.37},
+  {"name": "ramadan_night_lantern", "row": 1, "sheet_row": 3, "shows": "sitting beside a glowing lantern at night, a crescent and stars above, eyes open, calm", "app": true, "scale": 2.5},
+  {"name": "ramadan_dallah", "row": 1, "sheet_row": 3, "shows": "carrying a wooden tray with a golden dallah (Arabic coffee pot) and two small cups", "app": true, "caution": "drink: iftar, suhoor or Eid only, never during a fast's daytime", "scale": 2.6},
+  {"name": "ramadan_sunset", "row": 1, "sheet_row": 3, "shows": "waving at an orange sun setting behind him, small clouds (sunset, iftar time)", "app": true, "scale": 2.65}
+]

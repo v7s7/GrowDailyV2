@@ -85,6 +85,66 @@ Future<int?> showHabitOffsetSheet(
   );
 }
 
+/// One prayer [showPrayerSlotSheet] offers: its key, its name, and today's
+/// time once a place is known.
+typedef PrayerSlotOption = ({String key, String label, TimeOfDay? at});
+
+/// One time of a habit counted several times a day, set to a prayer (Aziz,
+/// 2026-10-01: "30 min before fajr, and 30 after fajr ... it should be well
+/// designed"). The five prayers along the top with today's times, then the
+/// same «قبل | بعد», amounts and typed field [showHabitOffsetSheet] asks
+/// with, so the sheet still reads as one sentence downward: which prayer,
+/// before or after, how long.
+///
+/// [prayer] is lit as the sheet opens, the row's own or the one Add Habit
+/// leans to for an empty row, so one tap on an amount saves the row. A tap
+/// on another prayer keeps the amount lit and «حفظ» saves the pair.
+/// [current] is the row's shift, null for an empty row, which opens on
+/// [leanAfter]'s side.
+///
+/// Returns null when the sheet is dismissed, `(slot: null)` when the row's
+/// reminder is taken off (offered only when [clearable]), else the prayer
+/// and the signed shift.
+Future<({PrayerSlot? slot})?> showPrayerSlotSheet(
+  BuildContext context, {
+  required String title,
+  required List<PrayerSlotOption> prayers,
+  required String prayer,
+  required int? current,
+  bool leanAfter = true,
+  bool clearable = false,
+}) {
+  HapticFeedback.selectionClick();
+  return showModalBottomSheet<({PrayerSlot? slot})>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (_) => _HabitOffsetSheet(
+      current: current,
+      anchor: null,
+      presets: true,
+      leanAfter: leanAfter,
+      editing: current != null,
+      anchorName: null,
+      slot: (
+        title: title,
+        prayers: prayers,
+        prayer: prayer,
+        clearable: clearable,
+      ),
+    ),
+  );
+}
+
+/// What [showPrayerSlotSheet] hands the sheet on top of the shift.
+typedef _SlotChoice = ({
+  String title,
+  List<PrayerSlotOption> prayers,
+  String prayer,
+  bool clearable,
+});
+
 /// One habit reminder as the sentence its row in Add Habit shows.
 ///
 /// With a [prayer] (its label, «الفجر») the row names the prayer and the
@@ -137,6 +197,10 @@ class _HabitOffsetSheet extends StatefulWidget {
   final bool leanAfter;
   final bool editing;
   final String? anchorName;
+
+  /// Set by [showPrayerSlotSheet]: the prayer is picked here too, and what
+  /// the sheet returns is the pair.
+  final _SlotChoice? slot;
   const _HabitOffsetSheet({
     required this.current,
     required this.anchor,
@@ -144,6 +208,7 @@ class _HabitOffsetSheet extends StatefulWidget {
     required this.leanAfter,
     required this.editing,
     required this.anchorName,
+    this.slot,
   });
 
   @override
@@ -154,6 +219,20 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   late final TextEditingController _ctrl;
   late bool _isAfter;
   late ReminderUnit _unit;
+
+  /// The lit prayer, in a [showPrayerSlotSheet]; null otherwise.
+  late String? _prayer = widget.slot?.prayer;
+
+  /// What the shift is measured from: the caller's anchor, or in a slot
+  /// sheet today's time of the lit prayer.
+  TimeOfDay? get _anchor {
+    final slot = widget.slot;
+    if (slot == null) return widget.anchor;
+    for (final p in slot.prayers) {
+      if (p.key == _prayer) return p.at;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -220,6 +299,9 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   int? get _pending {
     if (_ctrl.text.trim().isEmpty) {
       final lit = _litPreset;
+      // In a slot sheet «في الوقت» lit is savable too: with another prayer
+      // tapped, «حفظ» is how that prayer is kept at the same moment.
+      if (lit == 0 && widget.slot != null) return 0;
       return lit == null || lit == 0 ? null : _signed(lit);
     }
     // A fraction counts, "4.5" under Hours is 270, and so do Arabic-Indic
@@ -242,7 +324,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   /// the way [_resolved] builds its time, so the subtitle and the preview
   /// never draw the same minute in two digit sets.
   String? _anchorLabel(S s) {
-    final anchor = widget.anchor;
+    final anchor = _anchor;
     return anchor == null
         ? null
         : HabitCue.time(anchor.hour, anchor.minute).labelForLocale(s.isAr);
@@ -251,7 +333,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   /// Where the reminder actually lands. Wraps at midnight, which a shift on
   /// an early-morning or late-night occurrence genuinely does.
   String? _resolved(S s) {
-    final anchor = widget.anchor;
+    final anchor = _anchor;
     final pending = _pending;
     if (anchor == null || pending == null) return null;
     final total = (anchor.hour * 60 + anchor.minute + pending) % (24 * 60);
@@ -301,16 +383,34 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
               ),
               const SizedBox(height: 16),
               Text(
-                widget.presets ? s.remindMeSection : s.customReminderTitle,
+                widget.slot?.title ??
+                    (widget.presets ? s.remindMeSection : s.customReminderTitle),
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
                   color: gp.textPrimary,
                 ),
               ),
+              // The prayers first in a slot sheet, each with today's time,
+              // so picking one is picking a time. The subtitle below would
+              // only say that time again.
+              if (widget.slot case final slot?) ...[
+                const SizedBox(height: 14),
+                _prayerRow(slot),
+                const SizedBox(height: 16),
+                Text(
+                  s.prayerSlotWhen,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: gp.textTert,
+                  ),
+                ),
+              ],
               // A prayer is named even before a location gives it a time:
               // the shift is from Fajr whether or not Fajr has a clock yet.
-              if (widget.anchorName != null || widget.anchor != null) ...[
+              if (widget.slot == null &&
+                  (widget.anchorName != null || widget.anchor != null)) ...[
                 const SizedBox(height: 4),
                 Text(
                   widget.anchorName != null
@@ -494,6 +594,22 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
                   widget.editing ? s.habitOffsetSave : s.customReminderAdd,
                 ),
               ),
+              // A slot sheet's row can be left with no reminder at all; the
+              // row then says «اختر صلاة» again.
+              if (widget.slot?.clearable ?? false) ...[
+                const SizedBox(height: 6),
+                TextButton(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.of(context).pop((slot: null));
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: gp.textSec,
+                    minimumSize: const Size(double.infinity, 44),
+                  ),
+                  child: Text(s.prayerSlotClear),
+                ),
+              ],
               // The way back to no shift at all, without having to know that
               // clearing the field and confirming would do it (it would not —
               // an empty field disables the button).
@@ -524,6 +640,92 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
 
   void _pick(int signed) {
     HapticFeedback.selectionClick();
-    Navigator.of(context).pop(signed);
+    final prayer = _prayer;
+    if (widget.slot == null || prayer == null) {
+      Navigator.of(context).pop(signed);
+      return;
+    }
+    Navigator.of(context).pop((slot: (prayer: prayer, offset: signed)));
+  }
+
+  /// The five prayers of a slot sheet, one lit, each with today's time
+  /// under its name once a place is known.
+  Widget _prayerRow(_SlotChoice slot) {
+    final gp = context.gp;
+    final s = S.of(context);
+    return Row(
+      children: [
+        for (final p in slot.prayers) ...[
+          if (p != slot.prayers.first) const SizedBox(width: 6),
+          Expanded(
+            child: Semantics(
+              button: true,
+              selected: p.key == _prayer,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _prayer = p.key);
+                },
+                child: AnimatedContainer(
+                  duration: GameMotion.quick,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: p.key == _prayer
+                        ? GameColors.gold.withOpacity(0.12)
+                        : gp.surface,
+                    borderRadius:
+                        BorderRadius.circular(GameSpacing.buttonRadius),
+                    border: Border.all(
+                      color: p.key == _prayer
+                          ? GameColors.gold.withOpacity(0.5)
+                          : gp.border,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          p.label,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: p.key == _prayer
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            color: p.key == _prayer
+                                ? context.gp.goldInk
+                                : gp.textSec,
+                          ),
+                        ),
+                        if (p.at case final at?) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            HabitCue.time(at.hour, at.minute)
+                                .labelForLocale(s.isAr),
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: p.key == _prayer
+                                  ? context.gp.goldInk
+                                  : gp.textTert,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }

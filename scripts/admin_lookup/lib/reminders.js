@@ -212,6 +212,13 @@ const ROUTINE_NAMES = {
 
 // HabitCue._timePart, _timeEn and _timeAr.
 const TIME_PART = /^(\d{2}):(\d{2})([+-]\d{1,3})?$/;
+
+// HabitCue._prayerPart: a 'custom_time:' entry riding on a prayer instead of
+// a clock, with the same optional signed shift ('fajr-30').
+const PRAYER_PART = /^(fajr|dhuhr|asr|maghrib|isha)([+-]\d{1,3})?$/;
+
+// HabitCue._prayerOrder: the order a run of prayer slots is kept in.
+const PRAYER_ORDER = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
 const TIME_EN = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i;
 const TIME_AR = /^(\d{1,2}):(\d{2})\s*(ص|م)$/;
 
@@ -227,6 +234,11 @@ const MAX_TIMES = 12;
  * [stored] read the way the phone reads it:
  *
  *   { kind: 'prayer', prayerKey }         one of the five prayers
+ *   { kind: 'prayers', slots: [{prayerKey, shift}] }  a prayer per time,
+ *                                         for a habit counted several times
+ *                                         a day (HabitCue.prayerSlots): in
+ *                                         the order of the day, then shift,
+ *                                         each pair once, at most 12
  *   { kind: 'clock', times: [{at, shift}] }  picked clock time(s), `at` in
  *                                         minutes since midnight, earliest
  *                                         first, one per minute, at most 12
@@ -256,6 +268,22 @@ function parseCue(stored) {
   if (candidate.startsWith('custom_time:')) {
     const body = candidate.slice('custom_time:'.length);
     if (!body) return { kind: 'none' };
+    // A run of prayers, every entry of it; one among clock times is damage.
+    const parts = body.split(',');
+    if (parts.every((part) => PRAYER_PART.test(part))) {
+      const seen = new Set();
+      const slots = [];
+      for (const part of parts) {
+        const m = PRAYER_PART.exec(part);
+        const shift = m[2] ? Number(m[2]) : 0;
+        if (Math.abs(shift) > 999 || seen.has(`${m[1]}${shift}`)) continue;
+        seen.add(`${m[1]}${shift}`);
+        slots.push({ prayerKey: m[1], shift });
+      }
+      slots.sort((a, b) => (PRAYER_ORDER.indexOf(a.prayerKey) - PRAYER_ORDER.indexOf(b.prayerKey))
+        || (a.shift - b.shift));
+      return slots.length ? { kind: 'prayers', slots: slots.slice(0, MAX_TIMES) } : { kind: 'none' };
+    }
     const byMinute = new Map();
     for (const part of body.split(',')) {
       const m = TIME_PART.exec(part);
@@ -326,6 +354,8 @@ function extraOffsets(h) {
  *                      habit's shift and stack are not used at all
  *   prayer             the habit's shift, then its stack, as stored (the
  *                      prayer branch does not dedupe), at most 12
+ *   prayer per time    each slot's prayer with its own shift; the habit's
+ *                      shift and stack are not used at all
  *
  * `perOccurrence` is how many slots belong to ONE occurrence, which is what
  * one completion stands down (HabitReminderInput.remindersPerOccurrence).
@@ -350,6 +380,8 @@ function habitReminder(h) {
     for (const offset of [primary, ...extras].slice(0, MAX_TIMES)) {
       slots.push({ prayerKey: cue.prayerKey, offset });
     }
+  } else if (cue.kind === 'prayers') {
+    for (const s of cue.slots) slots.push({ prayerKey: s.prayerKey, offset: s.shift });
   }
   const isQuit = h.goalType === 'quit';
   return {
@@ -487,7 +519,7 @@ function resolveHabitSlots(plan, env) {
   if (!settings.masterEnabled || !settings.habitRemindersEnabled) {
     return base.map((s) => ({ ...s, state: 'off', next: null }));
   }
-  const isPrayer = plan.cue.kind === 'prayer';
+  const isPrayer = plan.cue.kind === 'prayer' || plan.cue.kind === 'prayers';
   if (isPrayer && !env.hasPlace) {
     return base.map((s) => ({ ...s, state: 'no-place', next: null }));
   }
@@ -508,7 +540,7 @@ function resolveHabitSlots(plan, env) {
 
   // Done today stands down today's copies, and only today's.
   const todayOf = (f) => localOf(f.ms, env.offset).key === env.todayKey;
-  if (isPrayer) {
+  if (plan.cue.kind === 'prayer') {
     // One prayer, one moment a day: a completion answers every shift of it.
     if (env.completed >= plan.dailyTarget) {
       for (const w of walked) for (const f of w.fires) if (todayOf(f)) f.done = true;
@@ -516,6 +548,7 @@ function resolveHabitSlots(plan, env) {
   } else {
     // A clock habit stands down its EARLIEST still-to-come copies today, one
     // occurrence per completion, a stacked occurrence being all its slots.
+    // A prayer per time counts the same way: each slot is an occurrence.
     // Only copies that survived quiet hours are counted, as the phone counts.
     const today = [];
     for (const w of walked) for (const f of w.fires) if (!f.quiet && todayOf(f)) today.push(f);

@@ -8,6 +8,7 @@ import '../../../core/providers/first_run_offer_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
+import '../../mascot/sprout.dart';
 import '../../mascot/sprout_turnaround.dart';
 import '../notifiers/guide_steps_provider.dart';
 import 'app_guide_screen.dart' show startGuideLesson;
@@ -144,7 +145,13 @@ class _FirstRunOfferScreenState extends ConsumerState<FirstRunOfferScreen> {
               // takes the onboarding slides' ratio instead: art above, text
               // under it, the pair a little above centre.
               const Spacer(flex: 3),
-              const SproutTurnaround(height: 160),
+              // He turns to face whoever just arrived, waves, then takes out
+              // his pointer: the first step, offered (the canvas "Doum picks
+              // the language", 2026-10-01).
+              const SproutTurnaround(
+                height: 160,
+                thenPose: SproutPose.pointer,
+              ),
               const SizedBox(height: 26),
               const _StepRail()
                   .animate(delay: 120.ms)

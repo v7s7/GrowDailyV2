@@ -1,0 +1,14 @@
+[
+  {"name": "habits_swimming", "row": 1, "sheet_row": 1, "shows": "swimming: head and arms above blue water, goggles on his forehead, splashes", "app": true, "scale": 2.45},
+  {"name": "habits_stretch", "row": 1, "sheet_row": 1, "shows": "standing with both arms up, stretching, smiling, gold lines", "app": true, "scale": 2.29},
+  {"name": "habits_watering_plant", "row": 1, "sheet_row": 1, "shows": "watering a small potted seedling with a yellow watering can", "app": true, "scale": 2.41},
+  {"name": "habits_planting_seed", "row": 1, "sheet_row": 1, "shows": "dropping a seed into a small pot of soil, sitting, gold lines", "app": true, "scale": 2.34},
+  {"name": "habits_phone_basket", "row": 1, "sheet_row": 2, "shows": "putting a phone into a woven basket (setting it down), gold lines", "app": true, "caution": "the phone is dark grey: on a dark card its edge fades, test on the dark theme", "scale": 2.45},
+  {"name": "habits_piggy_bank", "row": 1, "sheet_row": 2, "shows": "dropping a gold coin into a pink piggy bank, gold lines", "app": true, "scale": 2.36},
+  {"name": "habits_brushing_teeth", "row": 1, "sheet_row": 2, "shows": "brushing his teeth with a blue toothbrush and foam, gold lines", "app": true, "scale": 2.42},
+  {"name": "habits_sweeping", "row": 1, "sheet_row": 2, "shows": "sweeping with a straw broom, small dust puffs, gold lines", "app": true, "scale": 2.45},
+  {"name": "habits_cooking", "row": 1, "sheet_row": 3, "shows": "stirring a red cooking pot with a wooden spoon, cream apron, steam puffs", "app": true, "caution": "food: keep off a fasting habit's square and Ramadan's daytime", "scale": 2.51},
+  {"name": "habits_phone_call", "row": 1, "sheet_row": 3, "shows": "talking on a dark phone held to his ear, smiling, gold lines", "app": true, "scale": 2.33},
+  {"name": "habits_painting", "row": 1, "sheet_row": 3, "shows": "painting a landscape on a small easel with a brush, paint-spotted apron", "app": true, "scale": 2.33},
+  {"name": "habits_bedtime", "row": 1, "sheet_row": 3, "shows": "blue sleep cap, hugging a white pillow, eyes open, cosy, gold lines", "app": true, "caution": "the cap covers one leaf: fine for bedtime, but it is the one pose where a leaf is hidden", "scale": 2.59}
+]

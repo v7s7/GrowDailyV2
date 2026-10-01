@@ -1,0 +1,14 @@
+[
+  {"name": "moments_peek_edge", "row": 1, "sheet_row": 1, "shows": "peeking over a flat edge: head, leaves and two hands only, cut straight at the bottom (the sheet's edge line removed), curious and happy", "app": true, "caution": "cut flat at the bottom on purpose: always place its bottom edge on a card's or the screen's edge, never floating", "scale": 1.85},
+  {"name": "moments_gift", "row": 1, "sheet_row": 1, "shows": "holding out a yellow wrapped gift box with a red bow, smiling", "app": true, "scale": 2.25},
+  {"name": "moments_phone_up", "row": 1, "sheet_row": 1, "shows": "holding a phone up beside his head, looking at it, curious, gold lines (looking for signal)", "app": true, "scale": 2.48},
+  {"name": "moments_stamp_check", "row": 1, "sheet_row": 1, "shows": "pressing a rubber stamp onto paper that shows a green check mark, proud, gold lines", "app": true, "scale": 2.35},
+  {"name": "moments_clap", "row": 1, "sheet_row": 2, "shows": "clapping with hands at the cheeks, eyes shut happy, gold lines", "app": true, "scale": 2.4},
+  {"name": "moments_doorway_wave", "row": 1, "sheet_row": 2, "shows": "standing in an open brown doorway (dark inside), winking and waving", "app": true, "caution": "the doorway's inside is a dark navy panel: on a dark card it reads as a hole, test on the dark theme", "scale": 2.35},
+  {"name": "moments_stairs", "row": 1, "sheet_row": 2, "shows": "stepping onto three rising blocks (beige, gold, green), one arm up, gold lines", "app": true, "scale": 2.92},
+  {"name": "moments_flag_hill", "row": 1, "sheet_row": 2, "shows": "planting a red flag on a small green hill, gold lines", "app": true, "scale": 2.78},
+  {"name": "moments_photo_album", "row": 1, "sheet_row": 3, "shows": "holding an open brown photo album with two landscape pictures, happy", "app": true, "scale": 2.47},
+  {"name": "moments_phone_show", "row": 1, "sheet_row": 3, "shows": "holding a phone out toward the viewer, blank light screen, winking, gold lines", "app": true, "scale": 2.33},
+  {"name": "moments_notebook_lamp", "row": 1, "sheet_row": 3, "shows": "sitting at a small wooden table writing in a green notebook, a desk lamp shining on it (soft lamplight)", "app": true, "scale": 2.6},
+  {"name": "moments_wrench", "row": 1, "sheet_row": 3, "shows": "holding a red-handled wrench, a red toolbox at his feet, cheerful, gold lines", "app": true, "scale": 2.5}
+]

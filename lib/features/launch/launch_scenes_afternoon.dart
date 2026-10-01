@@ -80,7 +80,8 @@ extension _AfternoonScenes on _LaunchSceneViewState {
   /// What is painted in a pose's own box, under and over its picture
   /// (Sprout.underlay and overlay), so it moves with him and leaves with
   /// the pose: the small fire's glow and the sand running in the hourglass,
-  /// the big fire's flare and its embers, the treadmill's belt.
+  /// the big fire's flare and its embers, the treadmill's belt and the
+  /// sweat flying off him.
   ({Widget? under, Widget? over}) _poseLayers(SproutPose pose) =>
       switch (pose) {
         SproutPose.winterHourglass => (
@@ -88,7 +89,15 @@ extension _AfternoonScenes on _LaunchSceneViewState {
             over: CustomPaint(painter: _HourglassPainter(loaded: _loaded)),
           ),
         SproutPose.winterHappyHeart => (under: _bigFire(), over: _embers()),
-        SproutPose.treadmill => (under: null, over: _belt()),
+        SproutPose.treadmill => (
+            under: null,
+            over: Stack(
+              children: [
+                Positioned.fill(child: _belt()),
+                Positioned.fill(child: _sweat()),
+              ],
+            ),
+          ),
         _ => (under: null, over: null),
       };
 
@@ -454,6 +463,76 @@ extension _AfternoonScenes on _LaunchSceneViewState {
     );
   }
 
+  /// Seconds he has been running: from the moment the pop lands, as the
+  /// belt starts.
+  double get _running => math.max(0, _t - .384);
+
+  /// One step every .3 s: he dips at each footfall and rises between them,
+  /// leaning a little to each side in turn (Aziz, 2026-10-01: "it should be
+  /// animation running on the treadmill"). Down from where the picture has
+  /// him, never up: his feet stay on the belt.
+  ({double dip, double lean}) _stride() {
+    if (widget.reduced) return (dip: 0, lean: 0);
+    final run = _running;
+    // Into the stride over the first step, not at full bounce at once.
+    final into = (run / .3).clamp(0.0, 1.0);
+    final phase = run / .3;
+    final dip = 2.8 * into * (.5 + .5 * math.cos(2 * math.pi * phase));
+    final lean = .021 * into * math.sin(math.pi * phase);
+    return (dip: dip, lean: lean);
+  }
+
+  /// The treadmill picture with him running on it: the machine still, and
+  /// him cut out of it, dipping and leaning with each step. The console
+  /// stays in front of the hand he holds it by, as in the picture; his
+  /// feet may come down over the belt.
+  Widget _runningOnBelt(Widget picture) {
+    final stride = _stride();
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ClipPath(clipper: const _MachineClipper(), child: picture),
+        ),
+        // Him as the picture has him, by the console only: where a step
+        // moves him off its edge, the gap shows his own body, not the
+        // ground through a sliver.
+        Positioned.fill(
+          child: ClipPath(
+            clipper: const _RunnerClipper(byConsole: true),
+            child: picture,
+          ),
+        ),
+        Positioned.fill(
+          child: ClipPath(
+            clipper: const _InFrontOfConsoleClipper(),
+            child: Transform(
+              alignment: Alignment.bottomCenter,
+              transform: Matrix4.translationValues(0, stride.dip, 0)
+                ..rotateZ(stride.lean),
+              child: ClipPath(
+                clipper: const _RunnerClipper(),
+                child: picture,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Drops of sweat flying back off his head as he runs, one every .4 s
+  /// from either temple, in place of the two the picture holds still
+  /// (Aziz, 2026-10-01: "and the sweating").
+  Widget _sweat() {
+    if (widget.reduced) return const SizedBox.shrink();
+    return CustomPaint(
+      painter: _SweatPainter(
+        run: _running,
+        dip: _stride().dip,
+      ),
+    );
+  }
+
   /// How far above the line he is as he springs off the belt: from the
   /// belt, over the hop's top, down onto the line on the hop's own landing
   /// squash (.74 of it). Only off the treadmill, and never under Reduce
@@ -520,10 +599,10 @@ extension _AfternoonScenes on _LaunchSceneViewState {
     return (1, 1, 1);
   }
 
-  /// A mint morning-fresh wash; the deck's shadow; the trail of footprints
-  /// sliding out from under the deck with the load; and, when the app is
-  /// ready, the machine tucking away as he springs off it and each print
-  /// sprouting a seedling, from the far end to his heel.
+  /// A mint morning-fresh wash; the deck's shadow; and, when the app is
+  /// ready, the machine tucking away as he springs off it. No footprints:
+  /// he runs on the belt itself (Aziz, 2026-10-01: "it should not show
+  /// footsteps").
   void _walkScene(Size size, Offset c, bool rtl, List<Widget> behind) {
     final feet = c.dy + kLaunchFeetBelowCentre;
     final ahead = rtl ? -1.0 : 1.0;
@@ -574,37 +653,6 @@ extension _AfternoonScenes on _LaunchSceneViewState {
         ),
       );
     }
-
-    // The trail comes out from the back of the deck until the app is ready,
-    // cut there while the machine stands on it. A slow load's magnifier
-    // takes the machine away mid-load: each print then comes out whole,
-    // faded in as it passes where the deck ended (the cut had halved one in
-    // open sand), and those not out yet stay hidden, so nothing lies where
-    // the trail has not reached.
-    behind.add(
-      Positioned(
-        left: 0,
-        top: feet - 62,
-        width: size.width,
-        height: 70,
-        child: Opacity(
-          opacity: reduced ? 1 : (_t / .26).clamp(0.0, 1.0),
-          child: CustomPaint(
-            painter: _TrailPainter(
-              origin: c.dx,
-              ahead: ahead,
-              slide: reduced ? 0 : 108.5 * (1 - _loaded),
-              edge: reduced || (since != null && !tucking)
-                  ? null
-                  : c.dx - 73.5 * ahead,
-              machine: onBelt || tucking,
-              since: reduced ? double.infinity : since,
-              t: reduced ? null : _t,
-            ),
-          ),
-        ),
-      ),
-    );
 
     // The machine alone (him cut out: he is the Sprout now, springing off
     // it) fades, sinks and slides back the way the belt ran.
@@ -1144,8 +1192,8 @@ class _MachineClipper extends CustomClipper<Path> {
     79.94, 41.53, 82.65, 39.76, 83.59, 37.81, 100.0, 37.81, 100.0, 100.0,
   ];
 
-  @override
-  Path getClip(Size size) {
+  /// The machine's outline in a picture [size] big.
+  static Path outline(Size size) {
     Offset at(int i) =>
         Offset(_keep[i] / 100 * size.width, _keep[i + 1] / 100 * size.height);
     final path = Path()..moveTo(at(0).dx, at(0).dy);
@@ -1157,184 +1205,147 @@ class _MachineClipper extends CustomClipper<Path> {
   }
 
   @override
+  Path getClip(Size size) => outline(size);
+
+  @override
   bool shouldReclip(covariant CustomClipper<Path> old) => false;
 }
 
-/// The walk's trail, in a strip 70pt deep whose top is 62pt above his feet:
-/// seven sand footprints 18pt apart behind the treadmill, tilting each way
-/// as steps do. Six slide out from under the deck by [slide] (the load
-/// still to come) past the deck's back end, [edge] (null once the trail is
-/// whole): cut there with a soft 5pt edge while the [machine] stands on it,
-/// and without it each faded in whole by how much of it is out. The
-/// seventh lies under the machine until it tucks away. From the ready
-/// moment ([since], ms) each darkens into a mound and sprouts a seedling,
-/// 48 ms apart from the far end to his heel, the leaves opening just after
-/// the stem; the row then sways as a breeze runs down it ([t], null for
-/// none).
-class _TrailPainter extends CustomPainter {
-  const _TrailPainter({
-    required this.origin,
-    required this.ahead,
-    required this.slide,
-    required this.edge,
-    required this.machine,
-    required this.since,
-    required this.t,
-  });
+/// Him alone in the treadmill picture: the machine cut away, and the two
+/// drops of sweat the picture holds still beside his head, which fly
+/// instead (_SweatPainter). As shares of the picture.
+class _RunnerClipper extends CustomClipper<Path> {
+  const _RunnerClipper({this.byConsole = false});
 
-  final double origin;
-  final double ahead;
-  final double slide;
-  final double? edge;
-  final bool machine;
-  final double? since;
-  final double? t;
+  /// Only the part of him beside the treadmill's console.
+  final bool byConsole;
 
-  /// Each seedling's width on its 20 x 18 drawing, growing toward him.
-  static const _sizes = [21.6, 21.2, 24.0, 23.6, 26.4, 26.0, 28.8];
+  @override
+  Path getClip(Size size) {
+    final w = size.width, h = size.height;
+    final him = Path.combine(
+      PathOperation.difference,
+      Path()..addRect(Offset.zero & size),
+      _MachineClipper.outline(size),
+    );
+    if (byConsole) {
+      return Path.combine(
+        PathOperation.intersect,
+        him,
+        Path()..addRect(Rect.fromLTRB(.56 * w, .36 * h, w, .8 * h)),
+      );
+    }
+    final drops = Path()
+      ..addRect(Rect.fromLTRB(.16 * w, .345 * h, .245 * w, .41 * h))
+      ..addRect(Rect.fromLTRB(.10 * w, .425 * h, .20 * w, .495 * h));
+    return Path.combine(PathOperation.difference, him, drops);
+  }
 
-  static const _sand = Color(0xFFD8C6A2);
-  static const _mound = Color(0xFFC9AE82);
+  @override
+  bool shouldReclip(covariant _RunnerClipper old) =>
+      old.byConsole != byConsole;
+}
+
+/// Everything but the treadmill's console: what his moving picture may
+/// paint over. The console stays in front of the hand he holds it by;
+/// the belt below it lets his feet come down over it.
+class _InFrontOfConsoleClipper extends CustomClipper<Path> {
+  const _InFrontOfConsoleClipper();
+
+  @override
+  Path getClip(Size size) {
+    final console = Path.combine(
+      PathOperation.intersect,
+      _MachineClipper.outline(size),
+      Path()
+        ..addRect(
+          Rect.fromLTRB(.6 * size.width, 0, size.width, .775 * size.height),
+        ),
+    );
+    return Path.combine(
+      PathOperation.difference,
+      Path()..addRect(Offset.zero & size),
+      console,
+    );
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> old) => false;
+}
+
+/// Sweat flying back off his head as he runs, in the treadmill picture's
+/// box: a drop every .4 s from his temple or his cheek in turn, thrown
+/// back and a little up, falling away as it fades, in the picture's own
+/// sky blue. [run] is seconds running; [dip] his stride's dip now.
+class _SweatPainter extends CustomPainter {
+  const _SweatPainter({required this.run, required this.dip});
+
+  final double run;
+  final double dip;
+
+  static const _every = .4;
+  static const _life = .6;
+
+  /// Where the drops leave him, as shares of the picture: his temple and
+  /// his cheek, where the picture's own two drops sit.
+  static const _from = [Offset(.255, .385), Offset(.245, .455)];
 
   @override
   void paint(Canvas canvas, Size size) {
-    final edge = this.edge;
-    final cut = edge != null && machine;
-    if (cut) {
-      canvas.saveLayer(Offset.zero & size, Paint());
-    }
-    for (var k = 0; k < 6; k++) {
-      final x = origin + ahead * (-175 + 18.0 * k + slide);
-      // Without the machine: how much of its 13pt is past the deck's end.
-      final out = edge == null || machine
-          ? 1.0
-          : (((edge - x) * ahead + 6.5) / 13).clamp(0.0, 1.0);
-      if (out >= 1) {
-        _print(canvas, k, x);
-      } else if (out > 0) {
-        canvas.saveLayer(
-          Offset.zero & size,
-          Paint()..color = Color.fromRGBO(0, 0, 0, out),
-        );
-        _print(canvas, k, x);
-        canvas.restore();
-      }
-    }
-    if (cut) {
-      // The deck's back end: everything past it is still under the machine.
-      final fade = ahead > 0
-          ? Rect.fromLTRB(edge - 5, 0, edge, size.height)
-          : Rect.fromLTRB(edge, 0, edge + 5, size.height);
-      canvas.drawRect(
-        Offset.zero & size,
-        Paint()
-          ..blendMode = BlendMode.dstIn
-          ..shader = LinearGradient(
-            colors: ahead > 0
-                ? const [Color(0xFFFFFFFF), Color(0x00FFFFFF)]
-                : const [Color(0x00FFFFFF), Color(0xFFFFFFFF)],
-          ).createShader(fade),
-      );
-      canvas.restore();
-    }
-    // The print the machine stood on, uncovered as it goes.
-    final since = this.since;
-    if (since != null) {
-      final shown = since.isInfinite
-          ? 1.0
-          : Curves.easeIn.transform((since / 200).clamp(0.0, 1.0));
-      if (shown > 0) {
-        canvas.saveLayer(
-          Offset.zero & size,
-          Paint()..color = Color.fromRGBO(0, 0, 0, shown),
-        );
-        _print(canvas, 6, origin + ahead * -67);
-        canvas.restore();
-      }
+    if (run <= 0) return;
+    final newest = (run / _every).floor();
+    for (var k = newest; k >= 0 && run - k * _every < _life; k--) {
+      final u = (run - k * _every) / _life;
+      final from = _from[k % 2];
+      final start = Offset(from.dx * size.width, from.dy * size.height + dip);
+      // Back, up a little, then down: thrown off a runner.
+      final at = start + Offset(-40 * u, -12 * u + 30 * u * u);
+      final heading = Offset(-40, -12 + 60 * u);
+      final fade = (u / .08).clamp(0.0, 1.0) *
+          (1 - Curves.easeIn.transform(((u - .65) / .35).clamp(0.0, 1.0)));
+      _drop(canvas, at, heading, 1 - .2 * u, fade);
     }
   }
 
-  /// Print [k] at [x], with its seedling once it has sprouted.
-  void _print(Canvas canvas, int k, double x) {
-    final y = k.isEven ? 54.6 : 49.4;
-    final since = this.since;
-    final start = 60.0 + 48 * k;
-    final m = since == null ? 0.0 : ((since - start) / 77).clamp(0.0, 1.0);
+  /// A drop at [at], its point trailing back along [heading].
+  void _drop(Canvas canvas, Offset at, Offset heading, double scale, double o) {
+    if (o <= 0) return;
+    // About the picture's own drops: 9 wide, 15 long.
+    const r = 4.5;
     canvas.save();
-    canvas.translate(x, y);
-    canvas.rotate((k.isEven ? 7 : -7) * ahead * math.pi / 180);
-    canvas.scale(lerpDouble(1, 1.1, m)!, lerpDouble(1, 1.15, m)!);
-    canvas.drawOval(
-      Rect.fromCenter(center: Offset.zero, width: 13, height: 6.4),
-      Paint()..color = Color.lerp(_sand, _mound, m)!,
-    );
-    canvas.restore();
-    if (since == null || since <= start) return;
-    final u = since - start;
-    final stem = u < 75
-        ? 1.2 * Curves.easeOut.transform(u / 75)
-        : u < 150
-            ? lerpDouble(1.2, 1, Curves.easeInOut.transform((u - 75) / 75))!
-            : 1.0;
-    final v = u - 60;
-    final fold = v <= 0
-        ? 1.0
-        : v >= 150
-            ? 0.0
-            : 1 - const Cubic(.34, 1.56, .64, 1).transform(v / 150);
-    final t = this.t;
-    var sway = 0.0;
-    if (t != null) {
-      final p = ((t - .21 * k) / 2.6) % 1;
-      final e = Curves.easeInOut.transform(p < .5 ? p * 2 : 2 - p * 2);
-      sway = (-2.5 + 5 * e) * math.pi / 180;
-    }
-    final s = _sizes[k] / 20 * stem;
-    canvas.save();
-    canvas.translate(x, y);
-    canvas.rotate(sway * ahead);
-    canvas.scale(s * ahead, s);
-    canvas.translate(-10, -17);
+    canvas.translate(at.dx, at.dy);
+    // Drawn with its point up; turned so the point trails back toward
+    // his head, the way it came, as the picture's own drops are drawn.
+    canvas.rotate(math.atan2(-heading.dx, heading.dy));
+    canvas.scale(scale);
+    final path = Path()
+      ..moveTo(0, -2.5 * r)
+      ..cubicTo(r * .45, -1.6 * r, r, -.8 * r, r, 0)
+      ..arcToPoint(const Offset(-r, 0), radius: const Radius.circular(r))
+      ..cubicTo(-r, -.8 * r, -r * .45, -1.6 * r, 0, -2.5 * r)
+      ..close();
     canvas.drawPath(
-      Path()
-        ..moveTo(10, 17)
-        ..cubicTo(10, 13, 10.5, 10, 10, 7),
+      path,
       Paint()
-        ..color = _green
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round,
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            const Color(0xFF9AD6FA).withValues(alpha: o),
+            const Color(0xFF3FA7EE).withValues(alpha: o),
+          ],
+        ).createShader(const Rect.fromLTRB(-r, -2.5 * r, r, r)),
     );
-    final outline = Paint()
-      ..color = kLaunchInk
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..strokeJoin = StrokeJoin.round;
-    final fill = Paint()..color = const Color(0xFF74C878);
-    for (final side in const [-1.0, 1.0]) {
-      final leaf = Path()
-        ..moveTo(10, 7.5)
-        ..cubicTo(10 + 3 * side, 7.5, 10 + 6.8 * side, 5.6, 10 + 7.4 * side, 1.8)
-        ..cubicTo(10 + 3.6 * side, 1.2, 10 + .8 * side, 3.8, 10, 7.5)
-        ..close();
-      canvas.save();
-      canvas.translate(10, 7.5);
-      canvas.rotate(-side * 58 * fold * math.pi / 180);
-      canvas.translate(-10, -7.5);
-      canvas.drawPath(leaf, fill);
-      canvas.drawPath(leaf, outline);
-      canvas.restore();
-    }
+    canvas.drawCircle(
+      const Offset(-r * .35, -r * .2),
+      r * .32,
+      Paint()..color = const Color(0xFFFFFFFF).withValues(alpha: .75 * o),
+    );
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _TrailPainter old) =>
-      old.slide != slide ||
-      old.edge != edge ||
-      old.machine != machine ||
-      old.since != since ||
-      old.t != t ||
-      old.origin != origin ||
-      old.ahead != ahead;
+  bool shouldRepaint(covariant _SweatPainter old) =>
+      old.run != run || old.dip != dip;
 }
+

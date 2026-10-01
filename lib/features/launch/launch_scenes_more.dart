@@ -458,7 +458,11 @@ extension _MoreScenes on _LaunchSceneViewState {
         ),
       );
     }
-    final on = widget.reduced || t > .45;
+    // The bulb is in his hand: none once a slow load has him take out his
+    // magnifier, or wave when ready after it. The room still lights with
+    // the load.
+    final held = _pose == SproutPose.idea;
+    final on = held && (widget.reduced || t > .45);
     final glow = on
         ? (.3 + .6 * _loaded + (flick ? -.25 : 0)).clamp(0.0, 1.0)
         : 0.0;
@@ -492,7 +496,9 @@ extension _MoreScenes on _LaunchSceneViewState {
       ),
     );
     // The bulb itself reads as off until it flickers on.
-    final off = widget.reduced ? 0.0 : (t < .45 ? enter : (flick ? .7 : 0.0));
+    final off = !held || widget.reduced
+        ? 0.0
+        : (t < .45 ? enter : (flick ? .7 : 0.0));
     if (off > 0) {
       around.add(
         Positioned(
@@ -721,6 +727,94 @@ extension _MoreScenes on _LaunchSceneViewState {
       ),
     );
   }
+
+  /// Where the Wi-Fi mark stands (the middle of its foot): just over his
+  /// head, above the ring that circles him, and beside Saturday's calendar,
+  /// which hangs where the mark would.
+  Offset _wifiSpot(Offset c) => switch (widget.scene) {
+        LaunchScene.dayRing => Offset(c.dx, c.dy - 158),
+        LaunchScene.saturday => Offset(c.dx - 80, c.dy - 140),
+        _ => Offset(c.dx, _poseBox(c, _pose).top - 12),
+      };
+
+  /// The Wi-Fi mark over his head while the account's data is still on its
+  /// way: its arcs light one after another, searching; once the data is in
+  /// they light whole, it pops a little and fades.
+  Widget _wifi(Offset c, double night) {
+    final on = _wifiOnAt!;
+    final found = _wifiFoundAt;
+    final appear = widget.reduced ? 1.0 : ((_t - on) / .25).clamp(0.0, 1.0);
+    final gone =
+        found == null ? 0.0 : (widget.reduced ? 1.0 : (_t - found) / .5);
+    if (gone >= 1) return const SizedBox.shrink();
+    final spot = _wifiSpot(c);
+    const w = 40.0;
+    const h = 30.0;
+    final pop = found == null
+        ? Curves.easeOutBack.transform(appear)
+        : 1 + .12 * math.sin(gone.clamp(0.0, 1.0) * math.pi);
+    return Positioned(
+      key: kLaunchWifiKey,
+      left: spot.dx - w / 2,
+      top: spot.dy - h,
+      width: w,
+      height: h,
+      child: Opacity(
+        opacity: (appear * (1 - gone)).clamp(0.0, 1.0),
+        child: Transform.scale(
+          scale: pop,
+          alignment: Alignment.bottomCenter,
+          child: CustomPaint(
+            painter: _WifiPainter(
+              // Searching: the dot, then one arc more every 0.35 s.
+              lit: found != null || widget.reduced
+                  ? 3
+                  : ((_t - on) / .35).floor() % 4,
+              // The line's own greens and inks, by day and by night.
+              on: Color.lerp(_green, _nightGreen, night)!,
+              off: Color.lerp(kLaunchInk, _cream, night)!
+                  .withValues(alpha: .22),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A Wi-Fi mark: a dot and three arcs opening upwards, the inner [lit] of
+/// them in [on] and the rest in [off] (the dot is always lit).
+class _WifiPainter extends CustomPainter {
+  const _WifiPainter({required this.lit, required this.on, required this.off});
+
+  final int lit;
+  final Color on;
+  final Color off;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final base = Offset(size.width / 2, size.height - 3);
+    canvas.drawCircle(base, 3, Paint()..color = on);
+    final stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.4
+      ..strokeCap = StrokeCap.round;
+    const radii = [9.0, 17.0, 25.0];
+    for (var i = 0; i < radii.length; i++) {
+      stroke.color = i < lit ? on : off;
+      canvas.drawArc(
+        Rect.fromCircle(center: base, radius: radii[i]),
+        -math.pi * .75,
+        math.pi * .5,
+        false,
+        stroke,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WifiPainter old) =>
+      old.lit != lit || old.on != on || old.off != off;
 }
 
 /// One of the Grid's squares, full, dropping in when [shown].

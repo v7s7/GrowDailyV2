@@ -5,13 +5,19 @@
 // habit", and should meet the habit they already built and paused before they
 // meet the catalog. That argument is entirely about the instant BEFORE they
 // start building. It kept rendering after it, so on the second step of Add
-// Goal — «متى وكيف ستتابع؟», with a name already typed — «تمرين · استئناف» sat
-// above the form offering to throw the whole thing away, while holding a
-// quarter of a sheet whose primary button had already been fighting for room.
+// Goal, with a name already typed, «تمرين · استئناف» sat above the form
+// offering to throw the whole thing away, while holding a quarter of a sheet
+// whose primary button had already been fighting for room.
 //
 // The switcher directly below it had this rule already (hide once Add Goal has
 // moved on, for the same "don't invite a tap that discards their work" reason),
 // so this is one predicate governing both: see _AddHabitHubState._onChooserStep.
+//
+// Since the three-step page (canvas v8, 2026-10-01) the form has three steps
+// («العادة», «كم مرة», «التذكير (اختياري)») and the list shows on the first
+// only. The switcher is hidden on the form's first screen for everyone now
+// until Plans has been visited, so the "hide together" test opens the hub on
+// Plans to have both on screen before the form moves on.
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart' show User;
@@ -30,6 +36,8 @@ import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 import 'package:grow_daily_v2/features/habits/widgets/add_habit_hub_sheet.dart';
+
+import 'support/add_habit_flow.dart';
 
 void main() {
   late Directory tmp;
@@ -69,9 +77,9 @@ void main() {
     final c = ProviderContainer(overrides: [
       authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
       pausedHabitsProvider.overrideWithValue([pausedHabit()]),
-      // One active habit too: with none, a first habit hides the switcher
-      // from the start (see first_habit_hub_test.dart), and this test is
-      // about the switcher hiding LATER, together with the resume list.
+      // One active habit too: an ordinary returning account. (It used to
+      // decide whether the switcher showed at all; nothing does now but
+      // Plans, see first_habit_hub_test.dart.)
       habitListProvider
           .overrideWithValue([IslamicHabitCatalog.templates.first]),
     ]);
@@ -79,7 +87,11 @@ void main() {
     return c;
   }
 
-  Widget app(ProviderContainer container, Locale locale) =>
+  Widget app(
+    ProviderContainer container,
+    Locale locale, {
+    HubTab tab = HubTab.addGoal,
+  }) =>
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
@@ -91,9 +103,7 @@ void main() {
             GlobalCupertinoLocalizations.delegate,
           ],
           theme: GameTheme.dark,
-          home: const Scaffold(
-            body: AddHabitHub(initialTab: HubTab.addGoal),
-          ),
+          home: Scaffold(body: AddHabitHub(initialTab: tab)),
         ),
       );
 
@@ -115,21 +125,33 @@ void main() {
 
       // Typing a name is what unlocks Continue, so this is also the point
       // where the user has something to lose.
-      await tester.enterText(find.byType(TextField).first, 'قراءة');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(s.continueAction));
-      await tester.pumpAndSettle();
+      await toOften(tester, s);
 
-      // Step two: on the «when and how» screen.
-      expect(find.text(s.createGoal), findsOneWidget,
+      // Step two: how often.
+      expect(find.text(s.howOftenQuestion), findsOneWidget,
           reason: 'sanity: the form really did advance');
       expect(find.text(s.habitPausedSection), findsNothing,
           reason: 'the resume list must not sit on top of a form in progress');
       expect(find.text(s.habitResume), findsNothing,
           reason: 'and neither must a button that would discard it');
 
+      // Step three: the reminder.
+      await pickOften(tester, s.oftenEveryDay);
+      await tester.tap(find.text(s.continueAction));
+      await tester.pumpAndSettle();
+      expect(find.text(s.reminderQuestion), findsOneWidget,
+          reason: 'sanity: on the reminder step');
+      expect(find.text(s.habitPausedSection), findsNothing);
+      expect(find.text(s.habitResume), findsNothing);
+
       // Going back is a real return to the choosing surface, so the offer
-      // comes back with it — this is a gate, not a one-way dismissal.
+      // comes back with it: this is a gate, not a one-way dismissal. One
+      // step back is still inside the form.
+      await tester.tap(find.text(s.back));
+      await tester.pumpAndSettle();
+      expect(find.text(s.howOftenQuestion), findsOneWidget);
+      expect(find.text(s.habitPausedSection), findsNothing);
+
       await tester.tap(find.text(s.back));
       await tester.pumpAndSettle();
       expect(find.text(s.habitPausedSection), findsOneWidget);
@@ -139,22 +161,29 @@ void main() {
         (tester) async {
       // One predicate governs both (see _onChooserStep). Pinned so a later
       // change cannot split them and leave the sheet showing half a chooser
-      // above a form.
+      // above a form. Opened on Plans, the one way to have the pills on
+      // screen from the start, then over to the form.
       final container = await boot();
       addTearDown(container.dispose);
-      await tester.pumpWidget(app(container, locale));
+      await tester.pumpWidget(app(container, locale, tab: HubTab.plans));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(s.addGoalTitle));
       await tester.pumpAndSettle();
 
       expect(find.text(s.plansTab), findsOneWidget);
       expect(find.text(s.habitPausedSection), findsOneWidget);
 
-      await tester.enterText(find.byType(TextField).first, 'قراءة');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(s.continueAction));
-      await tester.pumpAndSettle();
+      await toOften(tester, s);
 
       expect(find.text(s.plansTab), findsNothing);
+      expect(find.text(s.addGoalTitle), findsNothing);
       expect(find.text(s.habitPausedSection), findsNothing);
+
+      // And back on the first step, both return together.
+      await tester.tap(find.text(s.back));
+      await tester.pumpAndSettle();
+      expect(find.text(s.plansTab), findsOneWidget);
+      expect(find.text(s.habitPausedSection), findsOneWidget);
     });
   }
 }

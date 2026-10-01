@@ -273,10 +273,11 @@ class _StreakAtRiskBanner extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            // The sprout, winking: an evening that is still open, said
-            // warmly. It replaced a flame that breathed on a loop for as long
-            // as the card was up; this breathes a few times and rests.
-            const Sprout(pose: SproutPose.wink, height: 60),
+            // The sprout sheltering the day's small flame under a leaf: the
+            // streak still to keep tonight, and him keeping it (Aziz,
+            // 2026-10-01, from the streak sheet; it was a wink). It breathes
+            // a few times and rests, as the wink did.
+            const Sprout(pose: SproutPose.streakLeafShelter, height: 60),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -639,6 +640,10 @@ class _ProfileLinksSection extends ConsumerWidget {
 @visibleForTesting
 Widget profileLinksForTest() => const _ProfileLinksSection();
 
+/// Settings › Language's sheet on its own, for tests.
+@visibleForTesting
+Widget languageSheetForTest() => const _LanguageSheet();
+
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 /// Opens the language picker sheet from Settings — same [LanguageOptionCard]
@@ -654,6 +659,9 @@ void _showLanguageSheet(BuildContext context) {
     // outer margin adds MediaQuery padding.bottom, which is what keeps
     // content near the bottom in the same spot device to device.
     useSafeArea: true,
+    // Doum stands over the two cards (see _LanguageSheet), which takes the
+    // sheet past the default half-screen cap on a small phone.
+    isScrollControlled: true,
     builder: (ctx) => const _LanguageSheet(),
   );
 }

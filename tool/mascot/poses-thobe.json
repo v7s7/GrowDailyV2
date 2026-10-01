@@ -1,0 +1,8 @@
+[
+  {"name": "lang_thobe_front_wave", "row": 1, "sheet_row": 1, "shows": "Arabic look: long white thobe with long sleeves, white ghutra over the whole head (leaves hidden), black agal; facing you, one hand raised in a wave", "app": true},
+  {"name": "lang_thobe_three_quarter", "row": 1, "sheet_row": 1, "shows": "Arabic look, three-quarter turn toward the right of the picture, arms relaxed", "app": true},
+  {"name": "lang_thobe_side", "row": 1, "sheet_row": 1, "shows": "Arabic look, side view facing right, the ghutra hanging down his back", "app": true},
+  {"name": "lang_thobe_back", "row": 1, "sheet_row": 2, "shows": "Arabic look, back view: the ghutra down his back, the agal, the thobe to the ankles", "app": true},
+  {"name": "lang_thobe_hand_chest", "row": 1, "sheet_row": 2, "shows": "Arabic look, right hand on his chest, eyes shut smiling: the Gulf welcome", "app": true},
+  {"name": "lang_thobe_jump", "row": 1, "sheet_row": 2, "shows": "Arabic look, happy jump, both arms up, eyes shut smiling, gold lines", "app": true}
+]

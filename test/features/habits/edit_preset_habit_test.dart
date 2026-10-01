@@ -14,6 +14,11 @@
 // The invariant these lock down: opening a preset shows the name in the
 // user's own language, and saving an untouched preset writes no override at
 // all.
+//
+// Since the three-step page (canvas v8, 2026-10-01) an edit opens on an
+// overview of its three answers rather than on the name box, so the name is
+// checked twice: in the overview's first row, and in the box that row opens
+// (support/add_habit_flow.dart's openEditStep).
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -24,12 +29,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:hive/hive.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 
+import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
-import 'package:grow_daily_v2/features/habits/notifiers/catalog_overrides_notifier.dart';
 import 'package:grow_daily_v2/features/habits/widgets/add_habit_sheet.dart';
+
+import 'support/add_habit_flow.dart';
 
 void main() {
   late Directory tmp;
@@ -77,17 +84,34 @@ void main() {
         ),
       );
 
+  /// The name box's text, read from its controller.
+  String typedName(WidgetTester tester) =>
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text;
+
   testWidgets('opening a plan habit in Arabic shows its Arabic name',
       (tester) async {
+    const s = S(Locale('ar'));
     final preset = presetWithArabicName();
     await tester.pumpWidget(app(const Locale('ar'), preset));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    final field = tester.widget<TextField>(find.byType(TextField).first);
-    expect(field.controller?.text, preset.nameAr,
+    expect(
+      find.descendant(
+        of: choice(s.addHabitStepWhat),
+        matching: find.text(preset.nameAr!),
+      ),
+      findsOneWidget,
+      reason: 'the overview\'s habit row must show localName(isAr), not the '
+          'English catalog name',
+    );
+    expect(find.text(preset.name), findsNothing);
+
+    await openEditStep(tester, s, 0);
+    expect(typedName(tester), preset.nameAr,
         reason: 'the name box showed the English catalog name to an Arabic '
-            'user; it must show localName(isAr)');
-    expect(field.controller?.text, isNot(preset.name),
+            'user; it must show localName(isAr), the one _submit compares '
+            'against');
+    expect(typedName(tester), isNot(preset.name),
         reason: 'guard: this preset must actually differ between languages, '
             'or the assertion above proves nothing');
     await _teardown(tester);
@@ -95,13 +119,22 @@ void main() {
 
   testWidgets('opening a plan habit in English still shows its English name',
       (tester) async {
+    const s = S(Locale('en'));
     final preset = presetWithArabicName();
     await tester.pumpWidget(app(const Locale('en'), preset));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    final field = tester.widget<TextField>(find.byType(TextField).first);
-    expect(field.controller?.text, preset.name,
-        reason: 'the English path must be untouched by the Arabic fix');
+    expect(
+      find.descendant(
+        of: choice(s.addHabitStepWhat),
+        matching: find.text(preset.name),
+      ),
+      findsOneWidget,
+      reason: 'the English path must be untouched by the Arabic fix',
+    );
+
+    await openEditStep(tester, s, 0);
+    expect(typedName(tester), preset.name);
     await _teardown(tester);
   });
 
@@ -133,23 +166,34 @@ void main() {
       //
       // A RenderFlex overflow raises a FlutterError, which the binding records
       // as a test exception, so simply laying this out is the assertion.
+      //
+      // Every page an edit has, not one of them: the reported screenshot was
+      // the frequency page, markedly taller than the name page, and testing
+      // the name page alone is why an earlier version of this passed with the
+      // bug fully present. Now the Remove button sits under the overview's
+      // footer, and each step page («تم» under it) is checked too.
+      const s = S(Locale('ar'));
       final preset = presetWithArabicName();
       await tester.pumpWidget(app(const Locale('ar'), preset));
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
 
-      // Step 2 ("When"), not step 1. The reported screenshot is the frequency
-      // step — chips, cue field and the live preview card — which is markedly
-      // taller than the name step and is the only one that actually overflows.
-      // Testing step 1 alone is why an earlier version of this passed with the
-      // bug fully present.
-      final continueBtn = find.byType(FilledButton);
-      expect(continueBtn, findsWidgets, reason: 'no footer button found');
-      await tester.tap(continueBtn.last);
-      await tester.pump(const Duration(milliseconds: 400));
-
+      expect(find.text(s.saveChanges), findsOneWidget,
+          reason: 'sanity: on the overview');
+      expect(find.text(s.removeHabit), findsOneWidget);
       expect(tester.takeException(), isNull,
-          reason: 'the edit sheet overflowed its own constraints — the footer '
-              'and the Remove button paint outside the sheet');
+          reason: 'the edit overview overflowed its own constraints — the '
+              'footer and the Remove button paint outside the sheet');
+
+      for (final step in const [0, 1, 2]) {
+        await openEditStep(tester, s, step);
+        expect(find.text(s.habitEditStepDone), findsOneWidget,
+            reason: 'sanity: on step $step\'s page');
+        expect(tester.takeException(), isNull,
+            reason: 'step $step\'s page overflowed the sheet');
+        await editStepDone(tester, s);
+        expect(find.text(s.saveChanges), findsOneWidget,
+            reason: '«تم» comes back to the overview');
+      }
       await _teardown(tester);
     });
   });

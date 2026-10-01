@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -8,21 +9,26 @@ import '../../core/utils/ramadan_calendar.dart';
 import '../../core/utils/step_habit_detector.dart' show looksLikeStepHabit;
 import '../habits/catalog/islamic_habit_catalog.dart' show IslamicHabitTemplate;
 import '../habits/models/habit_model.dart' show HabitCategory;
+import 'launch_settings.dart';
 
 /// What Doum is doing on the launch curtain this time (Aziz, 2026-09-29:
 /// "coffee in the morning, sleepy after 10 pm, and random when nothing
 /// special", then the canvas's "More ideas" page, "fix it all"). Designed
 /// on the canvas's "Through the day" and "More ideas" pages,
 /// https://claude.ai/artifact/8Xc4wxXzucGmZC5ckseRwS.
+///
+/// The hours, months and order below are the built-in ones: the admin's
+/// splash page can change them (launch_settings.dart).
 enum LaunchScene {
-  /// The first open of the day, before 11:00: his mug, steam rising.
+  /// The morning's first open that no bigger moment took, before 11:00:
+  /// his mug, steam rising.
   morningCoffee,
 
-  /// A ring filling round him as the app loads. One of the two ordinary
-  /// scenes, picked at random.
+  /// A ring filling round him as the app loads. One of the anytime scenes
+  /// (kSplashPoolWeights).
   dayRing,
 
-  /// He turns round from behind to face you. The other ordinary scene.
+  /// He turns round from behind to face you. An anytime scene.
   turnaround,
 
   /// 18:00 to 22:00: his checklist, three squares ticking green.
@@ -39,7 +45,8 @@ enum LaunchScene {
   welcomeBack,
 
   /// The very first launch after installing: he points up at a seed that
-  /// sprouts with the load and blooms when the app is ready.
+  /// sprouts with the load and blooms when the app is ready. Also an
+  /// anytime scene, the plant.
   firstOpen,
 
   /// Eid's days (see isEidDay): the lights come on one by one, then
@@ -59,41 +66,50 @@ enum LaunchScene {
   update,
 
   /// The first open after a day the steps goal was reached: he runs in to
-  /// the finish flag.
+  /// the finish flag. Also an anytime scene, weighed up.
   stepsGoal,
 
   /// June to September, 12:00 to 15:59: the sun climbs and he puts his
   /// sunglasses on.
   summerNoon,
 
-  /// October and November, the first open from 15:00 to 17:59 (Aziz,
-  /// 2026-09-30, the "Missing winter" board): in his ghutra and bisht by his
+  /// Every month but December to February, Bahrain's winter, the first
+  /// open from 15:00 to 17:59 and an anytime scene in those hours (Aziz,
+  /// 2026-09-30, the "Missing winter" board; all months but winter since
+  /// 2026-10-01): in his ghutra and bisht by his
   /// hourglass and a small fire while the late summer sky sinks into a
   /// starry desert night with the load; when the app is ready the first
   /// cool breeze comes and he laughs by a big fire.
   winterWait,
 
-  /// 16:00 to 17:59, for someone with a walking or steps habit (the "Every
-  /// step" board): he runs on his treadmill while a trail of footprints
-  /// comes out behind it with the load; when the app is ready he springs
-  /// off and every footprint sprouts.
+  /// Every open 16:00 to 17:59 for someone with a walking or steps habit,
+  /// and an anytime scene for everyone, weighed up (the "Every step"
+  /// board): he runs on his treadmill, stepping and sweating, the belt
+  /// running under him; when the app is ready he springs off it. No
+  /// footprints since 2026-10-01 (Aziz: "it should be animation running on
+  /// the treadmill, and the sweating").
   walk,
 }
 
 /// The one line under Doum in each scene (Aziz, 2026-09-29: one short
 /// English sentence from the pose's own idea, landing on "Grow Daily", no
 /// "... and Grow Daily", some "you" and some "we"; English for everyone).
-/// The launch lasts a second or two, so one sentence and no more.
+/// The launch lasts a second or two, so one sentence and no more. Ramadan
+/// and Eid say their greeting instead, in the easy words everyone knows,
+/// over the green "Grow Daily" (Aziz, 2026-10-01: "don't use lantern and
+/// these hard words, like Ramadan Kareem").
+///
+/// The admin's splash page can rewrite any of them (LaunchSettings.line).
 String launchLine(LaunchScene scene) => switch (scene) {
       LaunchScene.morningCoffee => 'Sip by sip you Grow Daily',
       LaunchScene.dayRing => 'Small steps help you Grow Daily',
       LaunchScene.turnaround => 'Let’s Grow Daily',
       LaunchScene.eveningChecklist => 'With every tick you Grow Daily',
       LaunchScene.nightAsleep => 'Even asleep we Grow Daily',
-      LaunchScene.ramadanLantern => 'By lantern light we Grow Daily',
+      LaunchScene.ramadanLantern => 'Ramadan Kareem Grow Daily',
       LaunchScene.welcomeBack => 'Back on the path to Grow Daily',
       LaunchScene.firstOpen => 'Are you ready to Grow Daily?',
-      LaunchScene.eid => 'Together we Grow Daily',
+      LaunchScene.eid => 'Eid Mubarak Grow Daily',
       LaunchScene.fullDay => 'Square by square you Grow Daily',
       LaunchScene.saturday => 'Ready to Grow Daily?',
       LaunchScene.update => 'Bright ideas help you Grow Daily',
@@ -110,23 +126,6 @@ const kLaunchSlowLine = 'Slow or fast we Grow Daily';
 /// Where the launch day turns: an open at 01:00 still belongs to the night
 /// before, so the first open after it in the morning is the day's first.
 const int kLaunchDayStartsHour = 4;
-
-/// How long away counts as coming back.
-const int kLaunchAwayDays = 3;
-
-/// The months Doum misses winter in (the phone's own date): October and
-/// November, before the cool has come. From December "missing" is no
-/// longer true.
-const kLaunchWinterMonths = {DateTime.october, DateTime.november};
-
-/// The hour his winter afternoon starts: Bahrain's sun is low from about
-/// 16:00 in those months and sets between 17:25 and 16:45, so the scene's
-/// sky matches the real one. Played on the first open from this hour.
-const int kLaunchWinterFromHour = 15;
-
-/// The hour the walk starts: the late afternoon's walking hour, until the
-/// evening's checklist at 18:00.
-const int kLaunchWalkFromHour = 16;
 
 /// The presets that are walks: the one the steps link was built for (see
 /// IslamicHabitCatalog's daily_walk).
@@ -196,82 +195,176 @@ bool _sameDate(DateTime? a, DateTime b) =>
 /// install). [fastingPlanned] is whether a fast is on today's plan; pass
 /// true when the habits are not known yet, since the only cost of a wrong
 /// true is a morning without the mug. [freshInstall] is the very first
-/// launch (nothing seen yet); [updated] the first open of a new version.
+/// launch (nothing seen yet), and [installedAt] when that was, so the seed
+/// stays owed for a few days if something else took it. [updated] is a new
+/// version whose bulb has not played yet, noticed at [updateSince].
 /// [lastFullDay] and [lastStepsGoal] are the last days seen with every owed
 /// habit done and with the steps goal reached (LaunchMemory). [walker] is
 /// whether this account has a walking habit (hasWalkingHabit); pass false
 /// when the habits are not known yet, since a wrong false only means an
-/// ordinary scene.
+/// ordinary scene. [lastShown] is when each scene last played on this
+/// phone and [lastScene] the scene the last launch played.
 ///
-/// In order: back after days away, then Ramadan, then night (those three
-/// keep their place over everything); then the very first launch, a new
-/// version, Eid, yesterday full, yesterday's steps goal, Saturday's recap;
-/// then the morning's first open (never with a fast on the plan or near
-/// Ramadan), a summer noon, the evening, the first open of an October or
-/// November afternoon (missing winter), a walker's late afternoon, and
-/// otherwise one of the two ordinary scenes at random.
+/// The rules and their order are the admin's splash page's
+/// ([LaunchSettings]); built in, in order: the very first launch, back after
+/// days away, a new version (not at night), Ramadan, night, Eid, yesterday
+/// full, yesterday's steps goal, Saturday's recap, the morning's mug (never
+/// with a fast on the plan or near Ramadan), a summer noon, the evening, a
+/// walker's late afternoon, an afternoon missing winter; and otherwise the
+/// anytime list. The summer noon, the evening and the walk play once a day
+/// (kSplashOnceADay), so the day's other opens go to the anytime list.
+///
+/// A moment that plays once (the seed, the bulb, yesterday full, the steps
+/// goal, Saturday, the mug, missing winter) is owed until it has played,
+/// not only on the day's first open: when two fall on one morning, the
+/// second plays on the next open instead of being lost (Aziz, 2026-10-01:
+/// "make sure no conflict, like morning coffee and first open, or first
+/// update, or first full day").
 LaunchScene pickLaunchScene({
   required DateTime now,
   required DateTime? lastOpen,
   required bool fastingPlanned,
   bool freshInstall = false,
+  DateTime? installedAt,
   bool updated = false,
+  DateTime? updateSince,
   DateTime? lastFullDay,
   DateTime? lastStepsGoal,
   bool walker = false,
+  Map<LaunchScene, DateTime> lastShown = const {},
+  LaunchScene? lastScene,
+  math.Random? random,
+  LaunchSettings? settings,
+}) {
+  final rules = settings ?? LaunchSettings.current;
+  // The admin's one scene for everyone, between its two days.
+  final forced = rules.forcedOn(now);
+  if (forced != null) return forced;
+
+  final today = launchDayOf(now);
+  final date = DateTime(now.year, now.month, now.day);
+  final yesterday = DateTime(today.year, today.month, today.day - 1);
+  bool playedToday(LaunchScene scene) {
+    final at = lastShown[scene];
+    return at != null && launchDayOf(at) == today;
+  }
+
+  // Whether the rule only the scene itself knows holds (its hours, months
+  // and switch were checked first, by the settings).
+  bool holds(LaunchScene scene) {
+    switch (scene) {
+      case LaunchScene.firstOpen:
+        if (freshInstall) return true;
+        return installedAt != null &&
+            lastShown[scene] == null &&
+            today.difference(launchDayOf(installedAt)).inDays <
+                rules.firstOpenDays;
+      case LaunchScene.welcomeBack:
+        return lastOpen != null &&
+            today.difference(launchDayOf(lastOpen)).inDays >= rules.awayDays;
+      case LaunchScene.update:
+        return updated &&
+            (updateSince == null ||
+                today.difference(launchDayOf(updateSince)).inDays <
+                    rules.updateDays);
+      case LaunchScene.ramadanLantern:
+        return isRamadanDay(date);
+      case LaunchScene.eid:
+        return isEidDay(date);
+      case LaunchScene.fullDay:
+        return _sameDate(lastFullDay, yesterday) && !playedToday(scene);
+      case LaunchScene.stepsGoal:
+        return _sameDate(lastStepsGoal, yesterday) && !playedToday(scene);
+      case LaunchScene.saturday:
+        // From the hour the recap is ready, which is the hour the scene
+        // starts from, once.
+        final recapReady = DateTime(
+          now.year,
+          now.month,
+          now.day,
+          rules.hours[scene]?.from ?? 10,
+        );
+        return now.weekday == DateTime.saturday &&
+            !now.isBefore(recapReady) &&
+            !playedToday(scene);
+      case LaunchScene.morningCoffee:
+        return !playedToday(scene) &&
+            !fastingPlanned &&
+            !isNearRamadanDay(date);
+      case LaunchScene.winterWait:
+        // Once a day, as Saturday's recap: his worried wait is a treat, not
+        // what every open that afternoon shows. Later opens may still draw
+        // it from the anytime list.
+        return !playedToday(scene);
+      case LaunchScene.walk:
+        return walker && (rules.walkerHours?.contains(now.hour) ?? false);
+      case LaunchScene.nightAsleep:
+      case LaunchScene.summerNoon:
+      case LaunchScene.eveningChecklist:
+      case LaunchScene.dayRing:
+      case LaunchScene.turnaround:
+        return true;
+    }
+  }
+
+  for (final scene in rules.order) {
+    if (!rules.allows(scene, now)) continue;
+    // An every-open moment the admin keeps to once a day.
+    if (rules.onceADay.contains(scene) && playedToday(scene)) continue;
+    // A day this moment steps aside for the anytime list.
+    if (!rules.playsOn(scene, today)) continue;
+    if (holds(scene)) return scene;
+  }
+  return pickAnytimeScene(
+    now: now,
+    rules: rules,
+    lastShown: lastShown,
+    lastScene: lastScene,
+    random: random,
+  );
+}
+
+/// The anytime list's pick: among its scenes on at [now] (their hours and
+/// months), one this phone has never shown when there is one and the admin
+/// wants new ones first, never the scene the last launch played when
+/// another can play, and otherwise by share. The ring when nothing can.
+LaunchScene pickAnytimeScene({
+  required DateTime now,
+  required LaunchSettings rules,
+  Map<LaunchScene, DateTime> lastShown = const {},
+  LaunchScene? lastScene,
   math.Random? random,
 }) {
-  final today = launchDayOf(now);
-  if (lastOpen != null &&
-      today.difference(launchDayOf(lastOpen)).inDays >= kLaunchAwayDays) {
-    return LaunchScene.welcomeBack;
+  var candidates = anytimeScenesAt(now, rules);
+  if (candidates.isEmpty) return LaunchScene.dayRing;
+  if (rules.newFirst) {
+    final unseen = [
+      for (final s in candidates)
+        if (lastShown[s] == null) s,
+    ];
+    if (unseen.isNotEmpty) candidates = unseen;
   }
-  final date = DateTime(now.year, now.month, now.day);
-  if (isRamadanDay(date)) return LaunchScene.ramadanLantern;
-  final hour = now.hour;
-  if (hour >= 22 || hour < kLaunchDayStartsHour) return LaunchScene.nightAsleep;
-
-  if (freshInstall) return LaunchScene.firstOpen;
-  if (updated) return LaunchScene.update;
-  if (isEidDay(date)) return LaunchScene.eid;
-  final firstToday = lastOpen == null || launchDayOf(lastOpen) != today;
-  final yesterday = DateTime(today.year, today.month, today.day - 1);
-  if (firstToday && _sameDate(lastFullDay, yesterday)) {
-    return LaunchScene.fullDay;
+  if (rules.noRepeat && candidates.length > 1) {
+    candidates = [
+      for (final s in candidates)
+        if (s != lastScene) s,
+    ];
   }
-  if (firstToday && _sameDate(lastStepsGoal, yesterday)) {
-    return LaunchScene.stepsGoal;
+  final total = candidates.fold<int>(0, (sum, s) => sum + rules.pool[s]!);
+  var roll = (random ?? math.Random()).nextInt(total);
+  for (final scene in candidates) {
+    roll -= rules.pool[scene]!;
+    if (roll < 0) return scene;
   }
-  final recapReady = DateTime(now.year, now.month, now.day, 10);
-  if (now.weekday == DateTime.saturday &&
-      !now.isBefore(recapReady) &&
-      (lastOpen == null || lastOpen.isBefore(recapReady))) {
-    return LaunchScene.saturday;
-  }
-  if (hour < 11) {
-    if (firstToday && !fastingPlanned && !isNearRamadanDay(date)) {
-      return LaunchScene.morningCoffee;
-    }
-  } else if (hour >= 18) {
-    return LaunchScene.eveningChecklist;
-  } else if (hour >= 12 && hour < 16 && now.month >= 6 && now.month <= 9) {
-    return LaunchScene.summerNoon;
-  } else if (hour >= kLaunchWinterFromHour &&
-      kLaunchWinterMonths.contains(now.month) &&
-      (lastOpen == null ||
-          lastOpen.isBefore(
-            DateTime(now.year, now.month, now.day, kLaunchWinterFromHour),
-          ))) {
-    // Once an afternoon, as Saturday's recap: his worried wait is a treat,
-    // not what every open that afternoon shows.
-    return LaunchScene.winterWait;
-  } else if (hour >= kLaunchWalkFromHour && walker) {
-    return LaunchScene.walk;
-  }
-  return (random ?? math.Random()).nextBool()
-      ? LaunchScene.dayRing
-      : LaunchScene.turnaround;
+  return candidates.last;
 }
+
+/// The anytime scenes that can play at [now]: in the list, switched on,
+/// inside their hours and months; in [LaunchScene]'s order.
+List<LaunchScene> anytimeScenesAt(DateTime now, LaunchSettings rules) => [
+      for (final scene in LaunchScene.values)
+        if (rules.pool.containsKey(scene) && rules.allows(scene, now)) scene,
+    ];
 
 /// Set with `--dart-define=GD_LAUNCH_CYCLE=true` to see every scene on a
 /// device without waiting for the hour: each cold start then plays the next
@@ -323,12 +416,23 @@ class LaunchMemory {
   static const _versionKey = 'launch_last_version_v1';
   static const _fullDayKey = 'launch_full_day_v1';
   static const _stepsGoalKey = 'launch_steps_goal_v1';
+  static const _installedKey = 'launch_installed_v1';
+  static const _newVersionKey = 'launch_new_version_v1';
+  static const _updateShownKey = 'launch_update_shown_v1';
+  static const _shownKey = 'launch_scene_shown_v1';
+  static const _lastSceneKey = 'launch_last_scene_v1';
 
   static DateTime? _lastOpen;
   static DateTime? _lastFullDay;
   static DateTime? _lastStepsGoal;
   static String? _lastVersion;
   static String? _version;
+  static DateTime? _installedAt;
+  static String? _newVersion;
+  static DateTime? _newVersionSince;
+  static String? _updateShown;
+  static Map<LaunchScene, DateTime> _shown = {};
+  static LaunchScene? _lastScene;
   static bool _loaded = false;
   static int _cycle = 0;
 
@@ -341,10 +445,26 @@ class LaunchMemory {
   /// The last day seen with the steps goal reached, or null.
   static DateTime? get lastStepsGoal => _lastStepsGoal;
 
-  /// Whether this is the first open of a new version: the running version
-  /// is known and is not the one last opened. False when either cannot be
-  /// read.
-  static bool get updated => _version != null && _lastVersion != _version;
+  /// Whether a new version's bulb is owed: the running version is known,
+  /// was first opened after another one (not a fresh install), and its bulb
+  /// has not played. False when the version cannot be read. How long it
+  /// stays owed is the picker's ([updateSince], the settings' updateDays).
+  static bool get updated =>
+      _version != null && _newVersion == _version && _updateShown != _version;
+
+  /// When this version was first opened after another one, or null.
+  static DateTime? get updateSince =>
+      _newVersion == _version ? _newVersionSince : null;
+
+  /// When the very first launch on this phone was, or null when it was
+  /// before this was kept (every phone that had the app already).
+  static DateTime? get installedAt => _installedAt;
+
+  /// When each scene last played on this phone.
+  static Map<LaunchScene, DateTime> get lastShown => Map.unmodifiable(_shown);
+
+  /// The scene the last curtain played, or null.
+  static LaunchScene? get lastScene => _lastScene;
 
   /// With [kLaunchSceneCycle], the scene this launch plays.
   static LaunchScene get cycledScene =>
@@ -364,6 +484,18 @@ class LaunchMemory {
       _lastStepsGoal = read(_stepsGoalKey);
       final v = box.get(_versionKey);
       _lastVersion = v is String ? v : null;
+      _installedAt = read(_installedKey);
+      final nv = box.get(_newVersionKey);
+      if (nv is String && nv.contains('|')) {
+        final cut = nv.lastIndexOf('|');
+        _newVersion = nv.substring(0, cut);
+        _newVersionSince = DateTime.tryParse(nv.substring(cut + 1));
+      }
+      final us = box.get(_updateShownKey);
+      _updateShown = us is String ? us : null;
+      _shown = _readShown(box.get(_shownKey));
+      final ls = box.get(_lastSceneKey);
+      _lastScene = ls is String ? LaunchScene.values.asNameMap()[ls] : null;
       _loaded = true;
       if (kLaunchSceneCycle) {
         final at = box.get(_cycleKey);
@@ -380,6 +512,70 @@ class LaunchMemory {
     } catch (_) {
       _version = null;
     }
+    // A version opened for the first time after another: its bulb is owed
+    // from now until it plays (or the settings' updateDays pass).
+    final version = _version;
+    if (_loaded &&
+        version != null &&
+        _lastVersion != null &&
+        _lastVersion != version &&
+        _newVersion != version) {
+      _newVersion = version;
+      _newVersionSince = DateTime.now();
+      try {
+        final box = await LocalStoreService.settingsBox();
+        await box.put(
+          _newVersionKey,
+          '$version|${_newVersionSince!.toIso8601String()}',
+        );
+      } catch (_) {}
+    }
+  }
+
+  static Map<LaunchScene, DateTime> _readShown(Object? raw) {
+    if (raw is! String) return {};
+    try {
+      final data = jsonDecode(raw);
+      if (data is! Map) return {};
+      final scenes = LaunchScene.values.asNameMap();
+      return {
+        for (final e in data.entries)
+          if (scenes[e.key] != null && e.value is String)
+            if (DateTime.tryParse(e.value as String) case final at?)
+              scenes[e.key]!: at,
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Notes that [scene] played at [now]: what the picker reads as owed,
+  /// played today, never seen, and the last launch's scene. The bulb's
+  /// version counts as seen once it has played.
+  static void recordShown(LaunchScene scene, DateTime now) {
+    _shown = {..._shown, scene: now};
+    _lastScene = scene;
+    if (scene == LaunchScene.update && _version != null) {
+      _updateShown = _version;
+    }
+    if (!_loaded) return;
+    final shown = jsonEncode({
+      for (final e in _shown.entries) e.key.name: e.value.toIso8601String(),
+    });
+    final updateShown = _updateShown;
+    LocalStoreService.settingsBox().then((box) async {
+      await box.put(_shownKey, shown);
+      await box.put(_lastSceneKey, scene.name);
+      if (updateShown != null) await box.put(_updateShownKey, updateShown);
+    }).catchError((Object _) {});
+  }
+
+  /// Notes the very first launch on this phone, once, so its seed stays
+  /// owed if another scene took that open.
+  static void recordInstall(DateTime now) {
+    if (_installedAt != null) return;
+    _installedAt = now;
+    _write(_installedKey, now);
   }
 
   /// Stores [now] as the last open, and this version as the one last
@@ -398,18 +594,18 @@ class LaunchMemory {
   }
 
   /// Makes the next scene a return's, not the launch's: [lastOpen] becomes
-  /// [since], the moment the app left the screen, and this version counts
-  /// as seen. Called by main.dart just before a long return plays the
+  /// [since], the moment the app left the screen. A bulb still owed stays
+  /// owed: it plays on the return if the launch could not. Called by
+  /// main.dart just before a long return plays the
   /// curtain again (see kLaunchReplayAfter).
   ///
   /// Without it the return would choose from what the launch knew: the open
   /// before this PROCESS, which can be days old (the welcome back to someone
-  /// who used the app an hour ago), and a version not yet recorded in
-  /// memory (the bulb on every return after an update). [recordOpen] only
-  /// writes the disk, for the next launch, so it cannot answer either.
+  /// who used the app an hour ago). [recordOpen] only writes the disk, for
+  /// the next launch, so it cannot answer that. The bulb plays once
+  /// ([recordShown]), so a return no longer needs to mark the version.
   static void beginReturn({required DateTime since}) {
     _lastOpen = since;
-    if (_version != null) _lastVersion = _version;
     if (kLaunchSceneCycle) _cycle++;
   }
 
@@ -469,7 +665,19 @@ class LaunchMemory {
     DateTime? lastStepsGoal,
     String? lastVersion,
     String? version,
+    DateTime? installedAt,
+    String? newVersion,
+    DateTime? newVersionSince,
+    String? updateShown,
+    Map<LaunchScene, DateTime> shown = const {},
+    LaunchScene? lastScene,
   }) {
+    _installedAt = installedAt;
+    _newVersion = newVersion;
+    _newVersionSince = newVersionSince;
+    _updateShown = updateShown;
+    _shown = {...shown};
+    _lastScene = lastScene;
     _lastOpen = lastOpen;
     _loaded = loaded;
     _lastFullDay = lastFullDay;

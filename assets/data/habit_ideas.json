@@ -1,0 +1,1871 @@
+{
+  "version": 1,
+  "ideas": [
+    {
+      "id": "daily_charity",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "صدقة يومية",
+      "nameEn": "Daily charity",
+      "shortAr": "كل يوم ملكان يدعوان: اللهم أعطِ منفقًا خلفًا",
+      "shortEn": "Every day two angels pray for the one who gives",
+      "benefitAr": "ما من يومٍ يصبح العبادُ فيه إلا ملكان ينزلان، فيقول أحدهما: اللهم أعطِ منفقًا خلفًا، ويقول الآخر: اللهم أعطِ ممسكًا تلفًا.",
+      "benefitEn": "Every day two angels come down. One says: O Allah, give the one who spends a replacement. The other says: O Allah, give the one who withholds loss.",
+      "sourceAr": "متفق عليه",
+      "sourceEn": "Bukhari and Muslim",
+      "waysAr": [
+        "ولو بريال، المهم تكون كل يوم.",
+        "حط حصالة صغيرة، وتصدّق باللي فيها آخر الأسبوع."
+      ],
+      "waysEn": [
+        "Even one coin counts, as long as it is every day.",
+        "Keep a small box and give what is in it at the end of the week."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "mulk_before_sleep",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "سورة الملك قبل النوم",
+      "nameEn": "Surat Al-Mulk before sleep",
+      "shortAr": "سورة شفعت لصاحبها حتى غُفر له",
+      "shortEn": "A surah that interceded for its reader until he was forgiven",
+      "benefitAr": "سورة من القرآن ثلاثون آية، شفعت لرجل حتى غُفر له، وهي: تبارك الذي بيده الملك.",
+      "benefitEn": "A surah of the Quran of thirty verses interceded for a man until he was forgiven: Tabarak alladhi biyadihi al-mulk.",
+      "sourceAr": "رواه الترمذي وأبو داود",
+      "sourceEn": "Tirmidhi and Abu Dawud",
+      "waysAr": [
+        "اقرأها وأنت في فراشك.",
+        "تاخذ 5 دقائق تقريبًا، خلّها آخر شي قبل النوم."
+      ],
+      "waysEn": [
+        "Read it once you are in bed.",
+        "It takes about 5 minutes; make it the last thing before sleep."
+      ],
+      "often": "daily",
+      "reminder": "prayer:isha",
+      "featured": true
+    },
+    {
+      "id": "morning_athkar",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "أذكار الصباح",
+      "nameEn": "Morning athkar",
+      "shortAr": "سبحان الله وبحمده مئة مرة في الصباح والمساء",
+      "shortEn": "Subhan Allah wa bihamdih 100 times, morning and evening",
+      "benefitAr": "من قال حين يصبح وحين يمسي: سبحان الله وبحمده، مئة مرة، لم يأتِ أحد يوم القيامة بأفضل مما جاء به، إلا أحد قال مثل ما قال أو زاد عليه.",
+      "benefitEn": "Whoever says Subhan Allah wa bihamdih a hundred times in the morning and the evening, no one will bring anything better on the Day of Resurrection, except one who said the same or more.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "بعد صلاة الفجر مباشرة، قبل ما تمسك التلفون.",
+        "اقرأها من تطبيق أو كتيّب صغير جنبك."
+      ],
+      "waysEn": [
+        "Right after Fajr, before you pick up your phone.",
+        "Read them from an app or a small booklet kept nearby."
+      ],
+      "often": "daily",
+      "reminder": "prayer:fajr",
+      "featured": false
+    },
+    {
+      "id": "evening_athkar",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "أذكار المساء",
+      "nameEn": "Evening athkar",
+      "shortAr": "ذكر الله خير الأعمال وأزكاها",
+      "shortEn": "Remembering Allah is the best and purest of deeds",
+      "benefitAr": "ألا أنبئكم بخير أعمالكم، وأزكاها عند مليككم، وأرفعها في درجاتكم...؟ قالوا: بلى. قال: ذكر الله تعالى.",
+      "benefitEn": "Shall I not tell you of the best of your deeds, the purest with your Lord and the highest in rank...? They said: yes. He said: the remembrance of Allah.",
+      "sourceAr": "رواه الترمذي",
+      "sourceEn": "Tirmidhi",
+      "waysAr": [
+        "بعد العصر وقبل المغرب.",
+        "اربطها بقهوة العصر عشان ما تنساها."
+      ],
+      "waysEn": [
+        "After Asr and before Maghrib.",
+        "Tie it to your afternoon coffee so you do not forget."
+      ],
+      "often": "daily",
+      "reminder": "prayer:asr",
+      "featured": false
+    },
+    {
+      "id": "daily_quran",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "ورد القرآن اليومي",
+      "nameEn": "Daily Quran",
+      "shortAr": "يأتي يوم القيامة شفيعًا لأصحابه",
+      "shortEn": "It will intercede for its companions on Judgment Day",
+      "benefitAr": "اقرؤوا القرآن، فإنه يأتي يوم القيامة شفيعًا لأصحابه.",
+      "benefitEn": "Read the Quran, for it will come on the Day of Resurrection as an intercessor for its companions.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "ابدأ بصفحة وحدة بعد الفجر.",
+        "خلّ المصحف أو التطبيق في مكان تشوفه كل يوم."
+      ],
+      "waysEn": [
+        "Start with one page after Fajr.",
+        "Keep the mushaf or the app where you see it every day."
+      ],
+      "often": "daily",
+      "reminder": "prayer:fajr",
+      "featured": false
+    },
+    {
+      "id": "fast_mon_thu",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "صيام الاثنين والخميس",
+      "nameEn": "Fast Monday and Thursday",
+      "shortAr": "تُعرض الأعمال يوم الاثنين والخميس",
+      "shortEn": "Deeds are presented on Mondays and Thursdays",
+      "benefitAr": "قال النبي ﷺ: تُعرض الأعمال يوم الاثنين والخميس، فأحب أن يُعرض عملي وأنا صائم.",
+      "benefitEn": "The Prophet ﷺ said: Deeds are presented on Monday and Thursday, and I love that my deeds are presented while I am fasting.",
+      "sourceAr": "رواه الترمذي",
+      "sourceEn": "Tirmidhi",
+      "waysAr": [
+        "ابدأ بالاثنين بس، وزِد الخميس لما تتعوّد.",
+        "تسحّر ولو بتمرة وماء."
+      ],
+      "waysEn": [
+        "Start with Mondays only, and add Thursday once it feels easy.",
+        "Have suhoor, even just a date and water."
+      ],
+      "often": "days:1,4",
+      "featured": false
+    },
+    {
+      "id": "duha_prayer",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "صلاة الضحى",
+      "nameEn": "Duha prayer",
+      "shortAr": "ركعتان من الضحى تكفي عن صدقة كل مفصل",
+      "shortEn": "Two rak'ahs of Duha stand for a charity for every joint",
+      "benefitAr": "يصبح على كل سُلامى من أحدكم صدقة... ويُجزئ من ذلك ركعتان يركعهما من الضحى.",
+      "benefitEn": "Every joint of each of you owes a charity each morning... and two rak'ahs of Duha suffice for all of that.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "ركعتين بعد شروق الشمس بربع ساعة، وقبل الظهر.",
+        "اربطها باستراحة الصباح في الدوام."
+      ],
+      "waysEn": [
+        "Two rak'ahs from a quarter hour after sunrise until before Dhuhr.",
+        "Tie it to your morning break at work."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "istighfar",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "الاستغفار",
+      "nameEn": "Seeking forgiveness",
+      "shortAr": "كان النبي ﷺ يستغفر أكثر من 70 مرة في اليوم",
+      "shortEn": "The Prophet ﷺ sought forgiveness more than 70 times a day",
+      "benefitAr": "قال النبي ﷺ: والله إني لأستغفر الله وأتوب إليه في اليوم أكثر من سبعين مرة.",
+      "benefitEn": "The Prophet ﷺ said: By Allah, I seek Allah's forgiveness and turn to Him in repentance more than seventy times a day.",
+      "sourceAr": "رواه البخاري",
+      "sourceEn": "Bukhari",
+      "waysAr": [
+        "قلها وأنت تمشي أو تسوق.",
+        "ابدأ بـ100 مرة على عدّاد التسبيح."
+      ],
+      "waysEn": [
+        "Say it while you walk or drive.",
+        "Start with 100 on the tasbih counter."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "salawat",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "الصلاة على النبي ﷺ",
+      "nameEn": "Blessings on the Prophet ﷺ",
+      "shortAr": "صلاة وحدة عليه، يصلي الله عليك بها عشرًا",
+      "shortEn": "One blessing on him, and Allah blesses you ten times",
+      "benefitAr": "قال النبي ﷺ: من صلّى عليّ صلاة واحدة، صلّى الله عليه بها عشرًا.",
+      "benefitEn": "The Prophet ﷺ said: Whoever sends one blessing upon me, Allah sends ten blessings upon him.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "عشر مرات الصبح، وعشر بالمسا.",
+        "أكثر منها يوم الجمعة."
+      ],
+      "waysEn": [
+        "Ten times in the morning and ten in the evening.",
+        "Say it more on Fridays."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "sunnah_prayers",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "السنن الرواتب",
+      "nameEn": "The regular sunnah prayers",
+      "shortAr": "12 ركعة في اليوم، يُبنى لك بها بيت في الجنة",
+      "shortEn": "12 rak'ahs a day, and a house is built for you in Paradise",
+      "benefitAr": "من صلّى اثنتي عشرة ركعة في يوم وليلة، بُني له بهن بيت في الجنة.",
+      "benefitEn": "Whoever prays twelve rak'ahs in a day and night, a house is built for him in Paradise.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "ابدأ بسنة الفجر، ركعتين قبل الفرض.",
+        "زِد وحدة كل أسبوع لين تكمل الـ12."
+      ],
+      "waysEn": [
+        "Start with the two rak'ahs before Fajr.",
+        "Add one more each week until you reach 12."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "night_prayer",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "قيام الليل",
+      "nameEn": "Night prayer",
+      "shortAr": "أفضل الصلاة بعد الفريضة صلاة الليل",
+      "shortEn": "The best prayer after the obligatory is the night prayer",
+      "benefitAr": "أفضل الصلاة بعد الفريضة صلاة الليل.",
+      "benefitEn": "The best prayer after the obligatory prayers is the night prayer.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "ركعتين قبل النوم تكفي في البداية.",
+        "اختم بالوتر ولو ركعة وحدة."
+      ],
+      "waysEn": [
+        "Two rak'ahs before sleep are enough to begin.",
+        "End with witr, even a single rak'ah."
+      ],
+      "often": "daily",
+      "reminder": "prayer:isha",
+      "featured": false
+    },
+    {
+      "id": "dua_adhan_iqamah",
+      "type": "build",
+      "category": "faith",
+      "nameAr": "الدعاء بين الأذان والإقامة",
+      "nameEn": "Dua between adhan and iqamah",
+      "shortAr": "دعاء لا يُرد",
+      "shortEn": "A supplication that is not turned away",
+      "benefitAr": "الدعاء لا يُرد بين الأذان والإقامة.",
+      "benefitEn": "The supplication made between the adhan and the iqamah is not rejected.",
+      "sourceAr": "رواه الترمذي وأبو داود",
+      "sourceEn": "Tirmidhi and Abu Dawud",
+      "waysAr": [
+        "جهّز 3 دعوات تكررها كل يوم.",
+        "ابدأ بصلاة وحدة، المغرب مثلًا."
+      ],
+      "waysEn": [
+        "Keep three duas ready that you repeat every day.",
+        "Start with one prayer, Maghrib for example."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "pray_on_time",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "بدون تأخير الصلاة",
+      "nameEn": "No delaying prayer",
+      "shortAr": "أحب الأعمال إلى الله: الصلاة على وقتها",
+      "shortEn": "The deed Allah loves most: prayer on time",
+      "benefitAr": "سُئل النبي ﷺ: أي العمل أحب إلى الله؟ قال: الصلاة على وقتها.",
+      "benefitEn": "The Prophet ﷺ was asked which deed Allah loves most. He said: prayer at its time.",
+      "sourceAr": "متفق عليه",
+      "sourceEn": "Bukhari and Muslim",
+      "waysAr": [
+        "قوم مع الأذان، قبل ما تكمل اللي بيدك.",
+        "حط تذكير قبل كل صلاة بـ5 دقائق."
+      ],
+      "waysEn": [
+        "Get up with the adhan, before you finish what is in your hands.",
+        "Set a reminder 5 minutes before each prayer."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_missed_fajr",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "بدون فوات الفجر",
+      "nameEn": "No missed Fajr",
+      "shortAr": "من صلى الصبح فهو في ذمة الله",
+      "shortEn": "Whoever prays Fajr is under Allah's protection",
+      "benefitAr": "من صلّى الصبح فهو في ذمة الله.",
+      "benefitEn": "Whoever prays the morning prayer is under the protection of Allah.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "نم بدري، الفجر يبدأ من الليلة اللي قبله.",
+        "حط المنبّه بعيد عن السرير."
+      ],
+      "waysEn": [
+        "Sleep early; Fajr starts the night before.",
+        "Put the alarm away from your bed."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_backbiting",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "بدون غيبة",
+      "nameEn": "No backbiting",
+      "shortAr": "الغيبة: ذكرك أخاك بما يكره",
+      "shortEn": "Backbiting is mentioning your brother with what he dislikes",
+      "benefitAr": "أتدرون ما الغيبة؟ قالوا: الله ورسوله أعلم. قال: ذكرك أخاك بما يكره.",
+      "benefitEn": "Do you know what backbiting is? They said: Allah and His Messenger know best. He said: mentioning your brother with what he dislikes.",
+      "sourceAr": "رواه مسلم",
+      "sourceEn": "Muslim",
+      "waysAr": [
+        "إذا بدأ الكلام عن أحد، غيّر الموضوع بهدوء.",
+        "قل عن الناس اللي ترضاه لو سمعوه."
+      ],
+      "waysEn": [
+        "When talk turns to someone, change the subject calmly.",
+        "Only say what you would be fine with them hearing."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_lying",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "بدون كذب",
+      "nameEn": "No lying",
+      "shortAr": "الصدق يهدي إلى البر، والبر يهدي إلى الجنة",
+      "shortEn": "Truthfulness leads to goodness, and goodness to Paradise",
+      "benefitAr": "إن الصدق يهدي إلى البر، وإن البر يهدي إلى الجنة.",
+      "benefitEn": "Truthfulness leads to righteousness, and righteousness leads to Paradise.",
+      "sourceAr": "متفق عليه",
+      "sourceEn": "Bukhari and Muslim",
+      "waysAr": [
+        "حتى في المزح، قل الصدق.",
+        "إذا ما تبي تقول، اسكت بدل ما تكذب."
+      ],
+      "waysEn": [
+        "Tell the truth even when joking.",
+        "If you would rather not say, stay quiet instead of lying."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_cursing",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "بدون لعن أو سب",
+      "nameEn": "No cursing",
+      "shortAr": "ليس المؤمن بالطعّان ولا اللعّان",
+      "shortEn": "The believer does not taunt or curse",
+      "benefitAr": "ليس المؤمن بالطعّان، ولا اللعّان، ولا الفاحش، ولا البذيء.",
+      "benefitEn": "The believer is not one who taunts, curses, is obscene or foul.",
+      "sourceAr": "رواه الترمذي",
+      "sourceEn": "Tirmidhi",
+      "waysAr": [
+        "إذا عصّبت، قل: أستغفر الله.",
+        "اختر كلمة ثانية تقولها بدالها، وتعوّد عليها."
+      ],
+      "waysEn": [
+        "When you are angry, say: astaghfirullah.",
+        "Pick another word to say instead and make it a habit."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "less_phone_before_quran",
+      "type": "quit",
+      "category": "faith",
+      "nameAr": "تقليل التلفون قبل القرآن",
+      "nameEn": "Less phone before Quran",
+      "shortAr": "تدخل على القرآن وبالك صافي",
+      "shortEn": "Come to the Quran with a clear mind",
+      "benefitAr": "التلفون قبل القرآن يشتت بالك. خلّ القرآن أول شي تمسكه.",
+      "benefitEn": "The phone before the Quran scatters your attention. Let the Quran be the first thing you pick up.",
+      "waysAr": [
+        "خلّ التلفون برّا الغرفة وقت الورد.",
+        "افتح المصحف قبل ما تفتح أي تطبيق."
+      ],
+      "waysEn": [
+        "Leave the phone outside the room during your reading.",
+        "Open the mushaf before you open any app."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "walk_10_minutes",
+      "type": "build",
+      "category": "health",
+      "nameAr": "المشي 10 دقائق",
+      "nameEn": "Walk 10 minutes",
+      "shortAr": "يحرّك جسمك ويروّق بالك، وما يحتاج شي",
+      "shortEn": "Moves your body and clears your head, no gear needed",
+      "benefitAr": "مشي خفيف كل يوم يحرّك جسمك بعد الجلوس الطويل، ويعطيك وقت تفكر فيه بهدوء. ما يحتاج نادي ولا لبس خاص.",
+      "benefitEn": "A short daily walk gets you moving after long hours of sitting, and gives you a quiet moment to think. No gym, no special clothes.",
+      "waysAr": [
+        "امشِ 10 دقائق بعد الغداء أو بعد المغرب.",
+        "إذا جاتك مكالمة، قوم وامشِ وأنت تتكلم."
+      ],
+      "waysEn": [
+        "Walk for 10 minutes after lunch or after Maghrib.",
+        "When a call comes in, get up and walk while you talk."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "drink_water",
+      "type": "build",
+      "category": "health",
+      "nameAr": "شرب الماء",
+      "nameEn": "Drink water",
+      "shortAr": "جسمك يحتاجه، وسهل تنساه وسط زحمة اليوم",
+      "shortEn": "Your body needs it, and it's easy to forget on a busy day",
+      "benefitAr": "شرب الماء على فترات يساعدك تحس بنشاط أكثر، وأحيانًا اللي تحسه تعب أو جوع يكون عطش. 4 مرات في اليوم بداية سهلة.",
+      "benefitEn": "Drinking water through the day helps you feel more awake, and sometimes what feels like tiredness or hunger is thirst. 4 times a day is an easy start.",
+      "waysAr": [
+        "خلّ قارورة ماء قدامك على المكتب.",
+        "اشرب كوب أول ما تصحى، وكوب مع كل وجبة."
+      ],
+      "waysEn": [
+        "Keep a bottle of water in front of you on your desk.",
+        "Have a glass when you wake up and one with each meal."
+      ],
+      "often": "daily",
+      "timesPerDay": 4,
+      "featured": false
+    },
+    {
+      "id": "stretch",
+      "type": "build",
+      "category": "health",
+      "nameAr": "تمارين إطالة",
+      "nameEn": "Stretch",
+      "shortAr": "تفك الشد اللي يجي من الجلوس الطويل",
+      "shortEn": "Eases the stiffness that comes from sitting all day",
+      "benefitAr": "دقائق قليلة من الإطالة ترخّي رقبتك وظهرك بعد ساعات على المكتب أو التلفون، وتخلي حركتك أسهل.",
+      "benefitEn": "A few minutes of stretching loosens your neck and back after hours at a desk or on your phone, and makes moving easier.",
+      "waysAr": [
+        "سوّ إطالة 5 دقائق أول ما تقوم من النوم.",
+        "بعد كل ساعة جلوس، قوم ومدّد ظهرك دقيقة."
+      ],
+      "waysEn": [
+        "Stretch for 5 minutes right after you get up.",
+        "After each hour of sitting, stand and stretch for a minute."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "gym_session",
+      "type": "build",
+      "category": "health",
+      "nameAr": "جلسة رياضة",
+      "nameEn": "Gym session",
+      "shortAr": "تقوّي جسمك وتفرّغ ضغط اليوم",
+      "shortEn": "Builds strength and lets off the day's stress",
+      "benefitAr": "3 مرات في الأسبوع تكفي عشان تحس بفرق في قوتك ونشاطك. ومو لازم نادي، تقدر تتمرن في البيت أو الحديقة.",
+      "benefitEn": "3 times a week is enough to feel a difference in your strength and energy. It doesn't have to be a gym, home or a park works too.",
+      "waysAr": [
+        "ابدأ بحصص قصيرة، 20 دقيقة تكفي.",
+        "جهّز شنطة الرياضة من الليل وحطّها عند الباب."
+      ],
+      "waysEn": [
+        "Start with short sessions, 20 minutes is enough.",
+        "Pack your gym bag the night before and leave it by the door."
+      ],
+      "often": "weekly:3",
+      "featured": false
+    },
+    {
+      "id": "eat_fruit_veg",
+      "type": "build",
+      "category": "health",
+      "nameAr": "أكل خضار أو فاكهة",
+      "nameEn": "Eat fruit or vegetables",
+      "shortAr": "أسهل طريقة تضيف فيها شي مفيد لأكلك",
+      "shortEn": "The easiest way to add something good to your meals",
+      "benefitAr": "الخضار والفاكهة تشبعك وتعطي أكلك تنويع، بدون ما تحرم نفسك من شي تحبه.",
+      "benefitEn": "Fruit and vegetables fill you up and add variety to your meals, without giving up anything you like.",
+      "waysAr": [
+        "حطّ صحن فاكهة في مكان تشوفه كل يوم.",
+        "زِد صحن سلطة صغير مع الغداء."
+      ],
+      "waysEn": [
+        "Keep a bowl of fruit where you'll see it every day.",
+        "Add a small salad to your lunch."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_added_sugar",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "بدون سكر مضاف",
+      "nameEn": "No added sugar",
+      "shortAr": "طاقتك أثبت، بدون الهبوط اللي بعد الحلويات",
+      "shortEn": "Steadier energy, without the slump after sweets",
+      "benefitAr": "السكر المضاف موجود في العصير والحلويات والمشروبات الغازية. لما تتركه، طاقتك تثبت أكثر، ومع الوقت تخف رغبتك فيه.",
+      "benefitEn": "Added sugar hides in juice, sweets and soft drinks. Leaving it out keeps your energy steadier, and over time the cravings tend to ease.",
+      "waysAr": [
+        "بدّل العصير والغازيات بماء أو شاي بدون سكر.",
+        "إذا اشتهيت شي حلو، خذ تمرة أو فاكهة."
+      ],
+      "waysEn": [
+        "Swap juice and soft drinks for water or unsweetened tea.",
+        "When you want something sweet, have a date or some fruit."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_junk_food",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "بدون أكل سريع",
+      "nameEn": "No junk food",
+      "shortAr": "أخف على جسمك وعلى جيبك",
+      "shortEn": "Easier on your body and your wallet",
+      "benefitAr": "الأكل السريع ثقيل وفيه ملح ودهون كثير. لما تتركه تحس بخفة بعد الأكل، ومعها توفّر فلوس.",
+      "benefitEn": "Fast food is heavy, with lots of salt and fat. Leaving it out tends to leave you feeling lighter after meals, and it saves money too.",
+      "waysAr": [
+        "جهّز أكلك معك قبل ما تطلع من البيت.",
+        "إذا أكلت برّا، اختر مشاوي أو سلطة بدل البرجر."
+      ],
+      "waysEn": [
+        "Pack your food before you leave the house.",
+        "When you eat out, go for grilled food or a salad over a burger."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "reduce_caffeine",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "تقليل الكافيين",
+      "nameEn": "Reduce caffeine",
+      "shortAr": "نومك أهدأ، وطاقتك أثبت طول اليوم",
+      "shortEn": "Calmer sleep and steadier energy all day",
+      "benefitAr": "الكافيين الكثير ممكن يخليك متوتر ويؤثر على نومك. كوبين في اليوم حد معقول، وتظل تستمتع بقهوتك.",
+      "benefitEn": "Too much caffeine can leave you jittery and affect your sleep. Two cups a day is a fair limit, and you still get to enjoy your coffee.",
+      "waysAr": [
+        "بدّل الكوب الثالث بماء أو شاي أعشاب.",
+        "احسب الشاي ومشروبات الطاقة، فيها كافيين أيضًا."
+      ],
+      "waysEn": [
+        "Swap your third cup for water or herbal tea.",
+        "Count tea and energy drinks too, they have caffeine."
+      ],
+      "often": "daily",
+      "limit": {
+        "amount": 2,
+        "unit": "cups"
+      },
+      "featured": false
+    },
+    {
+      "id": "no_late_snacks",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "بدون وجبات ليلية",
+      "nameEn": "No late-night snacks",
+      "shortAr": "تنام مرتاح، وتصحى وأنت خفيف",
+      "shortEn": "Sleep more comfortably and wake up feeling light",
+      "benefitAr": "الأكل قبل النوم بشوي يخلي معدتك تشتغل وأنت نايم. لما تخلّص أكلك بدري، تنام براحة أكثر.",
+      "benefitEn": "Eating right before bed keeps your stomach busy while you sleep. Finishing your food earlier lets you sleep more comfortably.",
+      "waysAr": [
+        "حدد ساعة تسكّر فيها المطبخ، مثلًا 9 بالليل.",
+        "إذا جعت، اشرب ماء أو شاي أعشاب."
+      ],
+      "waysEn": [
+        "Pick a time the kitchen closes, say 9 PM.",
+        "If you get hungry, have water or herbal tea."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_smoking",
+      "type": "quit",
+      "category": "health",
+      "nameAr": "بدون تدخين",
+      "nameEn": "No smoking",
+      "shortAr": "تتنفس أريح، وتبقى فلوسك في جيبك",
+      "shortEn": "Breathe easier and keep your money in your pocket",
+      "benefitAr": "ترك التدخين من أفضل الأشياء اللي تسويها لنفسك ولأهلك. وكل يوم بدونه أريح لصدرك ولجيبك.",
+      "benefitEn": "Quitting smoking is one of the best things you can do for yourself and your family. Each day without it is easier on your lungs and your wallet.",
+      "waysAr": [
+        "اعرف متى تدخن عادة، وسوّ شي ثاني في هذا الوقت.",
+        "شيل الولاعة والعلبة من السيارة والبيت."
+      ],
+      "waysEn": [
+        "Notice when you usually smoke, and do something else at that time.",
+        "Clear lighters and packs out of your car and home."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "read_10_pages",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "قراءة 10 صفحات",
+      "nameEn": "Read 10 pages",
+      "shortAr": "كتاب كامل تقريبًا كل شهر",
+      "shortEn": "Roughly a whole book every month",
+      "benefitAr": "10 صفحات تاخذ ربع ساعة تقريبًا، ومع الأيام تصير كتب كاملة. وكل كتاب يعلّمك شي جديد.",
+      "benefitEn": "10 pages take about 15 minutes, and over the days they add up to whole books. Each one teaches you something new.",
+      "waysAr": [
+        "خلّ الكتاب جنب السرير، واقرأ قبل ما تمسك التلفون.",
+        "ابدأ بكتاب يعجبك، مو لازم يكون صعب."
+      ],
+      "waysEn": [
+        "Keep the book by your bed and read before you pick up your phone.",
+        "Start with a book you enjoy, it doesn't have to be hard."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "study_25_minutes",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "دراسة 25 دقيقة",
+      "nameEn": "Study 25 minutes",
+      "shortAr": "شوي كل يوم أفضل من سهرة قبل الاختبار",
+      "shortEn": "A little each day beats a long night before the exam",
+      "benefitAr": "لما تذاكر شوي كل يوم، المعلومة تثبت أكثر وتدخل الاختبار وأنت مرتاح. 25 دقيقة مركّزة تكفي للبداية.",
+      "benefitEn": "Studying a little every day helps it stick, so you walk into the exam calmer. 25 focused minutes is enough to start.",
+      "waysAr": [
+        "حدد وقت ثابت، مثلًا بعد العصر.",
+        "حطّ التلفون في غرفة ثانية لحد ما تخلّص."
+      ],
+      "waysEn": [
+        "Pick a fixed time, say after Asr.",
+        "Leave your phone in another room until you're done."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "review_notes",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "مراجعة الملاحظات",
+      "nameEn": "Review notes",
+      "shortAr": "اللي تراجعه اليوم يبقى معك",
+      "shortEn": "What you review today stays with you",
+      "benefitAr": "نظرة سريعة على ملاحظات اليوم تثبّت اللي تعلمته قبل ما تنساه. 10 دقائق تكفي.",
+      "benefitEn": "A quick look over today's notes locks in what you learned before it fades. 10 minutes is enough.",
+      "waysAr": [
+        "اقرأ ملاحظات اليوم مرة وحدة قبل النوم.",
+        "اكتب 3 أشياء تذكرتها بدون ما تشوف الدفتر."
+      ],
+      "waysEn": [
+        "Read through today's notes once before bed.",
+        "Write down 3 things you remember without looking."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "practice_language",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "تدريب لغة",
+      "nameEn": "Practice a language",
+      "shortAr": "شوي كل يوم، ومع الوقت تفهم وتتكلم",
+      "shortEn": "A little each day, and in time you understand and speak",
+      "benefitAr": "اللغة تحتاج تكرار أكثر من ساعات طويلة. 10 دقائق كل يوم أفضل من ساعتين مرة في الأسبوع.",
+      "benefitEn": "A language needs repetition more than long hours. 10 minutes a day beats 2 hours once a week.",
+      "waysAr": [
+        "استخدم تطبيق لغة 10 دقائق مع قهوة الصبح.",
+        "شاهد شي تحبه بنفس اللغة مع ترجمة."
+      ],
+      "waysEn": [
+        "Use a language app for 10 minutes with your morning coffee.",
+        "Watch something you like in that language, with subtitles."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "audiobook_or_podcast",
+      "type": "build",
+      "category": "learning",
+      "nameAr": "كتاب صوتي أو بودكاست",
+      "nameEn": "Audiobook or podcast",
+      "shortAr": "تتعلم شي جديد وأنت في السيارة أو تمشي",
+      "shortEn": "Learn something new while you drive or walk",
+      "benefitAr": "وقت السواقة والمشي يروح عادة بدون فائدة. حلقة أو فصل من كتاب صوتي يحوّله لوقت تتعلم فيه.",
+      "benefitEn": "Time spent driving or walking usually goes nowhere. An episode or a chapter of an audiobook turns it into time to learn.",
+      "waysAr": [
+        "اختر حلقة من الليل، وشغّلها أول ما تركب السيارة.",
+        "اسمع وأنت تمشي أو ترتّب البيت."
+      ],
+      "waysEn": [
+        "Pick an episode the night before and play it as you get in the car.",
+        "Listen while you walk or tidy up."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_scrolling_while_studying",
+      "type": "quit",
+      "category": "learning",
+      "nameAr": "بدون تصفح أثناء الدراسة",
+      "nameEn": "No scrolling while studying",
+      "shortAr": "تخلّص أسرع، وتفهم أكثر",
+      "shortEn": "Finish sooner and understand more",
+      "benefitAr": "كل مرة تفتح التلفون، ترجع للدراسة وأنت ناسي وين وقفت. لما يكون بعيد، تخلّص في وقت أقل.",
+      "benefitEn": "Every time you check your phone, you come back having lost your place. With it out of reach, you finish in less time.",
+      "waysAr": [
+        "خلّ التلفون مع أحد من أهلك لحد ما تخلّص.",
+        "خذ استراحة 5 دقائق كل 25 دقيقة، وتصفّح فيها إذا تبي."
+      ],
+      "waysEn": [
+        "Hand your phone to someone at home until you're done.",
+        "Take a 5 minute break every 25 minutes, and scroll then if you want."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_postponing_revision",
+      "type": "quit",
+      "category": "learning",
+      "nameAr": "بدون تأجيل المراجعة",
+      "nameEn": "No postponing revision",
+      "shortAr": "المراجعة أول بأول تخفف ضغط الاختبارات",
+      "shortEn": "Revising as you go takes the pressure off exams",
+      "benefitAr": "المراجعة اللي تتأجل تتراكم وتصير ثقيلة. لما تراجع أول بأول، تدخل الاختبارات وأنت جاهز.",
+      "benefitEn": "Revision you put off piles up and gets heavy. Revising as you go means you walk into exams ready.",
+      "waysAr": [
+        "راجع درس اليوم في نفس اليوم، قبل ما يتراكم.",
+        "ابدأ بأسهل درس، عشان تدخل جو المراجعة."
+      ],
+      "waysEn": [
+        "Go over today's lesson the same day, before it piles up.",
+        "Start with the easiest lesson to get into the flow."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_all_nighters",
+      "type": "quit",
+      "category": "learning",
+      "nameAr": "بدون سهر قبل الاختبار",
+      "nameEn": "No all-nighters before exams",
+      "shortAr": "تدخل الاختبار وأنت صاحي ومرتاح",
+      "shortEn": "Walk into the exam awake and rested",
+      "benefitAr": "السهر قبل الاختبار يخليك تدخل تعبان ومشتت. النوم الكافي يساعدك تتذكر اللي ذاكرته وتفكر بوضوح.",
+      "benefitEn": "Staying up before an exam leaves you tired and foggy. A good night's sleep helps you recall what you studied and think clearly.",
+      "waysAr": [
+        "خلّص المراجعة الكبيرة قبل الاختبار بيومين.",
+        "حدد ساعة توقف فيها المذاكرة الليلة، وبعدها نوم."
+      ],
+      "waysEn": [
+        "Finish the big review two days before the exam.",
+        "Pick a time to stop studying tonight, then go to sleep."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_distractions",
+      "type": "quit",
+      "category": "learning",
+      "nameAr": "بدون تشتيت",
+      "nameEn": "No distractions",
+      "shortAr": "تنجز أكثر في وقت أقل",
+      "shortEn": "Get more done in less time",
+      "benefitAr": "التنقل بين التلفون والتلفزيون والدراسة يتعبك وما تنجز. مكان هادئ وشي واحد قدامك يفرق كثير.",
+      "benefitEn": "Jumping between your phone, the TV and your work wears you out. A quiet spot with one thing in front of you makes a real difference.",
+      "waysAr": [
+        "اختر مكان هادئ للدراسة، بعيد عن التلفزيون.",
+        "وقّف التنبيهات وقت الدراسة."
+      ],
+      "waysEn": [
+        "Pick a quiet spot to study, away from the TV.",
+        "Turn off notifications while you study."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "deep_work_25_minutes",
+      "type": "build",
+      "category": "focus",
+      "nameAr": "عمل مركّز 25 دقيقة",
+      "nameEn": "Deep work 25 minutes",
+      "shortAr": "25 دقيقة بدون مقاطعة تنجز فيها الكثير",
+      "shortEn": "25 minutes with no interruptions gets a lot done",
+      "benefitAr": "لما تشتغل على شي واحد بدون تلفون ولا مقاطعة، تخلّص أسرع وبجودة أعلى. ومدة 25 دقيقة قصيرة تقدر تلتزم فيها.",
+      "benefitEn": "Working on one thing with no phone and no interruptions gets it done faster and better. 25 minutes is short enough to stick with.",
+      "waysAr": [
+        "اختر مهمة وحدة قبل ما تبدأ، وحطّ مؤقت 25 دقيقة.",
+        "اقلب التلفون على وجهه، أو حطّه في درج."
+      ],
+      "waysEn": [
+        "Pick one task before you start and set a 25 minute timer.",
+        "Turn your phone face down, or put it in a drawer."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "plan_top_3",
+      "type": "build",
+      "category": "focus",
+      "nameAr": "تحديد أهم 3 مهام لليوم",
+      "nameEn": "Plan today's top 3",
+      "shortAr": "تبدأ يومك وأنت عارف المهم",
+      "shortEn": "Start the day knowing what matters",
+      "benefitAr": "لما تختار 3 مهام مهمة من الصبح، ما يضيع يومك في أشياء صغيرة. وإذا خلّصتها، تكون أنجزت المهم حتى لو بقى غيرها.",
+      "benefitEn": "Choosing 3 important tasks in the morning keeps the day from slipping away on small things. Finish them and you've done what matters.",
+      "waysAr": [
+        "اكتبها مع قهوة الصبح، قبل ما تفتح الرسائل.",
+        "ابدأ بأصعب وحدة فيها."
+      ],
+      "waysEn": [
+        "Write them down over morning coffee, before you open messages.",
+        "Start with the hardest one."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "phone_free_hour",
+      "type": "build",
+      "category": "focus",
+      "nameAr": "ساعة بدون تلفون",
+      "nameEn": "One phone-free hour",
+      "shortAr": "ساعة كاملة لشغلك أو لأهلك",
+      "shortEn": "A full hour for your work or your family",
+      "benefitAr": "التلفون ياخذ من وقتنا أكثر مما نحس. ساعة وحدة بعيد عنه كل يوم تعطيك وقت تركز فيه أو تجلس مع اللي تحبهم.",
+      "benefitEn": "Phones take more of our time than we notice. One hour away from yours each day gives you time to focus or to sit with people you love.",
+      "waysAr": [
+        "اختر ساعة ثابتة، مثلًا بعد المغرب.",
+        "خلّ التلفون يشحن في غرفة ثانية خلال هذه الساعة."
+      ],
+      "waysEn": [
+        "Pick a fixed hour, say after Maghrib.",
+        "Leave your phone charging in another room for that hour."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "one_task_at_a_time",
+      "type": "build",
+      "category": "focus",
+      "nameAr": "مهمة واحدة كل مرة",
+      "nameEn": "One task at a time",
+      "shortAr": "تخلّص أسرع وبأخطاء أقل",
+      "shortEn": "Finish faster, with fewer mistakes",
+      "benefitAr": "التنقل بين أكثر من شغل يضيّع وقتك وتركيزك. لما تخلّص شي قبل ما تبدأ اللي بعده، الشغل يخلص فعلًا.",
+      "benefitEn": "Switching between tasks costs you time and focus. Finishing one thing before you start the next means work actually gets done.",
+      "waysAr": [
+        "سكّر التبويبات والبرامج اللي ما تحتاجها الحين.",
+        "إذا خطر لك شي ثاني، اكتبه في ورقة وارجع لشغلك."
+      ],
+      "waysEn": [
+        "Close the tabs and apps you don't need right now.",
+        "If something else comes to mind, jot it down and get back to work."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_phone_after_10pm",
+      "type": "quit",
+      "category": "focus",
+      "nameAr": "بدون تلفون بعد 10 مساءً",
+      "nameEn": "No phone after 10 PM",
+      "shortAr": "آخر الليل يصير لك ولأهلك، مو للشاشة",
+      "shortEn": "Your late evening goes to you and your family",
+      "benefitAr": "بعد 10 بالليل التصفح ما يخلص، وياخذ من نومك وهدوئك. لما توقفه في وقت ثابت، بالك يرتاح قبل النوم.",
+      "benefitEn": "After 10 PM, scrolling never ends and eats into your sleep and calm. Stopping at a set time lets your mind settle before bed.",
+      "waysAr": [
+        "حطّ التلفون يشحن في الصالة الساعة 10.",
+        "جهّز شي تسويه بداله، كتاب أو جلسة مع أهلك."
+      ],
+      "waysEn": [
+        "Put your phone on charge in the living room at 10.",
+        "Have something else ready, a book or time with family."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "reduce_scrolling",
+      "type": "quit",
+      "category": "focus",
+      "nameAr": "تقليل التصفح",
+      "nameEn": "Reduce scrolling",
+      "shortAr": "وقتك يرجع لك، وبالك يرتاح",
+      "shortEn": "Get your time back and give your head a rest",
+      "benefitAr": "التصفح ما له نهاية، والساعات تروح بدون ما تحس. ساعة في اليوم حد معقول، والباقي لأشياء تهمك.",
+      "benefitEn": "Scrolling has no end, and hours slip by without you noticing. An hour a day is a fair limit, the rest is for things that matter to you.",
+      "waysAr": [
+        "شوف وقت الشاشة في إعدادات التلفون عشان تعرف من وين تبدأ.",
+        "شيل تطبيقات التصفح من الشاشة الرئيسية."
+      ],
+      "waysEn": [
+        "Check your screen time in settings to see where you're starting.",
+        "Move the scrolling apps off your home screen."
+      ],
+      "often": "daily",
+      "limit": {
+        "amount": 60,
+        "unit": "minutes"
+      },
+      "featured": false
+    },
+    {
+      "id": "no_gaming_before_study",
+      "type": "quit",
+      "category": "focus",
+      "nameAr": "بدون ألعاب قبل الدراسة",
+      "nameEn": "No gaming before study",
+      "shortAr": "تبدأ الدراسة وراسك صافي",
+      "shortEn": "Start studying with a clear head",
+      "benefitAr": "اللعب قبل الدراسة يشدك، وجولة وحدة تصير ساعة بسهولة. خلّه مكافأة بعد ما تخلّص.",
+      "benefitEn": "Gaming before study pulls you in, and one round easily turns into an hour. Keep it as a reward for when you're done.",
+      "waysAr": [
+        "ذاكر أول، والعب بعدها وأنت مرتاح.",
+        "خلّ يد اللعب في غرفة ثانية لحد ما تخلّص."
+      ],
+      "waysEn": [
+        "Study first, then play with nothing hanging over you.",
+        "Leave the controller in another room until you're done."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_social_media_in_bed",
+      "type": "quit",
+      "category": "focus",
+      "nameAr": "بدون سوشال في السرير",
+      "nameEn": "No social media in bed",
+      "shortAr": "السرير يرجع للنوم، مو للتصفح",
+      "shortEn": "Bed goes back to being for sleep",
+      "benefitAr": "لما تتصفح في السرير، يتأخر نومك بدون ما تحس. ولما يكون السرير للنوم فقط، جسمك يتعود ينام فيه أسرع.",
+      "benefitEn": "Scrolling in bed pushes sleep later without you noticing. When bed is only for sleep, your body gets used to falling asleep there faster.",
+      "waysAr": [
+        "حطّ التلفون على طاولة بعيدة عن السرير قبل ما تنام.",
+        "إذا تبي شي قبل النوم، اقرأ كم صفحة من كتاب."
+      ],
+      "waysEn": [
+        "Put your phone on a table away from the bed before you lie down.",
+        "If you want something before sleep, read a few pages of a book."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "sleep_by_11pm",
+      "type": "build",
+      "category": "sleep",
+      "nameAr": "النوم قبل 11 مساءً",
+      "nameEn": "Sleep by 11 PM",
+      "shortAr": "تصحى مرتاح، والفجر يصير أسهل",
+      "shortEn": "Wake up rested, and Fajr gets easier",
+      "benefitAr": "النوم بدري يعطيك ساعات كافية قبل الفجر والدوام، وصبحك يبدأ وأنت صاحي فعلًا.",
+      "benefitEn": "Sleeping early gives you enough hours before Fajr and work, so your morning starts with you properly awake.",
+      "waysAr": [
+        "لما يجيك التذكير 10:30، اترك التلفون وابدأ تجهز للنوم.",
+        "خفّف الإضاءة في البيت قبل النوم بساعة."
+      ],
+      "waysEn": [
+        "At the 10:30 reminder, put the phone down and get ready for bed.",
+        "Dim the lights at home an hour before bed."
+      ],
+      "often": "daily",
+      "reminder": "time:22:30",
+      "featured": true
+    },
+    {
+      "id": "wake_up_early",
+      "type": "build",
+      "category": "sleep",
+      "nameAr": "الاستيقاظ مبكرًا",
+      "nameEn": "Wake up early",
+      "shortAr": "وقت هادئ لك قبل زحمة اليوم",
+      "shortEn": "Quiet time for yourself before the day gets busy",
+      "benefitAr": "أول ساعة في اليوم هادئة، وتقدر تستغلها في شي يهمك. والبداية بدري تخلي يومك أقل استعجال.",
+      "benefitEn": "The first hour of the day is quiet, and you can use it for something that matters to you. Starting early makes the day feel less rushed.",
+      "waysAr": [
+        "قدّم المنبه 15 دقيقة كل أسبوع لحد ما توصل لوقتك.",
+        "جهّز شي تحبه للصبح، قهوة أو مشي."
+      ],
+      "waysEn": [
+        "Set your alarm 15 minutes earlier each week until you get there.",
+        "Have something you look forward to in the morning, coffee or a walk."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "consistent_bedtime",
+      "type": "build",
+      "category": "sleep",
+      "nameAr": "موعد نوم ثابت",
+      "nameEn": "Consistent bedtime",
+      "shortAr": "جسمك يتعود، والنوم يجي أسهل",
+      "shortEn": "Your body adjusts, and sleep comes easier",
+      "benefitAr": "لما تنام في نفس الوقت كل ليلة، حتى في الإجازة، جسمك يتعود ويصير النوم والصحيان أسهل.",
+      "benefitEn": "Going to bed at the same time every night, weekends too, helps your body settle in, so falling asleep and waking up get easier.",
+      "waysAr": [
+        "اختر وقت تقدر عليه كل ليلة، حتى الخميس والجمعة.",
+        "في الإجازة، خلّ الفرق عن وقتك العادي ساعة بالكثير."
+      ],
+      "waysEn": [
+        "Pick a time you can keep every night, Thursday and Friday included.",
+        "On weekends, stay within an hour of your usual time."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "wind_down",
+      "type": "build",
+      "category": "sleep",
+      "nameAr": "استرخاء قبل النوم",
+      "nameEn": "Wind down before bed",
+      "shortAr": "تهدّي يومك قبل ما تحط راسك",
+      "shortEn": "Settle the day before your head hits the pillow",
+      "benefitAr": "نص ساعة هادئة قبل النوم، بدون شاشات ولا شغل، تساعد بالك يهدأ وتنام أسرع.",
+      "benefitEn": "Half an hour of quiet before bed, no screens and no work, helps your mind settle so you fall asleep sooner.",
+      "waysAr": [
+        "توضأ واقرأ أذكار النوم.",
+        "اختر شي هادئ تسويه كل ليلة، مثل كتاب أو شاي أعشاب."
+      ],
+      "waysEn": [
+        "Make wudu and read the sleep athkar.",
+        "Pick something calm to do each night, like a book or herbal tea."
+      ],
+      "often": "daily",
+      "reminder": "time:22:00",
+      "featured": false
+    },
+    {
+      "id": "sleep_7_hours",
+      "type": "build",
+      "category": "sleep",
+      "nameAr": "النوم 7 ساعات",
+      "nameEn": "Sleep 7 hours",
+      "shortAr": "يومك يمشي أسهل لما تكون نايم كفاية",
+      "shortEn": "Days go easier when you've slept enough",
+      "benefitAr": "لما تنام كفاية، تحس بفرق في مزاجك وتركيزك طول اليوم. و7 ساعات هدف معقول تبدأ فيه.",
+      "benefitEn": "When you get enough sleep, you feel it in your mood and focus all day. 7 hours is a fair goal to start with.",
+      "waysAr": [
+        "احسب 7 ساعات ونص قبل وقت صحيانك، وهذا وقت نومك.",
+        "إذا نقص نومك ليلة، خذ قيلولة قصيرة قبل العصر."
+      ],
+      "waysEn": [
+        "Count 7 and a half hours back from waking up, that's bedtime.",
+        "If you're short one night, take a short nap before Asr."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_phone_before_bed",
+      "type": "quit",
+      "category": "sleep",
+      "nameAr": "بدون تلفون قبل النوم",
+      "nameEn": "No phone before bed",
+      "shortAr": "تنام أسرع، وتصحى أخف",
+      "shortEn": "Fall asleep faster and wake up fresher",
+      "benefitAr": "الشاشة والتصفح يخلون بالك صاحي وأنت تبي تنام. نص ساعة بدون تلفون قبل النوم تفرق.",
+      "benefitEn": "The screen and the scrolling keep your mind awake when you want to sleep. Half an hour without your phone before bed makes a difference.",
+      "waysAr": [
+        "حطّ التلفون يشحن برّا غرفة النوم.",
+        "استخدم منبه عادي بدل منبه التلفون."
+      ],
+      "waysEn": [
+        "Charge your phone outside the bedroom.",
+        "Use a regular alarm clock instead of your phone."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_late_naps",
+      "type": "quit",
+      "category": "sleep",
+      "nameAr": "بدون قيلولة متأخرة",
+      "nameEn": "No late naps",
+      "shortAr": "تنام بالليل في وقتك، بدون تقلّب",
+      "shortEn": "Fall asleep on time at night, without tossing and turning",
+      "benefitAr": "القيلولة بعد العصر ممكن تخليك صاحي لآخر الليل. إذا تحتاج قيلولة، خلّها قصيرة وقبل العصر.",
+      "benefitEn": "A nap after Asr can keep you up late at night. If you need one, keep it short and before Asr.",
+      "waysAr": [
+        "إذا تعبت العصر، اطلع امشِ شوي أو اشرب ماء بارد.",
+        "خلّ قيلولتك 20 دقيقة وحطّ لها منبه."
+      ],
+      "waysEn": [
+        "Tired in the afternoon? Take a short walk or have cold water.",
+        "Keep naps to 20 minutes and set an alarm."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_evening_caffeine",
+      "type": "quit",
+      "category": "sleep",
+      "nameAr": "بدون كافيين مساءً",
+      "nameEn": "No evening caffeine",
+      "shortAr": "القهوة المتأخرة تؤخّر نومك",
+      "shortEn": "Late coffee pushes your sleep later",
+      "benefitAr": "الكافيين يبقى في جسمك ساعات بعد ما تشربه. لما توقفه من العصر، يكون النوم في وقتك أسهل.",
+      "benefitEn": "Caffeine stays in your body for hours after you drink it. Stopping by Asr makes it easier to fall asleep on time.",
+      "waysAr": [
+        "خلّ آخر قهوة أو شاي قبل العصر.",
+        "في الليل، اشرب شاي أعشاب أو حليب دافئ."
+      ],
+      "waysEn": [
+        "Have your last coffee or tea before Asr.",
+        "In the evening, have herbal tea or warm milk instead."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_screens_in_bedroom",
+      "type": "quit",
+      "category": "sleep",
+      "nameAr": "بدون شاشات في غرفة النوم",
+      "nameEn": "No screens in the bedroom",
+      "shortAr": "غرفتك تصير مكان راحة ونوم",
+      "shortEn": "Your room becomes a place to rest and sleep",
+      "benefitAr": "لما تكون الشاشات برّا الغرفة، ما في شي يسحبك للسهر. ومع الوقت، دخول الغرفة يصير إشارة للنوم.",
+      "benefitEn": "With screens out of the room, nothing pulls you into staying up. In time, walking into your room becomes a cue to sleep.",
+      "waysAr": [
+        "خلّ الشاحن في الصالة، عشان التلفون يبقى برّا طول الليل.",
+        "إذا في تلفزيون في الغرفة، انقله لمكان ثاني."
+      ],
+      "waysEn": [
+        "Keep the charger in the living room so your phone stays out at night.",
+        "If there's a TV in your room, move it somewhere else."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "track_spending",
+      "type": "build",
+      "category": "money",
+      "nameAr": "تتبّع المصروفات",
+      "nameEn": "Track spending",
+      "shortAr": "تعرف وين تروح فلوسك بالضبط",
+      "shortEn": "Know exactly where your money goes",
+      "benefitAr": "المصاريف الصغيرة ما ننتبه لها لحد ما نجمعها. لما تسجل كل يوم، تشوف وين تقدر توفّر.",
+      "benefitEn": "Small spending goes unnoticed until you add it up. Writing it down each day shows you where you can save.",
+      "waysAr": [
+        "قبل النوم، سجّل كل شي دفعته اليوم.",
+        "افتح تطبيق البنك آخر اليوم وشوف مصاريفك."
+      ],
+      "waysEn": [
+        "Before bed, note down everything you paid for today.",
+        "Check your bank app at the end of the day."
+      ],
+      "often": "daily",
+      "reminder": "time:21:30",
+      "featured": true
+    },
+    {
+      "id": "save_daily",
+      "type": "build",
+      "category": "money",
+      "nameAr": "وفّر مبلغ بسيط كل يوم",
+      "nameEn": "Save a little every day",
+      "shortAr": "مبلغ صغير كل يوم، يصير شي كبير مع السنة",
+      "shortEn": "A little each day becomes something real over a year",
+      "benefitAr": "مبلغ بسيط في اليوم ما تحس فيه، لكن بعد سنة يصير مبلغ تقدر تعتمد عليه. المهم تكون كل يوم.",
+      "benefitEn": "A small amount a day is easy to miss, but after a year it adds up to money you can count on. What matters is doing it every day.",
+      "waysAr": [
+        "حطّ مبلغ بسيط في حصالة كل يوم، واحسبه آخر الشهر.",
+        "حوّل المبلغ لحساب توفير أول ما تصحى، قبل ما تصرف."
+      ],
+      "waysEn": [
+        "Drop a small amount in a piggy bank every day and count it at month's end.",
+        "Move it to a savings account first thing, before you spend."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "review_budget",
+      "type": "build",
+      "category": "money",
+      "nameAr": "مراجعة الميزانية",
+      "nameEn": "Review budget",
+      "shortAr": "نظرة أسبوعية تمنع مفاجآت آخر الشهر",
+      "shortEn": "A weekly look heads off end-of-month surprises",
+      "benefitAr": "مراجعة قصيرة كل أسبوع تبيّن لك كيف ماشي صرفك، وتعدّل قبل ما يخلص الراتب.",
+      "benefitEn": "A short review each week shows how your spending is going, so you can adjust before the salary runs out.",
+      "waysAr": [
+        "اختر وقت ثابت، مثلًا الجمعة الصبح مع القهوة.",
+        "شوف أكثر 3 أشياء صرفت عليها، واختر وحدة تخففها."
+      ],
+      "waysEn": [
+        "Pick a set time, say Friday morning with your coffee.",
+        "Look at your top 3 spends and pick one to cut back."
+      ],
+      "often": "weekly:1",
+      "featured": false
+    },
+    {
+      "id": "compare_prices",
+      "type": "build",
+      "category": "money",
+      "nameAr": "مقارنة الأسعار",
+      "nameEn": "Compare prices",
+      "shortAr": "نفس الشي، وغالبًا بسعر أقل",
+      "shortEn": "Often the same thing for less",
+      "benefitAr": "دقيقتين مقارنة قبل الشراء توفّر لك فلوس، خاصة في الأشياء اللي تشتريها كثير.",
+      "benefitEn": "A couple of minutes comparing before you buy saves money, especially on things you buy often.",
+      "waysAr": [
+        "قبل أي شراء كبير، شوف سعره في مكانين على الأقل.",
+        "اكتب أسعار الأشياء اللي تشتريها كل أسبوع، وقارن."
+      ],
+      "waysEn": [
+        "Before any big purchase, check the price in at least two places.",
+        "Note the prices of things you buy every week, and compare."
+      ],
+      "often": "weekly:2",
+      "featured": false
+    },
+    {
+      "id": "no_impulse_buying",
+      "type": "quit",
+      "category": "money",
+      "nameAr": "بدون شراء اندفاعي",
+      "nameEn": "No impulse buying",
+      "shortAr": "تشتري اللي تحتاجه، مو اللي لفت نظرك",
+      "shortEn": "Buy what you need, not what caught your eye",
+      "benefitAr": "كثير من الشراء الاندفاعي نندم عليه بعدين. لما تعطي نفسك وقت قبل ما تدفع، تبقى فلوسك للأشياء اللي تهمك.",
+      "benefitEn": "A lot of impulse buys end up as regrets. Giving yourself time before you pay keeps your money for things that matter.",
+      "waysAr": [
+        "إذا عجبك شي، خلّه في السلة 24 ساعة قبل ما تشتريه.",
+        "احذف بطاقتك المحفوظة من تطبيقات التسوق."
+      ],
+      "waysEn": [
+        "If something catches your eye, leave it in the cart for 24 hours.",
+        "Remove your saved card from shopping apps."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "reduce_delivery_orders",
+      "type": "quit",
+      "category": "money",
+      "nameAr": "تقليل طلبات التوصيل",
+      "nameEn": "Reduce delivery orders",
+      "shortAr": "توفّر فلوس، وأكل البيت أخف",
+      "shortEn": "Save money and eat lighter",
+      "benefitAr": "رسوم التوصيل والطلبات الصغيرة تتجمع بسرعة. طلب واحد في اليوم كحد بداية معقولة، والباقي من أكل البيت.",
+      "benefitEn": "Delivery fees and small orders add up fast. One order a day at most is a fair start, the rest from home.",
+      "waysAr": [
+        "اطبخ كمية زيادة وخلّ الباقي لليوم الثاني.",
+        "شيل تطبيق التوصيل من الشاشة الرئيسية."
+      ],
+      "waysEn": [
+        "Cook a little extra and keep the rest for the next day.",
+        "Move the delivery app off your home screen."
+      ],
+      "often": "daily",
+      "limit": {
+        "amount": 1,
+        "unit": "times"
+      },
+      "featured": false
+    },
+    {
+      "id": "no_unnecessary_shopping",
+      "type": "quit",
+      "category": "money",
+      "nameAr": "بدون تسوق غير ضروري",
+      "nameEn": "No unnecessary shopping",
+      "shortAr": "فلوسك تروح للي تحتاجه، والباقي يتوفر",
+      "shortEn": "Your money goes to what you need, the rest is saved",
+      "benefitAr": "التسوق للتسلية أو لتعبئة الوقت يصرف فلوس على أشياء ما نستخدمها. لما تشتري من قائمة، تحس بالفرق آخر الشهر.",
+      "benefitEn": "Shopping to pass the time spends money on things we don't use. Buying from a list makes a difference by month's end.",
+      "waysAr": [
+        "اكتب قائمة قبل ما تطلع، واشترِ اللي فيها فقط.",
+        "إذا تبي تطلع، اختر الحديقة أو البحر بدل المجمع."
+      ],
+      "waysEn": [
+        "Write a list before you go, and buy only what's on it.",
+        "When you want to get out, pick a park or the beach over the mall."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_cafe_coffee",
+      "type": "quit",
+      "category": "money",
+      "nameAr": "بدون قهوة من برّا",
+      "nameEn": "No coffee from cafes",
+      "shortAr": "نفس المتعة في البيت، وفرق واضح آخر الشهر",
+      "shortEn": "Same coffee at home, more money at month's end",
+      "benefitAr": "كوب القهوة اليومي من برّا يبان صغير، لكن يتجمع مع الشهر. وتقدر تسوي قهوة تحبها في البيت بجزء من السعر.",
+      "benefitEn": "A daily cafe coffee looks small but adds up over a month. You can make one you like at home for a fraction of the price.",
+      "waysAr": [
+        "جهّز قهوتك في كوب حافظ قبل ما تطلع.",
+        "احسب كم صرفت على القهوة الشهر الماضي."
+      ],
+      "waysEn": [
+        "Make your coffee in a travel mug before you head out.",
+        "Work out how much you spent on coffee last month."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "meditate_5_minutes",
+      "type": "build",
+      "category": "mind",
+      "nameAr": "تأمل 5 دقائق",
+      "nameEn": "Meditate 5 minutes",
+      "shortAr": "5 دقائق هدوء تريّح بالك وسط اليوم",
+      "shortEn": "5 quiet minutes to rest your mind",
+      "benefitAr": "تجلس بهدوء وتركز على تنفسك، وإذا سرحت ترجع له. ومع الوقت، يصير أسهل عليك تهدأ في المواقف الصعبة.",
+      "benefitEn": "Sit quietly and focus on your breathing, and when your mind wanders, come back to it. Over time it gets easier to stay calm when things get hard.",
+      "waysAr": [
+        "اجلس 5 دقائق بعد إحدى الصلوات قبل ما تقوم من مكانك.",
+        "حطّ مؤقت 5 دقائق، وركّز على الشهيق والزفير."
+      ],
+      "waysEn": [
+        "Sit for 5 minutes after one of the prayers, before you get up.",
+        "Set a 5 minute timer and focus on breathing in and out."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "gratitude_journal",
+      "type": "build",
+      "category": "mind",
+      "nameAr": "يوميات الامتنان",
+      "nameEn": "Gratitude journal",
+      "shortAr": "تنتبه للخير اللي في يومك",
+      "shortEn": "Notice the good in your day",
+      "benefitAr": "لما تكتب كل يوم 3 أشياء تحمد الله عليها، تنتبه للنعم الصغيرة اللي تمر بدون ما نلاحظها.",
+      "benefitEn": "Writing down 3 things you're thankful for each day helps you notice the small blessings that usually slip by.",
+      "waysAr": [
+        "اكتب 3 أشياء قبل النوم، ولو كانت بسيطة.",
+        "خلّ دفتر صغير وقلم جنب السرير."
+      ],
+      "waysEn": [
+        "Write 3 things before bed, even simple ones.",
+        "Keep a small notebook and pen by your bed."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "breathing_exercise",
+      "type": "build",
+      "category": "mind",
+      "nameAr": "تمرين تنفس",
+      "nameEn": "Breathing exercise",
+      "shortAr": "طريقة سريعة تهدّي فيها نفسك وقت الضغط",
+      "shortEn": "A quick way to calm down under stress",
+      "benefitAr": "التنفس البطيء العميق يساعد جسمك يهدأ لما تكون متوتر. دقيقتين تكفي، وتقدر تسويه في أي مكان.",
+      "benefitEn": "Slow, deep breathing helps your body calm down when you're tense. Two minutes is enough, and you can do it anywhere.",
+      "waysAr": [
+        "خذ شهيق 4 ثواني، وزفير 6 ثواني، وكرر 5 مرات.",
+        "سوّه في السيارة قبل ما تنزل للدوام."
+      ],
+      "waysEn": [
+        "Breathe in for 4 seconds, out for 6, and repeat 5 times.",
+        "Do it in the car before you walk into work."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "positive_affirmations",
+      "type": "build",
+      "category": "mind",
+      "nameAr": "عبارات إيجابية",
+      "nameEn": "Positive affirmations",
+      "shortAr": "كلامك مع نفسك يؤثر في يومك",
+      "shortEn": "How you talk to yourself shapes your day",
+      "benefitAr": "الكلام اللي تقوله لنفسك كل يوم يؤثر على نظرتك. جملة صادقة وواقعية تبدأ فيها يومك تفرق أكثر من كلام كبير ما تصدقه.",
+      "benefitEn": "What you tell yourself every day affects how you see things. One honest, realistic line to start the day helps more than big words you don't believe.",
+      "waysAr": [
+        "اكتب جملة وحدة لليوم، مثل: بسوّي أفضل اللي أقدر عليه.",
+        "قلها لنفسك وأنت تجهّز في الصبح."
+      ],
+      "waysEn": [
+        "Write one line for today, like: I'll do the best I can.",
+        "Say it to yourself while you get ready in the morning."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_complaining",
+      "type": "quit",
+      "category": "mind",
+      "nameAr": "بدون تذمّر",
+      "nameEn": "No complaining",
+      "shortAr": "تشوف الحلول بدل المشاكل",
+      "shortEn": "See solutions instead of problems",
+      "benefitAr": "التذمّر يعلّق بالك على اللي ما يعجبك. لما توقفه، تروح طاقتك للشي اللي تقدر تغيّره.",
+      "benefitEn": "Complaining keeps your mind stuck on what you don't like. When you stop, your energy goes to what you can change.",
+      "waysAr": [
+        "لما تحس أنك بتتذمّر، قل حل واحد بداله.",
+        "قل الحمد لله بدل ما تشتكي من الأشياء الصغيرة."
+      ],
+      "waysEn": [
+        "When you're about to complain, name one fix instead.",
+        "Say alhamdulillah instead of grumbling about small things."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_comparisons",
+      "type": "quit",
+      "category": "mind",
+      "nameAr": "بدون مقارنات",
+      "nameEn": "No comparisons",
+      "shortAr": "تركّز على طريقك، مو على حياة غيرك",
+      "shortEn": "Focus on your own path, not someone else's life",
+      "benefitAr": "المقارنة مع الناس، خاصة في السوشال، تخليك ما تشوف إلا اللي ناقصك. قارن نفسك بنفسك أمس، هذا اللي يهم.",
+      "benefitEn": "Comparing yourself with others, especially online, only shows you what you're missing. Compare yourself with yesterday's you instead.",
+      "waysAr": [
+        "ألغِ متابعة الحسابات اللي تحسسك بالنقص.",
+        "إذا لقيت نفسك تقارن، اذكر شي عندك تحمد الله عليه."
+      ],
+      "waysEn": [
+        "Unfollow accounts that make you feel less.",
+        "When you catch yourself comparing, name one thing you're thankful for."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_overthinking_before_bed",
+      "type": "quit",
+      "category": "mind",
+      "nameAr": "بدون تفكير زائد قبل النوم",
+      "nameEn": "No overthinking before bed",
+      "shortAr": "تنام وبالك خفيف",
+      "shortEn": "Go to sleep with a lighter mind",
+      "benefitAr": "التفكير الكثير في الليل يكبّر المشاكل ويؤخّر نومك. لما تفرّغ اللي في بالك قبل ما تنام، تنام وأنت أهدأ.",
+      "benefitEn": "Overthinking at night makes problems look bigger and keeps you up. Emptying your head before bed helps you sleep calmer.",
+      "waysAr": [
+        "اكتب اللي يشغلك على ورقة، وخلّه للصبح.",
+        "إذا ما جاك النوم، قوم واقرأ شي خفيف لحد ما تنعس."
+      ],
+      "waysEn": [
+        "Write down what's on your mind and leave it for the morning.",
+        "Can't sleep? Get up and read something light until you're drowsy."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_morning_news",
+      "type": "quit",
+      "category": "mind",
+      "nameAr": "بدون أخبار في الصباح",
+      "nameEn": "No news in the morning",
+      "shortAr": "تبدأ يومك بهدوء، مو بقلق",
+      "shortEn": "Start your day calm, not anxious",
+      "benefitAr": "الأخبار أول الصبح تملأ بالك بأشياء ما تقدر تغيّرها. خلّها لوقت لاحق، وابدأ يومك بشي يهمك أنت.",
+      "benefitEn": "News first thing fills your head with things you can't change. Save it for later and start the day with something that matters to you.",
+      "waysAr": [
+        "خلّ أول نص ساعة لك: أذكار، فطور، ومشي.",
+        "حدد وقت للأخبار، مثلًا بعد الغداء."
+      ],
+      "waysEn": [
+        "Keep the first half hour for yourself: athkar, breakfast, a walk.",
+        "Pick a set time for the news, say after lunch."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "call_family",
+      "type": "build",
+      "category": "social",
+      "nameAr": "الاتصال بالعائلة",
+      "nameEn": "Call family",
+      "shortAr": "مكالمة قصيرة تفرّح أهلك أكثر مما تتوقع",
+      "shortEn": "A short call means more to them than you'd think",
+      "benefitAr": "مع زحمة الأيام، سهل ننسى نسأل عن أهلنا. مكالمة قصيرة تقرّبكم، وهي من صلة الرحم.",
+      "benefitEn": "On busy days it's easy to forget to check on family. A short call keeps you close, and it's part of keeping family ties.",
+      "waysAr": [
+        "اتصل وأنت تمشي أو تشرب قهوتك.",
+        "ثبّت أيام للمكالمة، مثلًا الأحد والأربعاء."
+      ],
+      "waysEn": [
+        "Call while you walk or have your coffee.",
+        "Set your call days, say Sunday and Wednesday."
+      ],
+      "often": "weekly:2",
+      "featured": true
+    },
+    {
+      "id": "check_on_friend",
+      "type": "build",
+      "category": "social",
+      "nameAr": "الاطمئنان على صديق",
+      "nameEn": "Check on a friend",
+      "shortAr": "رسالة وحدة تحفظ صداقة سنين",
+      "shortEn": "One message keeps a long friendship going",
+      "benefitAr": "الصداقات تبرد إذا ما سألنا. رسالة بسيطة تقول فيها أنك تذكرته تفرق معه أكثر مما تتوقع.",
+      "benefitEn": "Friendships cool off when we don't reach out. A simple message saying you thought of them means more than you'd expect.",
+      "waysAr": [
+        "أرسل رسالة قصيرة: كيف حالك؟ تذكرتك اليوم.",
+        "شوف آخر المحادثات، واختر شخص ما كلمته من زمان."
+      ],
+      "waysEn": [
+        "Send a short message: how are you? I thought of you today.",
+        "Scroll your chats and pick someone you haven't talked to in a while."
+      ],
+      "often": "weekly:2",
+      "featured": false
+    },
+    {
+      "id": "family_dinner",
+      "type": "build",
+      "category": "social",
+      "nameAr": "عشاء عائلي",
+      "nameEn": "Family dinner",
+      "shortAr": "وقت حقيقي مع أهلك، بدون شاشات",
+      "shortEn": "Real time with your family, no screens",
+      "benefitAr": "الجلسة على الأكل مع الأهل فرصة تسمعون فيها بعض وتعرفون أخبار بعض. مرتين في الأسبوع بداية سهلة.",
+      "benefitEn": "Sitting down to eat together is a chance to listen and catch up. Twice a week is an easy start.",
+      "waysAr": [
+        "اتفقوا على أيام ثابتة عشان الكل يحضر.",
+        "خلّ كل واحد يقول أحلى شي صار له في يومه."
+      ],
+      "waysEn": [
+        "Agree on set days so everyone is there.",
+        "Have everyone share the best thing that happened in their day."
+      ],
+      "often": "weekly:2",
+      "featured": false
+    },
+    {
+      "id": "visit_relative",
+      "type": "build",
+      "category": "social",
+      "nameAr": "زيارة قريب",
+      "nameEn": "Visit a relative",
+      "shortAr": "صلة رحم، وجلسة تبقى في البال",
+      "shortEn": "Keeps family ties, and makes time they'll remember",
+      "benefitAr": "الزيارة لها أثر أكبر من المكالمة، خاصة عند كبار السن في العائلة. ولو نص ساعة، المهم تكون منتظمة.",
+      "benefitEn": "A visit means more than a call, especially to the older people in the family. Even half an hour counts, what matters is keeping it up.",
+      "waysAr": [
+        "اختر يوم ثابت، مثلًا الجمعة بعد العصر.",
+        "خذ معك شي بسيط، حلويات أو فاكهة."
+      ],
+      "waysEn": [
+        "Pick a set day, say Friday after Asr.",
+        "Bring something small, sweets or fruit."
+      ],
+      "often": "weekly:1",
+      "featured": false
+    },
+    {
+      "id": "no_phone_at_table",
+      "type": "quit",
+      "category": "social",
+      "nameAr": "بدون تلفون على السفرة",
+      "nameEn": "No phone at the table",
+      "shortAr": "اللي معك يحسون أنك معهم فعلًا",
+      "shortEn": "The people with you feel you're really there",
+      "benefitAr": "لما يكون التلفون على السفرة، نص انتباهك معه. حطّه بعيد، وخلّ وقت الأكل للي حولك.",
+      "benefitEn": "With a phone on the table, half your attention is on it. Put it away and keep mealtimes for the people around you.",
+      "waysAr": [
+        "حطّ التلفون في جيبك أو في غرفة ثانية قبل ما تجلس.",
+        "اقترح على أهلك سلة تحطون فيها التلفونات وقت الأكل."
+      ],
+      "waysEn": [
+        "Put your phone in your pocket or another room before you sit down.",
+        "Suggest a basket where everyone leaves their phone at meals."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_arguing_in_comments",
+      "type": "quit",
+      "category": "social",
+      "nameAr": "بدون جدال في التعليقات",
+      "nameEn": "No arguing in comments",
+      "shortAr": "توفّر وقتك وأعصابك",
+      "shortEn": "Save your time and your nerves",
+      "benefitAr": "الجدال في التعليقات نادرًا يغيّر رأي أحد، لكنه ياخذ وقتك ويعكّر مزاجك. تقدر تختلف بدون ما ترد.",
+      "benefitEn": "Arguing in comments rarely changes anyone's mind, but it takes your time and spoils your mood. You can disagree without replying.",
+      "waysAr": [
+        "إذا كتبت رد وأنت معصّب، امسحه بدل ما ترسله.",
+        "إذا الموضوع يهمك، كلّم الشخص على الخاص بهدوء."
+      ],
+      "waysEn": [
+        "If you wrote a reply while angry, delete it instead of sending.",
+        "If it really matters, message the person privately and calmly."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "less_group_chats",
+      "type": "quit",
+      "category": "social",
+      "nameAr": "تقليل وقت القروبات",
+      "nameEn": "Less time in group chats",
+      "shortAr": "تتابع المهم بدون ما تغرق في الرسائل",
+      "shortEn": "Keep up with what matters without drowning in messages",
+      "benefitAr": "القروبات تسحبك برسائل ما تخلص، وكثير منها ما يخصك. نص ساعة في اليوم تكفي تتابع المهم.",
+      "benefitEn": "Group chats pull you in with endless messages, and many aren't for you. Half an hour a day is enough to keep up with what matters.",
+      "waysAr": [
+        "اكتم القروبات اللي ما تحتاج تتابعها أول بأول.",
+        "افتح القروبات في وقتين ثابتين، مو مع كل رسالة."
+      ],
+      "waysEn": [
+        "Mute the groups you don't need to follow as they happen.",
+        "Open group chats at two set times, not with every message."
+      ],
+      "often": "daily",
+      "limit": {
+        "amount": 30,
+        "unit": "minutes"
+      },
+      "featured": false
+    },
+    {
+      "id": "no_interrupting",
+      "type": "quit",
+      "category": "social",
+      "nameAr": "بدون مقاطعة الآخرين",
+      "nameEn": "No interrupting",
+      "shortAr": "الناس يرتاحون في الكلام معك",
+      "shortEn": "People feel heard when they talk to you",
+      "benefitAr": "لما تخلي الشخص يكمّل كلامه، يحس أنك تسمعه فعلًا، وتفهم قصده أفضل.",
+      "benefitEn": "Letting someone finish makes them feel truly heard, and you understand what they mean better.",
+      "waysAr": [
+        "انتظر ثانيتين بعد ما يخلّص قبل ما ترد.",
+        "إذا خطرت لك فكرة، احفظها في بالك وكمّل استماع."
+      ],
+      "waysEn": [
+        "Wait two seconds after they finish before you reply.",
+        "If a thought comes up, hold on to it and keep listening."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "make_bed",
+      "type": "build",
+      "category": "custom",
+      "nameAr": "ترتيب السرير",
+      "nameEn": "Make the bed",
+      "shortAr": "أول شي تخلّصه في يومك، وفي دقيقة",
+      "shortEn": "The first thing you get done each day, in a minute",
+      "benefitAr": "ترتيب السرير ياخذ دقيقة، ويخلي غرفتك مرتبة طول اليوم. وتبدأ صبحك بشي خلّصته.",
+      "benefitEn": "Making the bed takes a minute and keeps your room tidy all day. You start the morning with something done.",
+      "waysAr": [
+        "رتّبه أول ما تقوم، قبل التلفون.",
+        "خفّف المخدات والأغطية عشان يصير أسرع."
+      ],
+      "waysEn": [
+        "Make it as soon as you get up, before your phone.",
+        "Use fewer pillows and covers so it's quicker."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "tidy_10_minutes",
+      "type": "build",
+      "category": "custom",
+      "nameAr": "ترتيب 10 دقائق",
+      "nameEn": "Tidy for 10 minutes",
+      "shortAr": "البيت يبقى مرتب بدون يوم تنظيف طويل",
+      "shortEn": "The house stays tidy without a long cleaning day",
+      "benefitAr": "10 دقائق كل يوم تمنع الفوضى تتراكم، ويبقى البيت مكان ترتاح فيه، مو قائمة شغل.",
+      "benefitEn": "10 minutes a day keeps clutter from piling up, so home stays a place to rest, not a list of chores.",
+      "waysAr": [
+        "حطّ مؤقت 10 دقائق، ورتّب لحد ما يرن.",
+        "ابدأ بمكان واحد، مثل المكتب أو الصالة."
+      ],
+      "waysEn": [
+        "Set a 10 minute timer and tidy until it rings.",
+        "Start with one spot, like your desk or the living room."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "plan_tomorrow",
+      "type": "build",
+      "category": "custom",
+      "nameAr": "تخطيط يوم الغد",
+      "nameEn": "Plan tomorrow",
+      "shortAr": "تصحى وأنت عارف من وين تبدأ",
+      "shortEn": "Wake up knowing where to start",
+      "benefitAr": "5 دقائق في الليل تكتب فيها مهام الغد توفّر عليك حيرة الصبح، وتنام وبالك مرتاح.",
+      "benefitEn": "5 minutes at night writing down tomorrow's tasks saves you the morning guesswork, and you sleep with a clearer head.",
+      "waysAr": [
+        "اكتب أهم 3 مهام للغد على ورقة أو في المهام.",
+        "جهّز ملابسك وشنطتك من الليل."
+      ],
+      "waysEn": [
+        "Write tomorrow's top 3 tasks on paper or in your tasks.",
+        "Lay out your clothes and bag the night before."
+      ],
+      "often": "daily",
+      "reminder": "time:21:00",
+      "featured": false
+    },
+    {
+      "id": "water_plants",
+      "type": "build",
+      "category": "custom",
+      "nameAr": "سقي النباتات",
+      "nameEn": "Water the plants",
+      "shortAr": "زرعك يكبر، وأنت تاخذ دقيقة هدوء",
+      "shortEn": "Your plants grow, and you get a quiet minute",
+      "benefitAr": "الاهتمام بالنباتات شي بسيط يعطيك لحظة هدوء بعيد عن الشاشات، وتشوفها تكبر قدامك.",
+      "benefitEn": "Caring for plants is a simple moment of calm away from screens, and you get to watch them grow.",
+      "waysAr": [
+        "حطّ إبريق السقي جنب النباتات عشان تتذكر.",
+        "المس التربة أول، إذا كانت ناشفة اسقِها."
+      ],
+      "waysEn": [
+        "Keep the watering can next to the plants so you remember.",
+        "Touch the soil first, and water it if it's dry."
+      ],
+      "often": "weekly:2",
+      "featured": false
+    },
+    {
+      "id": "no_snoozing",
+      "type": "quit",
+      "category": "custom",
+      "nameAr": "بدون تأجيل المنبّه",
+      "nameEn": "No snoozing the alarm",
+      "shortAr": "تقوم من أول مرة، وصبحك يبدأ بدون عجلة",
+      "shortEn": "Get up the first time and start the morning unrushed",
+      "benefitAr": "التأجيل يعطيك دقائق نوم متقطعة، وتقوم بعدها أثقل ومستعجل.",
+      "benefitEn": "Snoozing gives you a few minutes of broken sleep, and you get up groggier and in a rush.",
+      "waysAr": [
+        "حطّ المنبه بعيد عن السرير، عشان تضطر تقوم.",
+        "أول ما تقوم، افتح الستارة أو الضوء."
+      ],
+      "waysEn": [
+        "Put the alarm across the room so you have to get up.",
+        "As soon as you're up, open the curtains or turn on the light."
+      ],
+      "often": "daily",
+      "featured": true
+    },
+    {
+      "id": "no_dishes_overnight",
+      "type": "quit",
+      "category": "custom",
+      "nameAr": "بدون صحون لليوم الثاني",
+      "nameEn": "No dishes left overnight",
+      "shortAr": "تصحى على مطبخ نظيف",
+      "shortEn": "Wake up to a clean kitchen",
+      "benefitAr": "غسل الصحون أول بأول ياخذ دقائق، لكن لما تتراكم تصير شغلة كبيرة. وصبحك يبدأ أخف.",
+      "benefitEn": "Washing up as you go takes minutes, but once dishes pile up they become a big job. Your morning starts lighter too.",
+      "waysAr": [
+        "اغسل صحنك أول ما تخلّص أكل.",
+        "قبل النوم، خذ 5 دقائق للمطبخ."
+      ],
+      "waysEn": [
+        "Wash your plate as soon as you finish eating.",
+        "Before bed, give the kitchen 5 minutes."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_arriving_late",
+      "type": "quit",
+      "category": "custom",
+      "nameAr": "بدون تأخير على المواعيد",
+      "nameEn": "No arriving late",
+      "shortAr": "توصل مرتاح، والناس تثق في كلمتك",
+      "shortEn": "Arrive relaxed, and people can count on you",
+      "benefitAr": "الوصول في الوقت يريحك من التوتر والسواقة المستعجلة، ويبيّن احترامك لوقت غيرك.",
+      "benefitEn": "Being on time spares you the stress and the rushed drive, and shows respect for other people's time.",
+      "waysAr": [
+        "اطلع قبل وقتك المعتاد بـ 10 دقائق.",
+        "حطّ تذكير لوقت الطلعة، مو لوقت الموعد."
+      ],
+      "waysEn": [
+        "Leave 10 minutes earlier than you usually would.",
+        "Set a reminder for when to leave, not for the appointment itself."
+      ],
+      "often": "daily",
+      "featured": false
+    },
+    {
+      "id": "no_postponing_first_task",
+      "type": "quit",
+      "category": "custom",
+      "nameAr": "بدون تأجيل أول مهمة",
+      "nameEn": "No postponing the first task",
+      "shortAr": "لما تبدأ، الباقي يمشي أسهل",
+      "shortEn": "Once you start, the rest comes easier",
+      "benefitAr": "أصعب جزء في أي شغل هو البداية. لما تخلّص أول مهمة بدري، يتحرك يومك وتكمّل الباقي براحة.",
+      "benefitEn": "The hardest part of any work is starting. Getting the first task done early gets the day moving, and the rest comes easier.",
+      "waysAr": [
+        "اختر أول مهمة من الليل، عشان تبدأ فيها على طول.",
+        "قل لنفسك: 5 دقائق فقط، وبعدها قرر."
+      ],
+      "waysEn": [
+        "Pick your first task the night before so you can start right away.",
+        "Tell yourself: just 5 minutes, then decide."
+      ],
+      "often": "daily",
+      "featured": false
+    }
+  ]
+}

@@ -526,6 +526,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
                     ),
                     child: CategoryIcon(
                       category: widget.habit.category,
+                      ownIcon: widget.habit.ownCategory?.icon,
                       size: 18,
                       color: color,
                     ),

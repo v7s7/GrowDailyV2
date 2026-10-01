@@ -16,6 +16,7 @@ import '../catalog/islamic_habit_catalog.dart';
 import '../models/habit_cadence.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
+import '../models/own_category.dart';
 import 'catalog_overrides_notifier.dart';
 import 'habit_order_notifier.dart';
 
@@ -378,6 +379,7 @@ class CustomHabitsNotifier
     LimitUnit? limitUnit,
     String? customUnitLabel,
     String? iconColorHex,
+    OwnCategory? ownCategory,
     int reminderOffsetMinutes = 0,
     List<int> extraReminderOffsets = const [],
     bool ignoreQuietHours = false,
@@ -385,6 +387,7 @@ class CustomHabitsNotifier
     int? stepGoal,
   }) {
     final rewards = _rewards(category);
+    final own = category == HabitCategory.custom ? ownCategory : null;
     final template = IslamicHabitTemplate(
       id: const Uuid().v4(),
       name: name,
@@ -405,6 +408,8 @@ class CustomHabitsNotifier
       xpReward: rewards.$1,
       goldReward: rewards.$2,
       iconColorHex: iconColorHex,
+      ownCategoryName: own?.name,
+      ownCategoryIcon: own?.icon,
       reminderOffsetMinutes: reminderOffsetMinutes,
       extraReminderOffsets: extraReminderOffsets,
       ignoreQuietHours: ignoreQuietHours,
@@ -456,6 +461,11 @@ class CustomHabitsNotifier
     // passing a null iconColorHex, which `iconColorHex ?? existing.
     // iconColorHex` below would otherwise silently ignore.
     bool clearIconColor = false,
+    // The person's own category. Null leaves the one the habit has; a
+    // habit moved to one of the app's categories loses it, and
+    // [clearOwnCategory] is how «مخصص» itself, with no name, is said.
+    OwnCategory? ownCategory,
+    bool clearOwnCategory = false,
     int? stepGoal,
     // Same null-vs-clear split as clearIconColor: turning the steps link
     // OFF in the sheet passes clearStepGoal, because a null stepGoal here
@@ -488,6 +498,9 @@ class CustomHabitsNotifier
         : null;
     final effectiveIconColorHex =
         clearIconColor ? null : (iconColorHex ?? existing.iconColorHex);
+    final effectiveOwn = category != HabitCategory.custom || clearOwnCategory
+        ? null
+        : (ownCategory ?? existing.ownCategory);
     final effectiveWeekdays = scheduledWeekdays ?? existing.scheduledWeekdays;
     // A schedule change starts TODAY. Every earlier day keeps the schedule it
     // had, so a Monday-and-Thursday habit made daily does not turn weeks of
@@ -530,6 +543,8 @@ class CustomHabitsNotifier
       xpReward: rewards.$1,
       goldReward: rewards.$2,
       iconColorHex: effectiveIconColorHex,
+      ownCategoryName: effectiveOwn?.name,
+      ownCategoryIcon: effectiveOwn?.icon,
       reminderOffsetMinutes:
           reminderOffsetMinutes ?? existing.reminderOffsetMinutes,
       extraReminderOffsets:
@@ -1218,3 +1233,10 @@ bool canUndoHabitRemoval(
       hadBefore: hadBefore,
     );
 
+
+/// The person's own categories (see OwnCategory), read back from every
+/// habit they have ever had, so Add Habit offers them again. Archived habits
+/// count: a category outlives the one habit that used it.
+final ownCategoriesProvider = Provider<List<OwnCategory>>(
+  (ref) => ownCategoriesFrom(ref.watch(allHabitsEverProvider)),
+);

@@ -62,6 +62,14 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late LandingHarness h;
   tearDown(() => h.dispose());
+  // The page works out today's prayer times for a saved place
+  // (PrayerTodayCard), through tz.local and Bahrain's table, both of which
+  // the app has loaded long before any screen (main.dart). Loaded here for
+  // the same reason, and outside any test: a table read first started
+  // INSIDE a widget test never finishes once that test ends, and the asset
+  // bundle hands the same unfinished read to every later test, which then
+  // waits on it forever.
+  setUpAll(_loadBahrainTable);
 
   Future<void> prepare(NotificationSettings settings, {DateTime? today}) async {
     h = LandingHarness();

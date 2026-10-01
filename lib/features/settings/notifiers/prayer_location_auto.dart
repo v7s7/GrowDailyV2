@@ -199,10 +199,12 @@ Future<void> autoLocatePrayerPlace(
   }
 }
 
-/// A prayer widget placed, or any habit tied to one of the five prayers.
+/// A prayer widget placed, or any habit tied to one of the five prayers,
+/// one prayer or a prayer per time.
 Future<bool> _prayerPlaceNeeded(ProviderRead read) async {
   final habits = read(habitListProvider);
-  if (habits.any((h) => HabitCue.fromStoredValue(h.cueAfter).isPrayer)) {
+  if (habits
+      .any((h) => HabitCue.fromStoredValue(h.cueAfter).usesPrayerTimes)) {
     return true;
   }
   final placed = debugPrayerWidgetPlaced;

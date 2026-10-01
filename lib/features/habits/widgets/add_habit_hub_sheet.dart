@@ -73,7 +73,8 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   /// form asking «ما الذي تريد تقليله؟», on both steps.
   GoalType _goalType = GoalType.build;
 
-  /// Step the embedded Add Goal form is on (0 = What, 1 = When).
+  /// Step the embedded Add Goal form is on (0 = the habit, 1 = how often,
+  /// 2 = the reminder).
   ///
   /// Once it moves past the first step the Plans / Add Goal switcher is
   /// hidden: the user has already chosen, and leaving the pills up both adds
@@ -94,31 +95,35 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
   /// «تمرين · استئناف» sat above «متى وكيف ستتابع؟» offering to abandon it.
   bool get _onChooserStep => !(_tab == HubTab.addGoal && _addGoalStep > 0);
 
-  /// The first habit opens straight on the form: no Plans / Add Goal pills
-  /// above it and no "choose one" hint, so the page is the name box and the
-  /// categories and nothing before them (AddHabitSheet's `_isFirstHabit` is
-  /// the form's half of this). The form's own "or pick a ready-made plan"
-  /// link is the way to Plans; taking it brings the pills back for the rest
-  /// of the sheet's life, so the way back is the usual one. Opened on Plans
-  /// directly (the Grid's «استعرض الخطط») the pills show as always: the
-  /// person is on the second tab and needs the first.
-  bool _pillsRevealed = false;
+  /// Add Habit opens straight on the form for everyone: no Plans / Add Goal
+  /// pills above it and no "choose one" hint (canvas v8, 2026-10-01; it was
+  /// a first habit only since 2026-09-08). Plans are a card in the form's
+  /// ideas door now, and taking it brings the pills back for the rest of the
+  /// sheet's life, so the way back to the form is the usual one. Opened on
+  /// Plans directly (the Grid's «استعرض الخطط») the pills show from the
+  /// start: the person is on the second tab and needs the first.
+  late bool _pillsRevealed = widget.initialTab == HubTab.plans;
 
-  bool get _pillsHidden =>
-      _tab == HubTab.addGoal &&
-      !_pillsRevealed &&
-      ref.watch(habitListProvider).isEmpty;
+  /// A plan picked on the ideas page, for the Plans tab to open.
+  final _planToOpen = ValueNotifier<String?>(null);
+
+  @override
+  void dispose() {
+    _planToOpen.dispose();
+    super.dispose();
+  }
+
+  bool get _pillsHidden => _tab == HubTab.addGoal && !_pillsRevealed;
 
   // A one-time nudge explaining Plans vs. Add Goal — only for App Guide's
   // addHabit lesson, since that's the one moment someone genuinely hasn't
   // decided "custom" is what they want yet. Regular Add Habit taps never
-  // set this, so it doesn't nag anyone who already knows the sheet. Not on
-  // a first habit opened on Add Goal either: there are no pills to explain
-  // there (see _pillsHidden), and the lesson's point is reaching the form.
+  // set this, so it doesn't nag anyone who already knows the sheet. Only
+  // where the pills are on screen to explain: opened on Add Goal there are
+  // none (see _pillsHidden), and the lesson's point is reaching the form.
   late bool _showTabHint =
       ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit &&
-          !(widget.initialTab == HubTab.addGoal &&
-              ref.read(habitListProvider).isEmpty);
+          widget.initialTab == HubTab.plans;
 
   void _dismissTabHint() {
     if (_showTabHint) setState(() => _showTabHint = false);
@@ -169,7 +174,6 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
     // the Plans tab's height and showed a blank band under its own button on
     // any phone tall enough for the difference. The AnimatedSize turns the
     // change between the two heights into a slide.
-    final pillsHidden = _pillsHidden;
     final body = AnimatedSize(
       duration: keyboardAnim,
       curve: keyboardCurve,
@@ -177,7 +181,7 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
         children: [
           Offstage(
             offstage: _tab != HubTab.plans,
-            child: const PlanPickerSheet(embedded: true),
+            child: PlanPickerSheet(embedded: true, focusPlan: _planToOpen),
           ),
           Offstage(
             offstage: _tab != HubTab.addGoal,
@@ -188,14 +192,19 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                 if (type == _goalType) return;
                 setState(() => _goalType = type);
               },
-              // The Plans link only stands in for the pills while they are
-              // hidden; with the pills on screen it would be a second copy.
-              onBrowsePlans: pillsHidden
-                  ? () => setState(() {
-                        _pillsRevealed = true;
-                        _tab = HubTab.plans;
-                      })
-                  : null,
+              // A plan picked on the ideas page opens on the Plans tab, and
+              // the pills come back so the form is one tap away again.
+              onBrowsePlans: () => setState(() {
+                _pillsRevealed = true;
+                _tab = HubTab.plans;
+              }),
+              onOpenPlan: (id) {
+                setState(() {
+                  _pillsRevealed = true;
+                  _tab = HubTab.plans;
+                });
+                _planToOpen.value = id;
+              },
             ),
           ),
         ],
@@ -436,9 +445,7 @@ class _AddHabitHubState extends ConsumerState<AddHabitHub> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        s.isAr
-                            ? 'خطط: حزمة جاهزة بضغطة واحدة. إضافة هدف: عادة مخصصة من عندك.'
-                            : 'Plans: a ready-made bundle in one tap. Add Goal: your own custom habit.',
+                        s.hubTabsHint,
                         style: TextStyle(
                           fontSize: 12.5,
                           height: 1.45,

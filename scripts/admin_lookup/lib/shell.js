@@ -273,6 +273,8 @@ function sidebar({ active, inPageViews = false, projectId = '', counts = {} } = 
     <a class="nav-item${active === 'faq' ? ' active' : ''}" href="/faq">${icon('circle-help')}<span>FAQ</span></a>
     <a class="nav-item${active === 'premium' ? ' active' : ''}" href="/premium">${icon('crown')}<span>Premium</span></a>
     <a class="nav-item${active === 'pet' ? ' active' : ''}" href="/pet">${icon('leaf')}<span>Doum</span></a>
+    <a class="nav-item${active === 'splash' ? ' active' : ''}" href="/splash">${icon('sparkles')}<span>Splash</span></a>
+    <a class="nav-item${active === 'ideas' ? ' active' : ''}" href="/ideas">${icon('lightbulb')}<span>Habit ideas</span></a>
     <a class="nav-item${active === 'achievements' ? ' active' : ''}" href="/achievements">${icon('trophy')}<span>Achievements</span></a>
     <a class="nav-item${active === 'creators' ? ' active' : ''}" href="/creators">${icon('ticket')}<span>Creators</span></a>
     <a class="nav-item${active === 'sale' ? ' active' : ''}" href="/sale">${icon('tag')}<span>Sale</span></a>

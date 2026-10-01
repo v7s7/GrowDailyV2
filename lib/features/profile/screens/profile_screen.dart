@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' show pi;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -46,6 +47,8 @@ import '../../../features/grid/screens/monthly_heatmap_screen.dart'
     show watchHeatmapInputs;
 import '../../../features/grid/widgets/weekly_recap_card.dart';
 import '../../../features/habits/models/habit_day_demand.dart' show boardHabitsOn;
+import '../../../core/utils/reduced_motion.dart';
+import '../../../features/mascot/doum_language_look.dart';
 import '../../../features/mascot/sprout.dart';
 import '../../../features/mascot/sprout_ledge.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';

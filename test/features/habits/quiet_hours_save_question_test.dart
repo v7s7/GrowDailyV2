@@ -9,6 +9,12 @@
 // never finishes), the habits and a Manama location are seeded outside the
 // test bodies, and the notifications channel is mocked to refuse, since Save
 // asks for permission.
+//
+// The three-step sheet (2026-10-01): a new habit is named, set to «كل يوم»
+// and reminded «مع وقت صلاة» at Fajr on step 3, then «أضف العادة». The
+// timing switch that used to open the reminder is gone. An edit opens on its
+// overview, so these open its reminder row, and saving is «تم» back to the
+// overview and «احفظ التغييرات» there.
 import 'dart:async';
 import 'dart:io';
 
@@ -39,6 +45,8 @@ import 'package:grow_daily_v2/shared/widgets/choice_chip_grid.dart';
 import 'package:hive/hive.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
+
+import 'support/add_habit_flow.dart';
 
 const _manama = NotificationLocation(
   lat: 26.2285,
@@ -196,8 +204,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     if (existing == null) return;
-    await tester.tap(find.text(ar.continueAction));
-    await tester.pumpAndSettle();
+    // An edit opens on its overview; the reminder is its third row.
+    await openEditStep(tester, ar, 2);
   }
 
   Future<void> tapText(WidgetTester tester, String text) async {
@@ -205,29 +213,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// A new habit, «قراءة» daily, reminded at Fajr.
+  /// A new habit, «قراءة» every day, reminded at Fajr.
   Future<void> openNewAtFajr(WidgetTester tester) async {
     await open(tester);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.enterText(find.byType(TextField).first, 'قراءة');
-    await tester.pump();
-    await tapText(tester, ar.continueAction);
-    await tester.tap(
-      find
-          .ancestor(of: find.text(ar.daily), matching: find.byType(InkWell))
-          .first,
-    );
+    await toReminder(tester, ar); // «قراءة», every day
+    await pickPrayerKind(tester, ar);
+    await tester.tap(choice('الفجر'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(Switch));
-    await tester.pumpAndSettle();
-    await tapText(tester, ar.cuePrayerOption);
-    await tapText(tester, 'الفجر');
   }
 
   /// Presses the sheet's own button, and stops there: what comes next is
-  /// what the test is about.
-  Future<void> pressSave(WidgetTester tester, {bool existing = false}) =>
-      tapText(tester, existing ? ar.saveChanges : ar.createGoal);
+  /// what the test is about. An edit's reminder page goes back to the
+  /// overview with «تم» first, which is where saving happens.
+  Future<void> pressSave(WidgetTester tester, {bool existing = false}) async {
+    if (!existing) return tapText(tester, ar.addHabitAction);
+    await editStepDone(tester, ar);
+    await tapText(tester, ar.saveChanges);
+  }
 
   /// Past what a finished save leaves on screen: the mocked permission
   /// refusal shows its SnackBar for four seconds.
@@ -340,7 +342,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(question(), findsNothing);
-      expect(find.text(ar.createGoal), findsOneWidget,
+      expect(find.text(ar.addHabitAction), findsOneWidget,
           reason: 'still on the form, so the time can be changed',);
       expect(all(), hasLength(habits.length));
       expect(settings().quietHoursEnabled, isTrue);

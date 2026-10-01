@@ -7,8 +7,9 @@
 // GameTextStyles.labelLarge, so a bare TextStyle(fontSize: 16) there left
 // the label with no family at all, drawn in the phone's own font while
 // everything around it was IBM Plex Sans Arabic. Found 2026-09-28 on the
-// quiet-hours question, then on the three buttons below. Each now puts its
-// size and weight on the label's own Text, which merges instead.
+// quiet-hours question, then on the three buttons below (the third has
+// since been replaced, see its test). Each now puts its size and weight on
+// the label's own Text, which merges instead.
 //
 // The expected family is labelLarge's, not GameTextStyles.fontFamily:
 // google_fonts registers every weight as a family of its own, so the
@@ -143,12 +144,32 @@ void main() {
     }
   });
 
-  testWidgets('Add Habit: «أو اختر خطة جاهزة»', (tester) async {
+  // This case was the first habit's «أو اختر خطة جاهزة» link, a TextButton
+  // whose styleFrom carried its own textStyle. The three-step page
+  // (2026-10-01) took the link away (Plans are a card in the ideas door now),
+  // so the TextButton the sheet still has stands in for it: the footer's
+  // «رجوع» on the second step, which takes its whole label style from the
+  // theme.
+  testWidgets('Add Habit: «رجوع»', (tester) async {
     await pump(
       tester,
       Scaffold(body: AddHabitSheet(onBrowsePlans: () {})),
       height: 1400,
     );
-    expectAppTypeface(tester, s.readyPlansLink, fontSize: 13);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.enterText(find.byType(TextField).first, 'قراءة');
+    await tester.pump();
+    await tester.tap(find.text(s.continueAction));
+    await h.settle(tester);
+    expect(
+      find.ancestor(of: find.text(s.back), matching: find.byType(TextButton)),
+      findsOneWidget,
+      reason: 'sanity: «رجوع» is the TextButton under test',
+    );
+    expectAppTypeface(
+      tester,
+      s.back,
+      fontSize: GameTextStyles.labelLarge.fontSize!,
+    );
   });
 }

@@ -1867,6 +1867,142 @@ app.post('/api/pet', localWriteOnly, wordingJson, async (req, res) => {
   }
 });
 
+// ---- Splash: which scene Doum plays on the launch curtain ----
+//
+// Stored in wording/live under `splash`, exactly as the Doum page stores
+// `pet` (see above). The page is lib/splash_page.js and splash/app.js; the
+// checks both it and the server run are wording/splash_rules.js; the built-in
+// values are read out of the app's launch_settings.dart and launch_scene.dart
+// (lib/splash_admin.js). Every write goes through localWriteOnly.
+const splashAdmin = require('./lib/splash_admin');
+const { renderSplashPage } = require('./lib/splash_page');
+
+function splashError(res, e) {
+  if (e instanceof splashAdmin.SplashInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[splash] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+app.get('/splash', (req, res) => {
+  res.type('html').send(renderSplashPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/splash/app.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'splash', 'app.js'));
+});
+
+app.get('/wording/splash_rules.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'splash_rules.js'));
+});
+
+app.get('/api/splash', async (req, res) => {
+  try {
+    const [splash, phones] = await Promise.all([
+      splashAdmin.readSplash(admin.firestore()),
+      phonesCanReadCached(),
+    ]);
+    res.json({ ...splash, phones });
+  } catch (e) {
+    splashError(res, e);
+  }
+});
+
+app.post('/api/splash', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const body = req.body || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    const result = await splashAdmin.saveSplash(db, admin.firestore.FieldValue, {
+      draft: body.draft,
+      // What the page was built from: the stored settings it loaded (null
+      // for none). A page older than the stored settings is refused.
+      base: has('base') ? body.base : undefined,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, splash: await splashAdmin.readSplash(db) });
+  } catch (e) {
+    splashError(res, e);
+  }
+});
+
+// ---- Habit ideas: Add Habit's ideas and ready-made plans ----
+//
+// Stored in wording/live under `ideas` and `plans`, saved the FAQ page's
+// way (whole-document replace in a transaction, a version bump, a 409 for a
+// page older than the stored edits or than the built-in lists, a History
+// row that Undo puts back). The page is lib/ideas_page.js and ideas/app.js;
+// the rules both it and the server run are wording/ideas_rules.js; the
+// built-ins are assets/data/habit_ideas.json and the plans parsed out of
+// habit_plans.dart (lib/ideas_admin.js). Every write goes through
+// localWriteOnly.
+const ideasAdmin = require('./lib/ideas_admin');
+const { renderIdeasPage } = require('./lib/ideas_page');
+
+function ideasError(res, e) {
+  if (e instanceof ideasAdmin.IdeasInputError || e instanceof wording.WordingInputError) {
+    return res.status(e.status).json({ ok: false, error: e.message });
+  }
+  console.error(`[ideas] ${e.stack || e.message}`);
+  res.status(500).json({ ok: false, error: e.message });
+}
+
+app.get('/ideas', (req, res) => {
+  res.type('html').send(renderIdeasPage({ projectId: PROJECT_ID }));
+});
+
+app.get('/ideas/app.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'ideas', 'app.js'));
+});
+
+app.get('/wording/ideas_rules.js', (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'wording', 'ideas_rules.js'));
+});
+
+app.get('/api/ideas', async (req, res) => {
+  try {
+    const [ideas, phones] = await Promise.all([
+      ideasAdmin.readIdeas(admin.firestore()),
+      phonesCanReadCached(),
+    ]);
+    res.json({ ...ideas, phones });
+  } catch (e) {
+    ideasError(res, e);
+  }
+});
+
+app.post('/api/ideas', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const body = req.body || {};
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+    const result = await ideasAdmin.saveIdeas(db, admin.firestore.FieldValue, {
+      draft: body.draft,
+      // What the page was built from: the stored { ideas, plans } it loaded
+      // and the fingerprint of the built-in lists. A stale page is refused.
+      base: has('base') ? body.base : undefined,
+      builtInFingerprint: body.builtInFingerprint,
+    });
+    res.status(result.ok ? 200 : 400).json({ ...result, data: await ideasAdmin.readIdeas(db) });
+  } catch (e) {
+    ideasError(res, e);
+  }
+});
+
+app.post('/api/ideas/undo', localWriteOnly, wordingJson, async (req, res) => {
+  try {
+    const db = admin.firestore();
+    await wording.undoChange(db, admin.firestore.FieldValue, {
+      id: req.body && req.body.id,
+      catalogByKey: new Map(),
+      onlyKind: 'ideas',
+    });
+    res.json({ ok: true, data: await ideasAdmin.readIdeas(db) });
+  } catch (e) {
+    ideasError(res, e);
+  }
+});
+
 // ---- Achievements: every medal's name and description, edited without a
 // release. Same shape as Wording just above (write route behind
 // localWriteOnly, whole-document replace inside a transaction), sized for

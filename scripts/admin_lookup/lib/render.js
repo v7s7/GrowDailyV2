@@ -154,6 +154,37 @@ const CUE_PRESET_LABELS = {
 // HabitCue._timePart: HH:MM, then an optional signed minute shift.
 const CUE_TIME_PART = /^(\d{2}):(\d{2})([+-]\d{1,3})?$/;
 
+// HabitCue._prayerPart: a prayer per time ('fajr-30'), see prayersLabel.
+const CUE_PRAYER_PART = /^(fajr|dhuhr|asr|maghrib|isha)([+-]\d{1,3})?$/;
+const CUE_PRAYER_ORDER = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
+
+/**
+ * A prayer per time (HabitCue.prayerSlots), each slot said whole, since
+ * two can share a prayer: "30m before Fajr, 30m after Fajr and at Asr".
+ * The app's own label names each prayer once («الفجر والعصر»); this tool is
+ * read for support, where the sides matter. Null when [parts] is not a run
+ * of prayers.
+ */
+function prayersLabel(parts) {
+  if (!parts.every((p) => CUE_PRAYER_PART.test(p))) return null;
+  const seen = new Set();
+  const slots = [];
+  for (const p of parts) {
+    const m = CUE_PRAYER_PART.exec(p);
+    const shift = m[2] ? Number(m[2]) : 0;
+    if (seen.has(`${m[1]}${shift}`)) continue;
+    seen.add(`${m[1]}${shift}`);
+    slots.push({ key: m[1], shift });
+  }
+  slots.sort((a, b) => (CUE_PRAYER_ORDER.indexOf(a.key) - CUE_PRAYER_ORDER.indexOf(b.key))
+    || (a.shift - b.shift));
+  const labels = slots.slice(0, 12).map((s) => (s.shift === 0
+    ? `at ${CUE_PRESET_LABELS[s.key]}`
+    : `${Math.abs(s.shift)}m ${s.shift < 0 ? 'before' : 'after'} ${CUE_PRESET_LABELS[s.key]}`));
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
 /**
  * [stored] as a label, the way HabitCue.labelForLocale(false) reads it, with
  * this tool's 24-hour clocks in place of the app's "6:15 AM".
@@ -175,6 +206,8 @@ function cueLabel(stored) {
   }
   if (!raw.startsWith('custom_time:')) return raw;
   const damaged = `${raw} (unreadable, so the app shows no cue)`;
+  const prayers = prayersLabel(raw.slice('custom_time:'.length).split(','));
+  if (prayers) return prayers;
   const parsed = [];
   for (const part of raw.slice('custom_time:'.length).split(',')) {
     const m = CUE_TIME_PART.exec(part);
@@ -220,6 +253,11 @@ function intentionSentence(cue, habitName) {
 function cueClause(stored) {
   const label = cueLabel(stored);
   if (!label) return '';
+  // A prayer per time already says when, slot by slot ("30m before Fajr").
+  const raw = String(stored).trim();
+  if (raw.startsWith('custom_time:') && prayersLabel(raw.slice('custom_time:'.length).split(','))) {
+    return label[0].toUpperCase() + label.slice(1);
+  }
   return cueHasOwnPreposition(label) ? label[0].toUpperCase() + label.slice(1) : `After ${label}`;
 }
 

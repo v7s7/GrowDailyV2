@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/habit_cadence.dart';
 import '../models/habit_model.dart';
+import '../models/own_category.dart';
 
 /// Immutable template from the pre-saved Islamic catalog.
 /// Call [toHabitModel] to equip it to a user's account.
@@ -48,6 +49,11 @@ class IslamicHabitTemplate {
   // accessors — every read site just does
   // `Color(0xFF000000 | int.parse(iconColorHex, radix: 16))`.
   final String? iconColorHex;
+  /// A category of the person's own (see OwnCategory): its name and icon
+  /// key, or both null. Only ever set on a [HabitCategory.custom] habit;
+  /// [category] stays custom, so points and every count read it as before.
+  final String? ownCategoryName;
+  final String? ownCategoryIcon;
   /// Signed minutes from the resolved cue moment (the picked clock time, or
   /// the prayer time) to when the reminder actually fires:
   /// **negative = before, 0 = exactly on time, positive = after**.
@@ -199,6 +205,8 @@ class IslamicHabitTemplate {
     required this.xpReward,
     required this.goldReward,
     this.iconColorHex,
+    this.ownCategoryName,
+    this.ownCategoryIcon,
     this.reminderOffsetMinutes = 0,
     this.extraReminderOffsets = const [],
     this.ignoreQuietHours = false,
@@ -220,6 +228,15 @@ class IslamicHabitTemplate {
     if (hex == null || hex.length != 6) return null;
     final parsed = int.tryParse(hex, radix: 16);
     return parsed == null ? null : Color(0xFF000000 | parsed);
+  }
+
+  /// The person's own category, or null for one of the app's.
+  OwnCategory? get ownCategory {
+    final name = ownCategoryName?.trim();
+    if (category != HabitCategory.custom || name == null || name.isEmpty) {
+      return null;
+    }
+    return OwnCategory(name: name, icon: ownCategoryIcon ?? 'star');
   }
 
   HabitModel toHabitModel(String uid) => HabitModel(
@@ -276,6 +293,10 @@ class IslamicHabitTemplate {
         'xpReward': xpReward,
         'goldReward': goldReward,
         if (iconColorHex != null) 'iconColorHex': iconColorHex,
+        if (ownCategory case final OwnCategory own) ...{
+          'ownCategoryName': own.name,
+          'ownCategoryIcon': own.icon,
+        },
         // `!= 0` (not `> 0`): a negative offset is the common "before" case
         // now, and would never be written at all under the old `> 0` guard.
         if (reminderOffsetMinutes != 0)
@@ -359,6 +380,8 @@ class IslamicHabitTemplate {
         xpReward: d['xpReward'] as int? ?? 20,
         goldReward: d['goldReward'] as int? ?? 8,
         iconColorHex: d['iconColorHex'] as String?,
+        ownCategoryName: d['ownCategoryName'] as String?,
+        ownCategoryIcon: d['ownCategoryIcon'] as String?,
         reminderOffsetMinutes: _readReminderOffset(d),
         extraReminderOffsets: _readExtraOffsets(d),
         ignoreQuietHours: d['ignoreQuietHours'] as bool? ?? false,
@@ -549,6 +572,8 @@ class IslamicHabitTemplate {
         xpReward: xpReward,
         goldReward: goldReward,
         iconColorHex: iconColorHex,
+        ownCategoryName: ownCategoryName,
+        ownCategoryIcon: ownCategoryIcon,
         reminderOffsetMinutes: reminderOffsetMinutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
@@ -588,6 +613,8 @@ class IslamicHabitTemplate {
         xpReward: xpReward,
         goldReward: goldReward,
         iconColorHex: iconColorHex,
+        ownCategoryName: ownCategoryName,
+        ownCategoryIcon: ownCategoryIcon,
         reminderOffsetMinutes: minutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,
@@ -627,6 +654,8 @@ class IslamicHabitTemplate {
         xpReward: xpReward,
         goldReward: goldReward,
         iconColorHex: iconColorHex,
+        ownCategoryName: ownCategoryName,
+        ownCategoryIcon: ownCategoryIcon,
         reminderOffsetMinutes: reminderOffsetMinutes,
         extraReminderOffsets: extraReminderOffsets,
         ignoreQuietHours: ignoreQuietHours,

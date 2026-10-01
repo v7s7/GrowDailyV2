@@ -28,6 +28,8 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 import 'package:grow_daily_v2/features/onboarding/notifiers/guide_steps_provider.dart';
+import 'package:grow_daily_v2/features/mascot/sprout.dart';
+import 'package:grow_daily_v2/features/mascot/sprout_turnaround.dart';
 import 'package:grow_daily_v2/features/onboarding/screens/first_run_offer_screen.dart';
 
 void main() {
@@ -123,6 +125,39 @@ void main() {
       expect(find.text(s.onboardingSkip), findsNothing);
     });
   }
+
+  // Doum turns to face whoever just arrived and waves, then takes out his
+  // pointer: the first step, offered (the canvas "Doum picks the language",
+  // 2026-10-01).
+  testWidgets('Doum turns, waves, then takes out his pointer', (tester) async {
+    final c = await containerWith(habits: const []);
+    addTearDown(c.dispose);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Center(
+          child: SproutTurnaround(height: 160, thenPose: SproutPose.pointer),
+        ),
+      ),
+    );
+    SproutPose pose() => tester.widget<Sprout>(find.byType(Sprout)).pose;
+    expect(pose(), SproutPose.sideRightLeafUp);
+    for (var i = 0; i < 16; i++) {
+      await tester.pump(const Duration(milliseconds: 100)); // to 1.6 s
+    }
+    expect(pose(), SproutPose.frontWave);
+    for (var i = 0; i < 9; i++) {
+      await tester.pump(const Duration(milliseconds: 100)); // to 2.5 s
+    }
+    expect(pose(), SproutPose.pointer);
+    await tester.pump(const Duration(seconds: 12));
+  });
+
+  testWidgets('on the screen he ends on his pointer', (tester) async {
+    final c = await containerWith(habits: const []);
+    addTearDown(c.dispose);
+    await pump(tester, c);
+    expect(tester.widget<Sprout>(find.byType(Sprout)).pose, SproutPose.pointer);
+  });
 
   testWidgets('nothing is armed until somebody answers', (tester) async {
     final c = await containerWith(habits: const []);

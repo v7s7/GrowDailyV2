@@ -693,6 +693,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                             ),
                             child: CategoryIcon(
                               category: habit.category,
+                              ownIcon: habit.ownCategory?.icon,
                               size: 13,
                               color: color,
                             ),

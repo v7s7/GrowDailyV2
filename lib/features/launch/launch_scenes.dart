@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../mascot/sprout.dart';
 import 'launch_scene.dart';
+import 'launch_settings.dart';
 
 part 'launch_scenes_afternoon.dart';
 part 'launch_scenes_more.dart';
@@ -32,8 +33,15 @@ const kLaunchShadowKey = ValueKey('launch-shadow');
 /// element to the next Positioned, and he popped in again from nothing.
 const kLaunchDoumKey = ValueKey('launch-doum');
 
+/// Doum on his way to the sign-in screen (the first open's hand-off), for
+/// tests.
+const kLaunchFlyingDoumKey = ValueKey('launch-flying-doum');
+
 /// Missing winter's sky and dunes, for tests.
 const kLaunchBackdropKey = ValueKey('launch-backdrop');
+
+/// The Wi-Fi mark a slow connection shows over Doum, for tests.
+const kLaunchWifiKey = ValueKey('launch-wifi');
 
 /// The line's ink, and the colours the scenes paint with.
 const kLaunchInk = Color(0xFF23352A);
@@ -78,11 +86,18 @@ const Map<SproutPose, double> kLaunchBodyCentre = {
 };
 
 /// Every pose [scene] draws, decoded before it starts (LaunchCurtain), so
-/// no pose change ever shows a blank frame.
-List<SproutPose> launchScenePoses(LaunchScene scene) => switch (scene) {
+/// no pose change ever shows a blank frame: its own, and the magnifier a
+/// slow load brings out in every scene but the night's
+/// (LaunchCurtain.searchingScenes).
+List<SproutPose> launchScenePoses(LaunchScene scene) => [
+      ..._ownPoses(scene),
+      if (scene != LaunchScene.nightAsleep &&
+          !_ownPoses(scene).contains(SproutPose.magnifier))
+        SproutPose.magnifier,
+    ];
+
+List<SproutPose> _ownPoses(LaunchScene scene) => switch (scene) {
       LaunchScene.morningCoffee => const [SproutPose.mug],
-      // The two ordinary scenes can turn to the magnifier on a slow load
-      // (LaunchSceneView.searching).
       LaunchScene.dayRing => const [
           SproutPose.threeQuarterWave,
           SproutPose.frontWave,
@@ -103,8 +118,13 @@ List<SproutPose> launchScenePoses(LaunchScene scene) => switch (scene) {
       LaunchScene.nightAsleep => const [SproutPose.sleeping],
       LaunchScene.welcomeBack =>
         const [SproutPose.walkBackpack, SproutPose.frontWave],
-      LaunchScene.firstOpen =>
-        const [SproutPose.pointer, SproutPose.happySparkles],
+      // The wave too: on a first open with the sign-in screen under him, he
+      // waves instead of his sparkles and flies there (LaunchDoumHandoff).
+      LaunchScene.firstOpen => const [
+          SproutPose.pointer,
+          SproutPose.happySparkles,
+          SproutPose.frontWave,
+        ],
       LaunchScene.eid =>
         const [SproutPose.threeQuarterWave, SproutPose.confetti],
       LaunchScene.fullDay =>
@@ -114,8 +134,6 @@ List<SproutPose> launchScenePoses(LaunchScene scene) => switch (scene) {
       LaunchScene.stepsGoal => const [SproutPose.running, SproutPose.cheer],
       LaunchScene.summerNoon =>
         const [SproutPose.threeQuarterWave, SproutPose.sunglasses],
-      // The afternoon's two turn to the magnifier on a slow load too
-      // (LaunchCurtain.searchingScenes).
       LaunchScene.winterWait => const [
           SproutPose.winterHourglass,
           SproutPose.winterHappyHeart,
@@ -151,12 +169,23 @@ bool launchTopIsDark(
 /// lantern flaring), except the night, which stays quiet. [away] fades Doum,
 /// his line and the scenery out ahead of the ground (the curtain's exit);
 /// missing winter's sky stays for the ground, as the night's navy does.
-/// [searching] is a slow load in an ordinary scene: he takes out his
-/// magnifier and his line says so, until the app is ready.
+/// [searching] is a slow load: he takes out his magnifier and his line says
+/// so, until the app is ready. [waitingOnNetwork] is a slow load still
+/// waiting on the account's data from the server: the Wi-Fi mark over him
+/// searches for the signal, and lights up whole and goes once the data is
+/// in (Aziz, 2026-10-01: "the connection one should appear if the network
+/// is slow and the wifi mark should appear"). The night keeps him asleep
+/// and shows only the mark.
 ///
 /// Nothing loops for ever: every loop here stops with the curtain. Reduce
 /// Motion ([reduced]) keeps the pictures and drops the movement: no steam,
 /// no swing, no walk, no rising z's, and Doum's own moves (see Sprout).
+///
+/// [handoff] is the very first open's scene about to hand Doum to the
+/// sign-in screen under it (LaunchDoumHandoff): his ready moment is his
+/// wave, without the hop, so he is standing still when he flies.
+/// [doumFlying] is that flight: the curtain draws him on his way, so the
+/// scene leaves him and his shadow out.
 class LaunchSceneView extends StatefulWidget {
   const LaunchSceneView({
     super.key,
@@ -167,6 +196,10 @@ class LaunchSceneView extends StatefulWidget {
     required this.away,
     required this.reduced,
     this.searching = false,
+    this.waitingOnNetwork = false,
+    this.handoff = false,
+    this.holdStill = false,
+    this.doumFlying = false,
   });
 
   final LaunchScene scene;
@@ -176,6 +209,14 @@ class LaunchSceneView extends StatefulWidget {
   final double away;
   final bool reduced;
   final bool searching;
+  final bool waitingOnNetwork;
+  final bool handoff;
+  final bool doumFlying;
+
+  /// No idle breath for Doum: the first open's scene that may hand him to
+  /// the sign-in screen keeps him still, so the flight starts from exactly
+  /// the picture the sign-in screen's Doum lands as.
+  final bool holdStill;
 
   @override
   State<LaunchSceneView> createState() => _LaunchSceneViewState();
@@ -222,8 +263,8 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         LaunchScene.update => SproutPose.idea,
         LaunchScene.stepsGoal => SproutPose.running,
         // Reduce Motion shows the afternoon's two as their boards do: the
-        // end, laughing by the fire under the cool night, standing among
-        // his seedlings, never the worried wait or the machine.
+        // end, laughing by the fire under the cool night, his wink off the
+        // treadmill, never the worried wait or the machine.
         LaunchScene.winterWait => widget.reduced
             ? SproutPose.winterHappyHeart
             : SproutPose.winterHourglass,
@@ -263,6 +304,13 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     super.didUpdateWidget(old);
     if (!old.started && widget.started) _start();
     if (!old.searching && widget.searching && !widget.leaving) _search();
+    if (!old.waitingOnNetwork && widget.waitingOnNetwork) {
+      _wifiOnAt = _t;
+      _wifiFoundAt = null;
+    }
+    if (old.waitingOnNetwork && !widget.waitingOnNetwork && _wifiOnAt != null) {
+      _wifiFoundAt = _t;
+    }
     if (!old.leaving && widget.leaving) _onReady();
     if (widget.scene == LaunchScene.winterWait) _markStars();
   }
@@ -280,6 +328,11 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
 
   /// When the magnifier came out (seconds on [_clock]), for its glint.
   double? _searchedAt;
+
+  /// When the Wi-Fi mark came out, and when the data came in (seconds on
+  /// [_clock]): it searches between the two, then lights whole and goes.
+  double? _wifiOnAt;
+  double? _wifiFoundAt;
 
   /// A slow load: the turn stops where it is and he looks.
   void _search() {
@@ -310,6 +363,7 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
       );
     }
     if (widget.searching) _search();
+    if (widget.waitingOnNetwork) _wifiOnAt = 0;
     if (widget.leaving) _onReady();
     if (widget.scene == LaunchScene.winterWait) _markStars();
   }
@@ -336,11 +390,15 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     _stopTurning(); // a turn still running stops where it is
     _readyAt = _t;
     _readyFrom = _pose;
+    // Handing him to the sign-in screen: the wave he lands in, no hop.
+    final handoff = widget.handoff && widget.scene == LaunchScene.firstOpen;
     // Found it: the ordinary scenes wave; the afternoon's two go on to
     // their own payoff.
-    final to = _pose == SproutPose.magnifier
-        ? (_readyPose ?? SproutPose.frontWave)
-        : _readyPose;
+    final to = handoff
+        ? SproutPose.frontWave
+        : _pose == SproutPose.magnifier
+            ? (_readyPose ?? SproutPose.frontWave)
+            : _readyPose;
     if (to == SproutPose.sunglasses && _shadesAt == null) _shadesAt = _t;
     if (to != null) setState(() => _pose = to);
     if (widget.reduced) {
@@ -348,7 +406,7 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
       return;
     }
     _ready.forward();
-    if (widget.scene != LaunchScene.nightAsleep) _moves.hop();
+    if (widget.scene != LaunchScene.nightAsleep && !handoff) _moves.hop();
   }
 
   void _stopTurning() {
@@ -444,6 +502,7 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
           _walkScene(size, c, rtl, behind);
       }
       if (_pose == SproutPose.magnifier) around.add(_lens(c));
+      if (_wifiOnAt != null) around.add(_wifi(c, night));
     }
 
     return Stack(
@@ -467,8 +526,9 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
                 clipBehavior: Clip.none,
                 children: [
                   ...behind,
-                  if (started) _shadow(c, rtl, night, enter),
-                  if (started) _doum(c, rtl, enter),
+                  if (started && !widget.doumFlying)
+                    _shadow(c, rtl, night, enter),
+                  if (started && !widget.doumFlying) _doum(c, rtl, enter),
                   ...around,
                   if (started) _line(c, night),
                 ],
@@ -492,12 +552,15 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         : Curves.easeOut.transform(((_t - .12) / .3).clamp(0.0, 1.0));
     // Once the magnifier has come out its line stays, through his "found
     // it" wave and the exit: the words change at most once.
+    // The admin's splash page may rewrite either line; one without "Grow
+    // Daily" is drawn whole, with no green row.
+    final settings = LaunchSettings.current;
     final text = _searchedAt != null
-        ? kLaunchSlowLine
-        : launchLine(widget.scene);
+        ? settings.slowLine
+        : settings.line(widget.scene);
     final split = text.indexOf('Grow Daily');
-    final lead = text.substring(0, split).trimRight();
-    final rest = text.substring(split + 'Grow Daily'.length);
+    final lead = split < 0 ? text : text.substring(0, split).trimRight();
+    final rest = split < 0 ? '' : text.substring(split + 'Grow Daily'.length);
     final base = GoogleFonts.getFont(
       'IBM Plex Sans Arabic',
       fontWeight: FontWeight.w700,
@@ -529,15 +592,16 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
               key: ValueKey(text),
               TextSpan(
                 children: [
-                  TextSpan(text: '$lead\n'),
-                  TextSpan(
-                    text: 'Grow Daily',
-                    style: TextStyle(
-                      fontSize: 29,
-                      letterSpacing: -.5,
-                      color: Color.lerp(_green, _nightGreen, night),
+                  TextSpan(text: split < 0 ? lead : '$lead\n'),
+                  if (split >= 0)
+                    TextSpan(
+                      text: 'Grow Daily',
+                      style: TextStyle(
+                        fontSize: 29,
+                        letterSpacing: -.5,
+                        color: Color.lerp(_green, _nightGreen, night),
+                      ),
                     ),
-                  ),
                   TextSpan(text: rest),
                 ],
               ),
@@ -614,11 +678,12 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
       // No breath on the treadmill: it would squash the machine.
       idleBreaths: sleeping
           ? 2
-          : pose == SproutPose.treadmill
+          : pose == SproutPose.treadmill || widget.holdStill
               ? 0
               : 1,
       underlay: layers.under,
       overlay: layers.over,
+      pictureBuilder: pose == SproutPose.treadmill ? _runningOnBelt : null,
       // The afternoon's two cut every pose change in one frame, as their
       // boards do: the walk moves the whole Sprout off the belt at the
       // swap, and winter lines his face up across two pictures, so the old
@@ -770,7 +835,10 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
   /// Three wisps off the mug, curling up and to the left like the art's
   /// own steam, one after another.
   Widget _steam(Offset c, {required bool started}) {
-    if (widget.reduced || !started) return const SizedBox.shrink();
+    // Off the mug once a slow load has him take out his magnifier.
+    if (widget.reduced || !started || _pose != SproutPose.mug) {
+      return const SizedBox.shrink();
+    }
     final fade = 1 - _ready.value;
     // The mug's steam in the art starts at 14% across, 55% down the picture.
     final box = Sprout.sizeOf(SproutPose.mug, kLaunchDoumHeight);

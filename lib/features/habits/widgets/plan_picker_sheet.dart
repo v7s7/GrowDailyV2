@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -9,6 +10,7 @@ import '../../../shared/widgets/habit_limit_gate.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../rooms/notifiers/rooms_notifier.dart'
     show myLinkedRoomHabitsProvider, roomsControllerProvider;
+import '../catalog/habit_ideas.dart';
 import '../catalog/habit_plans.dart';
 import '../catalog/islamic_habit_catalog.dart';
 import '../notifiers/custom_habits_notifier.dart';
@@ -19,7 +21,11 @@ class PlanPickerSheet extends ConsumerStatefulWidget {
   /// "Plans" tab, which already supplies that chrome once for all tabs.
   final bool embedded;
 
-  const PlanPickerSheet({super.key, this.embedded = false});
+  /// A plan to open: set by the hub when one is picked on the ideas page,
+  /// which expands it and brings it into view.
+  final ValueListenable<String?>? focusPlan;
+
+  const PlanPickerSheet({super.key, this.embedded = false, this.focusPlan});
 
   @override
   ConsumerState<PlanPickerSheet> createState() => _PlanPickerSheetState();
@@ -27,6 +33,44 @@ class PlanPickerSheet extends ConsumerStatefulWidget {
 
 class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   String? _expandedPlanId;
+
+  /// Each plan card's key, so [_focusPlan] can scroll one into view.
+  final _planKeys = <String, GlobalKey>{};
+
+  @override
+  void initState() {
+    super.initState();
+    widget.focusPlan?.addListener(_focusPlan);
+  }
+
+  @override
+  void dispose() {
+    widget.focusPlan?.removeListener(_focusPlan);
+    super.dispose();
+  }
+
+  /// Opens the plan [PlanPickerSheet.focusPlan] names, fully checked like
+  /// any open, and scrolls it into view.
+  void _focusPlan() {
+    final id = widget.focusPlan?.value;
+    if (id == null || !mounted) return;
+    final plan = habitPlans.where((p) => p.id == id).firstOrNull;
+    if (plan == null) return;
+    setState(() {
+      _expandedPlanId = plan.id;
+      _stagedHabitIds = plan.catalogIds.toSet();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _planKeys[id]?.currentContext;
+      if (target == null || !mounted) return;
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.05,
+        duration: GameMotion.slow,
+        curve: Curves.easeOutCubic,
+      );
+    });
+  }
 
   /// Shared by both branches of onActivate below: a plan can deactivate
   /// several catalog habits in one tap (the whole plan, or whatever got
@@ -221,17 +265,22 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   }
 
   Widget _planList(BuildContext context, Set<String> activeIds, bool isAr) {
+    // The admin's order, hidden plans and edited words (habit_ideas.dart).
+    final shown = shownPlans();
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       shrinkWrap: true,
-      itemCount: habitPlans.length,
+      itemCount: shown.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
-        final plan = habitPlans[i];
+        final plan = shown[i].plan;
         final isActive = plan.catalogIds.every(activeIds.contains);
         final isExpanded = _expandedPlanId == plan.id;
         return _PlanCard(
+          key: _planKeys.putIfAbsent(plan.id, GlobalKey.new),
           plan: plan,
+          name: shown[i].name(isAr),
+          desc: shown[i].desc(isAr),
           isActive: isActive,
           isExpanded: isExpanded,
           isAr: isAr,
@@ -318,6 +367,11 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
 
 class _PlanCard extends StatelessWidget {
   final HabitPlan plan;
+
+  /// The plan's name and description as shown: the admin's words where
+  /// they were edited (see shownPlans).
+  final String name;
+  final String desc;
   final bool isActive;
   final bool isExpanded;
   final bool isAr;
@@ -328,7 +382,10 @@ class _PlanCard extends StatelessWidget {
   final void Function(String habitId) onToggleHabit;
 
   const _PlanCard({
+    super.key,
     required this.plan,
+    required this.name,
+    required this.desc,
     required this.isActive,
     required this.isExpanded,
     required this.isAr,
@@ -405,7 +462,7 @@ class _PlanCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        plan.localName(isAr),
+                        name,
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w800,
@@ -415,7 +472,7 @@ class _PlanCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        plan.localDesc(isAr),
+                        desc,
                         style: TextStyle(
                             fontSize: 12, color: gp.textSec, height: 1.3),
                       ),
@@ -433,8 +490,11 @@ class _PlanCard extends StatelessWidget {
                         color: c.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
                       ),
+                      // Left to right in either language: in Arabic the
+                      // plain string drew as «XP 85+».
                       child: Text(
                         '+$displayedXp XP',
+                        textDirection: TextDirection.ltr,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -485,20 +545,21 @@ class _PlanCard extends StatelessWidget {
                           style: TextStyle(fontSize: 10.5, color: gp.textTert),
                         ),
                         const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: plan.habits.map((h) {
-                            final checked = stagedHabitIds.contains(h.id);
-                            return _HabitChip(
-                              habit: h,
-                              isChecked: checked,
-                              planColor: c,
-                              isAr: isAr,
-                              onTap: () => onToggleHabit(h.id),
-                            );
-                          }).toList(),
-                        ),
+                        // One full-width row per habit, all the same height.
+                        // A Wrap of chips sized to their own names left a
+                        // ragged block of three widths (Aziz, 2026-10-01:
+                        // "make the chips size fit and perfect").
+                        for (final h in plan.habits) ...[
+                          if (h != plan.habits.first)
+                            const SizedBox(height: 6),
+                          _HabitChip(
+                            habit: h,
+                            isChecked: stagedHabitIds.contains(h.id),
+                            planColor: c,
+                            isAr: isAr,
+                            onTap: () => onToggleHabit(h.id),
+                          ),
+                        ],
                         const SizedBox(height: 14),
                         SizedBox(
                           width: double.infinity,
@@ -580,13 +641,16 @@ class _PlanCard extends StatelessWidget {
   }
 }
 
-/// One habit within an expanded plan card's checklist - tappable on its own
-/// (see [_PlanCard.onToggleHabit]) to check/uncheck it, a direct tap on the
-/// thing itself rather than a separate checkbox bolted beside it. Starts
-/// checked (see [_PlanPickerSheetState._stagedHabitIds]); the trailing icon
-/// is the only visual cue these are real checkboxes and not just a
-/// read-only preview, alongside [_PlanCard]'s planPickHabitsHint caption
-/// above the whole row.
+/// One habit within an expanded plan card's checklist, as a full-width row:
+/// the check, the habit's icon and name, then its points at the far end.
+/// Tappable on its own (see [_PlanCard.onToggleHabit]) to check or uncheck
+/// it. Starts checked (see [_PlanPickerSheetState._stagedHabitIds]); the
+/// check circle at the start is what says these are a checklist and not a
+/// read-only preview, alongside [_PlanCard]'s planPickHabitsHint caption.
+///
+/// Rows, not chips: chips sized to their names wrapped into a ragged block
+/// where a long name («استيقظ قبل الساعة 6 صباحًا») took a line of its own
+/// beside two short ones (Aziz, 2026-10-01).
 class _HabitChip extends StatelessWidget {
   final IslamicHabitTemplate habit;
   final bool isChecked;
@@ -605,58 +669,73 @@ class _HabitChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final ink = gp.ink(planColor);
     // GestureDetector, not InkWell - matches _PlanCard/_ReminderRow just
     // below in this same file, which both avoid InkWell for the same
     // reason: this sheet renders both as a bare showModalBottomSheet child
     // and embedded inside AddHabitHub's tab view, and only the first of
     // those is guaranteed to sit under a Material ancestor for ink splashes
     // to paint into.
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isChecked
-              ? planColor.withOpacity(0.12)
-              : gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(GameSpacing.chipRadius),
-          border: Border.all(
-            color: isChecked ? planColor.withOpacity(0.4) : gp.border,
-            width: 0.5,
+    return Semantics(
+      button: true,
+      checked: isChecked,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: GameMotion.quick,
+          curve: Curves.easeOut,
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsetsDirectional.fromSTEB(10, 8, 12, 8),
+          decoration: BoxDecoration(
+            color: isChecked ? planColor.withOpacity(0.10) : gp.surfaceHigh,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isChecked ? planColor.withOpacity(0.35) : gp.border,
+              width: isChecked ? 0.8 : 0.5,
+            ),
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(habit.category.icon,
-                size: 13, color: isChecked ? planColor : gp.textSec),
-            const SizedBox(width: 6),
-            Text(
-              habit.localName(isAr),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isChecked ? planColor : gp.textSec,
+          child: Row(
+            children: [
+              Icon(
+                isChecked
+                    ? Icons.check_circle_rounded
+                    : Icons.circle_outlined,
+                size: 20,
+                color: isChecked ? ink : gp.textTert,
               ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '+${habit.xpReward} XP',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: isChecked ? planColor : gp.textTert,
+              const SizedBox(width: 10),
+              Icon(
+                habit.category.icon,
+                size: 15,
+                color: isChecked ? ink : gp.textTert,
               ),
-            ),
-            const SizedBox(width: 5),
-            Icon(
-              isChecked
-                  ? Icons.check_circle_rounded
-                  : Icons.circle_outlined,
-              size: 14,
-              color: isChecked ? planColor : gp.textTert,
-            ),
-          ],
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  habit.localName(isAr),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.3,
+                    fontWeight: FontWeight.w700,
+                    color: isChecked ? gp.textPrimary : gp.textSec,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '+${habit.xpReward} XP',
+                textDirection: TextDirection.ltr,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: isChecked ? ink : gp.textTert,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

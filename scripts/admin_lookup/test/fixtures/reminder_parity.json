@@ -579,6 +579,100 @@
     1790798400000,
     1790884800000
    ]
+  },
+  {
+   "id": "prayers_fajr_pair",
+   "habit": {
+    "cueAfter": "custom_time:fajr-30,fajr+30",
+    "frequencyTarget": 2
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790862948939,
+   "appArmed": [
+    1790901780000,
+    1790905380000,
+    1790988180000,
+    1790991780000,
+    1791074640000,
+    1791078240000,
+    1791161040000,
+    1791164640000
+   ]
+  },
+  {
+   "id": "prayers_done1",
+   "habit": {
+    "cueAfter": "custom_time:dhuhr,asr+10,isha",
+    "frequencyTarget": 3
+   },
+   "completed": 1,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790862949081,
+   "appArmed": [
+    1790929680000,
+    1790942460000,
+    1790955540000,
+    1791016080000,
+    1791028800000,
+    1791041880000,
+    1791102480000,
+    1791115140000,
+    1791128220000,
+    1791188820000,
+    1791201540000
+   ]
+  },
+  {
+   "id": "prayers_quiet_on_prayer",
+   "habit": {
+    "cueAfter": "custom_time:fajr-30,isha",
+    "frequencyTarget": 2
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": true
+   },
+   "now": 1790862949136,
+   "appArmed": [
+    1790869200000,
+    1790955540000,
+    1791041880000,
+    1791128220000
+   ]
+  },
+  {
+   "id": "prayers_mixed_damaged",
+   "habit": {
+    "cueAfter": "custom_time:fajr,07:30",
+    "frequencyTarget": 2
+   },
+   "completed": 0,
+   "squareFailed": false,
+   "settings": {
+    "quietHoursEnabled": true,
+    "quietHoursStart": "22:0",
+    "quietHoursEnd": "7:0",
+    "quietHoursAppliesToPrayer": false
+   },
+   "now": 1790862949181,
+   "appArmed": []
   }
  ]
 }

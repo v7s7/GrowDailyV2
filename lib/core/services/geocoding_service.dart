@@ -13,12 +13,16 @@ class CitySearchResult {
   final double latitude;
   final double longitude;
 
+  /// The place's IANA time zone ("Europe/London"), when the API names one.
+  final String? timezone;
+
   const CitySearchResult({
     required this.name,
     this.admin1,
     required this.country,
     required this.latitude,
     required this.longitude,
+    this.timezone,
   });
 
   /// "Cairo, Al Qahirah, Egypt" — admin1 dropped when absent or a plain
@@ -41,6 +45,7 @@ class CitySearchResult {
         country: json['country'] as String? ?? '',
         latitude: (json['latitude'] as num?)?.toDouble() ?? 0,
         longitude: (json['longitude'] as num?)?.toDouble() ?? 0,
+        timezone: json['timezone'] as String?,
       );
 }
 

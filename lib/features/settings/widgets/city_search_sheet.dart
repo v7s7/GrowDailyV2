@@ -96,6 +96,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
         label: r.displayLabel,
         // Picked by hand, so it stays put when the phone moves.
         auto: false,
+        zone: r.timezone,
       ),
     );
   }

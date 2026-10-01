@@ -308,6 +308,13 @@ test('a reminder shift shows only where the app uses it: two or more times', () 
   assert.strictEqual(cueLabel('custom_time:19:00,06:15,19:00'), '06:15 and 19:00');
 });
 
+test('a prayer per time says each reminder whole, since two can share a prayer', () => {
+  assert.strictEqual(cueLabel('custom_time:fajr-30,fajr+30,asr'),
+    '30m before Fajr, 30m after Fajr and at Asr');
+  assert.strictEqual(cueClause('custom_time:fajr-30,fajr+30'),
+    '30m before Fajr and 30m after Fajr');
+});
+
 test('a damaged custom_time says the app shows no cue, not a fake time', () => {
   for (const bad of ['custom_time:99:99', 'custom_time:7:30', 'custom_time:06:00,xx']) {
     assert.match(cueLabel(bad), /unreadable, so the app shows no cue/, bad);

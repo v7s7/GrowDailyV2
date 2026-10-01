@@ -156,6 +156,45 @@ SHEETS = {
     "ghutra": dict(poses="poses-ghutra.json", src=ROOT / "design/mascot/sheet-ghutra/poses-native",
                    masters=ROOT / "design/mascot/sheet-ghutra/poses-4x", app=APP / "winter",
                    row_norm={1: 2.62 / S, 2: 2.61 / S, 3: 2.75 / S}),
+    # 2026-10-01: the three October sheets (recolor_sheets_oct.py). The
+    # sheets were asked for one character size and drew it 1.85 to 3.07 app px
+    # per sheet px apart (the stairs and flag-hill figures share their cell
+    # with a big prop and came out small; the peek pose's face is drawn big),
+    # so each pose in poses-<sheet>.json carries its own "scale" (app px per
+    # sheet px), which wins over the row. Measured against the shipped app
+    # copies (front wave, three-quarter wave, cheer, thumbs up, magnifier,
+    # jogging, pointer, happy sparkles): open-eye height 77, front eye spacing
+    # 164, square root of the leaves' cream area 314.5. A pose's scale is the
+    # geometric mean of its face (eye height and spacing) and its leaves;
+    # where the eyes are shut or winking, of its leaves over the sheet's median
+    # leaf-to-face ratio (moments 1.12, habits 1.15, ramadan 1.09: these
+    # sheets draw the leaves about a tenth smaller on the same face); where a
+    # cream prop or a cap spoils the leaf measure (thobe, sleep cap, the
+    # peek's cut), of its face alone. Then settled by eye in a lineup beside
+    # front wave and cheer, where eleven came out 8 to 15% big and were
+    # brought down: clap 2.40, wrench 2.50, notebook 2.60, sweeping and
+    # swimming 2.45, lights 2.65 (its leaf measure counted bulb light),
+    # night lantern 2.50, dallah, crescent 2.60, telescope, sunset 2.65.
+    **{name: dict(poses=f"poses-{name}.json", src=ROOT / f"design/mascot/sheet-{name}/poses-native",
+                  masters=ROOT / f"design/mascot/sheet-{name}/poses-4x", app=APP / name,
+                  row_norm={1: 2.5 / S}) for name in ("moments", "habits", "ramadan")},
+    # 2026-10-01: the language switch's two looks, both into assets/images/
+    # mascot/language/. The spin swaps one look for the other mid-turn, so
+    # each look keeps ONE scale for all its poses (a per-pose scale would make
+    # him grow or shrink as he turns), and the two looks are matched to each
+    # other and to mascot_front_wave's app copy (open-eye height 70.5, eye
+    # spacing 159, feet span 311, square root of the leaves' cream area 239.5,
+    # all measured the same way on both). suit front wave: eyes 1.96 and 2.15,
+    # leaves 2.21, feet 2.01 app px per sheet px; 2.10. thobe front wave (no
+    # leaves to measure, the ghutra hides them): eyes 1.37 and 1.56, feet
+    # 1.51; 1.50. At those scales the two front poses' eyes sit 155 and 153
+    # apart and their feet span 326 and 309, against 159 and 311.
+    "suit": dict(poses="poses-suit.json", src=ROOT / "design/mascot/sheet-suit/poses-native",
+                 masters=ROOT / "design/mascot/sheet-suit/poses-4x", app=APP / "language",
+                 row_norm={1: 2.10 / S}),
+    "thobe": dict(poses="poses-thobe.json", src=ROOT / "design/mascot/sheet-thobe/poses-native",
+                  masters=ROOT / "design/mascot/sheet-thobe/poses-4x", app=APP / "language",
+                  row_norm={1: 1.50 / S}),
 }
 
 
@@ -206,8 +245,8 @@ def master(net, dev, n):
     return np.dstack([clean_edges(rgb, al, reach=6), al])
 
 
-def app_copy(m4, row, row_norm=ROW_NORM):
-    f = S * row_norm[row] / 4
+def app_copy(m4, row, row_norm=ROW_NORM, scale=None):
+    f = (scale if scale else S * row_norm[row]) / 4
     w, h = round(m4.shape[1] * f), round(m4.shape[0] * f)
     RGB, A = resize_premult(m4, w, h)
     A = np.where(A >= 0.985, 1.0, np.where(A <= 0.015, 0.0, A))
@@ -274,7 +313,7 @@ if __name__ == "__main__":
     args.masters.mkdir(parents=True, exist_ok=True)
     args.app.mkdir(parents=True, exist_ok=True)
     for pose in poses:
-        if args.only and pose['name'] not in args.only:
+        if pose.get('skip') or (args.only and pose['name'] not in args.only):
             continue
         n = np.asarray(Image.open(args.src / f"{pose['name']}.png").convert('RGBA')).astype(np.float64) / 255
         m4 = master(net, dev, n)
@@ -282,7 +321,7 @@ if __name__ == "__main__":
         if not pose.get('app', True):
             print(f"{pose['name']:28s} 4x {m4.shape[1]}x{m4.shape[0]}  (repeats {pose['twin']}: master only)")
             continue
-        a = app_copy(m4, pose['row'], cfg["row_norm"])
+        a = app_copy(m4, pose['row'], cfg["row_norm"], pose.get('scale'))
         to_webp(a, args.app / f"{pose['name']}.webp")
         print(f"{pose['name']:28s} 4x {m4.shape[1]}x{m4.shape[0]}  app {a.shape[1]}x{a.shape[0]}")
     for asset, name in WIDGET_POSES.items():

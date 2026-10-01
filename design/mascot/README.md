@@ -618,7 +618,81 @@ then `fix_poses_ghutra.py`, then `upscale_poses.py --sheet ghutra`
   second sheet's 23 of 24. `mascot_idea` differs by design: `fix_poses_2.py`
   rebuilds it after the cut.
 
+## The October sheets: moments, habits, Ramadan (2026-10-01)
+
+Aziz generated three sheets from the prompts in the "Where Doum lives"
+canvas, 12 poses each in a 4 x 3 grid (1536x1024): app moments
+(`sheet-moments/`), daily habits (`sheet-habits/`) and Ramadan and Eid
+(`sheet-ramadan/`). Each folder keeps `sheet-<name>-original.png`
+(byte-identical to the download), `sheet-<name>-final.png`,
+`poses-native/` and `poses-4x/`. The app copies are in
+`assets/images/mascot/moments/`, `habits/` and `ramadan/`, NOT in pubspec
+yet. What each pose shows and where it fits: `POSES.md`.
+
+Rebuilding, per sheet (`--sheet moments`, `habits` or `ramadan`):
+`recolor_sheets_oct.py`, then `cut_poses.py`, then (moments only)
+`fix_poses_oct.py`, then `upscale_poses.py`. What each step decides is in
+its docstring:
+
+- **Ground.** moments came with a real transparent ground. habits and
+  ramadan came with a checkerboard PAINTED in (RGB, two greys): it is
+  flooded out from the border through neutral grey, pockets of checkerboard
+  inside loops are found by their two greys, and grey crumbs under 60 px
+  join the ground. Ramadan's lantern and bulb glows were painted over the
+  checkerboard: they become a soft translucent glow in the light's own
+  colour, averaged over 17 px so the squares cancel.
+- **Paint.** Body green and cream move onto #74C878 and #F5F0E1 in OKLab
+  (the sheets came 0.04 to 0.07 lighter); cheeks and outline stay as drawn.
+- **Cut.** The night-lantern pose's small crescent is given to it by hand
+  (it sits nearer the dallah pose). The peek pose's drawn edge line is cut
+  off (`fix_poses_oct.py`): it ends flat where his hands rest, to sit on a
+  card's edge.
+- **Size.** The sheets drew the figure 1.85 to 3.07 app px per sheet px
+  apart, so each pose carries its own `scale` in `tool/mascot/poses-<sheet>.json`,
+  measured by face and leaves against the shipped app copies.
+
+## The language looks: suit and thobe (2026-10-01)
+
+Two sheets for the language switch (canvas "Doum picks the language",
+https://claude.ai/artifact/9CjYXu7hwMNE85asDuj1zC): Doum dressed for each
+language, in the four turnaround angles plus a greeting and a jump.
+
+- `sheet-suit/` ("ورقة ملصقات ماسكوت البراعم المرحة.png", 4 x 3): the
+  English look, a slate-blue jacket, white collar and burgundy tie with both
+  leaves up. Only its six English poses are kept. Its first Arabic look was
+  rejected by Aziz (leaves up through the agal, a short sleeveless thobe, a
+  ghutra like a cape); those six are listed in `poses-suit.json` with
+  `"skip"` so the sheet still counts 12 characters, and nothing is written
+  for them.
+- `sheet-thobe/` ("ملصقات mascot خليجي لطيف pose poses.png", 3 x 2, 512 px
+  cells): the Arabic look redrawn. A long thobe with long sleeves, the
+  ghutra over the whole head, the leaves hidden under it, a black agal.
+
+The app copies are in `assets/images/mascot/language/` (`lang_suit_*`,
+`lang_thobe_*`), in pubspec and `SproutPose` (`langThobe*`, `langSuit*`),
+drawn by `DoumLanguageLook` on the sign-in screen and in Settings ›
+Language.
+
+Rebuilding, per sheet (`--sheet suit` or `thobe`): `recolor_sheets_oct.py`
+(both have a real transparent ground, so only the paint moves; the thobe and
+ghutra are cream and move onto #F5F0E1 with the leaves' cream), then
+`cut_poses.py`, then `upscale_poses.py`.
+
+- **Size.** The spin swaps one look for the other mid-turn, so each look has
+  ONE scale for all its poses, never a scale per pose: suit 2.10 and thobe
+  1.50 app px per sheet px (the thobe sheet drew Doum about 40% bigger).
+  Both are matched to `mascot_front_wave` by eye height and spacing, feet
+  span and, for the suit, the leaves. `upscale_poses.py` lists the measures.
+- **Cautions.** The suit is mid-tone so it holds on a dark card; check the
+  thobe's cream on the light theme's cream page. The Arabic look has no
+  leaves showing: keep it to the language moments, where the suit beside it
+  says who he is.
+
 ## Where the sprout lives in the app (built 2026-09-27)
+
+Superseded for day-to-day use by `POSES.md`, the catalogue of every pose
+with where it is drawn now, where it fits and its cautions (kept current
+since 2026-10-01). The table below is the first placement pass as built.
 
 From the design canvas Aziz approved (https://claude.ai/artifact/9pn6TiQQ448663K6WRCJVi).
 Code: `lib/features/mascot/` (`Sprout`, `DayCardSprout`, `SproutTurnaround`,

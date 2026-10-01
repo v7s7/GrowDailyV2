@@ -37,6 +37,10 @@
  * those two, and any field this file does not know yet, through unchanged:
  * a string saved from an older copy of this file would otherwise have
  * wiped them.
+ *
+ * Since 2026-10-01 the Habit ideas page (lib/ideas_admin.js) keeps `ideas`
+ * and `plans` here too. This file only carries them through, as unknown
+ * fields, and undoes that page's History rows (kind 'ideas').
  */
 
 const fs = require('node:fs');
@@ -667,12 +671,22 @@ async function savePremium(db, FieldValue, { catalog, strings, stringsBase, bene
   return { ok: true, errors: [], warnings, changed };
 }
 
+/** wording/live's `ideas` and `plans` as stored, null for none (the Habit
+ *  ideas page's two fields, lib/ideas_admin.js; kept in `extra`). */
+function storedIdeas(live) {
+  const pick = (k) => (Object.prototype.hasOwnProperty.call(live.extra, k) && live.extra[k] !== undefined ? live.extra[k] : null);
+  return { ideas: pick('ideas'), plans: pick('plans') };
+}
+
 /**
  * Puts back what one History row changed. Refused when the same thing has
  * changed again since, so an undo can never silently throw away a later
  * edit: undo the later one first.
+ *
+ * [onlyKind], when given, refuses a row of any other kind: a page's own
+ * Undo can only undo its own rows.
  */
-async function undoChange(db, FieldValue, { id, catalogByKey }) {
+async function undoChange(db, FieldValue, { id, catalogByKey, onlyKind }) {
   const logRef = db.collection(LOG_COLLECTION).doc(String(id || ''));
   const liveRef = db.doc(LIVE_DOC);
   const adminRef = db.doc(ADMIN_DOC);
@@ -680,6 +694,7 @@ async function undoChange(db, FieldValue, { id, catalogByKey }) {
     const [logSnap, liveSnap, adminSnap] = await tx.getAll(logRef, liveRef, adminRef);
     if (!logSnap.exists) throw new WordingInputError('That change is not in History.', 404);
     const row = shapeLog(logSnap.id, logSnap.data());
+    if (onlyKind && row.kind !== onlyKind) throw new WordingInputError('That History row is not one this page can undo.');
     if (row.undoneBy) throw new WordingInputError('That change has already been undone.', 409);
     const live = shapeLive(liveSnap.exists ? liveSnap.data() : null);
     const admin = shapeAdmin(adminSnap.exists ? adminSnap.data() : null);
@@ -724,6 +739,19 @@ async function undoChange(db, FieldValue, { id, catalogByKey }) {
       }
       live.benefits = Content.benefitsDocument(Content.parseBenefitEdits(row.before));
       live.benefitsRaw = undefined;
+    } else if (row.kind === 'ideas') {
+      // The Habit ideas page saves its two fields together, so a row puts
+      // both back, as they were stored.
+      current = storedIdeas(live);
+      if (!Content.same(current, row.after)) {
+        throw new WordingInputError('The habit ideas or plans have changed again since. Undo the later change first.', 409);
+      }
+      const before = row.before && typeof row.before === 'object' ? row.before : {};
+      for (const key of ['ideas', 'plans']) {
+        const value = before[key];
+        if (value === null || value === undefined) delete live.extra[key];
+        else live.extra[key] = value;
+      }
     } else {
       throw new WordingInputError('That History row cannot be undone.');
     }
@@ -733,7 +761,8 @@ async function undoChange(db, FieldValue, { id, catalogByKey }) {
     const restored = row.kind === 'quotes' ? plainQuotes(row.before)
       : row.kind === 'faq' ? live.faq
         : row.kind === 'benefits' ? live.benefits
-          : row.before;
+          : row.kind === 'ideas' ? storedIdeas(live)
+            : row.before;
     tx.set(liveRef, liveDocument(live, FieldValue));
     tx.set(adminRef, adminDocument(admin, FieldValue));
     const undoRow = {

@@ -14,7 +14,13 @@ import '../../../core/utils/western_digits.dart';
 /// catalog cues (`'Fajr'`, `'Asr'`, ...) ever have to change just because
 /// someone switches the app's language, and a habit created in one language
 /// still reads correctly after switching to the other.
-enum _HabitCueKind { preset, time, freeform }
+enum _HabitCueKind { preset, time, prayers, freeform }
+
+/// One reminder of a habit counted several times a day that rides on a
+/// prayer: the prayer's key ('fajr'…'isha') and the signed minutes from it,
+/// negative before and positive after. Two of them can share a prayer, 30
+/// before Fajr and 30 after it (Aziz, 2026-10-01).
+typedef PrayerSlot = ({String prayer, int offset});
 
 class HabitCue {
   final _HabitCueKind _kind;
@@ -48,6 +54,11 @@ class HabitCue {
   /// Empty for a single-time cue, which keeps using the habit's own
   /// reminderOffsetMinutes exactly as it always has. See [offsetsAreOwn].
   final List<int> _offsets;
+
+  /// A habit counted several times a day whose reminders ride on prayers,
+  /// one per time, in the order [HabitCue.prayerSlots] sorts them. Empty for
+  /// every other cue.
+  final List<PrayerSlot> _slots;
   final String _raw;
 
   const HabitCue._preset(String key)
@@ -57,6 +68,7 @@ class HabitCue {
         _minute = null,
         _extraTimes = const [],
         _offsets = const [],
+        _slots = const [],
         _raw = '';
 
   const HabitCue._time(int hour24, int minute,
@@ -67,6 +79,17 @@ class HabitCue {
         _minute = minute,
         _extraTimes = extras,
         _offsets = offsets,
+        _slots = const [],
+        _raw = '';
+
+  const HabitCue._prayers(List<PrayerSlot> slots)
+      : _kind = _HabitCueKind.prayers,
+        _presetKey = null,
+        _hour24 = null,
+        _minute = null,
+        _extraTimes = const [],
+        _offsets = const [],
+        _slots = slots,
         _raw = '';
 
   const HabitCue._freeform(String raw)
@@ -76,6 +99,7 @@ class HabitCue {
         _minute = null,
         _extraTimes = const [],
         _offsets = const [],
+        _slots = const [],
         _raw = raw;
 
   static const empty = HabitCue._freeform('');
@@ -118,6 +142,13 @@ class HabitCue {
   /// suffix and round-trips byte-identically, which is the whole
   /// backward-compatibility guarantee: nothing already on disk moves.
   static final RegExp _timePart = RegExp(r'^(\d{2}):(\d{2})([+-]\d{1,3})?$');
+
+  /// One entry of a `custom_time:` run that rides on a prayer instead of a
+  /// clock: the prayer's key, optionally followed by a SIGNED minute shift
+  /// (`fajr-30` is half an hour before Fajr). A run is all clock times or
+  /// all prayers; see [HabitCue.prayerSlots].
+  static final RegExp _prayerPart =
+      RegExp(r'^(fajr|dhuhr|asr|maghrib|isha)([+-]\d{1,3})?$');
   static final RegExp _timeEn =
       RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', caseSensitive: false);
   static final RegExp _timeAr = RegExp(r'^(\d{1,2}):(\d{2})\s*(ص|م)$');
@@ -180,6 +211,50 @@ class HabitCue {
   factory HabitCue.times(List<TimeOfDay> times) =>
       HabitCue.timesWithOffsets([for (final t in times) (t, 0)]);
 
+  /// A habit counted several times a day, each time's reminder riding on a
+  /// prayer with its own shift (Aziz, 2026-10-01: "30 min before fajr, and
+  /// 30 after fajr").
+  ///
+  /// Stored in the `custom_time:` run a multi-time clock cue uses, a prayer
+  /// key where the clock would be: `custom_time:fajr-30,fajr+30`. An app
+  /// from before this reads that run as damage and shows no reminder, the
+  /// way it treats any `custom_time:` it cannot parse, rather than showing
+  /// the raw string as typed words.
+  ///
+  /// Sorted by the prayers' order in the day, then by shift, and the same
+  /// prayer at the same shift is kept once: like two clock rows on one
+  /// minute, it would be one reminder in two slots. A key that is not one of
+  /// the five prayers, or a shift beyond the three digits the stored form
+  /// holds, is dropped. Nothing left is an empty cue.
+  ///
+  /// One slot is a valid cue too (a hand-edited document can hold one), but
+  /// Add Habit saves one prayer as the bare key with the shift in the
+  /// habit's own field, the shape a habit counted once a day has always had.
+  factory HabitCue.prayerSlots(List<PrayerSlot> slots) {
+    final seen = <String>{};
+    final kept = [
+      for (final slot in slots)
+        if (_prayerOrder.contains(slot.prayer) &&
+            slot.offset.abs() <= _maxStoredShift &&
+            seen.add('${slot.prayer}${slot.offset}'))
+          slot,
+    ]..sort((a, b) {
+        final byPrayer = _prayerOrder
+            .indexOf(a.prayer)
+            .compareTo(_prayerOrder.indexOf(b.prayer));
+        return byPrayer != 0 ? byPrayer : a.offset.compareTo(b.offset);
+      });
+    if (kept.isEmpty) return HabitCue.empty;
+    return HabitCue._prayers(List.unmodifiable(kept.take(_maxTimes)));
+  }
+
+  /// The five prayers in the order of the day, which is the order a run of
+  /// prayer slots is kept in.
+  static const _prayerOrder = ['fajr', 'dhuhr', 'asr', 'maghrib', 'isha'];
+
+  /// The largest shift a `custom_time:` entry can write: three digits.
+  static const int _maxStoredShift = 999;
+
   /// The most times one habit can carry. Kept equal to
   /// NotificationService._maxHabitReminderSlots and kMaxTimesPerDay — the
   /// three are asserted equal in test (they cannot import each other: one
@@ -217,8 +292,22 @@ class HabitCue {
     if (timeCandidate.startsWith('custom_time:')) {
       final body = timeCandidate.substring('custom_time:'.length);
       if (body.isEmpty) return HabitCue.empty;
+      // A run of prayers, every entry of it. One prayer among clock times is
+      // not something this app writes, so it falls to the clock parse below
+      // and comes out as damage, as any other stray entry does.
+      final parts = body.split(',');
+      if (parts.every(_prayerPart.hasMatch)) {
+        return HabitCue.prayerSlots([
+          for (final part in parts)
+            if (_prayerPart.firstMatch(part) case final m?)
+              (
+                prayer: m.group(1)!,
+                offset: m.group(2) == null ? 0 : int.parse(m.group(2)!),
+              ),
+        ]);
+      }
       final entries = <(TimeOfDay, int)>[];
-      for (final part in body.split(',')) {
+      for (final part in parts) {
         final m = _timePart.firstMatch(part);
         if (m == null) return HabitCue.empty;
         final h = int.parse(m.group(1)!);
@@ -279,6 +368,15 @@ class HabitCue {
   /// The canonical prayer key ('fajr'…'isha') if [isPrayer], else null.
   String? get prayerKey => isPrayer ? _presetKey : null;
 
+  /// A multi-time habit's prayer reminders, in order (see
+  /// [HabitCue.prayerSlots]). Empty for every other cue, including a single
+  /// prayer, which is [prayerKey].
+  List<PrayerSlot> get prayerSlots => _slots;
+
+  /// Whether this cue needs the prayer times to resolve: one prayer, or a
+  /// prayer per time. What asks for a location and keeps it fresh.
+  bool get usesPrayerTimes => isPrayer || _slots.isNotEmpty;
+
   /// The exact clock time this cue resolves to, if the user picked one —
   /// null for a preset routine anchor (e.g. 'maghrib', 'before_sleep') or
   /// freeform text. A prayer preset resolves to a real time too, but through
@@ -338,6 +436,10 @@ class HabitCue {
   /// never needs to change again after a language switch.
   String toStorageValue() => switch (_kind) {
         _HabitCueKind.preset => _presetKey!,
+        _HabitCueKind.prayers => 'custom_time:${[
+            for (final slot in _slots)
+              '${slot.prayer}${slot.offset == 0 ? '' : (slot.offset > 0 ? '+${slot.offset}' : '${slot.offset}')}',
+          ].join(',')}',
         // Emits the legacy single-value form byte-for-byte when there is only
         // one time, so re-saving an untouched habit rewrites the same string.
         // Emits the legacy single-value form byte-for-byte when there is one
@@ -351,6 +453,7 @@ class HabitCue {
   String labelForLocale(bool isAr) => switch (_kind) {
         _HabitCueKind.preset => _presetLabel(_presetKey!, isAr),
         _HabitCueKind.time => _timeLabel(isAr),
+        _HabitCueKind.prayers => _prayersLabel(isAr),
         _HabitCueKind.freeform => _raw,
       };
 
@@ -381,6 +484,21 @@ class HabitCue {
     final isPm = hour24 >= 12;
     final period = isAr ? (isPm ? 'م' : 'ص') : (isPm ? 'PM' : 'AM');
     return '$hour12:${_pad2(minute)} $period';
+  }
+
+  /// The prayers a multi-time habit rides on, each named once and joined as
+  /// [_timeLabel] joins times: «الفجر والعصر». Two reminders around one
+  /// prayer name it once; the rows that say each one's side live in Add
+  /// Habit, which is where the shift is read.
+  String _prayersLabel(bool isAr) {
+    final names = [
+      for (final key in _prayerOrder)
+        if (_slots.any((slot) => slot.prayer == key)) _presetLabel(key, isAr),
+    ];
+    if (names.length == 1) return names.first;
+    final join = isAr ? ' و' : ' and ';
+    return '${names.sublist(0, names.length - 1).join(isAr ? '، ' : ', ')}'
+        '$join${names.last}';
   }
 
   /// Joined with "و" / "and" rather than commas, because this label is read

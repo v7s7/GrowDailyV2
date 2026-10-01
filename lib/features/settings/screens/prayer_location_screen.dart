@@ -16,6 +16,7 @@ import '../../../shared/widgets/app_snackbar.dart';
 import '../models/notification_settings.dart';
 import '../notifiers/notification_settings_notifier.dart';
 import '../widgets/city_search_sheet.dart';
+import '../widgets/prayer_today_card.dart';
 
 /// Settings › موقع الصلاة: the place prayer times are worked out from, and
 /// the one place to change it.
@@ -36,6 +37,11 @@ import '../widgets/city_search_sheet.dart';
 ///  - «اختر مدينة»: a city picked by hand, which never moves on its own.
 /// Choosing «موقعي الحالي» again is how a hand-picked city goes back to
 /// automatic.
+///
+/// Under the place card, today's prayer times for it (PrayerTodayCard,
+/// 2026-10-01): the widget's sky with the next prayer counting down, then
+/// all six of today's moments. A tap on the prayer widget lands here, and a
+/// newly chosen place brings the page back up to show its day.
 class PrayerLocationScreen extends ConsumerStatefulWidget {
   const PrayerLocationScreen({super.key});
 
@@ -50,6 +56,8 @@ enum _PlaceMode { none, phone, city }
 class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
   bool _detecting = false;
 
+  final _scroll = ScrollController();
+
   /// Whether the app may read the location without asking. Only matters for
   /// a place saved before `auto` was recorded (see [NotificationLocation.
   /// auto]), which follows the phone exactly when this is true.
@@ -59,6 +67,23 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
   void initState() {
     super.initState();
     _readPermission();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// After a new place is saved: the two choices sit below today's times,
+  /// so the page goes back up to the place and the day it just brought.
+  void _showNewPlace() {
+    if (!mounted || !_scroll.hasClients || _scroll.offset <= 0) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _readPermission() async {
@@ -104,6 +129,7 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
         genericLabel: s.notifLocationSetGeneric,
         isMounted: () => mounted,
       );
+      _showNewPlace();
       return;
     }
 
@@ -131,6 +157,7 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
           (c) => c.copyWith(clearLocation: true).copyWith(location: picked),
         );
     if (!mounted) return;
+    _showNewPlace();
     await _resolveCountry(picked.lat, picked.lng, isAr: isAr);
   }
 
@@ -199,6 +226,7 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
         ),
       ),
       body: ListView(
+        controller: _scroll,
         physics: const BouncingScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
         children: [
@@ -221,6 +249,17 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
               style: TextStyle(fontSize: 12, height: 1.5, color: gp.textSec),
             ),
           ),
+          if (place != null) ...[
+            const SizedBox(height: 18),
+            PrayerTodayCard(
+              latitude: place.lat,
+              longitude: place.lng,
+              countryCode: settings.resolvedCountryCode,
+              // Only a city picked by hand has a clock of its own to differ
+              // from; the phone's own location is on the phone's clock.
+              cityZone: mode == _PlaceMode.city ? place.zone : null,
+            ),
+          ],
           const SizedBox(height: 22),
           _Card(
             children: [

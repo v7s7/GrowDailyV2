@@ -92,6 +92,27 @@ test('picked times come back earliest first, one per minute, the first shift of 
   assert.deepStrictEqual(R.parseCue('custom_time:٠٦:٣٠'), { kind: 'clock', times: [{ at: 390, shift: 0 }] });
 });
 
+test('a prayer per time comes back in the order of the day, each pair once', () => {
+  assert.deepStrictEqual(R.parseCue('custom_time:isha,fajr+30,fajr-30,isha'), {
+    kind: 'prayers',
+    slots: [
+      { prayerKey: 'fajr', shift: -30 },
+      { prayerKey: 'fajr', shift: 30 },
+      { prayerKey: 'isha', shift: 0 },
+    ],
+  });
+  // A prayer among clock times is not something the app writes: damage.
+  assert.deepStrictEqual(R.parseCue('custom_time:fajr,07:30'), { kind: 'damaged' });
+  // Each slot is its own reminder, with its own shift; the habit's are unused.
+  const plan = R.habitReminder({
+    cueAfter: 'custom_time:fajr-30,fajr+30', reminderOffsetMinutes: 15, extraReminderOffsets: [5],
+  });
+  assert.deepStrictEqual(plan.slots, [
+    { prayerKey: 'fajr', offset: -30 },
+    { prayerKey: 'fajr', offset: 30 },
+  ]);
+});
+
 test('a custom_time the app cannot read is damage, never their own words', () => {
   for (const v of ['custom_time:25:00', 'custom_time:6:00', 'custom_time:06:00x', 'custom_time:06:60']) {
     assert.deepStrictEqual(R.parseCue(v), { kind: 'damaged' }, v);
@@ -479,11 +500,14 @@ test('the tab reads right: the next ring, the reasons, and an amber count when s
 // without prayers covered, an alarm and "Allow anyway" inside them, a quit
 // check-in, done today for a several-times habit and for a stack, a shift
 // that lands across midnight on a one-weekday habit, the old 12-hour and
-// reminderLeadMinutes forms, Arabic-Indic digits, and a daytime window.
+// reminderLeadMinutes forms, Arabic-Indic digits, and a daytime window. The
+// prayers_ cases (2026-10-01) are a prayer per time: two around one prayer,
+// one done of three, quiet hours over a prayer, and a run mixing a prayer
+// with a clock, which the phone reads as damage.
 // A difference here means the tab would show a time the phone never armed.
 test('the tool arms exactly what the app\'s own scheduler armed, case by case', () => {
   const { cases } = require('./fixtures/reminder_parity.json');
-  assert.strictEqual(cases.length, 25);
+  assert.strictEqual(cases.length, 29);
   for (const c of cases) {
     const todayKey = R.localOf(c.now, BH).key;
     const habitDoc = doc(c.id, {

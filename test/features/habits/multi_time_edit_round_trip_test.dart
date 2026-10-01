@@ -9,8 +9,10 @@
 // intended to make.
 //
 // So the parser, the restore and the storage format have to ship together,
-// and this is what proves they did: open on a real two-time habit, advance to
-// the timing step, and the two times are there as times.
+// and this is what proves they did: open on a real two-time habit, go to the
+// reminder step, and the two times are there as times. Since 2026-10-01 an
+// edit opens on an overview of the habit's three answers, and its «التذكير»
+// row is the way to that step.
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart' show User;
@@ -29,6 +31,8 @@ import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart
 import 'package:grow_daily_v2/features/habits/models/habit_cue.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/widgets/add_habit_sheet.dart';
+
+import 'support/add_habit_flow.dart';
 
 void main() {
   late Directory tmp;
@@ -101,9 +105,8 @@ void main() {
     expect(find.textContaining('custom_time'), findsNothing,
         reason: 'the storage token is not user-facing text');
 
-    // Step one holds the name; the times live on step two.
-    await tester.tap(find.text(s.continueAction));
-    await tester.pumpAndSettle();
+    // The overview names the answers; the times live on the reminder step.
+    await openEditStep(tester, s, 2);
 
     expect(find.text('12:00 AM'), findsOneWidget);
     expect(find.text('12:00 PM'), findsOneWidget);
@@ -125,8 +128,7 @@ void main() {
       protein(cue: 'custom_time:06:00,12:00,18:00'),
     ));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(S(const Locale('en')).continueAction));
-    await tester.pumpAndSettle();
+    await openEditStep(tester, const S(Locale('en')), 2);
 
     expect(find.text('6:00 AM'), findsOneWidget);
     expect(find.text('12:00 PM'), findsOneWidget);
@@ -140,8 +142,7 @@ void main() {
     addTearDown(container.dispose);
     await tester.pumpWidget(app(container, protein(cue: 'custom_time:07:30')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(S(const Locale('en')).continueAction));
-    await tester.pumpAndSettle();
+    await openEditStep(tester, const S(Locale('en')), 2);
 
     expect(find.text('7:30 AM'), findsOneWidget);
     // Its stored form is byte-identical, which is what makes re-saving an
@@ -161,5 +162,10 @@ void main() {
 
     expect(find.textContaining('custom_time'), findsNothing,
         reason: 'damage must not be rendered back as if the user typed it');
+
+    // Nor on the reminder step, where a habit that kept its moment in words
+    // shows them on a card («In your words»).
+    await openEditStep(tester, const S(Locale('en')), 2);
+    expect(find.textContaining('custom_time'), findsNothing);
   });
 }

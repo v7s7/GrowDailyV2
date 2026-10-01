@@ -304,6 +304,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/data/habit_ideas.json
     - assets/lottie/
     - assets/images/
     - assets/images/character/
@@ -342,7 +343,22 @@ flutter:
     - assets/images/mascot/winter/winter_bisht_hourglass.webp
     - assets/images/mascot/winter/winter_bisht_happy_heart.webp
     - assets/images/mascot/sport/sport_treadmill.webp
+    - assets/images/mascot/streak/streak_leaf_shelter.webp
     - assets/images/mascot/mascot_wink_jump.webp
+    - assets/images/mascot/moments/moments_stamp_check.webp
+    - assets/images/mascot/moments/moments_clap.webp
+    - assets/images/mascot/language/lang_thobe_front_wave.webp
+    - assets/images/mascot/language/lang_thobe_three_quarter.webp
+    - assets/images/mascot/language/lang_thobe_side.webp
+    - assets/images/mascot/language/lang_thobe_back.webp
+    - assets/images/mascot/language/lang_thobe_hand_chest.webp
+    - assets/images/mascot/language/lang_thobe_jump.webp
+    - assets/images/mascot/language/lang_suit_front_wave.webp
+    - assets/images/mascot/language/lang_suit_three_quarter.webp
+    - assets/images/mascot/language/lang_suit_side.webp
+    - assets/images/mascot/language/lang_suit_back.webp
+    - assets/images/mascot/language/lang_suit_bow.webp
+    - assets/images/mascot/language/lang_suit_jump.webp
     - assets/icons/
     - assets/prayer/
     # Bundled copies of the two GoogleFonts families the themes use, in the

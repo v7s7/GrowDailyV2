@@ -8,11 +8,13 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/services/local_store_service.dart';
 import '../../../core/utils/reduced_motion.dart';
 import '../../../core/theme/game_theme.dart';
-import '../../../shared/widgets/app_logo.dart';
+import '../../launch/launch_curtain_up.dart';
+import '../../mascot/doum_language_look.dart';
 import '../notifiers/auth_notifier.dart';
 import '../notifiers/guest_reconnect_provider.dart';
 import '../services/social_auth_service.dart';
 import '../widgets/language_toggle.dart';
+import '../widgets/sign_in_doum.dart';
 import '../widgets/social_sign_in_buttons.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
@@ -98,9 +100,23 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   /// nothing can create or destroy guest data while this screen is up.
   bool _hasGuestProgress = false;
 
+  /// Doum at the head of the screen, who changes the language for the pill
+  /// (see SignInDoum).
+  final _doum = DoumLookController();
+
+  /// Whether the screen under the launch curtain has been shown: its
+  /// buttons wait under the curtain and rise into place as it lifts, while
+  /// Doum lands, rather than having played their entrance unseen. True from
+  /// the start when no curtain is up.
+  late bool _revealed;
+
   @override
   void initState() {
     super.initState();
+    _revealed = !ref.read(launchCurtainUpProvider);
+    ref.listenManual<bool>(launchCurtainUpProvider, (_, up) {
+      if (!up && !_revealed && mounted) setState(() => _revealed = true);
+    });
     LocalStoreService.hasGuestProgress().then((has) {
       if (mounted && has) setState(() => _hasGuestProgress = true);
     });
@@ -127,6 +143,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     _confirmCtrl.dispose();
     _scrollCtrl.dispose();
     _emailFocus.dispose();
+    _doum.dispose();
     super.dispose();
   }
 
@@ -558,40 +575,64 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // The language switch lives INSIDE the gap that was already
-              // blank above the logo, rather than in a row of its own. This
-              // screen's vertical budget is measured, not guessed (see the
-              // tallPhone comment above), and already overflows a 375x667
-              // phone at 1.6x text: a row added to this column would push the
-              // guest button toward the fold, which is the exact regression
-              // the collapsed email form exists to prevent. Reusing the gap
-              // costs nothing, because topGap is 40 at its smallest and the
-              // toggle draws 32.
+              // The head: Doum where the app icon was, with the language
+              // switch in the corner above him (Aziz, 2026-10-01, the canvas
+              // "Doum picks the language"). One box as tall as the gap and
+              // the icon were together, so this screen's measured budget
+              // (see the tallPhone comment above) is the same on every
+              // phone: the switch keeps the gap's corner it always had, and
+              // Doum stands on the box's floor under it. A row added to this
+              // column would push the guest button toward the fold, which is
+              // the exact regression the collapsed email form exists to
+              // prevent.
               //
-              // Hidden while a sign-in is running, for the same reason every
-              // other control here goes flat: changing the language mid
-              // flight rebuilds the screen under the request.
+              // He wears the look of the app's language and the switch hands
+              // its tap to him: he turns round into the other look and the
+              // language changes while his back is turned, the words fading
+              // out and in around it (see SignInDoum, DoumLanguageLook).
+              //
+              // The switch is hidden while a sign-in is running, for the same
+              // reason every other control here goes flat: changing the
+              // language mid flight rebuilds the screen under the request.
               SizedBox(
-                height: topGap,
-                child: busy
-                    ? null
-                    : const Align(
-                        alignment: AlignmentDirectional.topEnd,
-                        child: LanguageToggle(),
+                height: topGap + logoSize,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: SignInDoum(
+                          height: tallPhone ? 150 : 100,
+                          controller: _doum,
+                        ),
                       ),
+                    ),
+                    if (!busy)
+                      PositionedDirectional(
+                        top: 0,
+                        end: 0,
+                        child: ListenableBuilder(
+                          listenable: _doum,
+                          builder: (_, __) => _words(
+                            LanguageToggle(
+                              onPick: _doum.switchTo,
+                              pending: _doum.pendingLanguage,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
+              const SizedBox(height: 18),
 
-              // Logo
+              // The wordmark and its tagline.
               Center(
                 child: Column(
                   children: [
-                    // The real app icon, not a gold-tinted box with a
-                    // Material grid glyph in it. This is the first screen
-                    // after tapping the icon on the home screen, so showing
-                    // anything else here breaks the one visual thread the
-                    // person was actually following.
-                    AppLogo(size: logoSize),
-                    const SizedBox(height: 18),
                     Text(
                       'Grow Daily',
                       style: TextStyle(
@@ -611,15 +652,20 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     // a font over the network on the app's first screen.
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 300),
-                      child: Text(
-                        s.tagline,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: gp.textSec,
-                          fontWeight: FontWeight.w500,
-                          height: 1.45,
+                      child: ListenableBuilder(
+                        listenable: _doum,
+                        builder: (_, __) => _words(
+                          Text(
+                            s.tagline,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: gp.textSec,
+                              fontWeight: FontWeight.w500,
+                              height: 1.45,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
                   ],
@@ -629,443 +675,478 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   .fadeIn(duration: 500.ms)
                   .slideY(begin: calm ? 0 : -0.04, curve: Curves.easeOut),
 
-              const SizedBox(height: 32),
-
-              // One-tap providers, above the email form.
-              //
-              // Above rather than below, and that ordering is the whole
-              // point of adding them: a returning user's fastest path in is
-              // the button they used last time, and a new user's is the
-              // account they already have. Burying them under a form nobody
-              // has filled in yet turns a one-tap sign-in into a scroll.
-              //
-              // Apple before Google on iOS. Guideline 4.8 asks for Sign in
-              // with Apple to be presented as an equivalent option wherever
-              // another social login is offered, and "equivalent" is judged
-              // on prominence: putting it first is the unambiguous reading,
-              // and it is also what the person on an iPhone most likely
-              // wants. The pair does not appear at all on a platform where
-              // neither provider works, which is why the divider and the
-              // spacing are inside the same conditional rather than
-              // stranded above an empty gap.
-              if (appleAvailable) ...[
-                SocialSignInButton.apple(
-                  label: s.continueWithApple,
-                  loading: _socialBusy == SocialProvider.apple,
-                  onPressed: busy ? null : () => _social(SocialProvider.apple),
-                ).animate(delay: 120.ms).fadeIn(duration: 350.ms).slideY(
-                      begin: calm ? 0 : 0.06,
+              // Everything under the wordmark: under the launch curtain it
+              // waits unseen and rises into place as the curtain lifts
+              // ([_revealed]), and it fades out and back in around Doum's
+              // language swap. One wrapper, so the form keeps its state
+              // (typed text, focus) through both.
+              ListenableBuilder(
+                listenable: _doum,
+                builder: (context, content) => AnimatedSlide(
+                  offset: _revealed || calm
+                      ? Offset.zero
+                      : const Offset(0, .03),
+                  duration: const Duration(milliseconds: 420),
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: _revealed && _doum.wordsVisible ? 1 : 0,
+                    duration: Duration(
+                      milliseconds: _doum.wordsVisible ? 300 : 120,
                     ),
-                const SizedBox(height: 10),
-              ],
-              if (googleAvailable) ...[
-                SocialSignInButton.google(
-                  label: s.continueWithGoogle,
-                  loading: _socialBusy == SocialProvider.google,
-                  onPressed: busy ? null : () => _social(SocialProvider.google),
-                ).animate(delay: 160.ms).fadeIn(duration: 350.ms).slideY(
-                      begin: calm ? 0 : 0.06,
-                    ),
-              ],
-              // The email path, as a third button in the same stack as Apple
-              // and Google. Styled neutrally so it reads as the quieter of
-              // the three without becoming fine print, and deliberately NOT
-              // the gold OutlinedButton the guest action uses further down,
-              // which would make two different decisions look identical.
-              if (!_emailOpen) ...[
-                const SizedBox(height: 10),
-                // No icon, and that is a correctness fix as much as a
-                // tidiness one. The Apple and Google buttons place their
-                // marks with PositionedDirectional inside a Stack, so their
-                // LABELS are centred in the full button width. `.icon`
-                // centres icon-plus-label as a group instead, which put this
-                // label at x=210.1 while Apple's sat at 201.0 on a 402pt
-                // screen: a 9pt stagger that grows with text size.
-                //
-                // The leading column is also the wrong place for a Material
-                // glyph. It holds two brand marks that Apple and Google both
-                // forbid restyling, so nothing that CAN be restyled belongs
-                // beside them.
-                OutlinedButton(
-                  onPressed: busy ? null : () => _setEmailOpen(true),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: gp.textPrimary,
-                    backgroundColor: gp.surface,
-                    // divider rather than border: at gp.border this and the
-                    // white Google button above read as a matched pair of
-                    // light outlined controls, ranking a brand option and a
-                    // fallback as equals. The lighter rule lets it recede.
-                    side: BorderSide(color: gp.divider),
-                    textStyle: GameTextStyles.labelLarge
-                        .copyWith(fontWeight: FontWeight.w500),
+                    child: content,
                   ),
-                  child: Text(s.continueWithEmail),
-                ).animate(delay: 200.ms).fadeIn(duration: 350.ms).slideY(
-                      begin: calm ? 0 : 0.06,
-                    ),
-              ],
-
-              // Everything below is the email form, revealed in place. It
-              // opens under the buttons it belongs with rather than on a
-              // second screen, so nothing is navigated away from and the
-              // fast paths stay visible above it.
-              if (_emailOpen) ...[
-                if (appleAvailable || googleAvailable) ...[
-                  const SizedBox(height: GameSpacing.xl),
-                  LabelledDivider(label: s.authOrDivider)
-                      .animate()
-                      .fadeIn(duration: 250.ms),
-                  const SizedBox(height: GameSpacing.xl),
-                ] else
-                  const SizedBox(height: 16),
-
-                // Tab toggle. It governs the email form underneath it and
-                // nothing above it, since with a provider there is no such
-                // thing as a separate "sign in" and "create account".
-                Container(
-                  height: 46,
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: gp.surface,
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: gp.border, width: 0.5),
                 ),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _TabBtn(
-                      label: s.signIn,
-                      active: _isSignIn,
-                      onTap: () => _switchMode(true),
+                    const SizedBox(height: 32),
+
+                    // One-tap providers, above the email form.
+                    //
+                    // Above rather than below, and that ordering is the whole
+                    // point of adding them: a returning user's fastest path in is
+                    // the button they used last time, and a new user's is the
+                    // account they already have. Burying them under a form nobody
+                    // has filled in yet turns a one-tap sign-in into a scroll.
+                    //
+                    // Apple before Google on iOS. Guideline 4.8 asks for Sign in
+                    // with Apple to be presented as an equivalent option wherever
+                    // another social login is offered, and "equivalent" is judged
+                    // on prominence: putting it first is the unambiguous reading,
+                    // and it is also what the person on an iPhone most likely
+                    // wants. The pair does not appear at all on a platform where
+                    // neither provider works, which is why the divider and the
+                    // spacing are inside the same conditional rather than
+                    // stranded above an empty gap.
+                    if (appleAvailable) ...[
+                      SocialSignInButton.apple(
+                        label: s.continueWithApple,
+                        loading: _socialBusy == SocialProvider.apple,
+                        onPressed: busy ? null : () => _social(SocialProvider.apple),
+                      ).animate(delay: 120.ms).fadeIn(duration: 350.ms).slideY(
+                            begin: calm ? 0 : 0.06,
+                          ),
+                      const SizedBox(height: 10),
+                    ],
+                    if (googleAvailable) ...[
+                      SocialSignInButton.google(
+                        label: s.continueWithGoogle,
+                        loading: _socialBusy == SocialProvider.google,
+                        onPressed: busy ? null : () => _social(SocialProvider.google),
+                      ).animate(delay: 160.ms).fadeIn(duration: 350.ms).slideY(
+                            begin: calm ? 0 : 0.06,
+                          ),
+                    ],
+                    // The email path, as a third button in the same stack as Apple
+                    // and Google. Styled neutrally so it reads as the quieter of
+                    // the three without becoming fine print, and deliberately NOT
+                    // the gold OutlinedButton the guest action uses further down,
+                    // which would make two different decisions look identical.
+                    if (!_emailOpen) ...[
+                      const SizedBox(height: 10),
+                      // No icon, and that is a correctness fix as much as a
+                      // tidiness one. The Apple and Google buttons place their
+                      // marks with PositionedDirectional inside a Stack, so their
+                      // LABELS are centred in the full button width. `.icon`
+                      // centres icon-plus-label as a group instead, which put this
+                      // label at x=210.1 while Apple's sat at 201.0 on a 402pt
+                      // screen: a 9pt stagger that grows with text size.
+                      //
+                      // The leading column is also the wrong place for a Material
+                      // glyph. It holds two brand marks that Apple and Google both
+                      // forbid restyling, so nothing that CAN be restyled belongs
+                      // beside them.
+                      OutlinedButton(
+                        onPressed: busy ? null : () => _setEmailOpen(true),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: gp.textPrimary,
+                          backgroundColor: gp.surface,
+                          // divider rather than border: at gp.border this and the
+                          // white Google button above read as a matched pair of
+                          // light outlined controls, ranking a brand option and a
+                          // fallback as equals. The lighter rule lets it recede.
+                          side: BorderSide(color: gp.divider),
+                          textStyle: GameTextStyles.labelLarge
+                              .copyWith(fontWeight: FontWeight.w500),
+                        ),
+                        child: Text(s.continueWithEmail),
+                      ).animate(delay: 200.ms).fadeIn(duration: 350.ms).slideY(
+                            begin: calm ? 0 : 0.06,
+                          ),
+                    ],
+
+                    // Everything below is the email form, revealed in place. It
+                    // opens under the buttons it belongs with rather than on a
+                    // second screen, so nothing is navigated away from and the
+                    // fast paths stay visible above it.
+                    if (_emailOpen) ...[
+                      if (appleAvailable || googleAvailable) ...[
+                        const SizedBox(height: GameSpacing.xl),
+                        LabelledDivider(label: s.authOrDivider)
+                            .animate()
+                            .fadeIn(duration: 250.ms),
+                        const SizedBox(height: GameSpacing.xl),
+                      ] else
+                        const SizedBox(height: 16),
+
+                      // Tab toggle. It governs the email form underneath it and
+                      // nothing above it, since with a provider there is no such
+                      // thing as a separate "sign in" and "create account".
+                      Container(
+                        height: 46,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: gp.surface,
+                        borderRadius: BorderRadius.circular(13),
+                        border: Border.all(color: gp.border, width: 0.5),
+                      ),
+                      child: Row(
+                        children: [
+                          _TabBtn(
+                            label: s.signIn,
+                            active: _isSignIn,
+                            onTap: () => _switchMode(true),
+                          ),
+                          _TabBtn(
+                            label: s.createAccount,
+                            active: !_isSignIn,
+                            onTap: () => _switchMode(false),
+                          ),
+                        ],
+                      ),
+                    ).animate(delay: 0.ms).fadeIn(duration: 400.ms),
+
+                    const SizedBox(height: 24),
+
+                    // Email
+                    TextField(
+                      selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                      controller: _emailCtrl,
+                      focusNode: _emailFocus,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autocorrect: false,
+                      // An email address is never Arabic. Left to inherit the
+                      // ambient RTL direction, the field lays the value out as an
+                      // RTL paragraph: the caret starts on the right and the dots
+                      // and the @ resolve to the wrong side while it is typed.
+                      // Only the VALUE is forced; the label, hint and icon stay in
+                      // the ambient direction so the field still reads as part of
+                      // an Arabic form.
+                      textDirection: TextDirection.ltr,
+                      style: TextStyle(fontSize: 16, color: gp.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: s.email,
+                        prefixIcon: Icon(Icons.mail_outline_rounded,
+                            size: 20, color: gp.textSec),
+                      ),
+                    ).animate(delay: 40.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.04),
+
+                    const SizedBox(height: 14),
+
+                    // Password
+                    TextField(
+                      selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                      controller: _passCtrl,
+                      obscureText: _obscurePass,
+                      // Same reasoning as the email field above.
+                      textDirection: TextDirection.ltr,
+                      textInputAction:
+                          _isSignIn ? TextInputAction.done : TextInputAction.next,
+                      onSubmitted: _isSignIn ? (_) => _submit() : null,
+                      style: TextStyle(fontSize: 16, color: gp.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: s.password,
+                        prefixIcon: Icon(Icons.lock_outline_rounded,
+                            size: 20, color: gp.textSec),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePass
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                            size: 20,
+                            color: gp.textSec,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscurePass = !_obscurePass),
+                        ),
+                      ),
+                    ).animate(delay: 80.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.04),
+
+                    // Whatever the form has to say goes HERE, against the fields
+                    // it is about, rather than at the bottom of the screen under
+                    // the way back out. "Wrong email or password" printed below
+                    // the "other ways in" link sat four elements away from the
+                    // field it referred to, with the submit button in between, so
+                    // the form read as if it had done nothing at all. Here it also
+                    // lands directly above the forgot-password link, which is the
+                    // next thing to reach for once it appears.
+                    _banner(context, inForm: true),
+
+                    // Forgot password (sign-in only). AlignmentDirectional so the
+                    // link hugs the trailing edge in both directions - end is
+                    // where the eye lands after the password field in each script.
+                    if (_isSignIn)
+                      Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: TextButton(
+                          onPressed: _isSendingReset ? null : _sendReset,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
+                            minimumSize: const Size(44, 32),
+                          ),
+                          child: _isSendingReset
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Text(
+                                  s.authForgotPassword,
+                                  style: TextStyle(
+                                      fontSize: 12.5, color: gp.textSec),
+                                ),
+                        ),
+                      ),
+
+                    // Confirm password (register only)
+                    AnimatedSize(
+                      duration: GameMotion.relaxed,
+                      curve: Curves.easeOutCubic,
+                      child: _isSignIn
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.only(top: 14),
+                              child: TextField(
+                                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
+                                controller: _confirmCtrl,
+                                obscureText: _obscureConfirm,
+                                textDirection: TextDirection.ltr,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => _submit(),
+                                style:
+                                    TextStyle(fontSize: 16, color: gp.textPrimary),
+                                decoration: InputDecoration(
+                                  labelText: s.confirmPassword,
+                                  prefixIcon: Icon(Icons.lock_outline_rounded,
+                                      size: 20, color: gp.textSec),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscureConfirm
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined,
+                                      size: 20,
+                                      color: gp.textSec,
+                                    ),
+                                    onPressed: () => setState(
+                                        () => _obscureConfirm = !_obscureConfirm),
+                                  ),
+                                ),
+                              ),
+                            ),
                     ),
-                    _TabBtn(
-                      label: s.createAccount,
-                      active: !_isSignIn,
-                      onTap: () => _switchMode(false),
-                    ),
+
+                    // Fresh-start warning for a guest who is creating the
+                    // account (register mode only): their local progress will
+                    // NOT carry over, and this is the last moment that fact can
+                    // still change their decision.
+                    //
+                    // Gated on the DATA existing, not on guestModeProvider. That
+                    // flag is always false here and this warning therefore never
+                    // rendered once, in either direction: _AuthGate (main.dart)
+                    // only builds this screen when guest mode is off, and every
+                    // path that sends a guest here - the Rooms gate, the guest
+                    // limit sheet, sign-out - calls setGuestMode(ref, false)
+                    // before it navigates. The registered '/auth' route is never
+                    // pushed by anything. Asking LocalStoreService instead is
+                    // both reachable and the better question: what matters is
+                    // whether there is progress on this device to lose.
+                    if (!_isSignIn && _hasGuestProgress)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: gp.surface,
+                            borderRadius:
+                                BorderRadius.circular(GameSpacing.buttonRadius),
+                            border: Border.all(color: gp.border, width: 0.5),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline_rounded,
+                                  size: 15, color: gp.textTert),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  s.guestFreshStartWarning,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: gp.textSec,
+                                      height: 1.45),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    const SizedBox(height: 28),
+
+                    // Submit button
+                    FilledButton(
+                      key: _submitKey,
+                      onPressed: busy ? null : _submit,
+                      // The spinner belongs to the EMAIL flow only. Without the
+                      // second half of this condition, tapping Google spun this
+                      // button too, so the screen showed two things loading and
+                      // pointed at the wrong one.
+                      child: isLoading && _socialBusy == null
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.black),
+                            )
+                          : Text(
+                              _isSignIn ? s.signInAction : s.createAccountAction,
+                              style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.0),
+                            ),
+                    ).animate(delay: 120.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.06),
+
+                      // The way back out. Worded as what it reveals rather than
+                      // as "back", because nothing was navigated away from: the
+                      // form opened in place, under the buttons it belongs with.
+                      Center(
+                        child: TextButton.icon(
+                          onPressed: busy ? null : () => _setEmailOpen(false),
+                          icon: const Icon(Icons.arrow_upward_rounded, size: 16),
+                          label: Text(s.authOtherWays),
+                          style: TextButton.styleFrom(
+                            foregroundColor: gp.textSec,
+                            // 48 clears both platform tap-target minimums
+                            // (44pt iOS, 48dp Android) and WCAG 2.2 SC 2.5.8,
+                            // which a bare Text would not.
+                            minimumSize: const Size(0, 48),
+                            tapTargetSize: MaterialTapTargetSize.padded,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                        ),
+                      ).animate().fadeIn(duration: 250.ms),
+                    ],
+
+                    // The banner slot for the OTHER path: a cancelled or failed
+                    // Apple or Google sign-in, which has to be able to speak while
+                    // the form is still closed, and that is the most common way
+                    // either of them is seen. Anything the email form itself says
+                    // renders in its own slot, under the password field.
+                    _banner(context, inForm: false),
+
+
+                    // The caption sits ABOVE its button now, not under it. Read
+                    const SizedBox(height: 12),
+                    // A tonal button, NOT the theme's default OutlinedButton, and
+                    // this is a legibility fix rather than a style preference.
+                    //
+                    // game_theme.dart sets OutlinedButton's foregroundColor AND
+                    // its side to GameColors.gold. On the cream light background
+                    // that puts the label, the icon and the border all at gold on
+                    // cream, which measures 1.86:1: far under the 4.5:1 a label
+                    // needs and under the 3:1 a border needs. In dark mode the
+                    // same pair is 10.09:1 and fine, which is exactly why it went
+                    // unnoticed.
+                    //
+                    // A gold TINT with the normal ink label fixes it without
+                    // making this the loudest control on the screen: a solid gold
+                    // fill would out-shout Apple and Google, and "try without an
+                    // account" should not outrank signing in. Measured: ink on the
+                    // tint is 14.06:1 light and 13.11:1 dark, and the goldDim
+                    // border is 4.13:1 light, 10.09:1 dark.
+                    //
+                    // Scoped to this button on purpose. Every OutlinedButton in
+                    // the app inherits the same 1.86:1 pair in light mode, but
+                    // that is an app-wide theme change and its own piece of work.
+                    // Same reasoning as the email button for the missing icon,
+                    // plus one of its own: a play triangle is a media glyph, and
+                    // this is an account decision, not a video.
+                    FilledButton(
+                      onPressed: busy ? null : _continueAsGuest,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: GameColors.gold.withValues(alpha: 0.16),
+                        foregroundColor: gp.textPrimary,
+                        // gp.goldEdge, not a hand-rolled brightness ternary: it is
+                        // the token that already means "the accent, held to the
+                        // 3:1 a border has to clear", and unlike a literal it
+                        // follows whichever preset the person is on.
+                        side: BorderSide(color: gp.goldEdge),
+                        // w600 to match the Apple and Google labels. The theme's
+                        // labelLarge is w700, so left alone this button and the
+                        // email one shouted over the two vendor buttons they sit
+                        // under, which is backwards.
+                        textStyle: GameTextStyles.labelLarge
+                            .copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      child: Text(s.tryAsGuest),
+                    ).animate(delay: 280.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.06),
+
+                    // The one thing the screen never said: what each path does
+                    // with your progress. It goes BELOW the buttons, not between
+                    // the wordmark and them, for two reasons. Anything inserted
+                    // above delays the only decision this screen exists to
+                    // collect, and it costs the same height on the small phone
+                    // that is already tight as it does on the tall phone with
+                    // 382pt going spare. Below, it lands in the empty band and
+                    // replaces the old one-line caption rather than adding to it.
+                    //
+                    // Start-aligned, and that is the point: it is the only
+                    // start-aligned element here, so the two leads line up on the
+                    // leading edge and the pair reads as a pair. Centring them
+                    // would leave the leads ragged and the parallel would die.
+                    // That alignment is the separation between the account paths
+                    // and the guest path, at zero height and with no rule drawn.
+                    const SizedBox(height: 22),
+                    Center(
+                      child: ConstrainedBox(
+                        // A fixed pt cap, deliberately not scaled with text: it is
+                        // what keeps the measure short when someone is at 200%.
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _fact(context, s.authAccountLead, s.authAccountFact),
+                            const SizedBox(height: 6),
+                            _fact(context, s.authGuestLead, s.authGuestFact),
+                          ],
+                        ),
+                      ),
+                    ).animate(delay: 320.ms).fadeIn(duration: 350.ms),
+
+                    const SizedBox(height: 40),
                   ],
                 ),
-              ).animate(delay: 0.ms).fadeIn(duration: 400.ms),
-
-              const SizedBox(height: 24),
-
-              // Email
-              TextField(
-                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-                controller: _emailCtrl,
-                focusNode: _emailFocus,
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
-                autocorrect: false,
-                // An email address is never Arabic. Left to inherit the
-                // ambient RTL direction, the field lays the value out as an
-                // RTL paragraph: the caret starts on the right and the dots
-                // and the @ resolve to the wrong side while it is typed.
-                // Only the VALUE is forced; the label, hint and icon stay in
-                // the ambient direction so the field still reads as part of
-                // an Arabic form.
-                textDirection: TextDirection.ltr,
-                style: TextStyle(fontSize: 16, color: gp.textPrimary),
-                decoration: InputDecoration(
-                  labelText: s.email,
-                  prefixIcon: Icon(Icons.mail_outline_rounded,
-                      size: 20, color: gp.textSec),
-                ),
-              ).animate(delay: 40.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.04),
-
-              const SizedBox(height: 14),
-
-              // Password
-              TextField(
-                selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-                controller: _passCtrl,
-                obscureText: _obscurePass,
-                // Same reasoning as the email field above.
-                textDirection: TextDirection.ltr,
-                textInputAction:
-                    _isSignIn ? TextInputAction.done : TextInputAction.next,
-                onSubmitted: _isSignIn ? (_) => _submit() : null,
-                style: TextStyle(fontSize: 16, color: gp.textPrimary),
-                decoration: InputDecoration(
-                  labelText: s.password,
-                  prefixIcon: Icon(Icons.lock_outline_rounded,
-                      size: 20, color: gp.textSec),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePass
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                      size: 20,
-                      color: gp.textSec,
-                    ),
-                    onPressed: () =>
-                        setState(() => _obscurePass = !_obscurePass),
-                  ),
-                ),
-              ).animate(delay: 80.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.04),
-
-              // Whatever the form has to say goes HERE, against the fields
-              // it is about, rather than at the bottom of the screen under
-              // the way back out. "Wrong email or password" printed below
-              // the "other ways in" link sat four elements away from the
-              // field it referred to, with the submit button in between, so
-              // the form read as if it had done nothing at all. Here it also
-              // lands directly above the forgot-password link, which is the
-              // next thing to reach for once it appears.
-              _banner(context, inForm: true),
-
-              // Forgot password (sign-in only). AlignmentDirectional so the
-              // link hugs the trailing edge in both directions - end is
-              // where the eye lands after the password field in each script.
-              if (_isSignIn)
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: TextButton(
-                    onPressed: _isSendingReset ? null : _sendReset,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 6),
-                      minimumSize: const Size(44, 32),
-                    ),
-                    child: _isSendingReset
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Text(
-                            s.authForgotPassword,
-                            style: TextStyle(
-                                fontSize: 12.5, color: gp.textSec),
-                          ),
-                  ),
-                ),
-
-              // Confirm password (register only)
-              AnimatedSize(
-                duration: GameMotion.relaxed,
-                curve: Curves.easeOutCubic,
-                child: _isSignIn
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 14),
-                        child: TextField(
-                          selectionWidthStyle: GameTextStyles.selectionWidthStyle,
-                          controller: _confirmCtrl,
-                          obscureText: _obscureConfirm,
-                          textDirection: TextDirection.ltr,
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (_) => _submit(),
-                          style:
-                              TextStyle(fontSize: 16, color: gp.textPrimary),
-                          decoration: InputDecoration(
-                            labelText: s.confirmPassword,
-                            prefixIcon: Icon(Icons.lock_outline_rounded,
-                                size: 20, color: gp.textSec),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscureConfirm
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                                size: 20,
-                                color: gp.textSec,
-                              ),
-                              onPressed: () => setState(
-                                  () => _obscureConfirm = !_obscureConfirm),
-                            ),
-                          ),
-                        ),
-                      ),
               ),
-
-              // Fresh-start warning for a guest who is creating the
-              // account (register mode only): their local progress will
-              // NOT carry over, and this is the last moment that fact can
-              // still change their decision.
-              //
-              // Gated on the DATA existing, not on guestModeProvider. That
-              // flag is always false here and this warning therefore never
-              // rendered once, in either direction: _AuthGate (main.dart)
-              // only builds this screen when guest mode is off, and every
-              // path that sends a guest here - the Rooms gate, the guest
-              // limit sheet, sign-out - calls setGuestMode(ref, false)
-              // before it navigates. The registered '/auth' route is never
-              // pushed by anything. Asking LocalStoreService instead is
-              // both reachable and the better question: what matters is
-              // whether there is progress on this device to lose.
-              if (!_isSignIn && _hasGuestProgress)
-                Padding(
-                  padding: const EdgeInsets.only(top: 14),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: gp.surface,
-                      borderRadius:
-                          BorderRadius.circular(GameSpacing.buttonRadius),
-                      border: Border.all(color: gp.border, width: 0.5),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.info_outline_rounded,
-                            size: 15, color: gp.textTert),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            s.guestFreshStartWarning,
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: gp.textSec,
-                                height: 1.45),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 28),
-
-              // Submit button
-              FilledButton(
-                key: _submitKey,
-                onPressed: busy ? null : _submit,
-                // The spinner belongs to the EMAIL flow only. Without the
-                // second half of this condition, tapping Google spun this
-                // button too, so the screen showed two things loading and
-                // pointed at the wrong one.
-                child: isLoading && _socialBusy == null
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.black),
-                      )
-                    : Text(
-                        _isSignIn ? s.signInAction : s.createAccountAction,
-                        style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.0),
-                      ),
-              ).animate(delay: 120.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.06),
-
-                // The way back out. Worded as what it reveals rather than
-                // as "back", because nothing was navigated away from: the
-                // form opened in place, under the buttons it belongs with.
-                Center(
-                  child: TextButton.icon(
-                    onPressed: busy ? null : () => _setEmailOpen(false),
-                    icon: const Icon(Icons.arrow_upward_rounded, size: 16),
-                    label: Text(s.authOtherWays),
-                    style: TextButton.styleFrom(
-                      foregroundColor: gp.textSec,
-                      // 48 clears both platform tap-target minimums
-                      // (44pt iOS, 48dp Android) and WCAG 2.2 SC 2.5.8,
-                      // which a bare Text would not.
-                      minimumSize: const Size(0, 48),
-                      tapTargetSize: MaterialTapTargetSize.padded,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                    ),
-                  ),
-                ).animate().fadeIn(duration: 250.ms),
-              ],
-
-              // The banner slot for the OTHER path: a cancelled or failed
-              // Apple or Google sign-in, which has to be able to speak while
-              // the form is still closed, and that is the most common way
-              // either of them is seen. Anything the email form itself says
-              // renders in its own slot, under the password field.
-              _banner(context, inForm: false),
-
-
-              // The caption sits ABOVE its button now, not under it. Read
-              const SizedBox(height: 12),
-              // A tonal button, NOT the theme's default OutlinedButton, and
-              // this is a legibility fix rather than a style preference.
-              //
-              // game_theme.dart sets OutlinedButton's foregroundColor AND
-              // its side to GameColors.gold. On the cream light background
-              // that puts the label, the icon and the border all at gold on
-              // cream, which measures 1.86:1: far under the 4.5:1 a label
-              // needs and under the 3:1 a border needs. In dark mode the
-              // same pair is 10.09:1 and fine, which is exactly why it went
-              // unnoticed.
-              //
-              // A gold TINT with the normal ink label fixes it without
-              // making this the loudest control on the screen: a solid gold
-              // fill would out-shout Apple and Google, and "try without an
-              // account" should not outrank signing in. Measured: ink on the
-              // tint is 14.06:1 light and 13.11:1 dark, and the goldDim
-              // border is 4.13:1 light, 10.09:1 dark.
-              //
-              // Scoped to this button on purpose. Every OutlinedButton in
-              // the app inherits the same 1.86:1 pair in light mode, but
-              // that is an app-wide theme change and its own piece of work.
-              // Same reasoning as the email button for the missing icon,
-              // plus one of its own: a play triangle is a media glyph, and
-              // this is an account decision, not a video.
-              FilledButton(
-                onPressed: busy ? null : _continueAsGuest,
-                style: FilledButton.styleFrom(
-                  backgroundColor: GameColors.gold.withValues(alpha: 0.16),
-                  foregroundColor: gp.textPrimary,
-                  // gp.goldEdge, not a hand-rolled brightness ternary: it is
-                  // the token that already means "the accent, held to the
-                  // 3:1 a border has to clear", and unlike a literal it
-                  // follows whichever preset the person is on.
-                  side: BorderSide(color: gp.goldEdge),
-                  // w600 to match the Apple and Google labels. The theme's
-                  // labelLarge is w700, so left alone this button and the
-                  // email one shouted over the two vendor buttons they sit
-                  // under, which is backwards.
-                  textStyle: GameTextStyles.labelLarge
-                      .copyWith(fontWeight: FontWeight.w600),
-                ),
-                child: Text(s.tryAsGuest),
-              ).animate(delay: 280.ms).fadeIn(duration: 350.ms).slideY(begin: calm ? 0 : 0.06),
-
-              // The one thing the screen never said: what each path does
-              // with your progress. It goes BELOW the buttons, not between
-              // the wordmark and them, for two reasons. Anything inserted
-              // above delays the only decision this screen exists to
-              // collect, and it costs the same height on the small phone
-              // that is already tight as it does on the tall phone with
-              // 382pt going spare. Below, it lands in the empty band and
-              // replaces the old one-line caption rather than adding to it.
-              //
-              // Start-aligned, and that is the point: it is the only
-              // start-aligned element here, so the two leads line up on the
-              // leading edge and the pair reads as a pair. Centring them
-              // would leave the leads ragged and the parallel would die.
-              // That alignment is the separation between the account paths
-              // and the guest path, at zero height and with no rule drawn.
-              const SizedBox(height: 22),
-              Center(
-                child: ConstrainedBox(
-                  // A fixed pt cap, deliberately not scaled with text: it is
-                  // what keeps the measure short when someone is at 200%.
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _fact(context, s.authAccountLead, s.authAccountFact),
-                      const SizedBox(height: 6),
-                      _fact(context, s.authGuestLead, s.authGuestFact),
-                    ],
-                  ),
-                ),
-              ).animate(delay: 320.ms).fadeIn(duration: 350.ms),
-
-              const SizedBox(height: 40),
             ],
           ),
         ),
       ),
     );
   }
+
+  /// [child] faded out for the moment Doum swaps the language behind his
+  /// back, and back in, in the new one (DoumLookController.wordsVisible).
+  Widget _words(Widget child) => AnimatedOpacity(
+        opacity: _doum.wordsVisible ? 1 : 0,
+        duration: Duration(milliseconds: _doum.wordsVisible ? 200 : 120),
+        child: child,
+      );
 }
 
 class _TabBtn extends StatelessWidget {

@@ -31,17 +31,28 @@ const double _toggleHeight = 32;
 /// on the English side.
 ///
 /// Draws at a fixed [_toggleHeight] and is placed INSIDE the blank gap the
-/// auth screen already leaves above its logo, rather than in a row of its
-/// own. That screen's vertical budget is measured, not guessed, and already
-/// overflows a small phone at large text, so a row added to its column would
-/// push the guest button toward the fold.
+/// auth screen already leaves above Doum (where its logo was), rather than
+/// in a row of its own. That screen's vertical budget is measured, not
+/// guessed, and already overflows a small phone at large text, so a row
+/// added to its column would push the guest button toward the fold.
 class LanguageToggle extends ConsumerWidget {
-  const LanguageToggle({super.key});
+  const LanguageToggle({super.key, this.onPick, this.pending});
+
+  /// Changes the language instead of [setLocale]: the sign-in screen hands
+  /// the tap to Doum, who turns round into the new language's look and
+  /// changes it while his back is turned (DoumLanguageLook). Returns false
+  /// when it did not take the tap, and the switch changes the language
+  /// itself.
+  final bool Function(String languageCode)? onPick;
+
+  /// The language a turn is on its way to: shown as chosen from the tap,
+  /// before it takes effect.
+  final String? pending;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final gp = context.gp;
-    final isAr = ref.watch(localeProvider).languageCode == 'ar';
+    final isAr = (pending ?? ref.watch(localeProvider).languageCode) == 'ar';
 
     // LTR for the control itself, so the two halves keep the same physical
     // order whichever language is live. The switch is a fixed pair of
@@ -93,6 +104,7 @@ class LanguageToggle extends ConsumerWidget {
   /// their account at sign-in. After it, neither overrules them again.
   void _pick(WidgetRef ref, String code) {
     HapticFeedback.selectionClick();
+    if (onPick?.call(code) ?? false) return;
     setLocale(ref, Locale(code));
   }
 }

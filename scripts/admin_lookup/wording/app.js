@@ -1685,10 +1685,10 @@
   // ---- History ------------------------------------------------------------
 
   /** What a History row changed: one string in one language, or one of
-   *  the three lists (the daily lines, the FAQ, the Premium benefit list),
-   *  each saved whole. */
+   *  the lists (the daily lines, the FAQ, the Premium benefit list, the
+   *  habit ideas and plans), each saved whole. */
   function targetOf(row) {
-    return row.kind === 'quotes' || row.kind === 'faq' || row.kind === 'benefits'
+    return row.kind === 'quotes' || row.kind === 'faq' || row.kind === 'benefits' || row.kind === 'ideas'
       ? row.kind
       : row.key + '/' + row.lang;
   }
@@ -1722,6 +1722,9 @@
     } else if (row.kind === 'faq' || row.kind === 'benefits') {
       what = h('div', { class: 'what' }, row.kind === 'faq' ? 'FAQ' : 'Premium benefit list', row.undoOf ? ' (undo)' : '');
       change = listChange(row);
+    } else if (row.kind === 'ideas') {
+      what = h('div', { class: 'what' }, 'Habit ideas and plans', row.undoOf ? ' (undo)' : '');
+      change = h('div', { class: 'none' }, 'Published on the ', h('a', { href: '/ideas' }, 'Habit ideas page'), '.');
     } else {
       const entry = state.byKey.get(row.key);
       what = h('div', { class: 'what' }, LANG_NAME[row.lang] || row.lang,

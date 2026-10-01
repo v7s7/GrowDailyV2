@@ -1,0 +1,14 @@
+[
+  {"name": "first_thobe_front_wave", "skip": true, "row": 1, "sheet_row": 1, "shows": "first Arabic look, rejected by Aziz 2026-10-01 (leaves up through the agal, short sleeveless thobe, the ghutra reads as a cape); redrawn on the thobe sheet"},
+  {"name": "first_thobe_three_quarter", "skip": true, "row": 1, "sheet_row": 1, "shows": "first Arabic look, rejected (see first_thobe_front_wave)"},
+  {"name": "first_thobe_side", "skip": true, "row": 1, "sheet_row": 1, "shows": "first Arabic look, rejected (see first_thobe_front_wave)"},
+  {"name": "first_thobe_back", "skip": true, "row": 1, "sheet_row": 1, "shows": "first Arabic look, rejected (see first_thobe_front_wave)"},
+  {"name": "lang_suit_front_wave", "row": 1, "sheet_row": 2, "shows": "English look: slate-blue suit jacket, white collar, burgundy tie, both leaves up; facing you, one hand raised in a wave", "app": true},
+  {"name": "lang_suit_three_quarter", "row": 1, "sheet_row": 2, "shows": "English look, three-quarter turn toward the right of the picture, arms relaxed", "app": true},
+  {"name": "lang_suit_side", "row": 1, "sheet_row": 2, "shows": "English look, side view facing right", "app": true},
+  {"name": "lang_suit_back", "row": 1, "sheet_row": 2, "shows": "English look, back view: the jacket and both leaves", "app": true},
+  {"name": "first_thobe_hand_chest", "skip": true, "row": 1, "sheet_row": 3, "shows": "first Arabic look, rejected (see first_thobe_front_wave)"},
+  {"name": "lang_suit_bow", "row": 1, "sheet_row": 3, "shows": "English look, a small polite bow, hands together at the waist, eyes shut smiling, gold lines", "app": true},
+  {"name": "first_thobe_jump", "skip": true, "row": 1, "sheet_row": 3, "shows": "first Arabic look, rejected (see first_thobe_front_wave)"},
+  {"name": "lang_suit_jump", "row": 1, "sheet_row": 3, "shows": "English look, happy jump, arms up, eyes shut smiling, gold lines", "app": true}
+]

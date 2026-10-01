@@ -308,18 +308,15 @@ const List<String> kEditableWordingKeys = [
   'createHabit',
   'smartStarters',
   'addGoalTitle',
+  'hubTabsHint',
   'whatImprove',
   'whatHabitBuild',
   'whatReduce',
   'goalTitleHint',
-  'smartSuggestions',
-  'quickestStart',
   'goalTypeBuildOption',
   'goalTypeQuitOption',
-  'categoryPickHint',
   'limitAmountRequired',
   'quitLimitRule',
-  'readyPlansLink',
   'timingBuildTitle',
   'timingQuitTitle',
   'whenQuestion',
@@ -327,6 +324,10 @@ const List<String> kEditableWordingKeys = [
   'customText',
   'cuePrayerOption',
   'pickAPrayer',
+  'prayerPerTimeNote',
+  'prayerSlotTitle',
+  'prayerSlotWhen',
+  'prayerSlotClear',
   'remindMeSection',
   'reminderStyleSection',
   'reminderStyleNotification',
@@ -371,6 +372,68 @@ const List<String> kEditableWordingKeys = [
   'createGoal',
   'continueAction',
   'back',
+  'addHabitStepWhat',
+  'addHabitStepOften',
+  'addHabitStepReminder',
+  'addHabitStepReminderShort',
+  'habitNameHintBuild',
+  'habitNameHintQuit',
+  'habitCategoryLine',
+  'habitCategoryChange',
+  'quitStyleQuestion',
+  'quitFullyOption',
+  'quitLimitOption',
+  'limitPerDay',
+  'limitUnitHelp',
+  'howOftenQuestion',
+  'howOftenQuestionQuit',
+  'oftenEveryDay',
+  'oftenTimesAWeek',
+  'oftenSetDays',
+  'oftenWeekQuestion',
+  'oftenDaysQuestion',
+  'reminderQuestion',
+  'reminderOptionalNote',
+  'reminderAtClock',
+  'reminderWithPrayer',
+  'noReminder',
+  'habitWrittenMoment',
+  'addHabitAction',
+  'habitEditStepDone',
+  'ownCategoryNew',
+  'ownCategoryNote',
+  'ownCategoryNameHint',
+  'ownCategoryPickIcon',
+  'ownCategorySave',
+  'ideasEntryTitle',
+  'ideasEntryBody',
+  'ideasEntryTitleNoPlans',
+  'ideasEntryBodyNoPlans',
+  'ideasPageTitle',
+  'ideasPageTitleQuit',
+  'ideasPageIntro',
+  'ideasSearchHint',
+  'ideasPlansTitle',
+  'ideasPlansNote',
+  'ideasHabitsTitle',
+  'ideasHabitsNote',
+  'ideasHabitsTitleQuit',
+  'ideasFilterAll',
+  'ideasEasyWays',
+  'ideasSuggested',
+  'ideasWhy',
+  'ideasAddNow',
+  'ideasEditFirst',
+  'ideasAddedChip',
+  'ideasAddedDone',
+  'ideasAlreadyHave',
+  'ideasPickAnother',
+  'ideasQuitFully',
+  'ideasDailyLimit',
+  'ideasWithPrayer',
+  'ideasReminderAt',
+  'ideasNoResults',
+  'ideasFromIdeaNote',
   'tinyHintDefault',
   'tinyHintQuran',
   'tinyHintAthkar',
@@ -1332,6 +1395,13 @@ const List<String> kEditableWordingKeys = [
   'prayerPlaceCity',
   'prayerPlaceCityBody',
   'prayerPlaceBahrainTable',
+  'prayerTodayTitle',
+  'prayerSunrise',
+  'prayerUntilAdhan',
+  'prayerSinceAdhan',
+  'prayerUntilSunrise',
+  'prayerSinceSunrise',
+  'prayerTimesPhoneClock',
   'prayerLocationTitle',
   'prayerLocationPrivacyNote',
   'citySearchHint',
@@ -1489,6 +1559,7 @@ const List<String> kEditableWordingKeys = [
   'sproutName',
   'sproutMorning',
   'sproutHello',
+  'doumHi',
   'sproutFirstDone',
   'sproutProgress',
   'sproutProgressF',
@@ -1553,6 +1624,8 @@ const List<String> kBuiltInOnlyWordingKeys = [
   'progressRangeLabel',
   'quitSquareLabel',
   'quitSquareStateEffect',
+  'timesAWeekPhrase',
+  'ideasPlanHabitCount',
   'limitUnitLabel',
   'habitOffsetFromPrayer',
   'matrixTasksDeleted',
@@ -2903,6 +2976,9 @@ class _EditedS extends S {
   String get addGoalTitle => plainWording(_edits['addGoalTitle']) ?? super.addGoalTitle;
 
   @override
+  String get hubTabsHint => plainWording(_edits['hubTabsHint']) ?? super.hubTabsHint;
+
+  @override
   String get whatImprove => plainWording(_edits['whatImprove']) ?? super.whatImprove;
 
   @override
@@ -2915,19 +2991,10 @@ class _EditedS extends S {
   String get goalTitleHint => plainWording(_edits['goalTitleHint']) ?? super.goalTitleHint;
 
   @override
-  String get smartSuggestions => plainWording(_edits['smartSuggestions']) ?? super.smartSuggestions;
-
-  @override
-  String get quickestStart => plainWording(_edits['quickestStart']) ?? super.quickestStart;
-
-  @override
   String get goalTypeBuildOption => plainWording(_edits['goalTypeBuildOption']) ?? super.goalTypeBuildOption;
 
   @override
   String get goalTypeQuitOption => plainWording(_edits['goalTypeQuitOption']) ?? super.goalTypeQuitOption;
-
-  @override
-  String get categoryPickHint => plainWording(_edits['categoryPickHint']) ?? super.categoryPickHint;
 
   @override
   String get limitAmountRequired => plainWording(_edits['limitAmountRequired']) ?? super.limitAmountRequired;
@@ -2952,9 +3019,6 @@ class _EditedS extends S {
   }
 
   @override
-  String get readyPlansLink => plainWording(_edits['readyPlansLink']) ?? super.readyPlansLink;
-
-  @override
   String get timingBuildTitle => plainWording(_edits['timingBuildTitle']) ?? super.timingBuildTitle;
 
   @override
@@ -2974,6 +3038,32 @@ class _EditedS extends S {
 
   @override
   String get pickAPrayer => plainWording(_edits['pickAPrayer']) ?? super.pickAPrayer;
+
+  @override
+  String get prayerPerTimeNote => plainWording(_edits['prayerPerTimeNote']) ?? super.prayerPerTimeNote;
+
+  @override
+  String prayerSlotTitle(int n) {
+    final wordingEdit = _edits['prayerSlotTitle'];
+    if (wordingEdit == null) return super.prayerSlotTitle(n);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'n': () => '$n',
+                }
+              : <String, String Function()>{
+                  'n': () => '$n',
+                },
+        ) ??
+        super.prayerSlotTitle(n);
+  }
+
+  @override
+  String get prayerSlotWhen => plainWording(_edits['prayerSlotWhen']) ?? super.prayerSlotWhen;
+
+  @override
+  String get prayerSlotClear => plainWording(_edits['prayerSlotClear']) ?? super.prayerSlotClear;
 
   @override
   String get remindMeSection => plainWording(_edits['remindMeSection']) ?? super.remindMeSection;
@@ -3166,6 +3256,250 @@ class _EditedS extends S {
 
   @override
   String get back => plainWording(_edits['back']) ?? super.back;
+
+  @override
+  String get addHabitStepWhat => plainWording(_edits['addHabitStepWhat']) ?? super.addHabitStepWhat;
+
+  @override
+  String get addHabitStepOften => plainWording(_edits['addHabitStepOften']) ?? super.addHabitStepOften;
+
+  @override
+  String get addHabitStepReminder => plainWording(_edits['addHabitStepReminder']) ?? super.addHabitStepReminder;
+
+  @override
+  String get addHabitStepReminderShort => plainWording(_edits['addHabitStepReminderShort']) ?? super.addHabitStepReminderShort;
+
+  @override
+  String get habitNameHintBuild => plainWording(_edits['habitNameHintBuild']) ?? super.habitNameHintBuild;
+
+  @override
+  String get habitNameHintQuit => plainWording(_edits['habitNameHintQuit']) ?? super.habitNameHintQuit;
+
+  @override
+  String habitCategoryLine(String category) {
+    final wordingEdit = _edits['habitCategoryLine'];
+    if (wordingEdit == null) return super.habitCategoryLine(category);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'category': () => '$category',
+                }
+              : <String, String Function()>{
+                  'category': () => '$category',
+                },
+        ) ??
+        super.habitCategoryLine(category);
+  }
+
+  @override
+  String get habitCategoryChange => plainWording(_edits['habitCategoryChange']) ?? super.habitCategoryChange;
+
+  @override
+  String get quitStyleQuestion => plainWording(_edits['quitStyleQuestion']) ?? super.quitStyleQuestion;
+
+  @override
+  String get quitFullyOption => plainWording(_edits['quitFullyOption']) ?? super.quitFullyOption;
+
+  @override
+  String get quitLimitOption => plainWording(_edits['quitLimitOption']) ?? super.quitLimitOption;
+
+  @override
+  String get limitPerDay => plainWording(_edits['limitPerDay']) ?? super.limitPerDay;
+
+  @override
+  String get limitUnitHelp => plainWording(_edits['limitUnitHelp']) ?? super.limitUnitHelp;
+
+  @override
+  String get howOftenQuestion => plainWording(_edits['howOftenQuestion']) ?? super.howOftenQuestion;
+
+  @override
+  String get howOftenQuestionQuit => plainWording(_edits['howOftenQuestionQuit']) ?? super.howOftenQuestionQuit;
+
+  @override
+  String get oftenEveryDay => plainWording(_edits['oftenEveryDay']) ?? super.oftenEveryDay;
+
+  @override
+  String get oftenTimesAWeek => plainWording(_edits['oftenTimesAWeek']) ?? super.oftenTimesAWeek;
+
+  @override
+  String get oftenSetDays => plainWording(_edits['oftenSetDays']) ?? super.oftenSetDays;
+
+  @override
+  String get oftenWeekQuestion => plainWording(_edits['oftenWeekQuestion']) ?? super.oftenWeekQuestion;
+
+  @override
+  String get oftenDaysQuestion => plainWording(_edits['oftenDaysQuestion']) ?? super.oftenDaysQuestion;
+
+  @override
+  String get reminderQuestion => plainWording(_edits['reminderQuestion']) ?? super.reminderQuestion;
+
+  @override
+  String get reminderOptionalNote => plainWording(_edits['reminderOptionalNote']) ?? super.reminderOptionalNote;
+
+  @override
+  String get reminderAtClock => plainWording(_edits['reminderAtClock']) ?? super.reminderAtClock;
+
+  @override
+  String get reminderWithPrayer => plainWording(_edits['reminderWithPrayer']) ?? super.reminderWithPrayer;
+
+  @override
+  String get noReminder => plainWording(_edits['noReminder']) ?? super.noReminder;
+
+  @override
+  String get habitWrittenMoment => plainWording(_edits['habitWrittenMoment']) ?? super.habitWrittenMoment;
+
+  @override
+  String get addHabitAction => plainWording(_edits['addHabitAction']) ?? super.addHabitAction;
+
+  @override
+  String get habitEditStepDone => plainWording(_edits['habitEditStepDone']) ?? super.habitEditStepDone;
+
+  @override
+  String get ownCategoryNew => plainWording(_edits['ownCategoryNew']) ?? super.ownCategoryNew;
+
+  @override
+  String get ownCategoryNote => plainWording(_edits['ownCategoryNote']) ?? super.ownCategoryNote;
+
+  @override
+  String get ownCategoryNameHint => plainWording(_edits['ownCategoryNameHint']) ?? super.ownCategoryNameHint;
+
+  @override
+  String get ownCategoryPickIcon => plainWording(_edits['ownCategoryPickIcon']) ?? super.ownCategoryPickIcon;
+
+  @override
+  String get ownCategorySave => plainWording(_edits['ownCategorySave']) ?? super.ownCategorySave;
+
+  @override
+  String get ideasEntryTitle => plainWording(_edits['ideasEntryTitle']) ?? super.ideasEntryTitle;
+
+  @override
+  String get ideasEntryBody => plainWording(_edits['ideasEntryBody']) ?? super.ideasEntryBody;
+
+  @override
+  String get ideasEntryTitleNoPlans => plainWording(_edits['ideasEntryTitleNoPlans']) ?? super.ideasEntryTitleNoPlans;
+
+  @override
+  String get ideasEntryBodyNoPlans => plainWording(_edits['ideasEntryBodyNoPlans']) ?? super.ideasEntryBodyNoPlans;
+
+  @override
+  String get ideasPageTitle => plainWording(_edits['ideasPageTitle']) ?? super.ideasPageTitle;
+
+  @override
+  String get ideasPageTitleQuit => plainWording(_edits['ideasPageTitleQuit']) ?? super.ideasPageTitleQuit;
+
+  @override
+  String get ideasPageIntro => plainWording(_edits['ideasPageIntro']) ?? super.ideasPageIntro;
+
+  @override
+  String get ideasSearchHint => plainWording(_edits['ideasSearchHint']) ?? super.ideasSearchHint;
+
+  @override
+  String get ideasPlansTitle => plainWording(_edits['ideasPlansTitle']) ?? super.ideasPlansTitle;
+
+  @override
+  String get ideasPlansNote => plainWording(_edits['ideasPlansNote']) ?? super.ideasPlansNote;
+
+  @override
+  String get ideasHabitsTitle => plainWording(_edits['ideasHabitsTitle']) ?? super.ideasHabitsTitle;
+
+  @override
+  String get ideasHabitsNote => plainWording(_edits['ideasHabitsNote']) ?? super.ideasHabitsNote;
+
+  @override
+  String get ideasHabitsTitleQuit => plainWording(_edits['ideasHabitsTitleQuit']) ?? super.ideasHabitsTitleQuit;
+
+  @override
+  String get ideasFilterAll => plainWording(_edits['ideasFilterAll']) ?? super.ideasFilterAll;
+
+  @override
+  String get ideasEasyWays => plainWording(_edits['ideasEasyWays']) ?? super.ideasEasyWays;
+
+  @override
+  String get ideasSuggested => plainWording(_edits['ideasSuggested']) ?? super.ideasSuggested;
+
+  @override
+  String get ideasWhy => plainWording(_edits['ideasWhy']) ?? super.ideasWhy;
+
+  @override
+  String get ideasAddNow => plainWording(_edits['ideasAddNow']) ?? super.ideasAddNow;
+
+  @override
+  String get ideasEditFirst => plainWording(_edits['ideasEditFirst']) ?? super.ideasEditFirst;
+
+  @override
+  String get ideasAddedChip => plainWording(_edits['ideasAddedChip']) ?? super.ideasAddedChip;
+
+  @override
+  String get ideasAddedDone => plainWording(_edits['ideasAddedDone']) ?? super.ideasAddedDone;
+
+  @override
+  String get ideasAlreadyHave => plainWording(_edits['ideasAlreadyHave']) ?? super.ideasAlreadyHave;
+
+  @override
+  String get ideasPickAnother => plainWording(_edits['ideasPickAnother']) ?? super.ideasPickAnother;
+
+  @override
+  String get ideasQuitFully => plainWording(_edits['ideasQuitFully']) ?? super.ideasQuitFully;
+
+  @override
+  String ideasDailyLimit(int amount, String unit) {
+    final wordingEdit = _edits['ideasDailyLimit'];
+    if (wordingEdit == null) return super.ideasDailyLimit(amount, unit);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'amount': () => '$amount',
+                  'unit': () => '$unit',
+                }
+              : <String, String Function()>{
+                  'amount': () => '$amount',
+                  'unit': () => '$unit',
+                },
+        ) ??
+        super.ideasDailyLimit(amount, unit);
+  }
+
+  @override
+  String ideasWithPrayer(String prayer) {
+    final wordingEdit = _edits['ideasWithPrayer'];
+    if (wordingEdit == null) return super.ideasWithPrayer(prayer);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'prayer': () => '$prayer',
+                }
+              : <String, String Function()>{
+                  'prayer': () => '$prayer',
+                },
+        ) ??
+        super.ideasWithPrayer(prayer);
+  }
+
+  @override
+  String ideasReminderAt(String time) {
+    final wordingEdit = _edits['ideasReminderAt'];
+    if (wordingEdit == null) return super.ideasReminderAt(time);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'time': () => '$time',
+                }
+              : <String, String Function()>{
+                  'time': () => '$time',
+                },
+        ) ??
+        super.ideasReminderAt(time);
+  }
+
+  @override
+  String get ideasNoResults => plainWording(_edits['ideasNoResults']) ?? super.ideasNoResults;
+
+  @override
+  String get ideasFromIdeaNote => plainWording(_edits['ideasFromIdeaNote']) ?? super.ideasFromIdeaNote;
 
   @override
   String get tinyHintDefault => plainWording(_edits['tinyHintDefault']) ?? super.tinyHintDefault;
@@ -8220,6 +8554,27 @@ class _EditedS extends S {
   String get prayerPlaceBahrainTable => plainWording(_edits['prayerPlaceBahrainTable']) ?? super.prayerPlaceBahrainTable;
 
   @override
+  String get prayerTodayTitle => plainWording(_edits['prayerTodayTitle']) ?? super.prayerTodayTitle;
+
+  @override
+  String get prayerSunrise => plainWording(_edits['prayerSunrise']) ?? super.prayerSunrise;
+
+  @override
+  String get prayerUntilAdhan => plainWording(_edits['prayerUntilAdhan']) ?? super.prayerUntilAdhan;
+
+  @override
+  String get prayerSinceAdhan => plainWording(_edits['prayerSinceAdhan']) ?? super.prayerSinceAdhan;
+
+  @override
+  String get prayerUntilSunrise => plainWording(_edits['prayerUntilSunrise']) ?? super.prayerUntilSunrise;
+
+  @override
+  String get prayerSinceSunrise => plainWording(_edits['prayerSinceSunrise']) ?? super.prayerSinceSunrise;
+
+  @override
+  String get prayerTimesPhoneClock => plainWording(_edits['prayerTimesPhoneClock']) ?? super.prayerTimesPhoneClock;
+
+  @override
   String get prayerLocationTitle => plainWording(_edits['prayerLocationTitle']) ?? super.prayerLocationTitle;
 
   @override
@@ -9165,6 +9520,9 @@ class _EditedS extends S {
 
   @override
   String get sproutHello => plainWording(_edits['sproutHello']) ?? super.sproutHello;
+
+  @override
+  String get doumHi => plainWording(_edits['doumHi']) ?? super.doumHi;
 
   @override
   String get sproutFirstDone => plainWording(_edits['sproutFirstDone']) ?? super.sproutFirstDone;

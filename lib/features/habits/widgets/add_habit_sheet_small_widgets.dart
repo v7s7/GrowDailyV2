@@ -7,9 +7,16 @@ part of 'add_habit_sheet.dart';
 
 class _EqualPill extends StatelessWidget {
   final String label;
+  /// A second, smaller line: a prayer's time today under its name.
+  final String? sublabel;
   final bool selected;
   final VoidCallback onTap;
-  const _EqualPill({required this.label, required this.selected, required this.onTap});
+  const _EqualPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.sublabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -34,16 +41,194 @@ class _EqualPill extends StatelessWidget {
           alignment: Alignment.center,
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              maxLines: 1,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                color: selected ? context.gp.goldInk : gp.textSec,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    color: selected ? context.gp.goldInk : gp.textSec,
+                  ),
+                ),
+                if (sublabel != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    sublabel!,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? context.gp.goldInk : gp.textTert,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One joined control with a cell per choice and at most one lit: how often
+/// («كل يوم | مرات بالأسبوع | أيام معيّنة») and a quit habit's style. A
+/// single track reads as "one of these", where a row of separate pills read
+/// as a list the follow-up below could join as a fourth (Aziz, 2026-09-30).
+/// [selected] null lights none, which is how how-often opens.
+class _SegmentedRow extends StatelessWidget {
+  final List<String> labels;
+  final int? selected;
+  final ValueChanged<int> onChanged;
+  const _SegmentedRow({
+    required this.labels,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: gp.surfaceHL,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: gp.border, width: 0.5),
+      ),
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: i == selected,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onChanged(i),
+                  child: AnimatedContainer(
+                    duration: GameMotion.quick,
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: i == selected
+                          ? GameColors.gold.withOpacity(0.16)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(9),
+                      border: i == selected
+                          ? Border.all(
+                              color: GameColors.gold.withOpacity(0.45),
+                              width: 0.8,
+                            )
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        labels[i],
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: i == selected
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                          color: i == selected
+                              ? context.gp.goldInk
+                              : gp.textSec,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A category as a pill in a row that scrolls sideways: its icon and its
+/// name. The 3x3 grid it replaced was on every habit's first page.
+class _CategoryPill extends StatelessWidget {
+  final HabitCategory category;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// Drawn instead of [category]'s own icon: a category of one's own.
+  final IconData? iconData;
+
+  /// «فئة جديدة»: drawn as an action, in the accent with no fill, so it
+  /// reads as "make one" rather than as one more category.
+  final bool action;
+
+  const _CategoryPill({
+    required this.category,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.iconData,
+    this.action = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    final radius = BorderRadius.circular(GameSpacing.pillRadius);
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        borderRadius: radius,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: GameMotion.quick,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? GameColors.gold.withOpacity(0.14)
+                : (action ? Colors.transparent : gp.surfaceHL),
+            borderRadius: radius,
+            border: Border.all(
+              color: selected || action
+                  ? GameColors.gold.withOpacity(action ? 0.4 : 0.55)
+                  : gp.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (iconData != null)
+                Icon(
+                  iconData,
+                  size: 15,
+                  color: selected || action ? context.gp.goldInk : gp.textSec,
+                )
+              else
+                CategoryIcon(
+                  category: category,
+                  size: 14,
+                  color: selected ? context.gp.goldInk : gp.textSec,
+                ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight:
+                      selected || action ? FontWeight.w800 : FontWeight.w600,
+                  color: selected || action ? context.gp.goldInk : gp.textSec,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -65,69 +250,6 @@ typedef _ChipGrid = ChoiceChipGrid;
 typedef _PlainChoiceChip = PlainChoiceChip;
 
 
-
-class _PlainActionChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  // Set on suggestion chips only — a small reward preview to make tapping
-  // one feel like claiming a shortcut, not just filling in a text field.
-  // Left null for plain action chips that aren't tied to any specific
-  // reward.
-  final int? xp;
-
-  const _PlainActionChip({required this.label, required this.onTap, this.xp});
-
-  @override
-  Widget build(BuildContext context) {
-    final gp = context.gp;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: gp.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: gp.border.withOpacity(0.9), width: 0.8),
-        ),
-        // Centered, and the label is the one that gives way (ellipsis) if
-        // the fixed cell is too narrow for it — the XP badge stays fixed
-        // size and always fully visible, same reasoning as
-        // _PlainChoiceChip's centering above.
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: gp.textPrimary,
-                  height: 1.1,
-                ),
-              ),
-            ),
-            if (xp != null) ...[
-              const SizedBox(width: 6),
-              Text(
-                '+$xp',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: context.gp.goldInk,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class _SectionLabel extends StatelessWidget {
   final String text;

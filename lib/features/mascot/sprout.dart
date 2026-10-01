@@ -70,7 +70,33 @@ enum SproutPose {
   // And its walk: running on his treadmill (the sport sheet, its own
   // folder), then the wink as he springs off it (the second sheet).
   treadmill('sport/sport_treadmill', 957, 1021),
-  winkJump('mascot_wink_jump', 856, 798);
+  winkJump('mascot_wink_jump', 856, 798),
+  // The profile's streak warning (Aziz, 2026-10-01): sheltering the day's
+  // small flame under a leaf, from the streak sheet, its own folder.
+  streakLeafShelter('streak/streak_leaf_shelter', 712, 759),
+  // The first three onboarding slides (Aziz, 2026-10-01, the canvas "Doum
+  // picks the language"): stamping a task into «الآن», clapping for the
+  // room. From the moments sheet, its own folder.
+  stampCheck('moments/moments_stamp_check', 707, 752),
+  clap('moments/moments_clap', 767, 770),
+  // The language switch (same canvas): Doum dressed for each language, in
+  // the four angles he turns through (front, three-quarter, side, back),
+  // the greeting he lands on and the jump between. The thobe is the Arabic
+  // look (leaves hidden under the ghutra), the suit the English one. Each
+  // look is one size across its six files and the two match each other
+  // (design/mascot/README.md), so the turn can swap them mid-way.
+  langThobeFront('language/lang_thobe_front_wave', 616, 584),
+  langThobeThreeQuarter('language/lang_thobe_three_quarter', 589, 587),
+  langThobeSide('language/lang_thobe_side', 535, 590),
+  langThobeBack('language/lang_thobe_back', 617, 604),
+  langThobeGreet('language/lang_thobe_hand_chest', 599, 609),
+  langThobeJump('language/lang_thobe_jump', 701, 589),
+  langSuitFront('language/lang_suit_front_wave', 628, 660),
+  langSuitThreeQuarter('language/lang_suit_three_quarter', 537, 659),
+  langSuitSide('language/lang_suit_side', 441, 686),
+  langSuitBack('language/lang_suit_back', 577, 647),
+  langSuitGreet('language/lang_suit_bow', 565, 632),
+  langSuitJump('language/lang_suit_jump', 657, 658);
 
   const SproutPose(this.file, this.width, this.height);
 
@@ -190,6 +216,7 @@ class Sprout extends StatefulWidget {
     this.mirror = false,
     this.underlay,
     this.overlay,
+    this.pictureBuilder,
     this.cutSwap = false,
   });
 
@@ -228,6 +255,13 @@ class Sprout extends StatefulWidget {
   /// else.
   final Widget? underlay;
   final Widget? overlay;
+
+  /// Draws [pose]'s picture from the bare one, for a scene that moves part
+  /// of it apart from the rest: the launch curtain's walk runs Doum on a
+  /// treadmill that stays still. Pose-keyed like [underlay]: give it for a
+  /// pose's whole time on screen or not at all. Null draws the picture as
+  /// it is, everywhere else.
+  final Widget Function(Widget picture)? pictureBuilder;
 
   /// A pose change as a cut: the old pose leaves in the frame the new one
   /// arrives, and the new one is whole at once (the squash stays). For a
@@ -447,7 +481,8 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
           gaplessPlayback: true,
           excludeFromSemantics: true,
         );
-    if (under == null && over == null) {
+    final build = widget.pictureBuilder;
+    if (under == null && over == null && build == null) {
       return picture(key: ValueKey(widget.pose));
     }
     return SizedBox(
@@ -458,7 +493,7 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
         clipBehavior: Clip.none,
         children: [
           if (under != null) Positioned.fill(child: under),
-          Positioned.fill(child: picture()),
+          Positioned.fill(child: build == null ? picture() : build(picture())),
           if (over != null) Positioned.fill(child: over),
         ],
       ),

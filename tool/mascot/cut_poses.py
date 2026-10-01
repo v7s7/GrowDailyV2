@@ -96,6 +96,32 @@ SHEETS = {
                    poses="poses-ghutra.json", out=ROOT / "design/mascot/sheet-ghutra/poses-native",
                    row_splits=(358, 661),
                    give={(449, 679): "winter_bisht_cold_wind", (708, 693): "winter_bisht_cold_wind"}),
+    # 2026-10-01: the three October sheets (recolor_sheets_oct.py makes them
+    # transparent), 12 poses each in a 4 x 3 grid of 384 x 341 cells; the
+    # splits sit in the gaps between the rows. Then run fix_poses_oct.py,
+    # which takes the edge line off the peek pose.
+    "moments": dict(sheet=ROOT / "design/mascot/sheet-moments/sheet-moments-final.png",
+                    poses="poses-moments.json", out=ROOT / "design/mascot/sheet-moments/poses-native",
+                    row_splits=(345, 685), give={}),
+    "habits": dict(sheet=ROOT / "design/mascot/sheet-habits/sheet-habits-final.png",
+                   poses="poses-habits.json", out=ROOT / "design/mascot/sheet-habits/poses-native",
+                   row_splits=(345, 685), give={}),
+    # ramadan: the night-lantern pose's small crescent (centre 727, 730) sits
+    # nearer the dallah pose's leaf than its own pose, so it is given by hand.
+    "ramadan": dict(sheet=ROOT / "design/mascot/sheet-ramadan/sheet-ramadan-final.png",
+                    poses="poses-ramadan.json", out=ROOT / "design/mascot/sheet-ramadan/poses-native",
+                    row_splits=(345, 685), give={(727, 730): "ramadan_night_lantern"}),
+    # 2026-10-01: the language switch's two looks (recolor_sheets_oct.py).
+    # suit is a 4 x 3 sheet whose Arabic poses Aziz rejected: they are listed
+    # in poses-suit.json with "skip" so the sheet still counts 12 characters,
+    # and only the English ones are written. thobe is the Arabic look redrawn,
+    # 6 poses in a 3 x 2 grid of 512 px cells (box centres at y 260 and 730).
+    "suit": dict(sheet=ROOT / "design/mascot/sheet-suit/sheet-suit-final.png",
+                 poses="poses-suit.json", out=ROOT / "design/mascot/sheet-suit/poses-native",
+                 row_splits=(345, 685), give={}),
+    "thobe": dict(sheet=ROOT / "design/mascot/sheet-thobe/sheet-thobe-final.png",
+                  poses="poses-thobe.json", out=ROOT / "design/mascot/sheet-thobe/poses-native",
+                  row_splits=(512,), give={}),
 }
 
 
@@ -193,6 +219,8 @@ if __name__ == "__main__":
                             {xy: index[name] if name else 0 for xy, name in cfg["give"].items()})
     out.mkdir(parents=True, exist_ok=True)
     for p, pose in enumerate(poses, 1):
+        if pose.get("skip"):
+            continue
         piece = cut(rgb, A, pose_of == p)
         Image.fromarray(piece).save(out / f"{pose['name']}.png", optimize=True)
         print(f"{pose['name']:28s} {piece.shape[1]}x{piece.shape[0]}")

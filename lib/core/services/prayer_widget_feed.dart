@@ -73,8 +73,9 @@ class PrayerWidgetFeed {
   };
 
   /// [elapsedMinutes] for [key], or nothing for a key it does not name.
-  /// Mirrors PrayerSlot.elapsedWindow in PrayerSchedule.swift.
-  @visibleForTesting
+  /// Mirrors PrayerSlot.elapsedWindow in PrayerSchedule.swift. Also read by
+  /// the sky on Settings › موقع الصلاة (PrayerTodayCard), so the page a
+  /// widget tap opens shows the same moment the face did.
   static Duration elapsedWindowFor(String key) =>
       Duration(minutes: elapsedMinutes[key] ?? 0);
 

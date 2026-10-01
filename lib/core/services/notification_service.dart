@@ -78,6 +78,16 @@ typedef HabitReminderInput = ({
   /// applied there rather than by the caller.
   List<int> extraReminderOffsets,
   String? prayerKey,
+  /// A habit counted several times a day whose reminders ride on prayers,
+  /// one per time (see HabitCue.prayerSlots): each slot's prayer, its own
+  /// signed shift, and the prayer's name in the app's language for the
+  /// reminder's words («باقي ٣٠ دقيقة على الفجر»). An entry's INDEX is its
+  /// notification slot, as with [clockTimes].
+  ///
+  /// Empty for every other habit. When it is not, [clockTimes] is empty,
+  /// [prayerKey] is null, and the habit-level [reminderOffsetMinutes] and
+  /// [extraReminderOffsets] say nothing: each slot carries its own shift.
+  List<({String prayerKey, int offset, String label})> prayerSlots,
   int streak,
   /// How many of today's [dailyTarget] have already been logged.
   ///
@@ -2762,14 +2772,16 @@ class NotificationService {
     // one day per occurrence plus today; one pinned to specific weekdays
     // can need a whole week per occurrence, so it is only paid for when
     // such a habit is actually present.
+    bool ridesOnPrayer(HabitReminderInput h) =>
+        h.prayerKey != null || h.prayerSlots.isNotEmpty;
     final baseWindowDays = habits.any((h) =>
-            h.prayerKey != null && h.scheduledWeekdays.isNotEmpty)
+            ridesOnPrayer(h) && h.scheduledWeekdays.isNotEmpty)
         ? 1 + 7 * kOccurrencesPerSlot
         : 1 + kOccurrencesPerSlot;
     // An alarm's month needs a month of prayer times: today plus thirty.
     final prayerWindowDays = alarmsReady &&
             baseWindowDays < kAlarmWindowDays + 1 &&
-            habits.any((h) => h.prayerKey != null && h.alarm && !h.isQuit)
+            habits.any((h) => ridesOnPrayer(h) && h.alarm && !h.isQuit)
         ? kAlarmWindowDays + 1
         : baseWindowDays;
 
@@ -2795,8 +2807,13 @@ class NotificationService {
       // [kOccurrencesPerSlot]), in slot then depth order. A habit with no
       // stack resolves slot 0 at depths 0..3 — depth 0 keeping the id this
       // habit has always used.
-      final prayerFires =
-          <({int slot, int depth, tz.TZDateTime at, int offsetMinutes})>[];
+      final prayerFires = <({
+        int slot,
+        int depth,
+        tz.TZDateTime at,
+        int offsetMinutes,
+        String? anchorLabel,
+      })>[];
       var isPrayerLinked = false;
 
       if (habit.clockTimes.isNotEmpty) {
@@ -2945,21 +2962,31 @@ class NotificationService {
           doneToday: habit.completedCount >= habit.dailyTarget,
         );
         continue;
-      } else if (habit.prayerKey != null && settings.location != null) {
+      } else if (ridesOnPrayer(habit) && settings.location != null) {
         isPrayerLinked = true;
         final loc = settings.location!;
-        // The shifts this habit fires at, primary first so it keeps slot 0
-        // and the id it has always had. A prayer is still ONE moment — five
-        // times a day for a prayer habit means five different prayers, which
-        // is a different feature — but that one moment can now be nudged
-        // around several times (see extraReminderOffsets).
+        // What each slot fires at: a prayer and a shift from it.
+        //
+        // A habit counted once a day has ONE prayer, nudged around by its
+        // shifts, primary first so it keeps slot 0 and the id it has always
+        // had (see extraReminderOffsets). One counted several times a day
+        // has a prayer per time (prayerSlots), two of which can share a
+        // prayer on either side of it: 30 before Fajr and 30 after.
         //
         // Signed throughout: added, never subtracted. A negative value (the
         // "before" case) shifts backwards on its own.
-        final shifts = [
-          habit.reminderOffsetMinutes,
-          ...habit.extraReminderOffsets,
-        ].take(_maxHabitReminderSlots).toList();
+        final slots = habit.prayerSlots.isNotEmpty
+            ? [
+                for (final p in habit.prayerSlots.take(_maxHabitReminderSlots))
+                  (key: p.prayerKey, shift: p.offset, label: p.label),
+              ]
+            : [
+                for (final shift in [
+                  habit.reminderOffsetMinutes,
+                  ...habit.extraReminderOffsets,
+                ].take(_maxHabitReminderSlots))
+                  (key: habit.prayerKey!, shift: shift, label: habit.anchorLabel),
+              ];
         final days = prayerDays ??= await PrayerTimesService.calculateDays(
           latitude: loc.lat,
           longitude: loc.lng,
@@ -2967,8 +2994,8 @@ class NotificationService {
           days: prayerWindowDays,
           countryCode: settings.resolvedCountryCode,
         );
-        for (var slot = 0; slot < shifts.length; slot++) {
-          final offset = Duration(minutes: shifts[slot]);
+        for (var slot = 0; slot < slots.length; slot++) {
+          final offset = Duration(minutes: slots[slot].shift);
           // Walk forward collecting the next [kOccurrencesPerSlot]
           // occurrences of this prayer that are both still ahead and on a
           // day the habit actually runs.
@@ -3000,7 +3027,7 @@ class NotificationService {
             // chain correct too (a `?.` shorts every plain `.` call chained
             // after it, not just the very next one), but that's a
             // sharp-edged-enough corner of the language to avoid leaning on.
-            var candidate = days[dayOffset].forKey(habit.prayerKey!);
+            var candidate = days[dayOffset].forKey(slots[slot].key);
             if (candidate == null) break;
             candidate = candidate.add(offset);
             if (!candidate.isAfter(now)) continue;
@@ -3022,7 +3049,8 @@ class NotificationService {
               slot: slot,
               depth: depth,
               at: candidate,
-              offsetMinutes: shifts[slot],
+              offsetMinutes: slots[slot].shift,
+              anchorLabel: slots[slot].label,
             ));
             depth++;
           }
@@ -3084,11 +3112,24 @@ class NotificationService {
       // Effective days, not calendar ones, for the same reason the clock
       // branch above uses them: the app's day runs to kDayCutoffHour, so an
       // 04:00 reminder belongs to the night before.
+      //
+      // A prayer per time is the multi-time clock habit's case instead:
+      // each slot is an occurrence of its own, so a completion stands down
+      // the earliest of today's still to come, one per completion, exactly as
+      // the clock branch above counts them, and the rest stay armed.
       final doneToday = habit.completedCount >= habit.dailyTarget;
+      final onToday = [
+        for (final f in awakeFires)
+          if (f.at.effectiveDay.isSameDayAs(now.effectiveDay)) f,
+      ]..sort((a, b) => a.at.compareTo(b.at));
+      final standDown = doneToday
+          ? onToday.toSet()
+          : habit.prayerSlots.isNotEmpty
+              ? onToday.take(habit.completedCount.clamp(0, onToday.length)).toSet()
+              : const <Object>{};
       final keptFires = [
         for (final f in awakeFires)
-          if (!(doneToday && f.at.effectiveDay.isSameDayAs(now.effectiveDay)))
-            f,
+          if (!standDown.contains(f)) f,
       ];
       final keptPrayerSlots = {
         for (final f in keptFires) (slot: f.slot, depth: f.depth),
@@ -3117,8 +3158,9 @@ class NotificationService {
           // This entry's own shift — the number the notification's wording
           // reads to say «باقي ١٠ دقائق على المغرب» rather than the habit's
           // primary one, which for slots 1 and up is a different reminder.
+          // Its own prayer too, which a prayer per time can make another one.
           offsetMinutes: f.offsetMinutes,
-          anchorLabel: habit.anchorLabel,
+          anchorLabel: f.anchorLabel,
           completedCount: habit.completedCount,
           dailyTarget: habit.dailyTarget,
           lastDoneDaysAgo: habit.lastDoneDaysAgo,
@@ -3145,7 +3187,7 @@ class NotificationService {
           slot: f.slot,
           depth: f.depth,
           offsetMinutes: f.offsetMinutes,
-          anchorLabel: habit.anchorLabel,
+          anchorLabel: f.anchorLabel,
           completedCount: habit.completedCount,
           dailyTarget: habit.dailyTarget,
           lastDoneDaysAgo: habit.lastDoneDaysAgo,

@@ -1,0 +1,3728 @@
+{
+  "about": "The habit ideas and plans as phones show them, after the admin's edits in wording/live (`ideas`, `plans`). Run by scripts/admin_lookup/test/ideas.test.js (wording/ideas_rules.js resolveIdeas, resolvePlans) and by the app (habit_ideas.dart resolveIdeas, resolvePlans), so the Habit ideas page shows before Publish what phones show after it. `cases`: `builtIn` is the ideas list as in assets/data/habit_ideas.json, `edits` the stored `ideas` field. `expect.ids` is the whole list in order, `expect.featured` the featured ids in that order, `expect.names` the Arabic name of each id it lists. `expect.fields`, when present, gives resolved fields in HabitIdea.toJson form: null means the idea has no such field (timesPerDay null is once a day). `planCases`: the same for the plans; `builtIn` is the plans in habit_plans.dart order, `edits` the stored `plans` field, and there is no featured list. Rules the cases hold both sides to beyond the spec's words: in `text`, null takes away an optional field (sourceAr, sourceEn, reminder, limit, timesPerDay) and any other value of the wrong type is ignored; fields are applied in one fixed order whatever order the document lists them in (often before timesPerDay), then timesPerDay is dropped unless the idea is a daily habit to build and limit unless it is a habit to quit; category is one of the spec's nine; added ideas without an order follow the built-ins sorted by id; `hidden` never takes off an added idea.",
+  "cases": [
+    {
+      "name": "no edits: the built-ins in file order, each with its own star",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": null,
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح",
+          "read_book": "اقرأ كتاب",
+          "less_coffee": "قلل القهوة"
+        }
+      }
+    },
+    {
+      "name": "a document that is not a map is no edits",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": "nonsense",
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح",
+          "read_book": "اقرأ كتاب",
+          "less_coffee": "قلل القهوة"
+        }
+      }
+    },
+    {
+      "name": "an empty document changes nothing",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {},
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح",
+          "read_book": "اقرأ كتاب",
+          "less_coffee": "قلل القهوة"
+        }
+      }
+    },
+    {
+      "name": "hidden takes built-ins off; unknown ids and non-strings in it do nothing",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "hidden": [
+          "daily_walk",
+          "no_such_idea",
+          5,
+          "sunnah_fast"
+        ]
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح"
+        }
+      }
+    },
+    {
+      "name": "order: the ids it names first, in its order; unknown, hidden, repeated and non-string entries skipped; the rest in file order",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "order": [
+          "read_book",
+          "no_such_idea",
+          "daily_walk",
+          "read_book",
+          7,
+          "drink_water"
+        ],
+        "hidden": [
+          "daily_walk"
+        ]
+      },
+      "expect": {
+        "ids": [
+          "read_book",
+          "drink_water",
+          "morning_athkar",
+          "less_coffee",
+          "no_phone_bed",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "drink_water",
+          "morning_athkar"
+        ],
+        "names": {
+          "read_book": "اقرأ كتاب"
+        }
+      }
+    },
+    {
+      "name": "an order that is not a list is no order",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "order": "read_book"
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح",
+          "read_book": "اقرأ كتاب",
+          "less_coffee": "قلل القهوة"
+        }
+      }
+    },
+    {
+      "name": "featured overrides an idea's own star both ways; a value that is not true or false is ignored",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "featured": {
+          "morning_athkar": false,
+          "read_book": true,
+          "drink_water": "yes",
+          "no_such_idea": true
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "drink_water",
+          "read_book"
+        ],
+        "names": {}
+      }
+    },
+    {
+      "name": "the featured list follows the order",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "order": [
+          "sunnah_fast"
+        ],
+        "featured": {
+          "sunnah_fast": true
+        }
+      },
+      "expect": {
+        "ids": [
+          "sunnah_fast",
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "no_phone_bed",
+          "read_book"
+        ],
+        "featured": [
+          "sunnah_fast",
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {}
+      }
+    },
+    {
+      "name": "text: a word field replaces the idea's own, trimmed; a wrong type, null or blank is ignored",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "nameAr": "  أذكار الصبح  ",
+            "nameEn": 5,
+            "shortAr": "   ",
+            "shortEn": "A calm start",
+            "benefitAr": null,
+            "benefitEn": [
+              "x"
+            ]
+          },
+          "daily_walk": {
+            "nameEn": "Walk every day",
+            "benefitAr": "امشِ وارتاح."
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk"
+        ],
+        "featured": [
+          "morning_athkar"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصبح",
+          "daily_walk": "المشي اليومي"
+        },
+        "fields": {
+          "morning_athkar": {
+            "nameEn": "Morning athkar",
+            "shortAr": "تبدأ يومك وقلبك مطمئن",
+            "shortEn": "A calm start",
+            "benefitAr": "من قالها حين يصبح كفته يومه.",
+            "benefitEn": "Said in the morning, they carry you through the day."
+          },
+          "daily_walk": {
+            "nameEn": "Walk every day",
+            "benefitAr": "امشِ وارتاح.",
+            "shortEn": "Moves your body and clears your head"
+          }
+        }
+      }
+    },
+    {
+      "name": "text: a source; null takes it away, a wrong type or blank is ignored",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "sourceAr": null,
+            "sourceEn": 7
+          },
+          "daily_walk": {
+            "sourceAr": "متفق عليه",
+            "sourceEn": "   "
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk"
+        ],
+        "featured": [
+          "morning_athkar"
+        ],
+        "names": {},
+        "fields": {
+          "morning_athkar": {
+            "sourceAr": null,
+            "sourceEn": "Abu Dawud"
+          },
+          "daily_walk": {
+            "sourceAr": "متفق عليه",
+            "sourceEn": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: ways; a list replaces the idea's own (blank and non-string entries left out, 1 to 4 kept), anything else is ignored",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "waysAr": [
+              "بعد الفجر",
+              "قبل الدوام",
+              "في السيارة"
+            ],
+            "waysEn": "Right after Fajr"
+          },
+          "daily_walk": {
+            "waysAr": [],
+            "waysEn": [
+              "After dinner",
+              5,
+              "  "
+            ]
+          },
+          "drink_water": {
+            "waysAr": [
+              "أ",
+              "ب",
+              "ج",
+              "د",
+              "هـ"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "morning_athkar": {
+            "waysAr": [
+              "بعد الفجر",
+              "قبل الدوام",
+              "في السيارة"
+            ],
+            "waysEn": [
+              "Right after Fajr",
+              "Read them from the app"
+            ]
+          },
+          "daily_walk": {
+            "waysAr": [
+              "امشِ عشر دقايق بعد العشاء",
+              "خذ الدرج بدل المصعد"
+            ],
+            "waysEn": [
+              "After dinner"
+            ]
+          },
+          "drink_water": {
+            "waysAr": [
+              "خل قارورة على مكتبك",
+              "كوب مع كل وجبة"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "text: how often, each form, written the one way; one the app cannot read is ignored",
+      "builtIn": [
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "daily_walk": {
+            "often": "weekly:3"
+          },
+          "read_book": {
+            "often": "days:4, 1,4"
+          },
+          "sunnah_fast": {
+            "often": "weekly:7"
+          },
+          "drink_water": {
+            "often": "sometimes"
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "daily_walk",
+          "drink_water",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "daily_walk": {
+            "often": "weekly:3"
+          },
+          "read_book": {
+            "often": "days:1,4"
+          },
+          "sunnah_fast": {
+            "often": "days:1,4"
+          },
+          "drink_water": {
+            "often": "daily",
+            "timesPerDay": 8
+          }
+        }
+      }
+    },
+    {
+      "name": "text: times a day goes only with a daily habit to build; null is once",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "timesPerDay": 3
+          },
+          "drink_water": {
+            "timesPerDay": null
+          },
+          "less_coffee": {
+            "timesPerDay": 4
+          },
+          "read_book": {
+            "timesPerDay": 2
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "drink_water",
+          "less_coffee",
+          "read_book"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "morning_athkar": {
+            "timesPerDay": 3
+          },
+          "drink_water": {
+            "timesPerDay": null
+          },
+          "less_coffee": {
+            "timesPerDay": null
+          },
+          "read_book": {
+            "timesPerDay": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: times a day of 1 is once; out of range or not a whole number is ignored",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "drink_water": {
+            "timesPerDay": 1
+          },
+          "morning_athkar": {
+            "timesPerDay": 13
+          },
+          "daily_walk": {
+            "timesPerDay": "3"
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "drink_water",
+          "daily_walk"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "drink_water": {
+            "timesPerDay": null
+          },
+          "morning_athkar": {
+            "timesPerDay": null
+          },
+          "daily_walk": {
+            "timesPerDay": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: a schedule change carries times a day with it, whatever order the fields come in",
+      "builtIn": [
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "read_book": {
+            "timesPerDay": 3,
+            "often": "daily"
+          },
+          "drink_water": {
+            "often": "weekly:2",
+            "timesPerDay": 5
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "drink_water",
+          "read_book"
+        ],
+        "featured": [
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "read_book": {
+            "often": "daily",
+            "timesPerDay": 3
+          },
+          "drink_water": {
+            "often": "weekly:2",
+            "timesPerDay": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: reminder; null takes it away, one the app cannot read or of the wrong type is ignored, a time is written HH:MM",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        },
+        {
+          "id": "sunnah_fast",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "صيام الاثنين والخميس",
+          "nameEn": "Monday and Thursday fast",
+          "shortAr": "يومين تعرض فيهم الأعمال",
+          "shortEn": "The two days deeds are shown",
+          "benefitAr": "تعرض الأعمال يوم الاثنين والخميس، فأحب أن يعرض عملي وأنا صائم.",
+          "benefitEn": "Deeds are shown on Monday and Thursday, and I love mine to be shown while I am fasting.",
+          "sourceAr": "رواه الترمذي",
+          "sourceEn": "Tirmidhi",
+          "waysAr": [
+            "ابدأ بيوم واحد في الأسبوع",
+            "تسحّر ولو بتمرة"
+          ],
+          "waysEn": [
+            "Start with one day a week",
+            "Have suhoor, even a date"
+          ],
+          "often": "days:1,4",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "reminder": "time:6:5"
+          },
+          "daily_walk": {
+            "reminder": null
+          },
+          "read_book": {
+            "reminder": "prayer:jumuah"
+          },
+          "sunnah_fast": {
+            "reminder": "prayer:isha"
+          },
+          "drink_water": {
+            "reminder": "time:24:00"
+          },
+          "less_coffee": {
+            "reminder": 5
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "drink_water",
+          "less_coffee",
+          "read_book",
+          "sunnah_fast"
+        ],
+        "featured": [
+          "morning_athkar",
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "morning_athkar": {
+            "reminder": "time:06:05"
+          },
+          "daily_walk": {
+            "reminder": null
+          },
+          "read_book": {
+            "reminder": "time:21:00"
+          },
+          "sunnah_fast": {
+            "reminder": "prayer:isha"
+          },
+          "drink_water": {
+            "reminder": null
+          },
+          "less_coffee": {
+            "reminder": "time:15:00"
+          }
+        }
+      }
+    },
+    {
+      "name": "text: limit; null quits fully, a quit idea takes a new one, a habit to build takes none",
+      "builtIn": [
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "less_coffee": {
+            "limit": null
+          },
+          "no_phone_bed": {
+            "limit": {
+              "amount": 30,
+              "unit": "minutes"
+            }
+          },
+          "daily_walk": {
+            "limit": {
+              "amount": 2,
+              "unit": "times"
+            }
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "less_coffee",
+          "no_phone_bed",
+          "daily_walk"
+        ],
+        "featured": [],
+        "names": {},
+        "fields": {
+          "less_coffee": {
+            "limit": null
+          },
+          "no_phone_bed": {
+            "limit": {
+              "amount": 30,
+              "unit": "minutes"
+            }
+          },
+          "daily_walk": {
+            "limit": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: a limit the app cannot read is ignored",
+      "builtIn": [
+        {
+          "id": "less_coffee",
+          "type": "quit",
+          "category": "health",
+          "nameAr": "قلل القهوة",
+          "nameEn": "Less coffee",
+          "shortAr": "نومك يصير أهدأ",
+          "shortEn": "Calmer sleep at night",
+          "benefitAr": "كوبين في اليوم تكفي، والباقي يأخذ من نومك.",
+          "benefitEn": "Two cups a day are enough; more takes from your sleep.",
+          "waysAr": [
+            "آخر كوب قبل العصر",
+            "بدّل الثالث بماء"
+          ],
+          "waysEn": [
+            "Last cup before Asr",
+            "Swap the third for water"
+          ],
+          "often": "daily",
+          "reminder": "time:15:00",
+          "limit": {
+            "amount": 2,
+            "unit": "cups"
+          },
+          "featured": false
+        },
+        {
+          "id": "no_phone_bed",
+          "type": "quit",
+          "category": "sleep",
+          "nameAr": "بدون جوال في السرير",
+          "nameEn": "No phone in bed",
+          "shortAr": "تنام أسرع وتصحى أخف",
+          "shortEn": "Fall asleep faster, wake up lighter",
+          "benefitAr": "الشاشة قبل النوم تأخر نومك.",
+          "benefitEn": "A screen before bed keeps you up.",
+          "waysAr": [
+            "اشحنه برا الغرفة",
+            "حط منبه عادي"
+          ],
+          "waysEn": [
+            "Charge it outside the room",
+            "Use a plain alarm clock"
+          ],
+          "often": "daily",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "less_coffee": {
+            "limit": {
+              "amount": 0,
+              "unit": "cups"
+            }
+          },
+          "no_phone_bed": {
+            "limit": {
+              "amount": 3,
+              "unit": "custom"
+            }
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "less_coffee",
+          "no_phone_bed"
+        ],
+        "featured": [],
+        "names": {},
+        "fields": {
+          "less_coffee": {
+            "limit": {
+              "amount": 2,
+              "unit": "cups"
+            }
+          },
+          "no_phone_bed": {
+            "limit": null
+          }
+        }
+      }
+    },
+    {
+      "name": "text: category is one of the nine; an old app category or another type is ignored",
+      "builtIn": [
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        },
+        {
+          "id": "drink_water",
+          "type": "build",
+          "category": "health",
+          "nameAr": "اشرب ماء",
+          "nameEn": "Drink water",
+          "shortAr": "جسمك يحتاج الماء طول اليوم",
+          "shortEn": "Your body needs water all day",
+          "benefitAr": "الماء يساعدك تركّز وتحس بنشاط أكثر.",
+          "benefitEn": "Water helps you focus and feel more awake.",
+          "waysAr": [
+            "خل قارورة على مكتبك",
+            "كوب مع كل وجبة"
+          ],
+          "waysEn": [
+            "Keep a bottle on your desk",
+            "A glass with every meal"
+          ],
+          "often": "daily",
+          "timesPerDay": 8,
+          "featured": true
+        },
+        {
+          "id": "read_book",
+          "type": "build",
+          "category": "learning",
+          "nameAr": "اقرأ كتاب",
+          "nameEn": "Read a book",
+          "shortAr": "صفحات قليلة تفتح لك أبواب",
+          "shortEn": "A few pages open new doors",
+          "benefitAr": "القراءة تزيد علمك وتهدّي بالك.",
+          "benefitEn": "Reading grows what you know and calms your mind.",
+          "waysAr": [
+            "عشر صفحات قبل النوم",
+            "خل الكتاب جنب السرير"
+          ],
+          "waysEn": [
+            "Ten pages before bed",
+            "Keep the book by your bed"
+          ],
+          "often": "weekly:3",
+          "reminder": "time:21:00",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "read_book": {
+            "category": "focus"
+          },
+          "daily_walk": {
+            "category": "fitness"
+          },
+          "drink_water": {
+            "category": 7
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "daily_walk",
+          "drink_water",
+          "read_book"
+        ],
+        "featured": [
+          "drink_water"
+        ],
+        "names": {},
+        "fields": {
+          "read_book": {
+            "category": "focus"
+          },
+          "daily_walk": {
+            "category": "health"
+          },
+          "drink_water": {
+            "category": "health"
+          }
+        }
+      }
+    },
+    {
+      "name": "text: type, id and featured are not edited this way, and text for an idea that is not built-in does nothing",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_athkar": {
+            "type": "quit",
+            "id": "other",
+            "featured": false,
+            "nameEn": "Athkar"
+          },
+          "no_such_idea": {
+            "nameAr": "شي"
+          },
+          "a-k3j9x": {
+            "nameAr": "اسم ثاني"
+          }
+        },
+        "added": {
+          "a-k3j9x": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "a-k3j9x"
+        ],
+        "featured": [
+          "morning_athkar"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح",
+          "a-k3j9x": "دقيقة امتنان"
+        },
+        "fields": {
+          "morning_athkar": {
+            "type": "build",
+            "nameEn": "Athkar"
+          }
+        }
+      }
+    },
+    {
+      "name": "added: valid ideas come after the built-ins, by id; their own star counts",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "added": {
+          "a-zz91": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "اقرأ سورة الملك",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": true
+          },
+          "a-bb12": {
+            "type": "build",
+            "category": "social",
+            "nameAr": "اتصل بأهلك",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "weekly:2",
+            "featured": false,
+            "reminder": "prayer:maghrib"
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "daily_walk",
+          "a-bb12",
+          "a-zz91"
+        ],
+        "featured": [
+          "morning_athkar",
+          "a-zz91"
+        ],
+        "names": {
+          "a-bb12": "اتصل بأهلك",
+          "a-zz91": "اقرأ سورة الملك"
+        },
+        "fields": {
+          "a-bb12": {
+            "category": "social",
+            "often": "weekly:2",
+            "reminder": "prayer:maghrib"
+          }
+        }
+      }
+    },
+    {
+      "name": "added: one missing anything, malformed, not a map, or with an id not starting a- is dropped whole",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        }
+      ],
+      "edits": {
+        "added": {
+          "a-noname": {
+            "type": "build",
+            "category": "mind",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-badcat": {
+            "type": "build",
+            "category": "quran",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-badoften": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "twice a day",
+            "featured": false
+          },
+          "a-noways": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-badtype": {
+            "type": "stop",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-blankline": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "   ",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-numname": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": 12,
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          },
+          "a-list": [
+            {
+              "type": "build",
+              "category": "mind",
+              "nameAr": "دقيقة امتنان",
+              "nameEn": "A minute of thanks",
+              "shortAr": "تشوف الخير اللي حولك",
+              "shortEn": "See the good around you",
+              "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+              "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+              "waysAr": [
+                "اكتب شي واحد قبل النوم",
+                "قوله بصوت لنفسك"
+              ],
+              "waysEn": [
+                "Write one thing before bed",
+                "Say it out loud to yourself"
+              ],
+              "often": "daily",
+              "featured": false
+            }
+          ],
+          "notprefixed": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar"
+        ],
+        "featured": [
+          "morning_athkar"
+        ],
+        "names": {
+          "morning_athkar": "أذكار الصباح"
+        }
+      }
+    },
+    {
+      "name": "added: optional fields that do not fit are left off, not the idea",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        }
+      ],
+      "edits": {
+        "added": {
+          "a-opt1": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "weekly:2",
+            "timesPerDay": 3,
+            "reminder": "time:99:00",
+            "limit": {
+              "amount": 2,
+              "unit": "cups"
+            },
+            "sourceAr": 5
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_athkar",
+          "a-opt1"
+        ],
+        "featured": [
+          "morning_athkar"
+        ],
+        "names": {
+          "a-opt1": "دقيقة امتنان"
+        },
+        "fields": {
+          "a-opt1": {
+            "often": "weekly:2",
+            "timesPerDay": null,
+            "reminder": null,
+            "limit": null,
+            "sourceAr": null
+          }
+        }
+      }
+    },
+    {
+      "name": "added: placed by the order; hidden does not take an added idea off; featured overrides its star",
+      "builtIn": [
+        {
+          "id": "morning_athkar",
+          "type": "build",
+          "category": "faith",
+          "nameAr": "أذكار الصباح",
+          "nameEn": "Morning athkar",
+          "shortAr": "تبدأ يومك وقلبك مطمئن",
+          "shortEn": "Start the day with a calm heart",
+          "benefitAr": "من قالها حين يصبح كفته يومه.",
+          "benefitEn": "Said in the morning, they carry you through the day.",
+          "sourceAr": "رواه أبو داود",
+          "sourceEn": "Abu Dawud",
+          "waysAr": [
+            "بعد صلاة الفجر على طول",
+            "اقرأها من التطبيق"
+          ],
+          "waysEn": [
+            "Right after Fajr",
+            "Read them from the app"
+          ],
+          "often": "daily",
+          "reminder": "prayer:fajr",
+          "featured": true
+        },
+        {
+          "id": "daily_walk",
+          "type": "build",
+          "category": "health",
+          "nameAr": "المشي اليومي",
+          "nameEn": "Daily walk",
+          "shortAr": "يحرّك جسمك ويروّق بالك",
+          "shortEn": "Moves your body and clears your head",
+          "benefitAr": "المشي كل يوم يخليك أنشط ونومك أهدأ.",
+          "benefitEn": "A walk a day keeps you active and helps you sleep.",
+          "waysAr": [
+            "امشِ عشر دقايق بعد العشاء",
+            "خذ الدرج بدل المصعد"
+          ],
+          "waysEn": [
+            "Walk ten minutes after dinner",
+            "Take the stairs"
+          ],
+          "often": "daily",
+          "reminder": "time:17:30",
+          "featured": false
+        }
+      ],
+      "edits": {
+        "order": [
+          "a-mid1",
+          "daily_walk"
+        ],
+        "hidden": [
+          "a-mid1"
+        ],
+        "featured": {
+          "a-mid1": true,
+          "morning_athkar": false
+        },
+        "added": {
+          "a-mid1": {
+            "type": "build",
+            "category": "mind",
+            "nameAr": "دقيقة امتنان",
+            "nameEn": "A minute of thanks",
+            "shortAr": "تشوف الخير اللي حولك",
+            "shortEn": "See the good around you",
+            "benefitAr": "لما تكتب شي تحمد الله عليه، يومك يصير أخف.",
+            "benefitEn": "Writing one thing you are thankful for makes the day lighter.",
+            "waysAr": [
+              "اكتب شي واحد قبل النوم",
+              "قوله بصوت لنفسك"
+            ],
+            "waysEn": [
+              "Write one thing before bed",
+              "Say it out loud to yourself"
+            ],
+            "often": "daily",
+            "featured": false
+          }
+        }
+      },
+      "expect": {
+        "ids": [
+          "a-mid1",
+          "daily_walk",
+          "morning_athkar"
+        ],
+        "featured": [
+          "a-mid1"
+        ],
+        "names": {
+          "a-mid1": "دقيقة امتنان"
+        }
+      }
+    }
+  ],
+  "planCases": [
+    {
+      "name": "no edits: the plans in the code's order",
+      "builtIn": [
+        {
+          "id": "morning_routine",
+          "nameAr": "روتين الصباح",
+          "nameEn": "Morning Routine",
+          "descAr": "فجر، أذكار، وصفحة قرآن.",
+          "descEn": "Fajr, athkar and a page of Quran.",
+          "catalogIds": [
+            "wake_early",
+            "morning_athkar"
+          ]
+        },
+        {
+          "id": "deen_essentials",
+          "nameAr": "أساس الدين",
+          "nameEn": "Deen Essentials",
+          "descAr": "أذكار، ورد، وصدقة.",
+          "descEn": "Athkar, daily Quran and sadaqah.",
+          "catalogIds": [
+            "morning_athkar",
+            "daily_sadaqah"
+          ]
+        },
+        {
+          "id": "night_routine",
+          "nameAr": "روتين الليل",
+          "nameEn": "Night Routine",
+          "descAr": "نم بدري وقم للتهجد.",
+          "descEn": "Sleep early and rise for tahajjud.",
+          "catalogIds": [
+            "sleep_schedule",
+            "tahajjud"
+          ]
+        }
+      ],
+      "edits": null,
+      "expect": {
+        "ids": [
+          "morning_routine",
+          "deen_essentials",
+          "night_routine"
+        ],
+        "names": {
+          "morning_routine": "روتين الصباح",
+          "night_routine": "روتين الليل"
+        }
+      }
+    },
+    {
+      "name": "a document that is not a map is no edits",
+      "builtIn": [
+        {
+          "id": "morning_routine",
+          "nameAr": "روتين الصباح",
+          "nameEn": "Morning Routine",
+          "descAr": "فجر، أذكار، وصفحة قرآن.",
+          "descEn": "Fajr, athkar and a page of Quran.",
+          "catalogIds": [
+            "wake_early",
+            "morning_athkar"
+          ]
+        },
+        {
+          "id": "deen_essentials",
+          "nameAr": "أساس الدين",
+          "nameEn": "Deen Essentials",
+          "descAr": "أذكار، ورد، وصدقة.",
+          "descEn": "Athkar, daily Quran and sadaqah.",
+          "catalogIds": [
+            "morning_athkar",
+            "daily_sadaqah"
+          ]
+        },
+        {
+          "id": "night_routine",
+          "nameAr": "روتين الليل",
+          "nameEn": "Night Routine",
+          "descAr": "نم بدري وقم للتهجد.",
+          "descEn": "Sleep early and rise for tahajjud.",
+          "catalogIds": [
+            "sleep_schedule",
+            "tahajjud"
+          ]
+        }
+      ],
+      "edits": "x",
+      "expect": {
+        "ids": [
+          "morning_routine",
+          "deen_essentials",
+          "night_routine"
+        ],
+        "names": {
+          "morning_routine": "روتين الصباح",
+          "night_routine": "روتين الليل"
+        }
+      }
+    },
+    {
+      "name": "hidden takes a plan off; order puts the plans it names first, unknown, hidden and repeated ids skipped",
+      "builtIn": [
+        {
+          "id": "morning_routine",
+          "nameAr": "روتين الصباح",
+          "nameEn": "Morning Routine",
+          "descAr": "فجر، أذكار، وصفحة قرآن.",
+          "descEn": "Fajr, athkar and a page of Quran.",
+          "catalogIds": [
+            "wake_early",
+            "morning_athkar"
+          ]
+        },
+        {
+          "id": "deen_essentials",
+          "nameAr": "أساس الدين",
+          "nameEn": "Deen Essentials",
+          "descAr": "أذكار، ورد، وصدقة.",
+          "descEn": "Athkar, daily Quran and sadaqah.",
+          "catalogIds": [
+            "morning_athkar",
+            "daily_sadaqah"
+          ]
+        },
+        {
+          "id": "night_routine",
+          "nameAr": "روتين الليل",
+          "nameEn": "Night Routine",
+          "descAr": "نم بدري وقم للتهجد.",
+          "descEn": "Sleep early and rise for tahajjud.",
+          "catalogIds": [
+            "sleep_schedule",
+            "tahajjud"
+          ]
+        }
+      ],
+      "edits": {
+        "order": [
+          "night_routine",
+          "nope",
+          "deen_essentials",
+          "night_routine"
+        ],
+        "hidden": [
+          "deen_essentials",
+          "nope"
+        ]
+      },
+      "expect": {
+        "ids": [
+          "night_routine",
+          "morning_routine"
+        ],
+        "names": {
+          "night_routine": "روتين الليل"
+        }
+      }
+    },
+    {
+      "name": "an order that is not a list is no order",
+      "builtIn": [
+        {
+          "id": "morning_routine",
+          "nameAr": "روتين الصباح",
+          "nameEn": "Morning Routine",
+          "descAr": "فجر، أذكار، وصفحة قرآن.",
+          "descEn": "Fajr, athkar and a page of Quran.",
+          "catalogIds": [
+            "wake_early",
+            "morning_athkar"
+          ]
+        },
+        {
+          "id": "deen_essentials",
+          "nameAr": "أساس الدين",
+          "nameEn": "Deen Essentials",
+          "descAr": "أذكار، ورد، وصدقة.",
+          "descEn": "Athkar, daily Quran and sadaqah.",
+          "catalogIds": [
+            "morning_athkar",
+            "daily_sadaqah"
+          ]
+        },
+        {
+          "id": "night_routine",
+          "nameAr": "روتين الليل",
+          "nameEn": "Night Routine",
+          "descAr": "نم بدري وقم للتهجد.",
+          "descEn": "Sleep early and rise for tahajjud.",
+          "catalogIds": [
+            "sleep_schedule",
+            "tahajjud"
+          ]
+        }
+      ],
+      "edits": {
+        "order": "night_routine"
+      },
+      "expect": {
+        "ids": [
+          "morning_routine",
+          "deen_essentials",
+          "night_routine"
+        ],
+        "names": {
+          "morning_routine": "روتين الصباح",
+          "night_routine": "روتين الليل"
+        }
+      }
+    },
+    {
+      "name": "text: names and descriptions replace the plan's own, trimmed; a wrong type or blank is ignored, and so is text for a plan the app does not have",
+      "builtIn": [
+        {
+          "id": "morning_routine",
+          "nameAr": "روتين الصباح",
+          "nameEn": "Morning Routine",
+          "descAr": "فجر، أذكار، وصفحة قرآن.",
+          "descEn": "Fajr, athkar and a page of Quran.",
+          "catalogIds": [
+            "wake_early",
+            "morning_athkar"
+          ]
+        },
+        {
+          "id": "deen_essentials",
+          "nameAr": "أساس الدين",
+          "nameEn": "Deen Essentials",
+          "descAr": "أذكار، ورد، وصدقة.",
+          "descEn": "Athkar, daily Quran and sadaqah.",
+          "catalogIds": [
+            "morning_athkar",
+            "daily_sadaqah"
+          ]
+        },
+        {
+          "id": "night_routine",
+          "nameAr": "روتين الليل",
+          "nameEn": "Night Routine",
+          "descAr": "نم بدري وقم للتهجد.",
+          "descEn": "Sleep early and rise for tahajjud.",
+          "catalogIds": [
+            "sleep_schedule",
+            "tahajjud"
+          ]
+        }
+      ],
+      "edits": {
+        "text": {
+          "morning_routine": {
+            "nameAr": "  صباحك  ",
+            "nameEn": 5,
+            "descEn": "Fajr and athkar.",
+            "descAr": "   "
+          },
+          "nope": {
+            "nameAr": "شي"
+          },
+          "night_routine": "not a map"
+        }
+      },
+      "expect": {
+        "ids": [
+          "morning_routine",
+          "deen_essentials",
+          "night_routine"
+        ],
+        "names": {
+          "morning_routine": "صباحك",
+          "night_routine": "روتين الليل"
+        },
+        "fields": {
+          "morning_routine": {
+            "nameEn": "Morning Routine",
+            "descEn": "Fajr and athkar.",
+            "descAr": "فجر، أذكار، وصفحة قرآن."
+          },
+          "night_routine": {
+            "nameEn": "Night Routine"
+          }
+        }
+      }
+    }
+  ]
+}

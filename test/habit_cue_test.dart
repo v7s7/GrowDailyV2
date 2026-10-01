@@ -182,4 +182,97 @@ void main() {
       expect(HabitCue.fromStoredValue('maghrib').isEmpty, isFalse);
     });
   });
+  // A habit counted several times a day whose reminders ride on prayers, one
+  // per time (Aziz, 2026-10-01: "30 min before fajr, and 30 after fajr").
+  group('HabitCue — a prayer per time', () {
+    test('stores each prayer with its shift in the custom_time run', () {
+      final cue = HabitCue.prayerSlots([
+        (prayer: 'fajr', offset: -30),
+        (prayer: 'fajr', offset: 30),
+        (prayer: 'maghrib', offset: 0),
+      ]);
+      expect(cue.toStorageValue(), 'custom_time:fajr-30,fajr+30,maghrib');
+    });
+
+    test('reads back exactly what it wrote', () {
+      final cue =
+          HabitCue.fromStoredValue('custom_time:fajr-30,fajr+30,maghrib');
+      expect(cue.prayerSlots, [
+        (prayer: 'fajr', offset: -30),
+        (prayer: 'fajr', offset: 30),
+        (prayer: 'maghrib', offset: 0),
+      ]);
+      expect(cue.toStorageValue(), 'custom_time:fajr-30,fajr+30,maghrib');
+    });
+
+    test('kept in the order of the day, the same reminder once', () {
+      final cue = HabitCue.prayerSlots([
+        (prayer: 'isha', offset: 0),
+        (prayer: 'fajr', offset: 30),
+        (prayer: 'fajr', offset: -30),
+        (prayer: 'isha', offset: 0),
+      ]);
+      expect(cue.prayerSlots, [
+        (prayer: 'fajr', offset: -30),
+        (prayer: 'fajr', offset: 30),
+        (prayer: 'isha', offset: 0),
+      ]);
+    });
+
+    test('anything but the five prayers, or a shift past three digits, is '
+        'left out', () {
+      expect(
+        HabitCue.prayerSlots([
+          (prayer: 'before_sleep', offset: 0),
+          (prayer: 'asr', offset: 1000),
+        ]).isEmpty,
+        isTrue,
+      );
+    });
+
+    test('a run mixing a prayer and a clock time is damage, never words', () {
+      final cue = HabitCue.fromStoredValue('custom_time:fajr,07:30');
+      expect(cue.isEmpty, isTrue);
+      expect(cue.prayerSlots, isEmpty);
+      expect(cue.clockTimes, isEmpty);
+    });
+
+    test('it is not a single prayer and has no clock times', () {
+      final cue = HabitCue.fromStoredValue('custom_time:dhuhr,asr+10');
+      expect(cue.isPrayer, isFalse,
+          reason: 'isPrayer is the one-prayer habit Add Habit restores');
+      expect(cue.prayerKey, isNull);
+      expect(cue.clockTimes, isEmpty);
+      expect(cue.offsetsAreOwn, isFalse);
+      expect(cue.usesPrayerTimes, isTrue,
+          reason: 'it still needs the prayer place kept fresh');
+      expect(HabitCue.preset('fajr').usesPrayerTimes, isTrue);
+      expect(HabitCue.time(7, 0).usesPrayerTimes, isFalse);
+    });
+
+    test('its label names each prayer once', () {
+      final cue = HabitCue.prayerSlots([
+        (prayer: 'fajr', offset: -30),
+        (prayer: 'fajr', offset: 30),
+        (prayer: 'asr', offset: 0),
+      ]);
+      expect(cue.labelForLocale(true), 'الفجر والعصر');
+      expect(cue.labelForLocale(false), 'Fajr and Asr');
+      expect(
+        HabitCue.prayerSlots([
+          (prayer: 'fajr', offset: -30),
+          (prayer: 'fajr', offset: 30),
+        ]).labelForLocale(true),
+        'الفجر',
+      );
+    });
+
+    test('an app that predates this sees no reminder, not the raw run', () {
+      // What an older build does with the run: the clock-only parse, which
+      // treats any custom_time: it cannot read as damage. Pinned here
+      // through the same pattern so a change to that rule is noticed.
+      final oldClockPart = RegExp(r'^(\d{2}):(\d{2})([+-]\d{1,3})?$');
+      expect('fajr-30'.split(',').every(oldClockPart.hasMatch), isFalse);
+    });
+  });
 }

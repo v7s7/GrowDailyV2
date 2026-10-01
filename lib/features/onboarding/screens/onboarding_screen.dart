@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,6 +8,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/onboarding_provider.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/reduced_motion.dart';
+import '../../mascot/sprout.dart';
 import '../../matrix/models/matrix_task.dart';
 
 /// One slide's content: a small hand-built mock of the real UI element it
@@ -264,49 +268,212 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 // ─── Slide visuals ───────────────────────────────────────────────────────────
 //
 // Small hand-built mocks of the real UI, not screenshots: they inherit the
-// live theme (light/dark, preset colors) automatically, need zero image
-// assets, and contain no text — so one visual serves both languages and
+// live theme (light/dark, preset colors) automatically and contain no text
+// but the Tasks boxes' real names, so one visual serves both languages and
 // never goes stale against a redesigned screen the way a baked-in PNG would.
+//
+// Doum stands on each one and acts its idea out (Aziz, 2026-10-01, the
+// canvas "Doum picks the language"): he fills the week's squares with his
+// pencil, stamps a task into «الآن», and claps for the room. He stands on
+// the picture's top edge, never over what it shows, and moves once (a hop)
+// then rests. Reduce Motion shows each picture finished, with him still.
 
-/// Slide 1: a week of Grid squares — some green-and-checked, today's ringed
-/// gold, the rest waiting. The core loop at a glance.
-class _MockWeekRow extends StatelessWidget {
+/// Doum on a slide's picture: his feet at [feetX] along its top edge (from
+/// the left, already resolved for the reading direction), [feetY] above its
+/// bottom. Hops once, [hopAfter] after he is built; nothing under Reduce
+/// Motion.
+class _SlideDoum extends StatefulWidget {
+  const _SlideDoum({
+    required this.pose,
+    required this.height,
+    required this.feetCentre,
+    required this.hopAfter,
+  });
+
+  final SproutPose pose;
+  final double height;
+
+  /// Where his feet are across the picture (0 to 1 from its left).
+  final double feetCentre;
+  final Duration hopAfter;
+
+  @override
+  State<_SlideDoum> createState() => _SlideDoumState();
+}
+
+class _SlideDoumState extends State<_SlideDoum> {
+  final _moves = SproutController();
+  Timer? _hop;
+
+  @override
+  void initState() {
+    super.initState();
+    _hop = Timer(widget.hopAfter, _moves.hop);
+  }
+
+  @override
+  void dispose() {
+    _hop?.cancel();
+    _moves.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Sprout(
+        pose: widget.pose,
+        height: widget.height,
+        controller: _moves,
+        // The slide's picture arrives with its own scale-in; a pop on top
+        // of it would move him twice.
+        entrance: SproutEntrance.none,
+        idleBreaths: 1,
+      );
+}
+
+/// Places [doum] so his feet land at [feetX] (from the left) on a line
+/// [feetY] above the bottom of a [width] wide picture.
+Widget _standing({
+  required double width,
+  required double feetX,
+  required double feetY,
+  required _SlideDoum doum,
+}) {
+  final size = Sprout.sizeOf(doum.pose, doum.height);
+  // The files keep a few transparent pixels under his feet (about 14 of
+  // 770), so he is lowered by as much to stand ON the edge.
+  final under = size.height * 14 / 770;
+  return Positioned(
+    left: feetX - doum.feetCentre * size.width,
+    bottom: feetY - under,
+    width: size.width,
+    height: size.height,
+    child: IgnorePointer(child: doum),
+  );
+}
+
+/// Slide 1: a week of Grid squares filling one by one, today's ringed, the
+/// rest waiting; Doum stands on today's square with his pencil and hops
+/// once the four before it are done. The core loop at a glance.
+class _MockWeekRow extends StatefulWidget {
   const _MockWeekRow();
+
+  @override
+  State<_MockWeekRow> createState() => _MockWeekRowState();
+}
+
+class _MockWeekRowState extends State<_MockWeekRow> {
+  static const _done = 4;
+  int _filled = 0;
+  final List<Timer> _timers = [];
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    if (prefersReducedMotion(context)) {
+      _filled = _done;
+      return;
+    }
+    for (var i = 0; i < _done; i++) {
+      _timers.add(
+        Timer(Duration(milliseconds: 350 + 180 * i), () {
+          if (mounted) setState(() => _filled = i + 1);
+        }),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final t in _timers) {
+      t.cancel();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < 7; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 3),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: i < 4
-                    ? GameColors.emerald.withOpacity(gp.dark ? 0.55 : 0.75)
-                    : gp.surface,
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(
-                  color: i == 4 ? GameColors.gold : gp.border,
-                  width: i == 4 ? 1.6 : 0.5,
-                ),
-              ),
-              child: i < 4
-                  ? const Icon(Icons.check_rounded,
-                      size: 18, color: Colors.white)
-                  : null,
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    const width = 280.0, square = 34.0, step = 40.0;
+    const doumHeight = 110.0;
+    final doumBox = Sprout.sizeOf(SproutPose.pencil, doumHeight);
+    // Today's square (the fifth), from the start edge.
+    const today = 3 + 4 * step + square / 2;
+    return SizedBox(
+      width: width,
+      height: square + doumBox.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < 7; i++)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOut,
+                      width: square,
+                      height: square,
+                      decoration: BoxDecoration(
+                        color: i < _filled
+                            ? GameColors.emerald
+                                .withOpacity(gp.dark ? 0.55 : 0.75)
+                            : gp.surface,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: i == _done
+                              ? GameColors.gold
+                              : i < _filled
+                                  ? GameColors.emerald.withOpacity(0)
+                                  : gp.border,
+                          width: i == _done ? 1.6 : 0.5,
+                        ),
+                      ),
+                      child: AnimatedScale(
+                        scale: i < _filled ? 1 : 0.4,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutBack,
+                        child: AnimatedOpacity(
+                          opacity: i < _filled ? 1 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: const Icon(Icons.check_rounded,
+                              size: 18, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-      ],
+          _standing(
+            width: width,
+            feetX: rtl ? width - today : today,
+            feetY: square,
+            doum: const _SlideDoum(
+              pose: SproutPose.pencil,
+              height: doumHeight,
+              feetCentre: .436,
+              hopAfter: Duration(milliseconds: 1250),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// Slide 2: the four boxes, with their real names and their real colours.
+/// Slide 2: the four boxes, with their real names and their real colours,
+/// and Doum on the box «الآن» stamping a task into it: he hops, and on his
+/// landing a check lands in the box.
 ///
 /// Labels come from [MatrixQuadrant.localLabel] rather than being written out
 /// here, so the picture can never teach a word the Tasks screen does not use.
@@ -318,13 +485,48 @@ class _MockWeekRow extends StatelessWidget {
 /// this picture for two seconds, and four equally weighted boxes read as a
 /// colour swatch; one filled box reads as "this is where today's thing goes",
 /// which is the actual idea.
-class _MockMatrix extends StatelessWidget {
+class _MockMatrix extends StatefulWidget {
   const _MockMatrix();
+
+  @override
+  State<_MockMatrix> createState() => _MockMatrixState();
+}
+
+class _MockMatrixState extends State<_MockMatrix> {
+  static const _hopAt = Duration(milliseconds: 900);
+  bool _stamped = false;
+  Timer? _stamp;
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_started) return;
+    _started = true;
+    if (prefersReducedMotion(context)) {
+      _stamped = true;
+      return;
+    }
+    // His hop lands about three quarters through it (sprout.dart's keys).
+    _stamp = Timer(
+      _hopAt + Sprout.hopDuration * .74,
+      () {
+        if (mounted) setState(() => _stamped = true);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _stamp?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
 
     Widget cell(MatrixQuadrant q, {required bool filled}) {
       final c = q.defaultColor;
@@ -341,70 +543,135 @@ class _MockMatrix extends StatelessWidget {
             width: filled ? 1.2 : 0.5,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            Text(
-              q.localLabel(isAr),
-              // Every label carries its OWN quadrant colour, filled or not.
-              // Tinting only the filled one made the other three read as
-              // disabled, which is the opposite of true: all four are places
-              // a task can go, and the app colour-codes them everywhere else.
-              // The hierarchy is carried by the fill and the border instead.
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: filled ? FontWeight.w800 : FontWeight.w700,
-                color: c,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  q.localLabel(isAr),
+                  // Every label carries its OWN quadrant colour, filled or
+                  // not. Tinting only the filled one made the other three
+                  // read as disabled, which is the opposite of true: all four
+                  // are places a task can go, and the app colour-codes them
+                  // everywhere else. The hierarchy is carried by the fill and
+                  // the border instead.
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: filled ? FontWeight.w800 : FontWeight.w700,
+                    color: c,
+                  ),
+                ),
+                // A short bar rather than fake task text: a line of lorem in
+                // a 116pt box is unreadable at slide scale and reads as a
+                // loading skeleton, which is the exact mistake the
+                // leaderboard mock below was changed to stop making.
+                Container(
+                  width: filled ? 58 : 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: c.withOpacity(filled ? 0.55 : 0.3),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ],
             ),
-            // A short bar rather than fake task text: a line of lorem in a
-            // 116pt box is unreadable at slide scale and reads as a loading
-            // skeleton, which is the exact mistake the leaderboard mock above
-            // was changed to stop making.
-            Container(
-              width: filled ? 58 : 40,
-              height: 5,
-              decoration: BoxDecoration(
-                color: c.withOpacity(filled ? 0.55 : 0.3),
-                borderRadius: BorderRadius.circular(3),
+            // The task Doum stamped in: a check, at the box's end.
+            if (filled)
+              PositionedDirectional(
+                end: 0,
+                top: 8,
+                child: AnimatedScale(
+                  scale: _stamped ? 1 : 0.3,
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutBack,
+                  child: AnimatedOpacity(
+                    opacity: _stamped ? 1 : 0,
+                    duration: const Duration(milliseconds: 160),
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: GameColors.emerald,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check_rounded,
+                          size: 15, color: Colors.white),
+                    ),
+                  ),
+                ),
               ),
-            ),
           ],
         ),
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            cell(MatrixQuadrant.doFirst, filled: true),
-            cell(MatrixQuadrant.schedule, filled: false),
-          ],
-        ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            cell(MatrixQuadrant.delegate, filled: false),
-            cell(MatrixQuadrant.eliminate, filled: false),
-          ],
-        ),
-      ],
+    const width = 248.0, grid = 140.0;
+    const doumHeight = 112.0;
+    final doumBox = Sprout.sizeOf(SproutPose.stampCheck, doumHeight);
+    // «الآن» is the first box: the start column's middle.
+    const now = 62.0;
+    return SizedBox(
+      width: width,
+      height: grid + doumBox.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    cell(MatrixQuadrant.doFirst, filled: true),
+                    cell(MatrixQuadrant.schedule, filled: false),
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    cell(MatrixQuadrant.delegate, filled: false),
+                    cell(MatrixQuadrant.eliminate, filled: false),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          _standing(
+            width: width,
+            feetX: rtl ? width - now : now,
+            // On the box's top edge, inside the grid's 4pt margin.
+            feetY: grid - 4,
+            doum: const _SlideDoum(
+              pose: SproutPose.stampCheck,
+              height: doumHeight,
+              feetCentre: .423,
+              hopAfter: _hopAt,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// Slide 3: a three-row leaderboard, crowned leader and streak flames, the
-/// Rooms pitch without a word of text.
+/// Slide 3: a three-row leaderboard with streak flames, and Doum on the top
+/// row clapping for it: the Rooms pitch without a word of text. The first
+/// place shows its number, not a cup: no medals or crowns beside Doum
+/// (design/mascot/POSES.md, rule 5).
 class _MockLeaderboard extends StatelessWidget {
   const _MockLeaderboard();
 
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
     // Names, not grey bars. This is the ONLY picture a brand-new user gets of
     // what a Room is, and three anonymous grey rectangles do not say "you and
     // your people on a leaderboard" — they say "loading". The names are
@@ -415,7 +682,7 @@ class _MockLeaderboard extends StatelessWidget {
         : const ['Abdulaziz', 'Saud', 'Khalid'];
     final streaks = const [12, 9, 7];
 
-    Widget row({required int rank, required bool crowned}) {
+    Widget row({required int rank, required bool leading}) {
       return Container(
         width: 250,
         margin: const EdgeInsets.symmetric(vertical: 3),
@@ -424,8 +691,8 @@ class _MockLeaderboard extends StatelessWidget {
           color: gp.surface,
           borderRadius: BorderRadius.circular(GameSpacing.buttonRadius),
           border: Border.all(
-            color: crowned ? GameColors.gold.withOpacity(0.5) : gp.border,
-            width: crowned ? 1 : 0.5,
+            color: leading ? GameColors.gold.withOpacity(0.5) : gp.border,
+            width: leading ? 1 : 0.5,
           ),
         ),
         child: Row(
@@ -435,29 +702,26 @@ class _MockLeaderboard extends StatelessWidget {
               height: 24,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: crowned
+                color: leading
                     ? GameColors.gold.withOpacity(0.16)
                     : gp.border.withOpacity(0.5),
                 shape: BoxShape.circle,
               ),
-              child: crowned
-                  ? Icon(Icons.emoji_events_rounded,
-                      size: 13, color: context.gp.goldInk)
-                  : Text(
-                      '$rank',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: gp.textSec,
-                      ),
-                    ),
+              child: Text(
+                '$rank',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: leading ? context.gp.goldInk : gp.textSec,
+                ),
+              ),
             ),
             const SizedBox(width: 10),
             Text(
               names[rank - 1],
               style: TextStyle(
                 fontSize: 12.5,
-                fontWeight: crowned ? FontWeight.w800 : FontWeight.w600,
+                fontWeight: leading ? FontWeight.w800 : FontWeight.w600,
                 color: gp.textPrimary,
               ),
             ),
@@ -478,13 +742,45 @@ class _MockLeaderboard extends StatelessWidget {
       );
     }
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        row(rank: 1, crowned: true),
-        row(rank: 2, crowned: false),
-        row(rank: 3, crowned: false),
-      ],
+    // Three rows of 42 with 3 above and below each.
+    const width = 250.0, board = 144.0;
+    const doumHeight = 100.0;
+    final doumBox = Sprout.sizeOf(SproutPose.clap, doumHeight);
+    // Over the top row's flame and number, at its end.
+    const flame = 228.0;
+    return SizedBox(
+      width: width,
+      height: board + doumBox.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                row(rank: 1, leading: true),
+                row(rank: 2, leading: false),
+                row(rank: 3, leading: false),
+              ],
+            ),
+          ),
+          _standing(
+            width: width,
+            feetX: rtl ? width - flame : flame,
+            // On the top row's edge, inside its 3pt margin.
+            feetY: board - 3,
+            doum: const _SlideDoum(
+              pose: SproutPose.clap,
+              height: doumHeight,
+              feetCentre: .465,
+              hopAfter: Duration(milliseconds: 1100),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

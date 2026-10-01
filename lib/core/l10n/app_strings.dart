@@ -86,9 +86,22 @@ final languageChosenProvider = StateProvider<bool>((ref) => false);
 /// Sets the active locale and persists it, marking the language picker as
 /// completed. Use this instead of `localeProvider.notifier.set` directly
 /// so the choice survives a cold start.
-Future<void> setLocale(WidgetRef ref, Locale locale) async {
-  ref.read(localeProvider.notifier).set(locale);
-  ref.read(languageChosenProvider.notifier).state = true;
+Future<void> setLocale(WidgetRef ref, Locale locale) =>
+    _setLocale(ref.read, locale);
+
+/// [setLocale] for a caller that no longer has a WidgetRef: Doum turning
+/// round to a new language (DoumLanguageLook) changes it while his back is
+/// turned, and when his screen closes before that moment he commits it from
+/// his dispose, where his ref is gone.
+Future<void> setLocaleIn(ProviderContainer container, Locale locale) =>
+    _setLocale(container.read, locale);
+
+Future<void> _setLocale(
+  T Function<T>(ProviderListenable<T> provider) read,
+  Locale locale,
+) async {
+  read(localeProvider.notifier).set(locale);
+  read(languageChosenProvider.notifier).state = true;
   final box = await LocalStoreService.settingsBox();
   await box.put(_kLocaleKey, locale.languageCode);
   // Marks this as a decision rather than a guess, so neither the device's
@@ -1237,7 +1250,7 @@ class S {
   /// and the board header ([goalTypeQuitOption]) on purpose: one name for
   /// this kind of goal everywhere it is named.
   String get hubTitleQuit => isAr ? 'ترك أو تقليل' : 'Quit or Cut Down';
-  /// "Ready-made plans", not bare "Plans". Sitting beside «إضافة هدف», a
+  /// "Ready-made plans", not bare "Plans". Sitting beside «عادة واحدة», a
   /// one-word «خطط» reads as a place to WRITE a plan, which is what the other
   /// tab already does. جاهزة says the work is already done for you, which is
   /// the whole reason to open this tab.
@@ -1341,7 +1354,18 @@ class S {
   String get createHabit => isAr ? 'أنشئ العادة' : 'CREATE TINY HABIT';
   String get smartStarters => isAr ? 'بدايات ذكية' : 'SMART STARTERS';
 
-  String get addGoalTitle => isAr ? 'إضافة هدف' : 'Add Goal';
+  /// The hub's first tab, beside «خطط جاهزة». It said «إضافة هدف», the
+  /// only «هدف» left in Add Habit once the sheet itself says «عادة»
+  /// everywhere; «عادة واحدة» against «خطط جاهزة» says the difference the
+  /// two tabs are for: one habit of your own, or a set of them ready-made
+  /// (Aziz, 2026-10-01: "the diff between the full plan and the list of
+  /// habits" clear).
+  String get addGoalTitle => isAr ? 'عادة واحدة' : 'One habit';
+
+  /// Under the hub's two tabs the first time Plans is shown.
+  String get hubTabsHint => isAr
+      ? 'خطط جاهزة: مجموعة عادات تبدأها مع بعض. عادة واحدة: تختارها أو تكتبها بنفسك.'
+      : 'Ready-made plans: a set of habits you start together. One habit: pick or write your own.';
   String get whatImprove =>
       isAr ? 'ما الذي تريد تحسينه؟' : 'What do you want to improve?';
   String get whatHabitBuild =>
@@ -1351,23 +1375,12 @@ class S {
   String get goalTitleHint => isAr
       ? 'اكتب هدفك أو اختر اقتراحًا'
       : 'Type your goal or pick a suggestion';
-  String get smartSuggestions => isAr ? 'اقتراحات ذكية' : 'Smart suggestions';
-  // Shown INSTEAD of smartSuggestions when this is the account's first habit,
-  // where the same chips are not a shortcut but the recommended road.
-  String get quickestStart =>
-      isAr ? 'أسرع طريقة تبدأ' : 'Quickest way to start';
   // Add Habit's What step (add_habit_sheet.dart): a two-way switch above the
   // name box says which kind of habit this is. It was a quiet text link
   // under the whole form until 2026-09-08, and Aziz found nobody saw it
   // there. Nominal, not imperative, so neither label has a gender.
   String get goalTypeBuildOption => isAr ? 'بناء عادة' : 'Build a habit';
   String get goalTypeQuitOption => isAr ? 'ترك أو تقليل' : 'Quit or cut down';
-  // Under the category label while nothing is picked and nothing typed: the
-  // suggestions wait for a category (2026-09-08), so this says why the space
-  // below is still empty.
-  String get categoryPickHint => isAr
-      ? 'اختر تصنيفًا وتظهر لك اقتراحات جاهزة'
-      : 'Pick a category to see ready suggestions';
   // Under the limit field while it is empty: a limit habit must have a number,
   // or every "within the limit" question has nothing to compare against.
   String get limitAmountRequired =>
@@ -1416,9 +1429,6 @@ class S {
             : "Not recorded. Once a first kept day is on record, a day not marked \"Didn't keep it\" counts as kept automatically.",
         SquareState.partial || SquareState.bonus => squareStateEffect(state),
       };
-  // Stands in for the hub's Plans pill while a first habit hides the pills.
-  String get readyPlansLink =>
-      isAr ? 'أو اختر خطة جاهزة' : 'Or pick a ready-made plan';
 
   String get timingBuildTitle =>
       isAr ? 'متى وكيف ستتابع؟' : 'When and how often?';
@@ -1433,6 +1443,24 @@ class S {
   String get customText => isAr ? 'نص مخصص' : 'Custom text';
   String get cuePrayerOption => isAr ? 'وقت الصلاة' : 'Prayer time';
   String get pickAPrayer => isAr ? 'اختر صلاة' : 'Pick a prayer';
+
+  // ── A prayer per time (Add Habit step 3, a habit counted several times a
+  // day; Aziz, 2026-10-01: "30 min before fajr, and 30 after fajr") ──────
+  /// Above the rows, one per time: what the rows are and the one thing
+  /// people would not guess, that one prayer can take two.
+  String get prayerPerTimeNote => isAr
+      ? 'لكل مرة صلاة. تقدر تختار نفس الصلاة مرتين، قبلها وبعدها.'
+      : 'Each time gets a prayer. One prayer can take two, before and after.';
+
+  /// The sheet a row opens names the time it is for: «المرة 2».
+  String prayerSlotTitle(int n) => isAr ? 'المرة $n' : 'Time $n';
+
+  /// Under the prayers in that sheet, above «قبل | بعد».
+  String get prayerSlotWhen => isAr ? 'متى نذكّرك؟' : 'When should we remind you?';
+
+  /// The way to take a row's reminder off, in that sheet.
+  String get prayerSlotClear =>
+      isAr ? 'بدون تذكير لهذي المرة' : 'No reminder for this time';
   // ── Reminder lead time (Add Habit → When step) ─────────────────────
   // When the notification fires relative to the picked time or prayer. In
   // prayer mode the «قبل | بعد» chips above are this same direction: they
@@ -1562,7 +1590,9 @@ class S {
   // the missing answer says what it is waiting for. Without it the reason
   // lives only on the button, and the button is not always on the same
   // screenful as the chips once a keyboard is up.
-  String get repeatPickOne => isAr ? 'اختر وحدة' : 'Pick one';
+  // Said in the error colour since the three steps (2026-10-01), so it names
+  // what is missing rather than «اختر وحدة».
+  String get repeatPickOne => isAr ? 'اختر كم مرة' : 'Pick how often';
   String get goalStyle => isAr ? 'أسلوب الهدف' : 'Goal style';
   String get customizeTiming => isAr ? 'تخصيص التوقيت' : 'Customize timing';
   String get avoidCompletely => isAr ? 'تجنّبه تمامًا' : 'Avoid completely';
@@ -1585,6 +1615,145 @@ class S {
   String get createGoal => isAr ? 'أنشئ الهدف' : 'CREATE GOAL';
   String get continueAction => isAr ? 'متابعة' : 'CONTINUE';
   String get back => isAr ? 'رجوع' : 'Back';
+
+  // ── Add Habit in three steps (add_habit_sheet.dart, 2026-10-01) ─────────
+  // Built from the "Add Habit, made easy" canvas v8. Every Arabic line here
+  // is the canvas draft, for Aziz to rewrite.
+  String get addHabitStepWhat => isAr ? 'العادة' : 'Habit';
+  String get addHabitStepOften => isAr ? 'كم مرة' : 'How often';
+  String get addHabitStepReminder =>
+      isAr ? 'التذكير (اختياري)' : 'Reminder (optional)';
+  // The edit overview's row, where «اختياري» says nothing.
+  String get addHabitStepReminderShort => isAr ? 'التذكير' : 'Reminder';
+  String get habitNameHintBuild =>
+      isAr ? 'مثلًا: قراءة القرآن' : 'e.g. Read Quran';
+  String get habitNameHintQuit => isAr ? 'مثلًا: القهوة' : 'e.g. Coffee';
+  /// The category picked from the typed name, as one line under the box.
+  String habitCategoryLine(String category) =>
+      isAr ? 'الفئة: $category' : 'Category: $category';
+  String get habitCategoryChange => isAr ? 'تغيير' : 'Change';
+  String get quitStyleQuestion =>
+      isAr ? 'تتركه تمامًا أو تحدّه؟' : 'Quit it fully or limit it?';
+  String get quitFullyOption => isAr ? 'أتركه تمامًا' : 'Quit fully';
+  String get quitLimitOption => isAr ? 'أحدّه' : 'Limit it';
+  String get limitPerDay => isAr ? 'في اليوم' : 'a day';
+  String get limitUnitHelp => isAr
+      ? 'اكتب الوحدة اللي تناسبك، مثل دقائق أو مرات'
+      : 'Write the unit that fits, like minutes or times';
+  String get howOftenQuestion =>
+      isAr ? 'كم مرة تسويها؟' : 'How often will you do it?';
+  // A quit habit is not done: the cadence is the days its check-in asks.
+  String get howOftenQuestionQuit =>
+      isAr ? 'كم مرة نسألك عن يومك؟' : 'How often do we check in?';
+  String get oftenEveryDay => isAr ? 'كل يوم' : 'Every day';
+  String get oftenTimesAWeek => isAr ? 'مرات بالأسبوع' : 'Times a week';
+  String get oftenSetDays => isAr ? 'أيام معيّنة' : 'Set days';
+  String get oftenWeekQuestion =>
+      isAr ? 'كم مرة بالأسبوع؟' : 'How many times a week?';
+  String get oftenDaysQuestion => isAr ? 'أي أيام؟' : 'Which days?';
+  /// «3 مرات بالأسبوع», the whole phrase: Arabic says «مرتين» for two.
+  String timesAWeekPhrase(int n) {
+    if (!isAr) return n == 1 ? 'once a week' : '$n times a week';
+    if (n <= 1) return 'مرة بالأسبوع';
+    if (n == 2) return 'مرتين بالأسبوع';
+    if (n <= 10) return '$n مرات بالأسبوع';
+    return '$n مرة بالأسبوع';
+  }
+  String get reminderQuestion => isAr ? 'متى نذكّرك؟' : 'When should we remind you?';
+  String get reminderOptionalNote => isAr
+      ? 'اختياري، تقدر تضيف العادة بدون تذكير.'
+      : 'Optional. You can add the habit without a reminder.';
+  String get reminderAtClock => isAr ? 'على ساعة معيّنة' : 'At a set time';
+  String get reminderWithPrayer => isAr ? 'مع وقت صلاة' : 'With a prayer';
+  String get noReminder => isAr ? 'بدون تذكير' : 'No reminder';
+  // A habit saved before 2026-09-30 can carry its moment in words («بعد
+  // العمل»). The page no longer offers that, and an edit keeps it.
+  String get habitWrittenMoment => isAr ? 'بكلماتك' : 'In your words';
+  String get addHabitAction => isAr ? 'أضف العادة' : 'Add habit';
+  // An edited habit's step page goes back to the overview with this.
+  String get habitEditStepDone => isAr ? 'تم' : 'Done';
+
+  // ── A category of one's own (own_category_sheet.dart, 2026-10-01) ───────
+  // Aziz: "let the user choose the custom category, and it be saved so he
+  // can use it later... a pop up where user can add a name and choose an
+  // icon". Drafts for him to rewrite.
+  String get ownCategoryNew => isAr ? 'فئة جديدة' : 'New category';
+  String get ownCategoryNote => isAr
+      ? 'تنحفظ عندك، وتقدر تختارها لعاداتك الجاية.'
+      : 'It is saved, so you can pick it for your next habits too.';
+  String get ownCategoryNameHint =>
+      isAr ? 'اسم الفئة، مثلًا: رياضة' : 'Category name, e.g. Sport';
+  String get ownCategoryPickIcon => isAr ? 'اختر أيقونة' : 'Pick an icon';
+  String get ownCategorySave => isAr ? 'احفظ الفئة' : 'Save category';
+
+  // ── Habit ideas page (habit_ideas_page.dart, 2026-10-01) ────────────────
+  // From the "Habit ideas page" canvas, approved by Aziz ("that is
+  // perfect"). Plans and single habits are two sections, each saying what
+  // it is, so a whole plan is never mistaken for one habit. Drafts for him
+  // to rewrite.
+  String get ideasEntryTitle =>
+      isAr ? 'أفكار وخطط جاهزة' : 'Ideas and ready-made plans';
+  String get ideasEntryBody => isAr
+      ? 'عادات مجرّبة مع فضل كل وحدة، أو خطة كاملة بضغطة'
+      : 'Proven habits and why each is worth it, or a whole plan in a tap';
+  String get ideasEntryTitleNoPlans => isAr ? 'أفكار لعاداتك' : 'Habit ideas';
+  String get ideasEntryBodyNoPlans => isAr
+      ? 'عادات مجرّبة مع فضل كل وحدة'
+      : 'Proven habits and why each is worth it';
+  String get ideasPageTitle => isAr ? 'أفكار لعاداتك' : 'Habit ideas';
+  String get ideasPageTitleQuit =>
+      isAr ? 'أفكار للترك أو التقليل' : 'Ideas to quit or cut down';
+  String get ideasPageIntro => isAr
+      ? 'اختر فكرة ونجهّزها لك: الاسم والفئة وكم مرة، وتقدر تغيّر أي شي.'
+      : 'Pick an idea and we set it up: name, category and how often. You can change any of it.';
+  String get ideasSearchHint => isAr ? 'ابحث عن عادة' : 'Search habits';
+  String get ideasPlansTitle => isAr ? 'خطط جاهزة' : 'Ready-made plans';
+  String get ideasPlansNote => isAr
+      ? 'مجموعة عادات تبدأها كلها مع بعض'
+      : 'A set of habits you start together';
+  String get ideasHabitsTitle => isAr ? 'عادات بمفردها' : 'Single habits';
+  String get ideasHabitsNote =>
+      isAr ? 'اختر عادة وحدة وأضفها' : 'Pick one habit and add it';
+  String get ideasHabitsTitleQuit =>
+      isAr ? 'عادات تتركها أو تقللها' : 'Habits to quit or cut down';
+  String get ideasFilterAll => isAr ? 'الكل' : 'All';
+  /// «4 عادات» on a plan's card.
+  String ideasPlanHabitCount(int n) {
+    if (!isAr) return n == 1 ? '1 habit' : '$n habits';
+    if (n == 1) return 'عادة وحدة';
+    if (n == 2) return 'عادتين';
+    if (n <= 10) return '$n عادات';
+    return '$n عادة';
+  }
+  String get ideasEasyWays => isAr ? 'طريقة سهلة تبدأ فيها' : 'An easy way to start';
+  String get ideasSuggested => isAr ? 'نقترح لك' : 'We suggest';
+  String get ideasWhy => isAr ? 'ليش؟' : 'Why?';
+  String get ideasAddNow => isAr ? 'أضفها لعاداتي' : 'Add to my habits';
+  String get ideasEditFirst =>
+      isAr ? 'عدّلها قبل الإضافة' : 'Change it before adding';
+  /// On an idea's card once it is one of the person's habits.
+  String get ideasAddedChip => isAr ? 'مضافة' : 'Added';
+  /// The idea's popup right after «أضفها لعاداتي» saved it.
+  String get ideasAddedDone => isAr ? 'أُضيفت لعاداتك' : 'Added to your habits';
+  /// The idea's popup for a habit the person already has.
+  String get ideasAlreadyHave =>
+      isAr ? 'موجودة في عاداتك' : 'Already in your habits';
+  /// Back from the popup to the list, once the idea is added.
+  String get ideasPickAnother => isAr ? 'اختر فكرة ثانية' : 'Pick another idea';
+  String get ideasQuitFully => isAr ? 'أتركه تمامًا' : 'Quit fully';
+  /// «حد يومي: 2 أكواب». [unit] is already localized.
+  String ideasDailyLimit(int amount, String unit) =>
+      isAr ? 'حد يومي: $amount $unit' : 'Daily limit: $amount $unit';
+  /// The suggested reminder on a prayer: «مع الفجر».
+  String ideasWithPrayer(String prayer) => isAr ? 'مع $prayer' : 'With $prayer';
+  /// The suggested reminder at a clock time: «تذكير 9:00 م».
+  String ideasReminderAt(String time) => isAr ? 'تذكير $time' : 'Reminder $time';
+  String get ideasNoResults => isAr
+      ? 'ما لقينا عادة بهذا الاسم. تقدر تكتبها بنفسك في الصفحة الأولى.'
+      : 'No habit by that name. You can type it yourself on the first page.';
+  String get ideasFromIdeaNote => isAr
+      ? 'جهّزنا لك الاقتراح. غيّر اللي تبيه.'
+      : 'We set up the suggestion. Change anything you like.';
   String limitUnitLabel(String key) => isAr
       ? switch (key) {
           'minutes' => 'دقائق',
@@ -5319,6 +5488,20 @@ class S {
   // published timetable rather than a calculation.
   String get prayerPlaceBahrainTable =>
       isAr ? 'الجدول الرسمي لمملكة البحرين' : "Bahrain's official timetable";
+  // Today's times on the same page (PrayerTodayCard, 2026-10-01). The four
+  // counter lines are the prayer widget's own words (prayerPhaseLabel in
+  // PrayerCountdownWidget.swift), so the page reads like the face tapped.
+  String get prayerTodayTitle => isAr ? 'أوقات الصلاة' : 'Prayer times';
+  String get prayerSunrise => isAr ? 'الشروق' : 'Sunrise';
+  String get prayerUntilAdhan => isAr ? 'باقي على الأذان' : 'until the adhan';
+  String get prayerSinceAdhan => isAr ? 'مضى على الأذان' : 'since the adhan';
+  String get prayerUntilSunrise => isAr ? 'باقي على الشروق' : 'until sunrise';
+  String get prayerSinceSunrise => isAr ? 'مضى على الشروق' : 'since sunrise';
+  // Under the list when a picked city keeps a different clock from the
+  // phone's: the times are when they fall where the phone is.
+  String get prayerTimesPhoneClock => isAr
+      ? 'الأوقات بتوقيت تلفونك، مو بتوقيت المدينة.'
+      : "Times are on your phone's clock, not the city's.";
 
   // ── City search (prayer-time location) ───────────────────────────────
 
@@ -6163,6 +6346,10 @@ class S {
 
   /// Nothing done yet, from noon on, when «صباح الخير» would be wrong.
   String get sproutHello => isAr ? 'هلا، نبدأ؟' : 'Hi, shall we start?';
+
+  /// Doum's hello when he turns round into a language's look (the sign-in
+  /// screen and Settings › Language): said in the language he now wears.
+  String get doumHi => isAr ? 'هلا' : 'Hi';
 
   /// The day's first green square.
   String get sproutFirstDone => isAr ? 'بداية حلوة' : 'A sweet start';

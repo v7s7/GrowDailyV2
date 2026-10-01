@@ -143,6 +143,7 @@ void main() {
         remindersPerOccurrence: 1,
         extraReminderOffsets: const [],
         prayerKey: null,
+        prayerSlots: const [],
         streak: 0,
         completedCount: 0,
         dailyTarget: 1,

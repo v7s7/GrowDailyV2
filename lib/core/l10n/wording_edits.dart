@@ -19,6 +19,9 @@
 ///   faq       {order?, hidden?, text?, groups?}   the FAQ's edits, or absent
 ///   benefits  {order?, hidden?, icons?, added?}   the paywall list's edits, or absent
 ///   pet       {praiseEverySeconds?, presets?, ...}  Doum's settings, or absent
+///   splash    {order?, off?, hours?, ...}           the launch splash's settings, or absent
+///   ideas     {order?, hidden?, featured?, ...}     Add Habit's habit ideas, or absent
+///   plans     {order?, hidden?, text?}              the ready-made plans' edits, or absent
 ///   version   int                                 bumped by every save
 ///
 /// The two lists (the FAQ and the paywall's benefits) are edited per item
@@ -62,9 +65,13 @@ import '../services/local_store_service.dart';
 import 'content_edits.dart';
 import 'daily_quotes.dart';
 import 'pet_edits.dart';
+import 'ideas_edits.dart';
+import 'splash_edits.dart';
 
 export 'content_edits.dart';
 export 'pet_edits.dart';
+export 'ideas_edits.dart';
+export 'splash_edits.dart';
 
 /// The one document the admin tool writes and every device reads.
 const String kWordingDocPath = 'wording/live';
@@ -80,6 +87,9 @@ class WordingEdits {
     this.faq,
     this.benefits,
     this.pet,
+    this.splash,
+    this.ideas,
+    this.plans,
     this.version = 0,
   });
 
@@ -109,6 +119,15 @@ class WordingEdits {
   /// app's own (see pet_edits.dart and pet_settings.dart).
   final PetEdits? pet;
 
+  /// The launch splash's settings as edited on the admin's splash page, null
+  /// for the app's own (see splash_edits.dart and launch_settings.dart).
+  final SplashEdits? splash;
+
+  /// Add Habit's ideas and ready-made plans as edited on the admin's
+  /// «Habit ideas» page, null for the app's own (see ideas_edits.dart).
+  final IdeasEdits? ideas;
+  final PlansEdits? plans;
+
   /// The admin tool's save counter. Informational only; nothing orders
   /// snapshots by it, because Firestore already delivers them in order.
   final int version;
@@ -124,7 +143,10 @@ class WordingEdits {
       quotes == null &&
       faq == null &&
       benefits == null &&
-      pet == null;
+      pet == null &&
+      splash == null &&
+      ideas == null &&
+      plans == null;
 
   /// The document as Firestore (or this device's cached copy) holds it.
   ///
@@ -143,6 +165,9 @@ class WordingEdits {
       faq: FaqEdits.fromData(data['faq']),
       benefits: BenefitEdits.fromData(data['benefits']),
       pet: PetEdits.fromData(data['pet']),
+      splash: SplashEdits.fromData(data['splash']),
+      ideas: IdeasEdits.fromData(data['ideas']),
+      plans: PlansEdits.fromData(data['plans']),
       version: version is num ? version.toInt() : 0,
     );
   }
@@ -185,6 +210,9 @@ class WordingEdits {
         if (faq != null) 'faq': faq!.toJson(),
         if (benefits != null) 'benefits': benefits!.toJson(),
         if (pet != null) 'pet': pet!.toJson(),
+        if (splash != null) 'splash': splash!.toJson(),
+        if (ideas != null) 'ideas': ideas!.toJson(),
+        if (plans != null) 'plans': plans!.toJson(),
         'version': version,
       };
 }

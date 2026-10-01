@@ -12,15 +12,29 @@
 // on that card was off, so the primary button they could see saved a walking
 // habit with no link and no way to know one had been offered.
 //
-// So: the card sits between the name field and the category label, and its
-// switch comes up ON for a name that reads as walking. The switch grants
-// nothing by itself (the OS permission is still asked at Save, which these
-// tests never reach), which is what makes an on-by-default switch honest
-// rather than a pre-ticked consent box.
+// So: the card sits right under the name field, and its switch comes up ON
+// for a name that reads as walking. The switch grants nothing by itself (the
+// OS permission is still asked at Save, which these tests never reach), which
+// is what makes an on-by-default switch honest rather than a pre-ticked
+// consent box.
 //
 // These lock the POSITION and the DEFAULT, plus the two ways the default has
 // to yield: a switch somebody touched, and a name that stops being about
 // walking.
+//
+// The three-step sheet (2026-10-01) took the 3x3 category grid away. The
+// category is now one line under the name, «الفئة: الصحة» with «تغيير»
+// beside it, and the categories open in a row under that line. Ideas are a
+// card further down, «أفكار لعاداتك» (outside the hub), which opens a page
+// of their own; until later that day it was an inline ideas door holding
+// the categories and suggestions. So the card's position is pinned as:
+// under the name and its category line, above the ideas card. The category
+// a name lands in is read off that line instead of a lit chip. A category
+// picked by hand is picked through «تغيير», which needs a name on the line
+// first: the case that picked one before typing, through the door, is now
+// a walking name moved by hand and then typed on. An edit opens on an
+// overview, so the edit tests open its first row, «العادة», where the card
+// lives.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -39,7 +53,8 @@ import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 import 'package:grow_daily_v2/features/habits/widgets/add_habit_sheet.dart';
-import 'package:grow_daily_v2/shared/widgets/choice_chip_grid.dart';
+
+import 'support/add_habit_flow.dart';
 
 void main() {
   late Directory tmp;
@@ -60,9 +75,10 @@ void main() {
     await Hive.openBox<dynamic>('box_habits');
     container = ProviderContainer(overrides: [
       authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
-      // Not an empty list: an empty account puts the suggestions ABOVE the
-      // name field (see first_habit_layout_test), which is a different
-      // layout from the one this is measuring.
+      // Not an empty list: an account with habits is the ordinary path
+      // through the sheet. (An empty one used to put the suggestions ABOVE
+      // the name field; today the step is the same for both, see
+      // first_habit_layout_test.)
       habitListProvider.overrideWithValue([IslamicHabitCatalog.templates.first]),
     ]);
     await container.read(authStateProvider.future);
@@ -101,14 +117,13 @@ void main() {
   bool switchIsOn(WidgetTester tester) =>
       tester.widget<Switch>(switchFinder().first).value;
 
-  /// The category chip for [category], whatever it is labelled.
-  PlainChoiceChip chipFor(WidgetTester tester, HabitCategory category, S s) =>
-      tester.widget<PlainChoiceChip>(
-        find.widgetWithText(PlainChoiceChip, category.localizedName(s.isAr)),
-      );
+  /// The line under the name box that says which category the habit is
+  /// in, «الفئة: الصحة».
+  Finder categoryLine(HabitCategory category, S s) =>
+      find.text(s.habitCategoryLine(category.localizedName(s.isAr)));
 
   group('where the offer is', () {
-    testWidgets('the card lands between the name field and the categories',
+    testWidgets('the card lands under the name and above the ideas card',
         (tester) async {
       await tester.pumpWidget(app(const Locale('ar')));
       await tester.pumpAndSettle();
@@ -124,16 +139,25 @@ void main() {
 
       final fieldBottom =
           tester.getBottomLeft(find.byType(TextField).first).dy;
-      final categoryLabel = find.text(ar.category);
-      expect(categoryLabel, findsOneWidget);
+      final line = categoryLine(HabitCategory.health, ar);
+      expect(line, findsOneWidget);
+      // A sheet opened outside the hub has no Plans, so its ideas card
+      // offers ideas only.
+      final ideas = find.text(ar.ideasEntryTitleNoPlans);
+      expect(ideas, findsOneWidget);
 
       expect(tester.getTopLeft(title).dy, greaterThan(fieldBottom),
           reason: 'the offer is about the name that was just typed, so it '
               'sits under it');
       expect(tester.getTopLeft(title).dy,
-          lessThan(tester.getTopLeft(categoryLabel).dy),
-          reason: 'and ABOVE the category grid, which is what used to bury '
-              'it below the fold with the keyboard open');
+          greaterThan(tester.getBottomLeft(line).dy),
+          reason: 'under the one category line too, which is all that is '
+              'left of the category grid on this step');
+      expect(tester.getTopLeft(title).dy,
+          lessThan(tester.getTopLeft(ideas).dy),
+          reason: 'and ABOVE the ideas card: what used to bury it below '
+              'the fold (the categories and suggestions) must not come back '
+              'between it and the name');
     });
 
     testWidgets('and it is fully visible with the keyboard open',
@@ -152,7 +176,17 @@ void main() {
       //
       // Both halves of the fix are under test here: the card being adjacent
       // to the field, and _revealStepCard scrolling it the rest of the way.
-      // Verified to FAIL with either half removed.
+      // Verified to FAIL with either half removed (before 2026-10-01).
+      //
+      // Since the three-step sheet (2026-10-01) this lays out the hub's own
+      // form, `embedded: true`, which is what the 350pt above is: the hub
+      // writes the heading, and the form draws the step bar and the footer
+      // around its page. And it measures against that page's scroll
+      // viewport rather than the whole form, because the step bar sits
+      // between the two now: a title scrolled up under the step bar was
+      // still "inside the sheet". (The standalone sheet, a room's, opens at
+      // the full height above the keyboard, not at 350pt, and would also
+      // put its own heading above the step bar here.)
       const sheetHeight = 350.0;
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -172,7 +206,7 @@ void main() {
                 child: SizedBox(
                   height: sheetHeight,
                   width: 402,
-                  child: AddHabitSheet(),
+                  child: AddHabitSheet(embedded: true),
                 ),
               ),
             ),
@@ -184,18 +218,21 @@ void main() {
       await tester.enterText(find.byType(TextField).first, 'المشي');
       await tester.pumpAndSettle();
 
-      final sheetBottom =
-          tester.getBottomLeft(find.byType(AddHabitSheet)).dy;
-      final sheetTop = tester.getTopLeft(find.byType(AddHabitSheet)).dy;
+      // The page's own scroll viewport: what is left between the step bar
+      // and the footer.
+      final page = tester.getRect(find
+          .ancestor(of: cardTitle(ar), matching: find.byType(Scrollable))
+          .first);
       final card = tester.getRect(cardTitle(ar));
 
-      expect(card.top, greaterThan(sheetTop),
+      expect(card.top, greaterThanOrEqualTo(page.top),
           reason: 'not scrolled off the top either');
-      expect(card.bottom, lessThan(sheetBottom),
+      expect(card.bottom, lessThanOrEqualTo(page.bottom),
           reason: 'the title has to be inside the space the keyboard leaves');
       // And the control that the whole report is about.
       final knob = tester.getRect(switchFinder());
-      expect(knob.bottom, lessThan(sheetBottom),
+      expect(knob.top, greaterThanOrEqualTo(page.top));
+      expect(knob.bottom, lessThanOrEqualTo(page.bottom),
           reason: 'a switch below the fold is a switch nobody turns on');
     });
 
@@ -207,8 +244,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(cardTitle(en), findsOneWidget);
-      expect(tester.getTopLeft(cardTitle(en)).dy,
-          lessThan(tester.getTopLeft(find.text(en.category)).dy));
+      final top = tester.getTopLeft(cardTitle(en)).dy;
+      expect(top,
+          greaterThan(tester
+              .getBottomLeft(categoryLine(HabitCategory.health, en))
+              .dy));
+      expect(top,
+          lessThan(
+              tester.getTopLeft(find.text(en.ideasEntryTitleNoPlans)).dy));
     });
   });
 
@@ -318,9 +361,9 @@ void main() {
         await tester.enterText(find.byType(TextField).first, name);
         await tester.pumpAndSettle();
 
-        expect(chipFor(tester, HabitCategory.health, ar).selected, isTrue,
+        expect(categoryLine(HabitCategory.health, ar), findsOneWidget,
             reason: '$name reads as walking, so it belongs under Health');
-        expect(chipFor(tester, HabitCategory.custom, ar).selected, isFalse);
+        expect(categoryLine(HabitCategory.custom, ar), findsNothing);
       });
     }
 
@@ -334,22 +377,61 @@ void main() {
           find.byType(TextField).first, 'قراءة كتاب ودراسة');
       await tester.pumpAndSettle();
 
-      expect(chipFor(tester, HabitCategory.learning, ar).selected, isTrue);
-      expect(chipFor(tester, HabitCategory.health, ar).selected, isFalse);
+      expect(categoryLine(HabitCategory.learning, ar), findsOneWidget);
+      expect(categoryLine(HabitCategory.health, ar), findsNothing);
     });
 
     testWidgets('a category picked by hand is never overruled', (tester) async {
+      // Picked by hand over a name that had already read as walking, then
+      // typed on. Before the three-step sheet this picked the category
+      // before any name, from the grid, and then from the ideas door; the
+      // categories only open from «تغيير» now, which comes with a name.
       await tester.pumpWidget(app(const Locale('ar')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text(HabitCategory.mind.localizedName(true)));
+      await tester.enterText(find.byType(TextField).first, 'المشي');
+      await tester.pumpAndSettle();
+      expect(categoryLine(HabitCategory.health, ar), findsOneWidget,
+          reason: 'sanity: the name read as walking first');
+
+      await tester.tap(choice(ar.habitCategoryChange));
+      await tester.pumpAndSettle();
+      await tester.tap(choice(HabitCategory.mind.localizedName(true)));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'المشي اليومي');
       await tester.pumpAndSettle();
 
-      expect(chipFor(tester, HabitCategory.mind, ar).selected, isTrue,
-          reason: 'a tap on a chip is a decision, and typing is not a reason '
-              'to undo it');
+      expect(categoryLine(HabitCategory.mind, ar), findsOneWidget,
+          reason: 'a tap on a category is a decision, and typing is not a '
+              'reason to undo it');
+      expect(categoryLine(HabitCategory.health, ar), findsNothing);
+    });
+
+    testWidgets('nor is one changed with «تغيير» once a name is there',
+        (tester) async {
+      // Picked after the name: the line's own «تغيير», which opens the
+      // categories as a row under it.
+      await tester.pumpWidget(app(const Locale('ar')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'قراءة');
+      await tester.pumpAndSettle();
+      expect(categoryLine(HabitCategory.learning, ar), findsOneWidget);
+
+      await tester.tap(choice(ar.habitCategoryChange));
+      await tester.pumpAndSettle();
+      await tester.tap(choice(HabitCategory.mind.localizedName(true)));
+      await tester.pumpAndSettle();
+      expect(categoryLine(HabitCategory.mind, ar), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).first, 'المشي اليومي');
+      await tester.pumpAndSettle();
+
+      expect(categoryLine(HabitCategory.mind, ar), findsOneWidget,
+          reason: 'a walking name is a reason to offer the link, not to '
+              'move the habit out of the category somebody chose');
+      expect(cardTitle(ar), findsOneWidget,
+          reason: 'the offer itself still follows the name');
     });
   });
 
@@ -370,6 +452,11 @@ void main() {
 
       await tester.pumpWidget(app(const Locale('ar'), existing: preset));
       await tester.pumpAndSettle();
+      // The overview already says the link is on, in one line, before
+      // anything is opened.
+      expect(find.text(ar.stepLinkRecap(preset.suggestedStepGoal!)),
+          findsOneWidget);
+      await openEditStep(tester, ar, 0);
 
       expect(cardTitle(ar), findsOneWidget);
       expect(switchIsOn(tester), isTrue);
@@ -397,6 +484,7 @@ void main() {
 
       await tester.pumpWidget(app(const Locale('ar'), existing: linked));
       await tester.pumpAndSettle();
+      await openEditStep(tester, ar, 0);
 
       expect(switchIsOn(tester), isTrue);
       expect(find.text(ar.stepLinkGoal(7500)), findsOneWidget);
@@ -405,11 +493,12 @@ void main() {
     testWidgets('the armed card fits an iPhone-sized sheet', (tester) async {
       // The card grew: an icon disc, a permission line and the goal chips
       // are all in the tree at once now, and it moved ABOVE the category
-      // grid rather than below it. Step 0 is the step that got taller, and
-      // the edit path adds the Remove button underneath the footer, which is
-      // the extra ~48pt that tipped this sheet over once before (see
-      // edit_preset_habit_test's own overflow group). The default 800x600
-      // test surface is too generous to catch any of it.
+      // grid rather than below it. Step 0 is the step that got taller. The
+      // edit's Remove button, the extra ~48pt that tipped this sheet over
+      // once before (see edit_preset_habit_test's own overflow group), sits
+      // under the overview's footer since 2026-10-01, so the overview is
+      // laid out at this size first and then step 0 is opened from it. The
+      // default 800x600 test surface is too generous to catch any of it.
       //
       // A RenderFlex overflow raises a FlutterError that the binding records
       // as a test exception, so laying this out IS the assertion.
@@ -425,6 +514,8 @@ void main() {
 
       await tester.pumpWidget(app(const Locale('ar'), existing: walkPreset()));
       await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text(ar.removeHabit), findsOneWidget);
+      await openEditStep(tester, ar, 0);
 
       expect(cardTitle(ar), findsOneWidget);
       expect(switchIsOn(tester), isTrue);
@@ -439,6 +530,7 @@ void main() {
 
       await tester.pumpWidget(app(const Locale('ar'), existing: other));
       await tester.pumpAndSettle();
+      await openEditStep(tester, ar, 0);
 
       expect(cardTitle(ar), findsNothing);
       expect(switchFinder(), findsNothing);

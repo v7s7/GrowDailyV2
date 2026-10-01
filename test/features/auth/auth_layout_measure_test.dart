@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/features/auth/screens/auth_screen.dart';
+import 'package:grow_daily_v2/features/mascot/doum_language_look.dart';
 
 import '../../helpers/landing_harness.dart';
 
@@ -74,7 +75,7 @@ void main() {
           '  h ${r.height.toStringAsFixed(0).padLeft(3)}');
     }
 
-    rect('logo', find.byType(Image));
+    rect('doum', find.byType(DoumLanguageLook));
     rect('wordmark', find.text('Grow Daily'));
     rect('tagline', find.text(en.tagline));
     rect('apple', find.text(en.continueWithApple));

@@ -1,75 +1,140 @@
 part of 'profile_screen.dart';
 
 
-class _LanguageSheet extends ConsumerWidget {
+/// Settings › Language. Doum stands over the two cards in the look of the
+/// app's language (Aziz, 2026-10-01, the canvas "Doum picks the language"),
+/// and picking the other card turns him round into its look, the language
+/// changing while his back is turned (DoumLanguageLook), the same turn as
+/// on the sign-in screen. The sheet closes itself a moment after he lands,
+/// so a change is still the one tap it always was; the language he was
+/// turning to is kept even if the sheet is swiped away before then.
+class _LanguageSheet extends ConsumerStatefulWidget {
   const _LanguageSheet();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_LanguageSheet> createState() => _LanguageSheetState();
+}
+
+class _LanguageSheetState extends ConsumerState<_LanguageSheet> {
+  final _doum = DoumLookController();
+  Timer? _close;
+
+  @override
+  void dispose() {
+    _close?.cancel();
+    _doum.dispose();
+    super.dispose();
+  }
+
+  void _pick(String code) {
+    final live = ref.read(localeProvider).languageCode;
+    if (_doum.turning) return;
+    if (code == live) {
+      Navigator.pop(context);
+      return;
+    }
+    HapticFeedback.selectionClick();
+    if (!_doum.switchTo(code)) {
+      Navigator.pop(context);
+      setLocale(ref, Locale(code));
+    }
+  }
+
+  /// He has landed in the new look: a moment for his greeting, then the
+  /// sheet goes (at once under Reduce Motion, which has no turn to watch).
+  void _turned() {
+    _close?.cancel();
+    _close = Timer(
+      Duration(milliseconds: prefersReducedMotion(context) ? 0 : 700),
+      () {
+        if (mounted) Navigator.pop(context);
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final gp = context.gp;
     final s = S.of(context);
-    final isAr = ref.watch(localeProvider).languageCode == 'ar';
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        bottom: 24 +
-            MediaQuery.of(context).viewInsets.bottom +
-            MediaQuery.of(context).padding.bottom,
-      ),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        decoration: BoxDecoration(
-          color: gp.surfaceHigh,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: gp.border, width: 0.5),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: gp.border,
-                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+    final live = ref.watch(localeProvider).languageCode;
+    return ListenableBuilder(
+      listenable: _doum,
+      builder: (context, _) {
+        final shown = _doum.pendingLanguage ?? live;
+        final isAr = shown == 'ar';
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            bottom: 24 +
+                MediaQuery.of(context).viewInsets.bottom +
+                MediaQuery.of(context).padding.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            decoration: BoxDecoration(
+              color: gp.surfaceHigh,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: gp.border, width: 0.5),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: gp.border,
+                      borderRadius:
+                          BorderRadius.circular(GameSpacing.pillRadius),
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(height: 18),
+                // The one word here that is in the app's language, so the
+                // one that fades out and back in around Doum's swap.
+                AnimatedOpacity(
+                  opacity: _doum.wordsVisible ? 1 : 0,
+                  duration:
+                      Duration(milliseconds: _doum.wordsVisible ? 200 : 120),
+                  child: Text(
+                    s.language,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: gp.textPrimary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Center(
+                  child: DoumLanguageLook(
+                    height: 110,
+                    controller: _doum,
+                    onTurned: _turned,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                LanguageOptionCard(
+                  nativeName: 'English',
+                  selected: !isAr,
+                  onTap: () => _pick('en'),
+                ),
+                const SizedBox(height: 10),
+                LanguageOptionCard(
+                  nativeName: 'العربية',
+                  selected: isAr,
+                  textDirection: TextDirection.rtl,
+                  onTap: () => _pick('ar'),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
-            Text(
-              s.language,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: gp.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 18),
-            LanguageOptionCard(
-              nativeName: 'English',
-              selected: !isAr,
-              onTap: () {
-                Navigator.pop(context);
-                setLocale(ref, const Locale('en'));
-              },
-            ),
-            const SizedBox(height: 10),
-            LanguageOptionCard(
-              nativeName: 'العربية',
-              selected: isAr,
-              textDirection: TextDirection.rtl,
-              onTap: () {
-                Navigator.pop(context);
-                setLocale(ref, const Locale('ar'));
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
