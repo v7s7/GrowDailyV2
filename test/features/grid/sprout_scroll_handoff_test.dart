@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/core/l10n/wording_edits.dart';
+import 'package:grow_daily_v2/core/providers/day_clock_provider.dart';
 import 'package:grow_daily_v2/core/providers/get_started_checklist_provider.dart';
 import 'package:grow_daily_v2/features/dashboard/widgets/reaction_overlays.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
@@ -28,6 +29,12 @@ import 'package:grow_daily_v2/shared/widgets/game_nav_bar.dart';
 import 'package:grow_daily_v2/shared/widgets/home_shell.dart';
 
 import '../../helpers/landing_harness.dart';
+
+/// 14:00 of the real day, the minutes still running.
+DateTime _afternoonToday() {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day, 14, now.minute, now.second);
+}
 
 void main() {
   late LandingHarness h;
@@ -55,11 +62,16 @@ void main() {
       activeCatalogIds: ids,
       extraOverrides: [
         getStartedDismissedProvider.overrideWith((ref) => true),
+        // Awake at any hour the suite runs (asleep, he keeps to the board's
+        // edge, which sprout_bottom_test pins on its own): the ledge reads
+        // his mood's hour from this clock, held at 14:00 of the real day so
+        // today stays today. The edits below alone left him asleep from
+        // 23:00, the latest bedtime they allow, and a perfect day then took
+        // him off the foot of the page.
+        dayClockSourceProvider.overrideWithValue(_afternoonToday),
       ],
     );
     DayCardSprout.greetedThisLaunch = true;
-    // Awake at any hour the suite runs (asleep, he keeps to the board's
-    // edge, which sprout_bottom_test pins on its own).
     WordingEditsStore.debugPublish(const WordingEdits(
       pet: PetEdits(numbers: {'wakeHour': 0, 'bedtimeHour': 23}),
     ));
@@ -100,9 +112,10 @@ void main() {
     SproutPose.happySparkles: 35.1,
   };
 
-  // How far he sinks to make way: to his leaves, and out of sight.
+  // How far he sinks to make way: to his leaves, and to just their tips
+  // (never less of him: the bar is never left empty).
   const leavesSink = 39.0;
-  const awaySink = 58.0;
+  const tipsSink = 45.0;
 
   ScrollPosition page(WidgetTester tester) => tester
       .state<ScrollableState>(find
@@ -124,9 +137,10 @@ void main() {
   double sunk(WidgetTester tester) =>
       tester.getRect(bottomSprout).bottom - (barTop(tester) + 26.56);
 
-  /// Lets the page be still long enough for him to stand as tall as he may.
+  /// Lets the page be still long enough for him to stand as tall as he may
+  /// (he stands up 450ms after the page is still).
   Future<void> still(WidgetTester tester) async {
-    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 600));
     await h.settle(tester);
   }
 
@@ -436,28 +450,33 @@ void main() {
       // How far over the bar his pose's box reaches, all up.
       final tall = body.height - 26.56;
       final expected = across
-          ? 'away'
+          ? 'tips'
           : room >= tall
               ? 'up'
               : room >= tall - leavesSink
                   ? 'leaves'
-                  : 'away';
+                  : 'tips';
       final down = sunk(tester);
       final String level;
       if (down.abs() < 0.2) {
         level = 'up';
       } else if ((down - leavesSink).abs() < 0.2) {
         level = 'leaves';
-      } else if ((down - awaySink).abs() < 0.2) {
-        level = 'away';
+      } else if ((down - tipsSink).abs() < 0.2) {
+        level = 'tips';
       } else {
         level = 'between: $down';
       }
       expect(level, expected, reason: 'at $px');
       counts[level] = (counts[level] ?? 0) + 1;
       // And, drawn: nothing of him over a tile or a line of a name that can
-      // be read, found apart from what he measures.
-      if (body.top < bar) {
+      // be read, found apart from what he measures; at his leaf tips, those
+      // tips are all that stands over the bar.
+      if (level == 'tips') {
+        expect(bar - body.top, lessThanOrEqualTo(tall - tipsSink + 0.05),
+            reason: 'at $px, more than his tips');
+        expect(bar - body.top, greaterThan(4), reason: 'at $px, his tips');
+      } else if (body.top < bar) {
         final art = Rect.fromLTRB(left, body.top, right, bar);
         for (final r in ink(tester)) {
           expect(art.overlaps(r), isFalse,
@@ -479,7 +498,7 @@ void main() {
         await open(tester, locale);
         final counts = await sweep(tester);
         // Every height happens on a board this long.
-        expect(counts.keys, containsAll(<String>['up', 'leaves', 'away']));
+        expect(counts.keys, containsAll(<String>['up', 'leaves', 'tips']));
       });
     }
   }

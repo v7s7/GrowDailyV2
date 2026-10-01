@@ -1,8 +1,11 @@
 // Doum at the foot of the screen (SproutBottomPeek, option A of the "Doum at
 // the board's end" canvas): when the board's top edge scrolls near the top of
-// the screen he ducks there and pops up above the bottom bar, over the habit
-// names, and comes back when the edge is well in view. One mind throughout
-// (DayCardSprout on the ledge), a second body down here. See sprout_bottom.dart.
+// the screen he goes down behind it and comes up above the bottom bar, over
+// the habit names, and goes home when the edge is well in view. One mind
+// throughout (DayCardSprout on the ledge), a second body down here. Since
+// 2026-09-30 (option A of the "Doum scroll motion" canvas) the page itself
+// carries him from one to the other (SproutStage.handoff), and every move of
+// his is a spring with no bounce. See sprout_bottom.dart.
 //
 // The page mirrors the app: HomeShell's Scaffold (with a bottom bar, the
 // SnackBars and a PageView of tabs) around the Grid's own Scaffold, whose body
@@ -12,6 +15,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -300,6 +304,35 @@ void main() {
   // The front pose standing on a line: 52pt above it and its 1.44pt margin.
   const peek = 52 + 0.018 * 80;
 
+  /// Where the board's top edge is on screen (the page's view starts at the
+  /// top of the screen here).
+  double lineOnScreen(WidgetTester tester) => tester.getRect(ledge).bottom;
+
+  /// Where the page has him for the edge's line this far down: 0 on the
+  /// edge, 1 behind the board, 2 all up at the foot (see "The page carries
+  /// him").
+  double bandFor(double line) => ((116 - line) / 52).clamp(0.0, 2.0);
+
+  /// A finger on the page, past the touch slop in the direction of [dy]
+  /// (negative: down the page) and moving on by [dy] a frame, for [frames]
+  /// frames of 16ms, calling [each] after every frame. Left down.
+  Future<TestGesture> dragPage(
+    WidgetTester tester, {
+    required double dy,
+    required int frames,
+    void Function(int frame)? each,
+  }) async {
+    final g = await tester.startGesture(const Offset(250, 600));
+    await g.moveBy(Offset(0, dy.sign * 20));
+    await tester.pump(const Duration(milliseconds: 16));
+    for (var t = 0; t < frames; t++) {
+      await g.moveBy(Offset(0, dy));
+      await tester.pump(const Duration(milliseconds: 16));
+      each?.call(t);
+    }
+    return g;
+  }
+
   group('the hand-off', () {
     testWidgets('at the top he is on the board\'s edge and nothing is drawn '
         'at the foot', (tester) async {
@@ -362,32 +395,110 @@ void main() {
       expect(cut.dy, moreOrLessEquals(bar(tester).top, epsilon: 0.01));
     });
 
-    testWidgets('the duck is seen first, the climb starts 90ms on: never two '
-        'of him in view', (tester) async {
+    testWidgets('the page carries him: under a finger he goes behind the '
+        'board and comes up over the bar a few points a frame, as the page '
+        'moves, never two of him and never past where he stands',
+        (tester) async {
       phone(tester);
       final scroll = ScrollController();
       await tester.pumpWidget(page(scroll: scroll));
       await tester.pumpAndSettle();
-      scroll.jumpTo(line - 40);
-      await tester.pump(); // the page moves
-      await tester.pump(); // the decision, after that frame
-      var both = false;
-      var sawDuck = false;
-      for (var t = 0; t < 60; t++) {
+      var lastTop = upTop(tester);
+      var lastFoot = downHere(tester);
+      var going = false;
+      var coming = false;
+      final g = await dragPage(
+        tester,
+        dy: -4,
+        frames: 110,
+        each: (t) {
+          final top = upTop(tester);
+          final foot = downHere(tester);
+          expect(top > 0.5 && foot > 0.5, isFalse,
+              reason: 'frame $t: two of him ($top up top, $foot down here)');
+          // Down the page he only goes, up top, and only comes, down here:
+          // about the page's own 4pt a frame, never a snap.
+          expect(top, lessThanOrEqualTo(lastTop + 0.01), reason: 'frame $t');
+          expect(foot, greaterThanOrEqualTo(lastFoot - 0.01),
+              reason: 'frame $t');
+          expect(lastTop - top, lessThan(6), reason: 'frame $t snapped away');
+          expect(foot - lastFoot, lessThan(6), reason: 'frame $t popped up');
+          expect(foot, lessThanOrEqualTo(peek + 0.05),
+              reason: 'frame $t: over the top of his rest');
+          if (top > 1 && top < peek - 1) going = true;
+          if (foot > 1 && foot < peek - 1) coming = true;
+          lastTop = top;
+          lastFoot = foot;
+        },
+      );
+      expect(going, isTrue, reason: 'seen going behind the board');
+      expect(coming, isTrue, reason: 'seen coming up over the bar');
+      expect(stage.atBottom, isTrue);
+      expect(tucked(tester), isTrue);
+      expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      await g.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('held part-way under a finger, he stays where the page has '
+        'him; let go, and he finishes to the nearer side', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (lineOnScreen(tester) > 92 && frames++ < 200) {
+        await g.moveBy(const Offset(0, -3));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      // The finger rests on the page.
+      for (var t = 0; t < 20; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final band = bandFor(lineOnScreen(tester));
+      expect(band, inInclusiveRange(0.3, 0.7));
+      expect(stage.handoff.value, moreOrLessEquals(band, epsilon: 0.01));
+      expect(upTop(tester), moreOrLessEquals(peek - 58 * band, epsilon: 0.6));
+      expect(stage.atBottom, isFalse);
+      await g.up();
+      await tester.pumpAndSettle();
+      expect(stage.handoff.value, 0, reason: 'nearer the edge: back on it');
+      expect(upTop(tester), moreOrLessEquals(peek, epsilon: 0.05));
+    });
+
+    testWidgets('a flick carries him no faster than about 350pt/s: he never '
+        'shoots up, and lands with no bounce', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      await tester.flingFrom(
+        const Offset(250, 700),
+        const Offset(0, -400),
+        4000,
+      );
+      var lastTop = upTop(tester);
+      var lastFoot = downHere(tester);
+      var most = 0.0;
+      for (var t = 0; t < 90; t++) {
         await tester.pump(const Duration(milliseconds: 16));
         final top = upTop(tester);
         final foot = downHere(tester);
-        if (t == 4) {
-          // 80ms in: the climb has not started.
-          expect(foot, lessThan(1));
-        }
-        if (top > 1 && top < peek - 1) sawDuck = true;
-        // More than 12pt of both at once would read as two of him.
-        if (top > 12 && foot > 12) both = true;
+        most = math.max(most, math.max(lastTop - top, foot - lastFoot));
+        expect(top > 0.5 && foot > 0.5, isFalse, reason: 'frame $t');
+        expect(foot, lessThanOrEqualTo(peek + 0.05), reason: 'frame $t');
+        lastTop = top;
+        lastFoot = foot;
       }
-      expect(sawDuck, isTrue);
-      expect(both, isFalse);
+      // 350pt/s is 5.6pt a 16ms frame.
+      expect(most, lessThan(6));
+      expect(most, greaterThan(3), reason: 'but he does keep up');
       await tester.pumpAndSettle();
+      expect(stage.handoff.value, 2);
       expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
     });
 
@@ -408,56 +519,227 @@ void main() {
       );
     });
 
-    testWidgets('turned back mid-duck: straight back up, no pause, and the '
-        'foot never showed him', (tester) async {
+    testWidgets('turned back part-way, he comes straight back with the page, '
+        'and the foot never shows him', (tester) async {
       phone(tester);
       final scroll = ScrollController();
       await tester.pumpWidget(page(scroll: scroll));
       await tester.pumpAndSettle();
-      await lineAt(tester, scroll, 200);
-      scroll.jumpTo(line - 40);
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (stage.handoff.value < 0.55 && frames++ < 200) {
+        await g.moveBy(const Offset(0, -4));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       final dipped = upTop(tester);
-      expect(dipped, lessThan(peek - 1));
-      scroll.jumpTo(line - 200);
-      await tester.pump();
-      await tester.pump();
+      expect(dipped, lessThan(peek - 10));
+      expect(dipped, greaterThan(1));
       var foot = 0.0;
       double? back;
+      var low = dipped;
       for (var t = 0; t < 40; t++) {
+        await g.moveBy(const Offset(0, 4));
         await tester.pump(const Duration(milliseconds: 16));
         foot = math.max(foot, downHere(tester));
-        // Carried a little further down by the speed he had, then up: the
-        // spring starts at once, it does not wait 90ms first.
-        if (back == null && upTop(tester) > dipped) back = t * 16.0;
+        low = math.min(low, upTop(tester));
+        if (back == null && upTop(tester) > dipped + 0.5) back = t * 16.0;
       }
       expect(back, isNotNull);
-      expect(back, lessThan(180), reason: 'straight back up, no pause');
-      expect(foot, lessThan(1));
+      expect(back, lessThan(100), reason: 'straight back, no pause');
+      // The speed he had carries him on a few points, then he turns: a
+      // spring, never a stop and a start.
+      expect(dipped - low, lessThan(6), reason: 'carried on only a touch');
+      expect(foot, 0);
+      await g.up();
       await tester.pumpAndSettle();
+      expect(upTop(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      expect(stage.handoff.value, 0);
+    });
+
+    testWidgets('stopped part-way he finishes to the side the page is '
+        'nearer, with a little margin toward where he was: a nudge never '
+        'flips him', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      // Half behind the board: nearer the edge.
+      await lineAt(tester, scroll, 90);
+      expect(stage.handoff.value, 0);
+      expect(stage.atBottom, isFalse);
+      expect(bottomSprout, findsNothing);
+      // Just past the middle, but all of him still in view up there: stays.
+      await lineAt(tester, scroll, 60);
+      expect(stage.handoff.value, 0);
+      // Well past: the foot.
+      await lineAt(tester, scroll, 40);
+      expect(stage.handoff.value, 2);
+      expect(stage.atBottom, isTrue);
+      expect(tucked(tester), isTrue);
+      // Nudged back 30pt: still the foot, all of him.
+      await lineAt(tester, scroll, 70);
+      expect(stage.handoff.value, 2);
+      expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      // Well back: home.
+      await lineAt(tester, scroll, 100);
+      expect(stage.handoff.value, 0);
+      expect(stage.atBottom, isFalse);
       expect(upTop(tester), moreOrLessEquals(peek, epsilon: 0.05));
     });
 
-    testWidgets('down below 64, back above 116, and he stays put between',
+    testWidgets('after finishing his way back part-way, the next scroll '
+        'takes him on from where he is and catches up with the page before '
+        'the edge is out of sight', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      await lineAt(tester, scroll, 85);
+      expect(stage.handoff.value, 0, reason: 'finished back on the edge');
+      var last = stage.handoff.value;
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (lineOnScreen(tester) > -30 && frames++ < 200) {
+        await g.moveBy(const Offset(0, -4));
+        await tester.pump(const Duration(milliseconds: 16));
+        final h = stage.handoff.value;
+        expect((h - last).abs() * 58, lessThan(6), reason: 'frame $frames');
+        last = h;
+      }
+      // Still under the finger, the edge 30pt over the top: all of him up.
+      for (var t = 0; t < 10; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(stage.handoff.value, moreOrLessEquals(2, epsilon: 0.01));
+      expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      await g.up();
+      await tester.pumpAndSettle();
+    });
+
+    for (final down in [true, false]) {
+      testWidgets('short scrolls add up (${down ? 'down' : 'back up'} the '
+          'page, 17pt a time): once the edge is out of sight he is at the '
+          'foot, once it is back in view he is home', (tester) async {
+        phone(tester);
+        final scroll = ScrollController();
+        await tester.pumpWidget(page(scroll: scroll));
+        await tester.pumpAndSettle();
+        if (!down) await lineAt(tester, scroll, -150);
+        expect(stage.handoff.value, down ? 0 : 2);
+        for (var i = 0; i < 36; i++) {
+          final g = await tester.startGesture(const Offset(250, 500));
+          await g.moveBy(Offset(0, down ? -20 : 20));
+          await tester.pump(const Duration(milliseconds: 16));
+          for (var t = 0; t < 4; t++) {
+            await g.moveBy(Offset(0, down ? -4.25 : 4.25));
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          await tester.pump(const Duration(milliseconds: 200));
+          await g.up();
+          await tester.pumpAndSettle();
+          final line = lineOnScreen(tester);
+          if (down && line < 0) {
+            expect(stage.handoff.value, 2, reason: 'edge at $line');
+          }
+          if (!down && line > 116) {
+            expect(stage.handoff.value, 0, reason: 'edge at $line');
+          }
+          expect(stage.handoff.value, anyOf(0, 2), reason: 'left part-way');
+        }
+        expect(lineOnScreen(tester), down ? lessThan(0) : greaterThan(116));
+      });
+    }
+
+    testWidgets('a mouse wheel or trackpad (no scroll behind the move): he '
+        'follows the page all the same', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      final pointer = TestPointer(1, PointerDeviceKind.mouse);
+      pointer.hover(const Offset(250, 500));
+      var partWay = false;
+      // A trackpad's small steps, one a frame.
+      for (var i = 0; i < 110; i++) {
+        await tester.sendEventToBinding(pointer.scroll(const Offset(0, 4)));
+        await tester.pump(const Duration(milliseconds: 16));
+        // On his way down behind the board as the page goes, not left up
+        // there until it stops.
+        final band = bandFor(lineOnScreen(tester));
+        if (band > 0.6 && band < 0.9) {
+          expect(stage.handoff.value, greaterThan(0.2), reason: 'event $i');
+          partWay = true;
+        }
+      }
+      expect(partWay, isTrue);
+      await tester.pumpAndSettle();
+      expect(lineOnScreen(tester), lessThan(0));
+      expect(stage.handoff.value, 2);
+      expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      for (var i = 0; i < 110; i++) {
+        await tester.sendEventToBinding(pointer.scroll(const Offset(0, -4)));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+      expect(lineOnScreen(tester), greaterThan(116));
+      expect(stage.handoff.value, 0);
+    });
+
+    testWidgets('a finger holding the page still draws no frames',
         (tester) async {
       phone(tester);
       final scroll = ScrollController();
       await tester.pumpWidget(page(scroll: scroll));
       await tester.pumpAndSettle();
-      await lineAt(tester, scroll, 100);
-      expect(stage.atBottom, isFalse);
-      await lineAt(tester, scroll, 64.5);
-      expect(stage.atBottom, isFalse);
-      await lineAt(tester, scroll, 63.5);
-      expect(stage.atBottom, isTrue);
-      await lineAt(tester, scroll, 100);
-      expect(stage.atBottom, isTrue);
-      await lineAt(tester, scroll, 115.5);
-      expect(stage.atBottom, isTrue);
-      await lineAt(tester, scroll, 116.5);
-      expect(stage.atBottom, isFalse);
+      // Down to where he is part-way behind the board, and held there.
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (stage.handoff.value < 0.4 && frames++ < 200) {
+        await g.moveBy(const Offset(0, -4));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(stage.handoff.value, inExclusiveRange(0.3, 0.95));
+      for (var t = 0; t < 40; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await g.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('his words up top go with him once most of his face is '
+        'behind the board, and are never carried down', (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      await tester.pumpWidget(page(scroll: scroll));
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getCenter(ledgeSprout) + const Offset(0, -12));
+      await tester.pump();
+      await tester.pump();
+      final bubble = find.descendant(
+        of: ledge,
+        matching: find.byType(SproutBubble, skipOffstage: false),
+        skipOffstage: false,
+      );
+      expect(bubble, findsOneWidget);
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (stage.handoff.value < 0.6 && frames++ < 200) {
+        await g.moveBy(const Offset(0, -3));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(bubble, findsNothing, reason: 'no words beside nobody');
+      await g.up();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('the same mind all along, through many trips', (tester) async {
@@ -1214,6 +1496,41 @@ void main() {
       expect(bottomSprout, findsNothing);
     });
 
+    testWidgets('woken on his edge while the edge is in view: what he says '
+        'there stays there, even as a finger then carries him down',
+        (tester) async {
+      phone(tester);
+      final scroll = ScrollController();
+      DateTime night() => DateTime(2026, 9, 29, 2);
+      await tester.pumpWidget(page(scroll: scroll, live: true, clock: night));
+      await tester.pumpAndSettle();
+      // A finger takes the page down a little, the edge still in view.
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      while (lineOnScreen(tester) > 150) {
+        await g.moveBy(const Offset(0, -4));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      // The first square of the small hours wakes him, up there.
+      await tester.pumpWidget(
+        page(scroll: scroll, live: true, clock: night, greens: 1),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(stage.atBottom, isFalse);
+      expect(stage.speech.value, isNotNull, reason: 'his praise, up there');
+      // And on down the page with the same finger, past his way down.
+      while (lineOnScreen(tester) > -40) {
+        await g.moveBy(const Offset(0, -4));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(stage.atBottom, isTrue);
+      expect(stage.speech.value, isNull, reason: 'a line never follows him');
+      await g.up();
+      await tester.pumpAndSettle(const Duration(seconds: 4));
+    });
+
     testWidgets('woken down there by the first square of the small hours, he '
         'comes down with its praise', (tester) async {
       phone(tester);
@@ -1227,7 +1544,10 @@ void main() {
         page(scroll: scroll, live: true, clock: night, greens: 1),
       );
       await tester.pump();
-      await tester.pump();
+      // On his way down with it: past the middle within a few frames.
+      for (var t = 0; t < 40 && !stage.atBottom; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       expect(stage.atBottom, isTrue);
       expect(stage.speech.value, isNotNull);
       // Shown once he is up (a spring's clock starts on its first frame).
@@ -1293,55 +1613,73 @@ void main() {
   });
 
   group('the way back, frame by frame', () {
-    testWidgets('scrolled up: the foot ducks first, the edge climbs 90ms on, '
-        'never two of him', (tester) async {
+    testWidgets('back up the page: the foot goes down with it, then the edge '
+        'comes up, a few points a frame, never both', (tester) async {
       phone(tester);
       final scroll = ScrollController();
       await tester.pumpWidget(page(scroll: scroll));
       await tester.pumpAndSettle();
-      await lineAt(tester, scroll, 40);
-      scroll.jumpTo(line - 300);
-      await tester.pump();
-      await tester.pump();
-      var both = false;
-      var sawDuck = false;
-      for (var t = 0; t < 60; t++) {
-        await tester.pump(const Duration(milliseconds: 16));
-        final top = upTop(tester);
-        final foot = downHere(tester);
-        if (t < 4) expect(top, lessThan(1), reason: 'frame $t');
-        if (foot > 1 && foot < peek - 1) sawDuck = true;
-        if (top > 12 && foot > 12) both = true;
-      }
-      expect(sawDuck, isTrue);
-      expect(both, isFalse);
-      await tester.pumpAndSettle();
+      await lineAt(tester, scroll, -20);
+      expect(stage.handoff.value, 2);
+      var lastTop = upTop(tester);
+      var lastFoot = downHere(tester);
+      var going = false;
+      var coming = false;
+      final g = await dragPage(
+        tester,
+        dy: 4,
+        frames: 70,
+        each: (t) {
+          final top = upTop(tester);
+          final foot = downHere(tester);
+          expect(top > 0.5 && foot > 0.5, isFalse, reason: 'frame $t');
+          expect(foot, lessThanOrEqualTo(lastFoot + 0.01), reason: 'frame $t');
+          expect(top, greaterThanOrEqualTo(lastTop - 0.01), reason: 'frame $t');
+          expect(lastFoot - foot, lessThan(6), reason: 'frame $t dropped');
+          expect(top - lastTop, lessThan(6), reason: 'frame $t popped up');
+          expect(top, lessThanOrEqualTo(peek + 0.05), reason: 'frame $t');
+          if (foot > 1 && foot < peek - 1) going = true;
+          if (top > 1 && top < peek - 1) coming = true;
+          lastTop = top;
+          lastFoot = foot;
+        },
+      );
+      expect(going, isTrue);
+      expect(coming, isTrue);
+      expect(stage.atBottom, isFalse);
+      expect(bottomSprout, findsNothing);
       expect(upTop(tester), moreOrLessEquals(peek, epsilon: 0.05));
+      await g.up();
+      await tester.pumpAndSettle();
     });
 
-    testWidgets('turned back mid-duck at the foot: straight back up there, '
+    testWidgets('turned back part-way at the foot: straight back up there, '
         'no blink', (tester) async {
       phone(tester);
       final scroll = ScrollController();
       await tester.pumpWidget(page(scroll: scroll));
       await tester.pumpAndSettle();
-      await lineAt(tester, scroll, 40);
-      scroll.jumpTo(line - 200);
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
+      await lineAt(tester, scroll, -20);
+      final g = await tester.startGesture(const Offset(250, 600));
+      await g.moveBy(const Offset(0, 20));
+      await tester.pump(const Duration(milliseconds: 16));
+      var frames = 0;
+      while (stage.handoff.value > 1.45 && frames++ < 200) {
+        await g.moveBy(const Offset(0, 4));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
       final dipped = downHere(tester);
       expect(dipped, greaterThan(1));
-      expect(dipped, lessThan(peek - 1));
-      scroll.jumpTo(line - 40);
-      await tester.pump();
-      await tester.pump();
+      expect(dipped, lessThan(peek - 10));
       var lowest = dipped;
       for (var t = 0; t < 40; t++) {
+        await g.moveBy(const Offset(0, -4));
         await tester.pump(const Duration(milliseconds: 16));
         lowest = math.min(lowest, downHere(tester));
+        expect(upTop(tester), 0, reason: 'frame $t: up top in between');
       }
-      expect(lowest, greaterThan(0), reason: 'never gone in between');
+      expect(lowest, greaterThan(dipped - 6), reason: 'on only a touch');
+      await g.up();
       await tester.pumpAndSettle();
       expect(downHere(tester), moreOrLessEquals(peek, epsilon: 0.05));
     });
@@ -1473,16 +1811,23 @@ void main() {
   group('making way for the names', () {
     // Each row's tile-and-name box sits in the middle of a 61pt pitch, like
     // the Grid's names. Doum stands all up (sunk 0), with just his leaves
-    // over the bar (39) or out of sight behind it (58).
+    // over the bar (39), or just their tips (45): never less than those.
     const leavesSink = 39.0;
-    const awaySink = 58.0;
-    const heights = [0.0, leavesSink, awaySink];
+    const tipsSink = 45.0;
+    const heights = [0.0, leavesSink, tipsSink];
+
+    /// How much of him his leaf tips are (the front pose, 45 down): the one
+    /// part of him that may stand in front of a name, and only when nothing
+    /// more of him fits.
+    const tips = 52 - tipsSink;
 
     double sunk(WidgetTester tester) =>
         tester.getRect(bottomSprout).bottom - (bar(tester).top + 26.56);
 
+    /// Long enough for the page to count as still: he makes way 150ms after
+    /// it is quiet and stands up 450ms after it is still.
     Future<void> still(WidgetTester tester) async {
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 600));
       await tester.pumpAndSettle();
     }
 
@@ -1521,6 +1866,9 @@ void main() {
       final line = edge ?? bar(tester).top;
       final from = top ?? body.top;
       if (from >= line) return;
+      // No more than his leaf tips (and the pose box's 1.44pt margin above
+      // them): allowed in front of a name.
+      if (line - from <= tips + 1.44 + 0.3) return;
       final art =
           Rect.fromLTRB(body.center.dx - 33, from, body.center.dx + 33, line);
       for (final r in readable(tester, edge: line)) {
@@ -1600,7 +1948,7 @@ void main() {
           clearOfNames(tester, 'at $px');
         }
         expect(seen, contains(0.0));
-        expect(seen, contains(awaySink));
+        expect(seen, contains(tipsSink));
         // The page's end: all of him.
         expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.1));
       });
@@ -1672,7 +2020,7 @@ void main() {
     testWidgets('a hop with nothing said, while he makes way, is let go: '
         'nothing of him rises over a name', (tester) async {
       final scroll = await open(tester);
-      for (final height in [awaySink, leavesSink]) {
+      for (final height in [tipsSink, leavesSink]) {
         expect(await findSpot(tester, scroll, height), isTrue);
         stage.echo.moves.hop();
         for (var t = 0; t < 45; t++) {
@@ -1734,8 +2082,9 @@ void main() {
       }
       expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.1));
       expect(words, findsOneWidget);
-      // His words last 3s, and 350ms after them he makes way.
-      for (var t = 0; t < 70; t++) {
+      // His words last 3s, and 350ms after them he makes way, gliding down
+      // (a spring, done in well under a second).
+      for (var t = 0; t < 110; t++) {
         await tester.pump(const Duration(milliseconds: 16));
       }
       expect(sunk(tester), moreOrLessEquals(leavesSink, epsilon: 0.1));
@@ -1918,10 +2267,11 @@ void main() {
       await still(tester);
     });
 
-    testWidgets('while he is out of sight a pop-up carries him hidden, and '
-        'he is still out of sight after it', (tester) async {
+    testWidgets('at his leaf tips a pop-up carries him at his tips, never '
+        'more of him over it, and he is at his tips again after it',
+        (tester) async {
       final scroll = await open(tester);
-      expect(await findSpot(tester, scroll, awaySink), isTrue);
+      expect(await findSpot(tester, scroll, tipsSink), isTrue);
       ScaffoldMessenger.of(tester.element(find.byKey(const Key('board'))))
           .showSnackBar(const SnackBar(content: Text('x')));
       for (var t = 0; t < 40; t++) {
@@ -1930,14 +2280,15 @@ void main() {
             of: find.byType(SnackBar), matching: find.byType(Material));
         if (snack.evaluate().isEmpty) continue;
         final surface = tester.getRect(snack.first);
+        final edge = math.min(surface.top, bar(tester).top);
         expect(tester.getRect(bottomSprout).top,
-            greaterThanOrEqualTo(math.min(surface.top, bar(tester).top) - 0.5),
-            reason: 'frame $t: nothing of him above the pop-up');
+            greaterThanOrEqualTo(edge - tips - 1.44 - 0.5),
+            reason: 'frame $t: more than his tips above the pop-up');
       }
       ScaffoldMessenger.of(tester.element(find.byKey(const Key('board'))))
           .hideCurrentSnackBar();
       await still(tester);
-      expect(sunk(tester), moreOrLessEquals(awaySink, epsilon: 0.1));
+      expect(sunk(tester), moreOrLessEquals(tipsSink, epsilon: 0.1));
     });
 
     testWidgets('Reduce Motion: a new height is taken at once', (tester) async {
@@ -1961,8 +2312,8 @@ void main() {
       expect(tester.binding.hasScheduledFrame, isFalse);
     });
 
-    testWidgets('a screen reader finds him while any of him shows, and not '
-        'while he is out of sight', (tester) async {
+    testWidgets('a screen reader finds him at every height, his leaf tips '
+        'too', (tester) async {
       final semantics = tester.ensureSemantics();
       final scroll = await open(tester);
       final name = ar.sproutName;
@@ -1970,15 +2321,15 @@ void main() {
       expect(find.bySemanticsLabel(name), findsOneWidget);
       scroll.jumpTo(line - 40);
       await still(tester);
-      expect(await findSpot(tester, scroll, awaySink), isTrue);
-      expect(find.bySemanticsLabel(name), findsNothing);
+      expect(await findSpot(tester, scroll, tipsSink), isTrue);
+      expect(find.bySemanticsLabel(name), findsOneWidget);
       semantics.dispose();
     });
 
     testWidgets('back from stepping aside, he comes straight to the height '
         'the room allows, never all up first', (tester) async {
       final scroll = await open(tester);
-      expect(await findSpot(tester, scroll, awaySink), isTrue);
+      expect(await findSpot(tester, scroll, tipsSink), isTrue);
       aside.value = true;
       await tester.pumpAndSettle();
       expect(stage.atBottom, isFalse);
@@ -1986,26 +2337,148 @@ void main() {
       for (var t = 0; t < 60; t++) {
         await tester.pump(const Duration(milliseconds: 16));
         if (bottomSprout.evaluate().isEmpty) continue;
-        expect(sunk(tester), greaterThan(awaySink - 0.5),
+        expect(sunk(tester), greaterThan(tipsSink - 0.5),
             reason: 'frame $t');
       }
       await still(tester);
       expect(stage.atBottom, isTrue);
-      expect(sunk(tester), moreOrLessEquals(awaySink, epsilon: 0.1));
+      expect(sunk(tester), moreOrLessEquals(tipsSink, epsilon: 0.1));
     });
 
     testWidgets('gone while he waits for the page to rest: nothing is left '
         'running', (tester) async {
       final scroll = await open(tester);
-      expect(await findSpot(tester, scroll, 0), isTrue);
-      scroll.jumpTo(line - 40);
-      await tester.pump();
+      // A spot well past his way down from the edge where he must make way,
+      // and the page's end, where all of him fits.
+      expect(await findSpot(tester, scroll, tipsSink), isTrue);
+      final away = scroll.offset;
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await still(tester);
+      expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.1));
+      scroll.jumpTo(away);
       pageStops();
       await tester.pump(const Duration(milliseconds: 50));
       // Still waiting: the page has not been at rest for long enough.
       expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.1));
       await tester.pumpWidget(const SizedBox());
       // No more time passes: a timer he left behind fails this test.
+    });
+
+    testWidgets('he makes way as the page settles, before it has stopped, '
+        'on a glide with no bounce', (tester) async {
+      final scroll = await open(tester);
+      // A spot where a name leaves room for no more than his leaf tips, well
+      // past his way down from the board's edge (the edge 60pt over the top
+      // of the screen), so only the page settling can move him there.
+      double? away;
+      for (var px = scroll.position.maxScrollExtent; px > line + 60; px -= 3) {
+        scroll.jumpTo(px);
+        await still(tester);
+        if ((sunk(tester) - tipsSink).abs() < 0.2) {
+          away = px;
+          break;
+        }
+      }
+      expect(away, isNotNull);
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await still(tester);
+      expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.01));
+      // The page glides back there on its own, slowing to a stop.
+      unawaited(scroll.animateTo(
+        away!,
+        duration: const Duration(milliseconds: 1400),
+        curve: Curves.easeOutCubic,
+      ));
+      await tester.pump();
+      var early = false;
+      var last = sunk(tester);
+      for (var t = 0; t < 110; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final now = sunk(tester);
+        if (now > 1 && stage.scrolling.value) early = true;
+        expect(now - last, lessThan(8), reason: 'frame $t dropped');
+        expect(now, lessThanOrEqualTo(tipsSink + 0.05),
+            reason: 'frame $t: past where he was going');
+        expect(now, greaterThanOrEqualTo(-0.05), reason: 'frame $t');
+        last = now;
+      }
+      expect(early, isTrue, reason: 'on his way while the page settled');
+      await still(tester);
+      expect(sunk(tester), moreOrLessEquals(tipsSink, epsilon: 0.1));
+      clearOfNames(tester, 'rested');
+    });
+
+    testWidgets('he stands up only once the page has been still a while, '
+        'and softly, never past all up', (tester) async {
+      final scroll = await open(tester);
+      expect(await findSpot(tester, scroll, leavesSink), isTrue);
+      // A quick glide to the end, where all of him fits.
+      unawaited(scroll.animateTo(
+        scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      ));
+      await tester.pump();
+      for (var t = 0; t < 14; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(stage.scrolling.value, isFalse, reason: 'the page is still');
+      final atStop = sunk(tester);
+      expect(atStop, greaterThan(1));
+      // A pause between two flicks is shorter than this: he waits.
+      for (var t = 0; t < 19; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(sunk(tester), moreOrLessEquals(atStop, epsilon: 0.1),
+            reason: 'frame $t: stood up while the page may move again');
+      }
+      // Up in one soft move: never past all up, never back down after.
+      var last = sunk(tester);
+      for (var t = 0; t < 60; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final now = sunk(tester);
+        expect(now, greaterThanOrEqualTo(-0.05), reason: 'frame $t');
+        expect(now, lessThanOrEqualTo(last + 0.05),
+            reason: 'frame $t: back down to $now from $last');
+        last = now;
+      }
+      expect(sunk(tester), moreOrLessEquals(0, epsilon: 0.1));
+    });
+
+    testWidgets('the page stops while he is still on his way up, where a '
+        'name needs the room: he goes down from where he is, never up first',
+        (tester) async {
+      final scroll = await open(tester);
+      // Here (the edge 40pt from the top, half way through his way up) the
+      // name of the row at the bar leaves room for no more than his tips.
+      expect(sunk(tester), moreOrLessEquals(tipsSink, epsilon: 0.1));
+      final there = scroll.offset;
+      await lineAt(tester, scroll, 300);
+      expect(stage.atBottom, isFalse);
+      // The page glides back there on its own and stops, as a flick would.
+      unawaited(scroll.animateTo(
+        there,
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutCubic,
+      ));
+      await tester.pump();
+      double? deepest;
+      for (var t = 0; t < 90; t++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (bottomSprout.evaluate().isEmpty) continue;
+        final now = sunk(tester);
+        if (!stage.scrolling.value || stage.settling.value) {
+          // From the moment the page lets him decide: only ever down.
+          deepest ??= now;
+          expect(now, greaterThanOrEqualTo(deepest - 0.5),
+              reason: 'frame $t: up again to $now from $deepest');
+          deepest = math.max(deepest, now);
+          expect(now, lessThanOrEqualTo(tipsSink + 0.05), reason: 'frame $t');
+        }
+      }
+      expect(deepest, isNotNull);
+      await still(tester);
+      expect(sunk(tester), moreOrLessEquals(tipsSink, epsilon: 0.1));
+      expect(stage.handoff.value, 2);
     });
 
     testWidgets('down from the board\'s edge under a finger: all of him '

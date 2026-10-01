@@ -38,24 +38,37 @@ import 'square_state.dart';
 /// IslamicHabitTemplate.cadenceOn), and [demand] is that day's own entry
 /// (see quotaDemandForRow), so a changed schedule never repaints the days
 /// before the change.
+///
+/// [dayStart], [todayStart] and [alive] are work a caller asking about a
+/// whole board has already done once, handed in so it is not done again for
+/// every square (see _WeekFacts in grid_screen_table.dart): [day]'s own
+/// midnight, [today]'s, and the habit's aliveWindow. Each stands for exactly
+/// the expression it replaces, so leaving them out answers the same.
 bool isCoveredDay({
   required IslamicHabitTemplate habit,
   required DateTime day,
   required DateTime today,
   required SquareState square,
   DayDemand? demand,
+  DateTime? dayStart,
+  DateTime? todayStart,
+  ({DateTime? from, DateTime? to})? alive,
 }) {
   if (square != SquareState.none) return false;
-  final d = DateTime(day.year, day.month, day.day);
-  final t = DateTime(today.year, today.month, today.day);
+  final d = dayStart ?? DateTime(day.year, day.month, day.day);
+  final t = todayStart ?? DateTime(today.year, today.month, today.day);
   if (d.isAfter(t)) return false;
-  final born = habit.createdAt;
-  if (born != null && d.isBefore(DateTime(born.year, born.month, born.day))) {
-    return false;
-  }
-  final died = habit.archivedAt;
-  if (died != null && d.isAfter(DateTime(died.year, died.month, died.day))) {
-    return false;
+  if (alive != null) {
+    if (!IslamicHabitTemplate.aliveWithin(alive, d)) return false;
+  } else {
+    final born = habit.createdAt;
+    if (born != null && d.isBefore(DateTime(born.year, born.month, born.day))) {
+      return false;
+    }
+    final died = habit.archivedAt;
+    if (died != null && d.isAfter(DateTime(died.year, died.month, died.day))) {
+      return false;
+    }
   }
   // The weekdays the habit had ON that day: a Monday-and-Thursday habit made
   // daily today keeps its old Tuesdays as rest days, and a daily one moved to

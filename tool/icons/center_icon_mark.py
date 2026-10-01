@@ -62,11 +62,15 @@ import sys
 
 from PIL import Image
 
+import primary_icon
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "assets/images/icon_app.png"
 
-PLATE = (15, 105, 74)
-MARK = (226, 163, 54)
+# The shipped icon's ground and plant. Were (15, 105, 74) and (226, 163, 54),
+# the gold mark on emerald this script was written for, until Doum's cream
+# on green became the shipped icon on 2026-09-30 (see primary_icon.py).
+PLATE, MARK = primary_icon.colours()
 
 # Rows sampled to locate the pot's vertical sides: solidly inside the pot body,
 # clear of the rounded top corners, of the stem that enters at the top, and of
@@ -93,9 +97,10 @@ DEAD_ZONE = 0.02
 def coverage(im):
     """Per-pixel coverage of the mark, 0..1, as a flat list of floats.
 
-    Least-squares projection onto the plate->mark colour axis. Red carries most
-    of the signal (211 of 211/58/20) but folding in green and blue divides the
-    encoding noise across three channels instead of trusting one.
+    Least-squares projection onto the plate->mark colour axis. One channel
+    usually carries most of the signal (red, 211 of 211/58/20, on the gold
+    mark this was written for) but folding in all three divides the encoding
+    noise across them instead of trusting one.
     """
     w, h = im.size
     px = im.load()

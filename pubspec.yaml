@@ -339,6 +339,10 @@ flutter:
     - assets/images/mascot/mascot_running.webp
     - assets/images/mascot/mascot_cheer.webp
     - assets/images/mascot/mascot_sunglasses.webp
+    - assets/images/mascot/winter/winter_bisht_hourglass.webp
+    - assets/images/mascot/winter/winter_bisht_happy_heart.webp
+    - assets/images/mascot/sport/sport_treadmill.webp
+    - assets/images/mascot/mascot_wink_jump.webp
     - assets/icons/
     - assets/prayer/
     # Bundled copies of the two GoogleFonts families the themes use, in the
@@ -355,8 +359,13 @@ flutter:
     - google_fonts/
 
 # ── App icon generation ──────────────────────────────────────────
-# Run all five, in this order, any time icon_app.png changes:
-#   python3 tool/icons/center_icon_mark.py --apply   # re-centre the mark first
+# icon_app.png is itself generated: it is the shipped icon of the Home Screen
+# icon set, rendered from tool/icons/app_icon_art.json by
+# make_alternate_icons.py (which one: tool/icons/primary_icon.py, Doum's cream
+# sprout on #74C878 since 2026-09-30). Run all six, in this order, any time
+# the art or the shipped icon changes:
+#   python3 tool/icons/make_alternate_icons.py       # icon_app.png + iOS sets
+#   python3 tool/icons/center_icon_mark.py           # check the mark's centring
 #   python3 tool/icons/make_adaptive_foreground.py   # Android adaptive layer
 #   python3 tool/icons/make_ios_appicons.py          # the 21 iOS icons
 #   python3 tool/icons/make_play_icon.py             # Play Console listing icon
@@ -366,7 +375,8 @@ flutter:
 # centred on its POT, not on its bounding box, because the two leaves are
 # deliberately asymmetric. Getting that wrong is what left the pot 8.7px left of
 # centre in the source art and 24.8px left of centre in the Android adaptive
-# foreground.
+# foreground. (Its --apply rewrites icon_app.png, which the first step would
+# then overwrite: an off-centre pot is fixed in app_icon_art.json.)
 flutter_launcher_icons:
   image_path: "assets/images/icon_app.png"
   # ios: false, and it must STAY false. flutter_launcher_icons 0.14.4
@@ -392,8 +402,9 @@ flutter_launcher_icons:
   # minSdk 24). Without these two keys the launcher gets only the legacy
   # square bitmap and modern launchers letterbox or crop it badly.
   #
-  # Background is the flat brand green sampled from icon_app.png itself
-  # (RGB 14,106,75). Foreground is the gold seedling alone on transparency,
+  # Background is the shipped icon's own flat ground (Doum's green #74C878
+  # since 2026-09-30; was the emerald #0E6A4B). Foreground is the cream
+  # seedling alone on transparency,
   # generated from that same source and inset to Android's 66.7% safe zone
   # so a circular mask cannot clip the leaves — regenerate it by running
   # tool/icons/make_adaptive_foreground.py if the app icon ever changes,
@@ -401,7 +412,7 @@ flutter_launcher_icons:
   # rather than assets/ on purpose: it is build-time input for this
   # generator, not a runtime asset, and assets/images/ is bundled wholesale
   # into the shipped app.
-  adaptive_icon_background: "#0E6A4B"
+  adaptive_icon_background: "#74C878"
   adaptive_icon_foreground: "tool/icons/icon_adaptive_foreground.png"
   remove_alpha_ios: true # iOS icons must not have transparency
   # 26, matching the minSdk set in android/app/build.gradle.kts (see the

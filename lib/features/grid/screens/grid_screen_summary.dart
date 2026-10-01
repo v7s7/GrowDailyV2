@@ -834,8 +834,17 @@ class _SummaryCard extends StatelessWidget {
     final perfectDay = owedTodayCount > 0 && greensToday >= owedTodayCount;
     // Remembered for the next launch (LaunchMemory): the first open after a
     // full day opens on yesterday's squares. Live numbers only, never the
-    // device's copy shown while the week loads.
-    if (perfectDay && !state.isLoading) LaunchMemory.recordFullDay(today);
+    // device's copy shown while the week loads. Taken back the same way when
+    // today stops being full (a square undone, a habit added after the last
+    // tick), so the morning never celebrates a day that ended short. Only
+    // while this week holds today: browsing another week says nothing.
+    if (!state.isLoading && todayRow != null) {
+      if (perfectDay) {
+        LaunchMemory.recordFullDay(today);
+      } else {
+        LaunchMemory.clearFullDay(today);
+      }
+    }
 
     // The card's quieter words, lifted just far enough to read on it (4.5:1,
     // what text this small needs) and handed back untouched where they

@@ -60,7 +60,17 @@ enum SproutPose {
   magnifier('mascot_magnifier', 716, 783),
   running('mascot_running', 790, 725),
   cheer('mascot_cheer', 699, 789),
-  sunglasses('mascot_sunglasses', 640, 792);
+  sunglasses('mascot_sunglasses', 640, 792),
+  // The launch splash's missing winter (Aziz, 2026-09-30): worried in his
+  // ghutra and bisht by his hourglass and a small fire, then laughing by a
+  // big fire. From the ghutra sheet, in their own folder, so the folder is
+  // part of the file name.
+  winterHourglass('winter/winter_bisht_hourglass', 1074, 794),
+  winterHappyHeart('winter/winter_bisht_happy_heart', 927, 734),
+  // And its walk: running on his treadmill (the sport sheet, its own
+  // folder), then the wink as he springs off it (the second sheet).
+  treadmill('sport/sport_treadmill', 957, 1021),
+  winkJump('mascot_wink_jump', 856, 798);
 
   const SproutPose(this.file, this.width, this.height);
 
@@ -178,6 +188,9 @@ class Sprout extends StatefulWidget {
     this.onTap,
     this.semanticLabel,
     this.mirror = false,
+    this.underlay,
+    this.overlay,
+    this.cutSwap = false,
   });
 
   final SproutPose pose;
@@ -203,6 +216,26 @@ class Sprout extends StatefulWidget {
   /// (walking) should face the way the reading goes, so an Arabic screen
   /// mirrors it. The character is symmetric, so nothing else changes.
   final bool mirror;
+
+  /// Painted under and over [pose]'s picture, filling its box, so they take
+  /// every move the picture takes (the pop, the breaths, a pose change's
+  /// squash, a hop, the mirror) and leave with the pose when it changes:
+  /// the launch curtain's fire glows round the winter poses, the sand
+  /// running in the hourglass, the treadmill's moving belt. Painted from
+  /// outside, a part of the picture drifted off it with every breath. Give
+  /// them for a pose's whole time on screen or not at all: a pose that
+  /// gains or loses them part way crossfades with itself. Null everywhere
+  /// else.
+  final Widget? underlay;
+  final Widget? overlay;
+
+  /// A pose change as a cut: the old pose leaves in the frame the new one
+  /// arrives, and the new one is whole at once (the squash stays). For a
+  /// sprout moved as a whole at the swap (the launch curtain's afternoon
+  /// scenes spring him off his treadmill, or line his face up across two
+  /// pictures), where the old pose held for the crossfade's 90 ms showed
+  /// two of him. Their boards cut the same way. False everywhere else.
+  final bool cutSwap;
 
   /// The logical size [pose] takes at [height]: what a layout reserves.
   static Size sizeOf(SproutPose pose, double height) {
@@ -381,9 +414,56 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
     return [last[1], last[2], last[3], last[4]];
   }
 
-  Widget _mirrored(Image image) => widget.mirror
+  Widget _mirrored(Widget image) => widget.mirror
       ? Transform.flip(key: image.key, flipX: true, child: image)
       : image;
+
+  /// The swap's squash at [t] of the incoming pose's switch, springing
+  /// back to its own shape from the feet.
+  static Widget _squashed(double t, Widget child) {
+    final spring = Curves.easeOutBack.transform(t);
+    return Transform(
+      alignment: Alignment.bottomCenter,
+      transform: Matrix4.diagonal3Values(
+        lerpDouble(1.08, 1.0, spring)!,
+        lerpDouble(0.88, 1.0, spring)!,
+        1,
+      ),
+      child: child,
+    );
+  }
+
+  /// The pose's picture, keyed by the pose, with its [Sprout.underlay] and
+  /// [Sprout.overlay] in its box when it has them. Without them it is the
+  /// bare Image, as it always was.
+  Widget _picture(ImageProvider image, Size size) {
+    final under = widget.underlay, over = widget.overlay;
+    Image picture({Key? key}) => Image(
+          key: key,
+          image: image,
+          width: size.width,
+          height: size.height,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          excludeFromSemantics: true,
+        );
+    if (under == null && over == null) {
+      return picture(key: ValueKey(widget.pose));
+    }
+    return SizedBox(
+      key: ValueKey(widget.pose),
+      width: size.width,
+      height: size.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          if (under != null) Positioned.fill(child: under),
+          Positioned.fill(child: picture()),
+          if (over != null) Positioned.fill(child: over),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -397,7 +477,7 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
       duration: _reduced
           ? const Duration(milliseconds: 180)
           : const Duration(milliseconds: 300),
-      reverseDuration: const Duration(milliseconds: 120),
+      reverseDuration: const Duration(milliseconds: 90),
       layoutBuilder: (current, previous) => Stack(
         alignment: Alignment.bottomCenter,
         clipBehavior: Clip.none,
@@ -405,8 +485,37 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
       ),
       transitionBuilder: (child, animation) {
         final incoming = child.key == ValueKey(widget.pose);
-        if (!incoming || _reduced) {
-          return FadeTransition(opacity: animation, child: child);
+        // The pose going away keeps its full strength until the new one has
+        // covered it (the first half of its short reverse), then fades out
+        // underneath. Both sides crossfading at once let the cream show
+        // through him on every swap, three times in the launch turnaround,
+        // and a swap cut short by the next one dropped him a quarter in a
+        // frame. Both curves are 1 from the halfway point, so an
+        // interrupted swap carries on from where it was.
+        if (!incoming) {
+          // A cut drops it here; the switcher still counts out its reverse.
+          if (widget.cutSwap) return const SizedBox.shrink();
+          return FadeTransition(
+            opacity: animation.drive(CurveTween(curve: const Interval(0, .5))),
+            child: child,
+          );
+        }
+        // A cut: whole from its first frame, the squash kept.
+        if (widget.cutSwap) {
+          return _reduced
+              ? child
+              : AnimatedBuilder(
+                  animation: animation,
+                  child: child,
+                  builder: (_, c) => _squashed(animation.value, c!),
+                );
+        }
+        if (_reduced) {
+          return FadeTransition(
+            opacity:
+                animation.drive(CurveTween(curve: const Interval(0, .25))),
+            child: child,
+          );
         }
         // A squash at the moment of the swap, springing back: a character
         // changing its pose, not a slideshow changing its picture.
@@ -415,32 +524,16 @@ class _SproutState extends State<Sprout> with TickerProviderStateMixin {
           child: child,
           builder: (_, c) {
             final t = animation.value;
-            final spring = Curves.easeOutBack.transform(t);
             return Opacity(
-              opacity: (t / 0.4).clamp(0.0, 1.0),
-              child: Transform(
-                alignment: Alignment.bottomCenter,
-                transform: Matrix4.diagonal3Values(
-                  lerpDouble(1.08, 1.0, spring)!,
-                  lerpDouble(0.88, 1.0, spring)!,
-                  1,
-                ),
-                child: c,
-              ),
+              // Opaque in about 45 ms, before the old pose starts to go.
+              opacity: (t / .15).clamp(0.0, 1.0),
+              child: _squashed(t, c!),
             );
           },
         );
       },
       child: _mirrored(
-        Image(
-          key: ValueKey(widget.pose),
-          image: sproutImage(widget.pose, scale, dpr),
-          width: size.width,
-          height: size.height,
-          fit: BoxFit.contain,
-          gaplessPlayback: true,
-          excludeFromSemantics: true,
-        ),
+        _picture(sproutImage(widget.pose, scale, dpr), size),
       ),
     );
 

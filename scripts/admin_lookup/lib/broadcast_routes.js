@@ -191,6 +191,16 @@ function mountBroadcast(app, { admin, projectId, localWriteOnly, port }) {
     await answerAfterWrite(res, result);
   }));
 
+  // Which builds are out, for the update prompt in the app. Only the
+  // `update` slot changes; the pop-ups in the same document are carried over.
+  app.post('/api/messages/update', localWriteOnly, json, (req, res) => exclusive(res, async () => {
+    const body = req.body || {};
+    const result = await Broadcast.publishUpdateGate(db(), admin.firestore.FieldValue, {
+      gate: body.gate,
+    });
+    await answerAfterWrite(res, result);
+  }));
+
   app.post('/api/messages/notification', localWriteOnly, json, (req, res) => exclusive(res, async () => {
     const body = req.body || {};
     const result = await Broadcast.sendNotification(db(), admin.messaging(), {

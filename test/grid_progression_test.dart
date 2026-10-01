@@ -16,6 +16,8 @@ import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart'
+    show habitListProvider, habitsStillLoadingProvider;
 
 import 'helpers/wait_until.dart';
 
@@ -205,11 +207,17 @@ void main() {
       // delay races the first (cold) Hive open and the late load result
       // would clobber XP earned by the test's own mutations.
       container.read(weeklyGridProvider);
+      container.read(habitListProvider);
       await waitUntil(
         () =>
             !container.read(dashboardProvider).isLoading &&
-            !container.read(weeklyGridProvider).isLoading,
-        describe: 'the dashboard and grid to finish their initial load',
+            !container.read(weeklyGridProvider).isLoading &&
+            // The habit store too: its guest load opens box_habits, and
+            // left in flight it could still be opening when tearDown
+            // deletes the boxes (PathNotFoundException on box_habits.lock),
+            // on a busy machine, in whichever test happened to be last.
+            !container.read(habitsStillLoadingProvider),
+        describe: 'the dashboard, grid and habits to finish their initial load',
       );
       expect(container.read(dashboardProvider).isLoading, isFalse);
     });

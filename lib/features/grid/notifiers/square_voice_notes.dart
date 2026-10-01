@@ -45,7 +45,13 @@ const String kGuestSquareVoiceKey = 'guest_square_voice_v1';
 /// The day is always the 10 characters of 'YYYY-MM-DD', so the habit id can
 /// hold underscores of its own and still come back out whole.
 String squareVoiceKey(String habitId, DateTime day) =>
-    '${day.toDateKey()}_$habitId';
+    squareVoiceKeyFor(habitId, day.toDateKey());
+
+/// [squareVoiceKey] from the day's [dateKey] (toDateKey), for the Grid's
+/// board, which formats each day once per build (see _WeekFacts in
+/// grid_screen_table.dart).
+String squareVoiceKeyFor(String habitId, String dateKey) =>
+    '${dateKey}_$habitId';
 
 /// The day and habit of a [squareVoiceKey], or null for anything else.
 ({DateTime day, String habitId})? parseSquareVoiceKey(String key) {

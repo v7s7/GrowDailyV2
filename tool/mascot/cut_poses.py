@@ -3,6 +3,7 @@
 
     python tool/mascot/cut_poses.py                # writes design/mascot/poses-native/
     python tool/mascot/cut_poses.py --sheet 2      # writes design/mascot/sheet-2/poses-native/
+    python tool/mascot/cut_poses.py --sheet sport  # also streak, ghutra: design/mascot/sheet-<name>/
 
 Needs numpy, scipy and Pillow. Step 2 of 3: reads the sheet recolor_sheet.py
 wrote, and upscale_poses.py reads what this writes. Names, sheet rows and what
@@ -64,7 +65,43 @@ SHEETS = {
             row_splits=(290, 555, 790),
             give={(224, 96): "mascot_cheer",
                   (1029, 395): None, (1251, 388): None}),   # the headphones' music notes
+    # 2026-09-30: three more sheets, named by what they show. Their row
+    # splits and fixes are measured on each sheet (see its recolor script).
+    # sport: the rows' art spans y 34 to 359, 388 to 659 and 698 to 974 once
+    # recolor_sheet_sport.py has lifted the ground shadows; the splits sit in
+    # the two gaps. Every prop touches its pose (bag, rope, mat, bike,
+    # treadmill) and every effect group lands on its own pose (2 to 23 px from
+    # it, 37 px or more from the next), so nothing is given by hand.
+    "sport": dict(sheet=ROOT / "design/mascot/sheet-sport/sheet-sport-final.png",
+                  poses="poses-sport.json", out=ROOT / "design/mascot/sheet-sport/poses-native",
+                  row_splits=(375, 679), give={}),
+    # streak: the characters' box centres sit at y 234 to 289, 560 to 572 and
+    # 849 to 872; the splits are the midpoints. Every effect lands on its own
+    # pose by grouping (each group 2 to 49 px from its pose, 25 to 206 px from
+    # the next), so nothing is given by hand. recolor_sheet_streak.py parts
+    # poses 2 and 3, whose shadow and arm touch; fix_poses_streak.py then
+    # cuts all 15 again without the cream ground ellipse under them.
+    "streak": dict(sheet=ROOT / "design/mascot/sheet-streak/sheet-streak-final.png",
+                   poses="poses-streak.json", out=ROOT / "design/mascot/sheet-streak/poses-native",
+                   row_splits=(424, 711), give={}),
+    # ghutra: the characters' box centres sit at y 196 to 210, 506 to 516 and
+    # 808 to 841 on the sheet recolor_sheet_ghutra.py makes transparent; the
+    # splits are the midpoints. Every effect group lands on its own pose (2 to
+    # 42 px from it). Two of the cold-wind pose's leaves do so by a hair: they
+    # sit nearly as close to the warming-hands pose's shadow above them (22.2
+    # against 23.0 px, 36.2 against 39.8), so they are given by hand and a
+    # small change to the matte cannot flip them. fix_poses_ghutra.py then
+    # gives the firelight back the colour the cut paints over at the edges.
+    "ghutra": dict(sheet=ROOT / "design/mascot/sheet-ghutra/sheet-ghutra-final.png",
+                   poses="poses-ghutra.json", out=ROOT / "design/mascot/sheet-ghutra/poses-native",
+                   row_splits=(358, 661),
+                   give={(449, 679): "winter_bisht_cold_wind", (708, 693): "winter_bisht_cold_wind"}),
 }
+
+
+def sheet_key(s):
+    """--sheet 1, --sheet 2, or a named sheet such as --sheet sport."""
+    return int(s) if s.isdigit() else s
 
 
 def assign_pixels(A, count, row_splits=ROW_SPLITS, give=None):
@@ -142,7 +179,7 @@ def cut(rgb, A, m):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--sheet", type=int, choices=sorted(SHEETS), default=1)
+    ap.add_argument("--sheet", type=sheet_key, choices=list(SHEETS), default=1)
     ap.add_argument("--src", type=pathlib.Path, default=None, help="the sheet image, if not the usual one")
     ap.add_argument("--out", type=pathlib.Path, default=None)
     args = ap.parse_args()

@@ -259,6 +259,36 @@ class AlarmService {
     }
   }
 
+  /// Every slot id between [lowId] and [highId] that [cancel] could still
+  /// find something under: what AlarmKit lists, joined with what the bridge
+  /// recorded arming, the same held set [reapOrphans] judges, read without
+  /// cancelling anything. A [cancel] of any other id in the range changes
+  /// nothing on the native side.
+  ///
+  /// Null where there are no real alarms, when AlarmKit could not be listed
+  /// (the records alone miss an alarm armed by a build older than them), or
+  /// when the reply is not a list of ids. The caller then cancels every id
+  /// as it did before it could ask.
+  Future<Set<int>?> heldIds({required int lowId, required int highId}) async {
+    if (!await isSupported()) return null;
+    try {
+      final reply = await _channel.invokeMethod<Object>('heldSlots', {
+        'lowId': lowId,
+        'highId': highId,
+      });
+      if (reply is! List) return null;
+      final held = <int>{};
+      for (final id in reply) {
+        if (id is! int) return null;
+        held.add(id);
+      }
+      return held;
+    } catch (e) {
+      debugPrint('[AlarmService] held $lowId-$highId unread: $e');
+      return null;
+    }
+  }
+
   /// Removes the alarm under [id], if any. Safe to call for a slot that
   /// never held one, which is the common case: every notification schedule
   /// clears its slot's alarm so a reminder switched back from alarm to
@@ -272,4 +302,10 @@ class AlarmService {
       debugPrint('[AlarmService] cancel $id skipped: $e');
     }
   }
+
+  /// [cancel] without the native call, for a caller that knows from
+  /// [heldIds] that the bridge holds nothing under [id]: the words a ring
+  /// with the app open would show are forgotten all the same, so
+  /// [scheduledFor] answers exactly as it would after [cancel].
+  void forgetLocal(int id) => _scheduled.remove(id);
 }

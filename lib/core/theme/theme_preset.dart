@@ -130,7 +130,7 @@ class ThemePreset {
   //
   // The accent is chosen to look right as a FILL and to read on the dark
   // theme's near-black, and those two jobs leave it far too pale to be text
-  // on the light theme's cream. Not marginally: the default gold measures
+  // on the light theme's cream. Not marginally: Emerald & Gold's gold measures
   // 1.86:1 on its own light background, against the 4.5:1 AA needs for a
   // label and the 3:1 it needs for a border, and every other preset fails
   // the same way (the best of the eleven is navy at 4.01:1).
@@ -157,7 +157,7 @@ class ThemePreset {
   /// in most presets — cards and highlight rows are tinted, the page behind
   /// them is nearly white. Anchoring to the background instead would look
   /// correct on a screenshot of an empty page and quietly fail the moment
-  /// the same button sat on a card: the default preset's ink measures
+  /// the same button sat on a card: Emerald & Gold's ink measures
   /// 4.50:1 on its background and 4.03:1 on its own card.
   double get lightInkFloor => [
         lightBg,
@@ -179,7 +179,7 @@ class ThemePreset {
   /// The accent as a LABEL or icon (AA text, 4.5:1) in each mode.
   ///
   /// Dark needs this too, which was not obvious and is worth stating: the
-  /// default preset's accent measures 7.00:1 on its dark surfaces, so dark
+  /// Emerald & Gold's accent measures 7.00:1 on its dark surfaces, so dark
   /// looked fine and was left alone at first. It is the SIGNATURE-colour
   /// presets that fail — Navy's accent is 3.16:1 on its own dark card,
   /// Amber Dusk's 4.35 (Rose & Ink's was 3.99, before Burgundy replaced
@@ -203,7 +203,7 @@ class ThemePreset {
 
   /// The grid colour's border-weight sibling. It exists because the obvious
   /// shortcut does not work: softening the 4.5:1 ink with an alpha to make a
-  /// lighter border lands at 2.977:1 on the default preset's highlight
+  /// lighter border lands at 2.977:1 on Emerald & Gold's highlight
   /// surface, under the bar by less than it looks like it should be. Solving
   /// for 3:1 directly is both correct and one fewer number to guess.
   Color get emeraldEdgeLight => darkenToContrast(emerald, lightInkFloor, 3.0);
@@ -216,7 +216,7 @@ class ThemePreset {
   /// class doc comment above and every hand-authored preset in this file is
   /// two hues run through the same relationships.
   ///
-  /// Derivation is deliberately "re-hue the default preset" rather than
+  /// Derivation is deliberately "re-hue the original preset" rather than
   /// invented from scratch. Each neutral keeps [_emeraldGold]'s exact
   /// saturation and LIGHTNESS and only takes a new hue, which means a custom
   /// theme cannot produce unreadable text no matter which two colours a user
@@ -233,7 +233,7 @@ class ThemePreset {
     final a = HSLColor.fromColor(accent);
     final g = HSLColor.fromColor(grid);
 
-    // Ratios measured off the default preset, so a custom accent relates to
+    // Ratios measured off the original preset, so a custom accent relates to
     // its own touches exactly as gold relates to goldDim/xpBlue/streakOrange.
     Color from(HSLColor base, double lMul, double sMul) => base
         .withLightness((base.lightness * lMul).clamp(0.0, 1.0))
@@ -289,8 +289,12 @@ class ThemePreset {
 
 /// The original, free-for-everyone look — warm gold + emerald, in both
 /// light (cream) and dark (near-black forest) form. Every value here is
-/// byte-identical to the previous hardcoded constants, so nobody's app
-/// changes underneath them by default.
+/// byte-identical to the hardcoded constants that came before presets.
+///
+/// The default until 2026-09-30, when Doum's look took its place (see
+/// [ThemePresets.defaultId]). Still the reference every derived preset is
+/// measured against ([ThemePreset.custom]), so a custom theme's contrast
+/// did not move when the default did.
 const _emeraldGold = ThemePreset(
   id: 'emerald_gold',
   nameEn: 'Emerald & Gold',
@@ -327,7 +331,9 @@ const _emeraldGold = ThemePreset(
 );
 
 /// Doum, the app's sprout (lib/features/mascot), as a free theme. Aziz,
-/// 2026-09-28: the same colours as Doum, "use the hex". Two of its colours
+/// 2026-09-28: the same colours as Doum, "use the hex". The app's default
+/// look since 2026-09-30, beside its icon (Aziz: "the green and white, is
+/// the main logo, and the theme also"). Two of its colours
 /// are Doum's own, exact (design/mascot/README.md): the accent is the body
 /// green 0xFF74C878, and the cream 0xFFF5F0E1 of its leaves, stem and belly
 /// is both the light theme's card and the dark theme's text. So light mode
@@ -337,9 +343,9 @@ const _emeraldGold = ThemePreset(
 /// and grid, with one change: the light neutrals and the dark text keep the
 /// cream's hue (45) where custom() would tint them green, because the cream
 /// is half of what Doum looks like. Only the hue moves, never the lightness,
-/// so contrast stays the default preset's: body text 12.33:1 on the light
+/// so contrast stays Emerald & Gold's: body text 12.33:1 on the light
 /// highlight card and 11.83:1 on the dark one, secondary text 3.95 and 6.72
-/// against the default's 3.88 and 6.83.
+/// against Emerald & Gold's 3.88 and 6.83.
 ///
 /// Signature-colour preset (see the class doc comment): the grid is Doum's
 /// own hue made deeper and punchier (OKLCh 0.70 0.18 145). The deeper green
@@ -382,7 +388,7 @@ const _doum = ThemePreset(
 
 /// A cooler, calmer teal/blue take with a true-white light mode — the most
 /// direct answer to "gold on cream feels muted in light mode." Dark mode
-/// swaps the default's forest undertone for a blue-black deep-sea one.
+/// swaps Emerald & Gold's forest undertone for a blue-black deep-sea one.
 /// Signature-color preset (see the class doc comment): the grid's
 /// "complete" color is this same teal hue, pushed brighter and more
 /// saturated than the accent, rather than a separate green — a completed
@@ -427,7 +433,7 @@ const _ocean = ThemePreset(
 ///
 /// Built with [ThemePreset.custom] from its two decisions rather than by
 /// hand, so every neutral is derived exactly as a custom theme's are and
-/// keeps the default preset's lightness, which is what guarantees contrast:
+/// keeps Emerald & Gold's lightness, which is what guarantees contrast:
 /// dark mode turns wine-black, light mode blush. The accent is a dusty
 /// wine-rose, not burgundy itself, because it is the fill behind every
 /// FilledButton and a true burgundy (luminance about 0.05) would erase its
@@ -1102,7 +1108,11 @@ double contrastRatio(Color a, Color b) {
 }
 
 abstract final class ThemePresets {
-  static const String defaultId = 'emerald_gold';
+  /// What someone who never picked a look sees, and where a paid look goes
+  /// back to on sign-out. Doum's since 2026-09-30 (was 'emerald_gold'): a
+  /// device or account that saved Emerald & Gold keeps it, since only an
+  /// id that was never written falls to this.
+  static const String defaultId = 'doum';
 
   /// The one preset that is not a constant: the user builds it.
   static const String customId = 'custom';
@@ -1112,8 +1122,8 @@ abstract final class ThemePresets {
   /// synchronously from anywhere, including the boot path that paints the
   /// first frame before any provider exists. [ThemePresetNotifier] owns
   /// writing them, and persists them next to the preset id.
-  static Color customAccent = _emeraldGold.gold;
-  static Color customGrid = _emeraldGold.emerald;
+  static Color customAccent = _doum.gold;
+  static Color customGrid = _doum.emerald;
 
   /// Rebuilt on read rather than cached, so changing either colour above is
   /// immediately reflected without an invalidation step to forget.
@@ -1126,10 +1136,9 @@ abstract final class ThemePresets {
       );
 
   static final List<ThemePreset> all = [
-    _emeraldGold,
-    // Beside the original: the mascot's look is the app's second own look,
-    // so it comes first among the free ones after the default.
+    // The default first, then the original look it replaced.
     _doum,
+    _emeraldGold,
     _ocean,
     _burgundy,
     _monochrome,
@@ -1171,7 +1180,7 @@ abstract final class ThemePresets {
     final key = canonicalId(id);
     return key == customId
         ? custom
-        : all.firstWhere((p) => p.id == key, orElse: () => _emeraldGold);
+        : all.firstWhere((p) => p.id == key, orElse: () => _doum);
   }
 
   /// Whether [id] names a preset this build knows how to render — used by the

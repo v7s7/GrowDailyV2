@@ -10,12 +10,16 @@ import '../../core/providers/app_guide_provider.dart'
 import '../../core/providers/home_tab_provider.dart';
 import '../../core/providers/nav_bar_hint_provider.dart';
 import '../../core/providers/nav_layout_provider.dart';
+import '../../core/providers/start_page_provider.dart';
 import '../../core/services/local_store_service.dart';
-import '../../core/theme/game_theme.dart' show GameMotion;
+import '../../core/theme/game_theme.dart'
+    show BuildContextGameTheme, GameMotion;
 import '../../features/app_icon/app_icon_prompts.dart';
 import '../../features/app_icon/app_icon_providers.dart';
 import '../../features/dashboard/notifiers/dashboard_notifier.dart'
     show dashboardProvider;
+import '../../features/dashboard/widgets/reaction_overlays.dart'
+    show registerDashboardReactions;
 import '../../features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../features/habits/notifiers/custom_habits_notifier.dart'
@@ -23,6 +27,7 @@ import '../../features/habits/notifiers/custom_habits_notifier.dart'
 import '../../features/premium/notifiers/premium_notifier.dart'
     show premiumAccessProvider;
 import '../../features/habits/step_auto_complete.dart';
+import '../../features/launch/launch_curtain_up.dart';
 import '../../features/rooms/models/room_model.dart'
     show RoomModel, RoomParticipant;
 import '../../features/rooms/notifiers/rooms_notifier.dart'
@@ -51,6 +56,12 @@ import 'nav_tabs.dart';
 /// that is not in the bar is pushed on top as a route so the ask is still
 /// honoured — see [_openTab].
 ///
+/// Where it OPENS is the person's start page (startPageProvider, Habits
+/// unless they picked Tasks in Settings › Look), as the bar allows it:
+/// resolveStartTab. That page is also "home" for everything below that
+/// used to mean page 0: Android's back button walks there before it leaves
+/// the app, and a removed tab that was showing lands there.
+///
 /// The old '/grid' / '/profile' / '/matrix' routes all resolve to this
 /// shell at the matching tab (see main.dart's onGenerateRoute), so every
 /// existing pushReplacementNamed call site anywhere in the app keeps
@@ -64,8 +75,11 @@ import 'nav_tabs.dart';
 /// private state from outside - the checklist re-appears on the new tab
 /// with its own, screen-owned "add" action already wired.
 class HomeShell extends ConsumerStatefulWidget {
-  final NavTab initialTab;
-  const HomeShell({super.key, this.initialTab = NavTab.grid});
+  /// The tab to open on. Null, which is the app's own launch, means the
+  /// start page (see the class doc); the legacy '/grid', '/profile' and
+  /// '/matrix' routes name theirs.
+  final NavTab? initialTab;
+  const HomeShell({super.key, this.initialTab});
 
   @override
   ConsumerState<HomeShell> createState() => _HomeShellState();
@@ -88,6 +102,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// was last prompted about. See [_maybePromptNewSharedHabits].
   static const _kPlanPromptsSeenKey = 'room_plan_prompts_seen_v1';
 
+  /// The off-bar tab [_push] last put on top of the shell, and its route.
+  /// See [_openTab] for the two things it is for.
+  Route<void>? _pushed;
+  NavTab? _pushedTab;
+
   /// Re-entrancy guard: the provider can emit while a prompt sheet is
   /// already up (the resolve itself changes the participant doc, which
   /// re-fires the listener) — one runner at a time keeps a single sheet on
@@ -106,13 +125,17 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // (Aziz, 2026-09-21), and the next tap asking for the same tab was not a
     // change either. Read here, consumed after the first frame below.
     final requested = ref.read(requestedHomeTabProvider);
-    final target = requested ?? widget.initialTab;
+    final target = requested ??
+        widget.initialTab ??
+        resolveStartTab(_tabs, ref.read(startPageProvider));
     // A requested tab that is not in the bar (a stale '/matrix' route after
-    // Tasks was removed from it, say) opens the shell on home and pushes
-    // the requested screen on top after the first frame, so the caller
-    // still gets the screen it asked for.
+    // Tasks was removed from it, say) opens the shell on the start page and
+    // pushes the requested screen on top after the first frame, so the
+    // caller still gets the screen it asked for.
     final initial = _tabs.indexOf(target);
-    _index = initial < 0 ? 0 : initial;
+    _index = initial < 0
+        ? _homeIndex(_tabs, ref.read(startPageProvider))
+        : initial;
     _controller = PageController(initialPage: _index);
     // For the steps auto-complete's app-resume trigger below.
     WidgetsBinding.instance.addObserver(this);
@@ -129,9 +152,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
         ref.read(requestedHomeTabInstantProvider.notifier).state = false;
       }
       if (initial < 0) _push(target);
-      unawaited(_maybePromptNewSharedHabits());
       unawaited(runStepAutoComplete(ref));
-      unawaited(maybeShowIconCard(context, ref));
+      // The two questions that open over the page wait for the launch
+      // curtain to go, so neither plays unseen under Doum's scene.
+      afterLaunchCurtain(ref, () {
+        if (!mounted) return;
+        unawaited(_maybePromptNewSharedHabits());
+        unawaited(maybeShowIconCard(context, ref));
+      });
     });
   }
 
@@ -143,7 +171,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && mounted) {
       unawaited(runStepAutoComplete(ref));
-      unawaited(maybeShowIconCard(context, ref));
+      // A long return plays the launch curtain again (main.dart's observer
+      // runs before this one, so it is already up here); the card waits for
+      // it as the launch's does, rather than opening under Doum's scene.
+      afterLaunchCurtain(ref, () {
+        if (!mounted) return;
+        unawaited(maybeShowIconCard(context, ref));
+      });
     }
   }
 
@@ -191,6 +225,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
     super.dispose();
   }
 
+  /// The start page's position in [tabs]: where the shell opens, and what
+  /// it treats as home (see the class doc).
+  int _homeIndex(List<NavTab> tabs, NavTab startPage) {
+    final i = tabs.indexOf(resolveStartTab(tabs, startPage));
+    return i < 0 ? 0 : i;
+  }
+
   void _onTabSelected(int i) {
     _controller.animateToPage(
       i,
@@ -204,7 +245,22 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// Tasks from the bar safe: the Grid checklist's "add your first task",
   /// the App Guide's lesson and the home-screen widget's quick-add link all
   /// still reach a Tasks screen, they just reach it as a route.
+  ///
+  /// A page this shell pushed that is still on top when a new ask comes in
+  /// is where the ask came FROM (every ask from outside the app closes
+  /// what is open first). Two cases, both reachable from the Get Started
+  /// card on a pushed Habits page once Habits can leave the bar: asked for
+  /// itself again, it is already showing and a second copy would stack on
+  /// it; asked for a tab in the bar, the page-turn would happen underneath
+  /// it, unseen. So the first does nothing, and the second closes the
+  /// pushed page and lands without a page-turn (the pop is the motion).
   void _openTab(NavTab tab, {required bool instant}) {
+    final pushed = _pushed;
+    if (pushed != null && pushed.isCurrent) {
+      if (_pushedTab == tab) return;
+      Navigator.of(context).pop();
+      instant = true;
+    }
     final i = _tabs.indexOf(tab);
     if (i < 0) {
       _push(tab);
@@ -222,13 +278,24 @@ class _HomeShellState extends ConsumerState<HomeShell>
   }
 
   void _push(NavTab tab) {
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(builder: (_) => tab.page()),
+    final route = MaterialPageRoute<void>(
+      builder: (_) => _PushedTabPage(tab: tab),
     );
+    _pushed = route;
+    _pushedTab = tab;
+    Navigator.of(context).push<void>(route);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Level up, a new rank, medals, milestones, the streak point and the
+    // streak freeze. Registered here, above every page, since 2026-09-30:
+    // it used to be the Grid's, and the Grid is only built while it is the
+    // page on screen, so a level reached from a task, a room bonus or a
+    // widget tap while Tasks was showing played nothing, and a milestone
+    // left unacknowledged blocked every later one. With Tasks as the start
+    // page, or Habits out of the bar, that would have been every day.
+    registerDashboardReactions(context, ref);
     // See requestedHomeTabProvider's doc comment. ref.listen (not read/
     // watch) since this is a one-shot side effect, not something the build
     // method's own output depends on - and it's safe to call unconditionally
@@ -249,13 +316,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
       final was = prev?.valueOrNull;
       final now = next.valueOrNull;
       if (now != null && now != was) {
-        unawaited(
-          maybeShowIconCard(
-            context,
-            ref,
-            dayJustFull: was != null && now > was,
-          ),
-        );
+        // After the curtain: a long return's reload can move the count
+        // while it is up (see didChangeAppLifecycleState).
+        afterLaunchCurtain(ref, () {
+          if (!mounted) return;
+          unawaited(
+            maybeShowIconCard(
+              context,
+              ref,
+              dayJustFull: was != null && now > was,
+            ),
+          );
+        });
       }
     });
     // A habit that has just BECOME linked to the step count, from the Add
@@ -285,13 +357,14 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // to move is the controller, or the PageView would stay on whatever
     // page NUMBER it was on and show a different screen there. The jump
     // waits a frame so the PageView has already rebuilt with the new
-    // children, and lands on home if the showing tab was removed.
+    // children, and lands on the start page if the showing tab was removed.
     ref.listen<List<NavTab>>(navLayoutProvider, (previous, next) {
       final showing = previous != null && _index < previous.length
           ? previous[_index]
           : null;
-      final found = showing == null ? 0 : next.indexOf(showing);
-      final index = found < 0 ? 0 : found;
+      final found = showing == null ? -1 : next.indexOf(showing);
+      final index =
+          found < 0 ? _homeIndex(next, ref.read(startPageProvider)) : found;
       setState(() => _index = index);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_controller.hasClients) return;
@@ -337,14 +410,17 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // NexusLauncherActivity.
     //
     // Android's expectation is that back walks up to the primary
-    // destination first and only leaves the app from there, so: on tab 0
-    // let the pop through (leaving the app is then correct), and on any
-    // other tab swallow it and animate home instead.
+    // destination first and only leaves the app from there, so: on the
+    // start page let the pop through (leaving the app is then correct),
+    // and on any other tab swallow it and animate there instead. The start
+    // page, not page 0: with Tasks picked, or Habits out of the bar, the
+    // app's home is wherever that page sits.
     //
     // Inert on iOS: this shell is the root route, so there is no back
     // gesture here for canPop to affect.
     final tabs = ref.watch(navLayoutProvider);
     _tabs = tabs;
+    final home = _homeIndex(tabs, ref.watch(startPageProvider));
     final badges = ref.watch(navBadgesProvider);
     // The one-time pointer at the press-and-hold gesture, once someone is
     // Premium (or on the trial) and a few days in. See
@@ -359,10 +435,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
     final s = S.of(context);
     final shell = PopScope(
-      canPop: _index == 0,
+      canPop: _index == home,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        _onTabSelected(0);
+        _onTabSelected(home);
       },
       child: Scaffold(
         // The shell owns the one nav bar; each page keeps its own Scaffold
@@ -411,6 +487,43 @@ class _HomeShellState extends ConsumerState<HomeShell>
             onDismiss: () => markNavBarHintSeen(ref),
           ),
       ],
+    );
+  }
+}
+
+/// A tab [_HomeShellState._push]es because the bar does not hold it.
+///
+/// Every other tab's screen carries its own AppBar, so pushed it has a back
+/// arrow like any page. Habits and Tasks do not: they were only ever root
+/// pages and draw their own headers, so pushed as they are the only way
+/// back was the edge swipe or Android's back button. Once Habits could
+/// leave the bar (2026-09-30), a habit reminder or a Habits widget tap
+/// opened it that way for anyone who had removed it. This gives the two the
+/// same back arrow and name the rest have.
+class _PushedTabPage extends StatelessWidget {
+  final NavTab tab;
+  const _PushedTabPage({required this.tab});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!tab.isHomePage) return tab.page();
+    final gp = context.gp;
+    return Scaffold(
+      backgroundColor: gp.bg,
+      appBar: AppBar(
+        backgroundColor: gp.bg,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        title: Text(
+          tab.label(S.of(context)),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: gp.textPrimary,
+          ),
+        ),
+      ),
+      body: tab.page(),
     );
   }
 }

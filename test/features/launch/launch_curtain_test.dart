@@ -11,10 +11,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/providers/onboarding_provider.dart';
+import 'package:grow_daily_v2/core/theme/status_bar_style.dart';
 import 'package:grow_daily_v2/features/launch/launch_curtain.dart';
 import 'package:grow_daily_v2/features/launch/launch_scene.dart';
 import 'package:grow_daily_v2/features/launch/launch_scenes.dart';
@@ -22,6 +24,7 @@ import 'package:grow_daily_v2/features/mascot/sprout.dart';
 
 final _progress = StateProvider<double>((ref) => 0);
 final _fasting = StateProvider<bool?>((ref) => null);
+final _walker = StateProvider<bool?>((ref) => null);
 
 void main() {
   late ProviderContainer container;
@@ -31,6 +34,7 @@ void main() {
     container = ProviderContainer(overrides: [
       launchProgressProvider.overrideWith((ref) => ref.watch(_progress)),
       launchFastingPlannedProvider.overrideWith((ref) => ref.watch(_fasting)),
+      launchWalkerProvider.overrideWith((ref) => ref.watch(_walker)),
       launchCurtainUpProvider.overrideWith((ref) => true),
       // Someone who has been here before: the very first launch has its
       // own scene (see "the very first launch" below).
@@ -45,6 +49,7 @@ void main() {
     LaunchScene? scene = LaunchScene.dayRing,
     bool reduced = false,
     DateTime? now,
+    Duration settle = Duration.zero,
   }) =>
       tester.pumpWidget(
         UncontrolledProviderScope(
@@ -64,6 +69,9 @@ void main() {
                         // defaults are pinned on their own below.
                         minShow: const Duration(milliseconds: 1000),
                         maxShow: const Duration(milliseconds: 2600),
+                        // Ready counts at once here; the wait to settle
+                        // is held to its own test below.
+                        settle: settle,
                         random: math.Random(1),
                         clock: now == null ? DateTime.now : () => now,
                       ),
@@ -96,6 +104,33 @@ void main() {
   Sprout? doum(WidgetTester tester) {
     final f = find.byType(Sprout);
     return f.evaluate().isEmpty ? null : tester.widget<Sprout>(f);
+  }
+
+  /// Every drawing of [pose]'s picture: Doum's own, or one the scenery
+  /// draws (the walk's machine as it tucks away).
+  Finder picture(SproutPose pose) => find.byWidgetPredicate(
+        (w) =>
+            w is Image &&
+            w.image is ResizeImage &&
+            ((w.image as ResizeImage).imageProvider as AssetImage).assetName ==
+                pose.asset,
+      );
+
+  /// [pose]'s picture as Doum draws it.
+  Finder doumPicture(SproutPose pose) =>
+      find.descendant(of: find.byType(Sprout), matching: picture(pose));
+
+  /// How much of [f] shows through the opacities above it, the curtain's
+  /// own included.
+  double shown(WidgetTester tester, Finder f) {
+    var o = 1.0;
+    tester.element(f).visitAncestorElements((e) {
+      final w = e.widget;
+      if (w is Opacity) o *= w.opacity;
+      if (w is FadeTransition) o *= w.opacity.value;
+      return true;
+    });
+    return o;
   }
 
   /// Frame by frame to the one Doum comes in on.
@@ -295,6 +330,7 @@ void main() {
       container.updateOverrides([
         launchProgressProvider.overrideWith((ref) => ref.watch(_progress)),
         launchFastingPlannedProvider.overrideWith((ref) => ref.watch(_fasting)),
+        launchWalkerProvider.overrideWith((ref) => ref.watch(_walker)),
         launchCurtainUpProvider.overrideWith((ref) => true),
         onboardingSeenProvider.overrideWith((ref) => false),
       ]);
@@ -340,11 +376,88 @@ void main() {
   });
 
   group('how long it stays', () {
-    test('at least 1.6 s for his scene, at most 5 s for a slow load', () {
+    testWidgets('the real timings: a load ready at 0.8 s never searches',
+        (tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Stack(
+              children: [
+                const Center(child: Text('home')),
+                Positioned.fill(
+                  child: LaunchCurtain(
+                    scene: LaunchScene.dayRing,
+                    random: math.Random(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final seen = <SproutPose>{};
+      for (var t = 0; t < 4500; t += 50) {
+        if (t == 800) ready();
+        await tester.pump(const Duration(milliseconds: 50));
+        final d = doum(tester);
+        if (d != null) seen.add(d.pose);
+      }
+      expect(seen, isNot(contains(SproutPose.magnifier)));
+      expect(up(), isFalse);
+    });
+
+    testWidgets('a slow load keeps its line once the magnifier came out',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.dayRing);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      await tester.pump(const Duration(milliseconds: 400));
+      ready();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(line(tester), 'Slow or fast we\nGrow Daily',
+          reason: 'the words change at most once');
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    test('at least 3 s for his scene, at most 8 s for a slow load', () {
+      // Aziz, 2026-09-30: "let the splash screen take their time to 3 sec,
+      // or the needed time so that when grid open, its fully ready".
       const curtain = LaunchCurtain();
-      expect(curtain.minShow, const Duration(milliseconds: 1600));
-      expect(curtain.maxShow, const Duration(milliseconds: 5000));
+      expect(curtain.minShow, const Duration(milliseconds: 3000));
+      expect(curtain.maxShow, const Duration(milliseconds: 8000));
+      expect(curtain.settle, const Duration(milliseconds: 300));
+      expect(curtain.replay, isFalse);
       expect(LaunchCurtain.slowAfter, lessThan(curtain.maxShow));
+    });
+
+    testWidgets('a moment of ready is not ready: it waits to settle',
+        (tester) async {
+      await pumpCurtain(tester, settle: const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 1200));
+      // A reload lands; the reminder pass it asks for has not started yet.
+      ready();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      container.read(_progress.notifier).state = .8;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(lifting(), isFalse);
+      expect(up(), isTrue, reason: 'ready for 150 ms is not ready');
+      // The pass has finished: ready from here on.
+      ready();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(lifting(), isFalse, reason: 'not yet ready for 300 ms');
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(lifting(), isFalse, reason: 'his ready moment first');
+      await tester.pump(const Duration(milliseconds: 380));
+      expect(lifting(), isTrue);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(up(), isFalse);
     });
 
     testWidgets('ready early, it still gives Doum his second', (tester) async {
@@ -353,9 +466,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 900));
       expect(lifting(), isFalse);
       await tester.pump(const Duration(milliseconds: 150));
-      expect(lifting(), isTrue,
-          reason: 'lifting starts at minShow once the home screen is ready');
+      expect(lifting(), isFalse,
+          reason: 'at minShow his ready moment plays first, still covering');
       await tester.pump(const Duration(milliseconds: 380));
+      expect(lifting(), isTrue,
+          reason: 'the page starts to show once the moment is over');
       await tester.pump(const Duration(milliseconds: 500));
       expect(up(), isFalse);
     });
@@ -368,10 +483,73 @@ void main() {
       ready();
       await tester.pump();
       await tester.pump();
-      expect(lifting(), isTrue);
+      expect(lifting(), isFalse, reason: 'his ready moment first');
       await tester.pump(const Duration(milliseconds: 380));
+      expect(lifting(), isTrue);
       await tester.pump(const Duration(milliseconds: 500));
       expect(up(), isFalse);
+    });
+
+    testWidgets('the cap goes without claiming the page is ready',
+        (tester) async {
+      await pumpCurtain(tester);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 2250));
+      final before = doum(tester)!.pose;
+      expect(before, SproutPose.magnifier, reason: 'a slow load: searching');
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(lifting(), isTrue);
+      await tester.pump();
+      expect(doum(tester)!.pose, before,
+          reason: 'no "found it" wave over a page that is not ready');
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(up(), isFalse);
+    });
+
+    testWidgets('a tap while it can be seen never reaches the page',
+        (tester) async {
+      var taps = 0;
+      ready();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            home: Stack(
+              children: [
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => taps++,
+                  ),
+                ),
+                Positioned.fill(
+                  child: LaunchCurtain(
+                    scene: LaunchScene.dayRing,
+                    minShow: const Duration(milliseconds: 1000),
+                    maxShow: const Duration(milliseconds: 2600),
+                    random: math.Random(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 1000));
+      await tester.pump(const Duration(milliseconds: 100));
+      // His ready moment: a tap on his hop.
+      await tester.tapAt(const Offset(200, 300));
+      await tester.pump();
+      expect(taps, 0, reason: 'the ready moment is still the curtain');
+      // It cut the moment short; the fade has begun and is still opaque.
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tapAt(const Offset(200, 300));
+      await tester.pump();
+      expect(taps, 0, reason: 'the start of the fade is still the curtain');
+      await tester.pump(const Duration(seconds: 1));
+      expect(up(), isFalse);
+      await tester.tapAt(const Offset(200, 300));
+      expect(taps, 1, reason: 'once gone, the page has its taps');
     });
 
     testWidgets('never past its cap, ready or not', (tester) async {
@@ -412,6 +590,111 @@ void main() {
     });
   });
 
+  group('a long return plays it again', () {
+    double curtainOpacity(WidgetTester tester) => tester
+        .widget<Opacity>(
+          find
+              .descendant(
+                of: find.byType(LaunchCurtain),
+                matching: find.byType(Opacity),
+              )
+              .first,
+        )
+        .opacity;
+
+    /// [total] in frames, so the curtain's own animations run as on a phone.
+    Future<void> frames(WidgetTester tester, int total) async {
+      for (var t = 0; t < total; t += 50) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    Future<void> pumpHost(WidgetTester tester) => tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(
+              home: Stack(
+                children: [
+                  Center(child: Text('home')),
+                  Positioned.fill(child: LaunchCurtainHost()),
+                ],
+              ),
+            ),
+          ),
+        );
+
+    testWidgets('the launch\'s comes in at once, a return\'s fades in',
+        (tester) async {
+      ready();
+      await pumpHost(tester);
+      expect(curtainOpacity(tester), 1,
+          reason: 'the launch screen\'s own picture, no fade');
+      expect(tester.widget<LaunchCurtain>(find.byType(LaunchCurtain)).replay,
+          isFalse);
+      await frames(tester, 4200);
+      expect(up(), isFalse);
+
+      // main.dart, on a return after 30 minutes or more.
+      container.read(launchCurtainUpProvider.notifier).state = true;
+      container.read(launchCurtainRunProvider.notifier).state++;
+      await tester.pump();
+      expect(up(), isTrue, reason: 'a fresh curtain, not the gone one');
+      expect(tester.widget<LaunchCurtain>(find.byType(LaunchCurtain)).replay,
+          isTrue);
+      expect(curtainOpacity(tester), 0,
+          reason: 'over the page the phone was already showing');
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 130));
+      expect(curtainOpacity(tester), inExclusiveRange(0, 1));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(curtainOpacity(tester), 1);
+      expect(lifting(), isFalse);
+
+      // Its own 3 s, then it goes as the launch's does.
+      await frames(tester, 2500);
+      expect(lifting(), isFalse);
+      await frames(tester, 1000);
+      expect(lifting(), isTrue);
+      await frames(tester, 700);
+      expect(up(), isFalse);
+      expect(find.text('home'), findsOneWidget);
+    });
+
+    testWidgets('a curtain a return has replaced never says the page is '
+        'showing', (tester) async {
+      await pumpCurtain(tester);
+      await tester.pump(const Duration(milliseconds: 100));
+      // main.dart has started a fresh run; this one's overdue timers can
+      // still fire before the host rebuilds.
+      container.read(launchCurtainRunProvider.notifier).state++;
+      await tester.tap(find.byType(LaunchCurtain));
+      await tester.pump();
+      expect(lifting(), isFalse,
+          reason: 'the fresh curtain covers the page, not this one');
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a return waits for its reloads like a launch',
+        (tester) async {
+      ready();
+      await pumpHost(tester);
+      await frames(tester, 4200);
+      expect(up(), isFalse);
+      container.read(_progress.notifier).state = .8;
+      container.read(launchCurtainUpProvider.notifier).state = true;
+      container.read(launchCurtainRunProvider.notifier).state++;
+      await tester.pump();
+      await frames(tester, 4000);
+      expect(up(), isTrue, reason: 'the reminder pass is still running');
+      expect(lifting(), isFalse);
+      ready();
+      await frames(tester, 750);
+      expect(lifting(), isTrue);
+      await frames(tester, 700);
+      expect(up(), isFalse);
+    });
+  });
+
   group('Reduce Motion', () {
     testWidgets('it waits only for the load, and goes without a beat',
         (tester) async {
@@ -423,6 +706,438 @@ void main() {
       expect(lifting(), isTrue);
       await tester.pump(const Duration(milliseconds: 300));
       expect(up(), isFalse);
+    });
+  });
+
+  /// The clock and battery the curtain asks for.
+  SystemUiOverlayStyle statusIcons(WidgetTester tester) => tester
+      .widget<AnnotatedRegion<SystemUiOverlayStyle>>(
+        find
+            .descendant(
+              of: find.byType(LaunchCurtain),
+              matching: find.byType(AnnotatedRegion<SystemUiOverlayStyle>),
+            )
+            .first,
+      )
+      .value;
+
+  /// Where Doum's feet stand: under the screen's centre, on his line.
+  double feetLine(WidgetTester tester) =>
+      tester.getSize(find.byType(MaterialApp)).height / 2 +
+      kLaunchFeetBelowCentre;
+
+  group('missing winter', () {
+    testWidgets('worried by his hourglass, laughing by the fire when ready',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(doum(tester)!.pose, SproutPose.winterHourglass);
+      expect(line(tester), 'Missing winter while we\nGrow Daily');
+      final screen = tester.getSize(find.byType(MaterialApp));
+      final box = tester.getRect(find.byType(Sprout));
+      expect(box.bottom, closeTo(feetLine(tester), .5));
+      expect(
+        box.left + box.width * kLaunchBodyCentre[SproutPose.winterHourglass]!,
+        closeTo(screen.width / 2, .5),
+        reason: 'centred on his body, not on the hourglass',
+      );
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winterHappyHeart);
+      await tester.pump(const Duration(milliseconds: 380));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(up(), isFalse);
+    });
+
+    testWidgets('the ready swap is a cut: one of him, his face where it was',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      await untilDoum(tester);
+      await tester.pump(const Duration(milliseconds: 1000));
+      final screen = tester.getSize(find.byType(MaterialApp));
+      ready();
+      await tester.pump();
+      await tester.pump();
+      // The swap frame and the few after it, where a crossfade held the
+      // worried pose (moved to the laughing one's place) under the new one.
+      for (final gap in const [0, 16, 16, 34]) {
+        await tester.pump(Duration(milliseconds: gap));
+        expect(picture(SproutPose.winterHourglass), findsNothing);
+        expect(shown(tester, doumPicture(SproutPose.winterHappyHeart)), 1);
+        final box = tester.getRect(find.byType(Sprout));
+        expect(
+          box.left + box.width * kLaunchBodyCentre[SproutPose.winterHappyHeart]!,
+          closeTo(screen.width / 2, .5),
+        );
+      }
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('the light clock and battery never outlast the sky',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      await untilDoum(tester);
+      await tester.pump(const Duration(milliseconds: 1000));
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(statusIcons(tester), kStatusIconsLight);
+      // The ready beat; the exit starts as it ends.
+      await tester.pump(const Duration(milliseconds: 380));
+      var light = 0;
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (!up()) break;
+        final sky = shown(
+          tester,
+          find
+              .descendant(
+                of: find.byKey(kLaunchBackdropKey),
+                matching: find.byType(Stack),
+              )
+              .first,
+        );
+        final icons = statusIcons(tester);
+        if (icons == kStatusIconsLight) light++;
+        expect(
+          icons == kStatusIconsLight,
+          sky >= .5,
+          reason: 'frame $i of the exit: the sky at $sky',
+        );
+      }
+      expect(up(), isFalse);
+      // The sky goes with the ground, as the night's navy does: still most
+      // of the top half way through the exit, the icons light over it.
+      expect(light, greaterThan(12));
+    });
+
+    testWidgets('the sky falls dark, and the clock and battery turn light',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(statusIcons(tester), kStatusIconsDark, reason: 'late summer');
+      container.read(_progress.notifier).state = .3;
+      await tester.pump(const Duration(milliseconds: 1000));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(statusIcons(tester), kStatusIconsDark, reason: 'still dusk');
+      container.read(_progress.notifier).state = .8;
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(statusIcons(tester), kStatusIconsLight, reason: 'night');
+      ready();
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(statusIcons(tester), kStatusIconsLight);
+      await tester.pump(const Duration(milliseconds: 180));
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(
+        statusIcons(tester),
+        kStatusIconsDark,
+        reason: 'the app\'s own once the curtain is half gone',
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(up(), isFalse);
+    });
+
+    testWidgets('chosen for an October afternoon\'s first open',
+        (tester) async {
+      await pumpCurtain(tester, scene: null, now: DateTime(2026, 10, 5, 16));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(doum(tester)!.pose, SproutPose.winterHourglass);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a slow load: the magnifier, and the fire once ready',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(line(tester), 'Slow or fast we\nGrow Daily');
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winterHappyHeart);
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a slow load keeps him the same Sprout, and he hops when ready',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait);
+      // Frame by frame to him (a cold decode holds him back up to 600
+      // ms), then past both marks a slow load waits for.
+      await untilDoum(tester);
+      await tester.pump(const Duration(milliseconds: 800));
+      final him = tester.state(find.byType(Sprout));
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      expect(identical(tester.state(find.byType(Sprout)), him), isTrue);
+      expect(picture(SproutPose.winterHourglass), findsNothing);
+      // Ready well inside this test's 2.6 s cap, which leaves without it.
+      await tester.pump(const Duration(milliseconds: 100));
+      ready();
+      await tester.pump();
+      await tester.pump();
+      // The lens leaves the Stack and the breeze joins it in this frame:
+      // unkeyed, he was built again and popped in from nothing.
+      expect(doum(tester)!.pose, SproutPose.winterHappyHeart);
+      expect(identical(tester.state(find.byType(Sprout)), him), isTrue);
+      expect(shown(tester, doumPicture(SproutPose.winterHappyHeart)), 1);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(
+        tester.getRect(doumPicture(SproutPose.winterHappyHeart)).bottom,
+        lessThan(feetLine(tester) - 8),
+        reason: 'the house hop',
+      );
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('Reduce Motion: laughing by the fire under the night from '
+        'the start, never worried', (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.winterWait, reduced: true);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(doum(tester)!.pose, SproutPose.winterHappyHeart);
+      expect(statusIcons(tester), kStatusIconsLight);
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winterHappyHeart);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(up(), isFalse);
+    });
+  });
+
+  group('every step', () {
+    testWidgets('runs on his treadmill, then springs off it onto the line',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.walk);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 800));
+      expect(doum(tester)!.pose, SproutPose.treadmill);
+      expect(
+        doum(tester)!.idleBreaths,
+        0,
+        reason: 'a breath would squash the machine',
+      );
+      expect(line(tester), 'Every step helps us\nGrow Daily');
+      final feet = feetLine(tester);
+      expect(tester.getRect(find.byType(Sprout)).bottom, closeTo(feet, .5));
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winkJump);
+      double bottom() => tester.getRect(find.byType(Sprout)).bottom;
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(bottom(), closeTo(feet - 46.15, 1), reason: 'on the belt');
+      await tester.pump(const Duration(milliseconds: 484));
+      expect(bottom(), closeTo(feet, 1.5), reason: 'landed on the line');
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(up(), isFalse);
+    });
+
+    testWidgets('the ready swap is a cut: one machine, one Doum',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.walk);
+      await untilDoum(tester);
+      await tester.pump(const Duration(milliseconds: 1000));
+      expect(doumPicture(SproutPose.treadmill), findsOneWidget);
+      ready();
+      await tester.pump();
+      await tester.pump();
+      // The swap frame and the few after it, where a crossfade lifted the
+      // whole running picture off the belt over the machine tucking away.
+      for (final gap in const [0, 16, 16, 34]) {
+        await tester.pump(Duration(milliseconds: gap));
+        expect(doumPicture(SproutPose.treadmill), findsNothing);
+        expect(
+          find.ancestor(
+            of: picture(SproutPose.treadmill),
+            matching: find.byType(ClipPath),
+          ),
+          findsOneWidget,
+          reason: 'the only treadmill left is the machine alone',
+        );
+        expect(picture(SproutPose.treadmill), findsOneWidget);
+        expect(shown(tester, doumPicture(SproutPose.winkJump)), 1);
+      }
+      await tester.pump(const Duration(seconds: 1));
+    });
+
+    testWidgets('a walker\'s afternoon waits to know the habits',
+        (tester) async {
+      // A Monday in December: no winter, no summer.
+      await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(doum(tester), isNull, reason: 'still waiting to know');
+      container.read(_walker.notifier).state = true;
+      await tester.pump();
+      // Frame by frame to him: a cold decode holds him back up to 600 ms.
+      await untilDoum(tester);
+      expect(doum(tester)!.pose, SproutPose.treadmill);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('no walking habit: an ordinary scene', (tester) async {
+      await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
+      container.read(_walker.notifier).state = false;
+      await tester.pump();
+      await untilDoum(tester);
+      expect(
+        doum(tester)!.pose,
+        isIn([SproutPose.threeQuarterWave, SproutPose.back]),
+      );
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('not known in time: not a walker', (tester) async {
+      await pumpCurtain(tester, scene: null, now: DateTime(2026, 12, 7, 16, 30));
+      await tester.pump(LaunchCurtain.fastingWait);
+      await untilDoum(tester);
+      expect(doum(tester)!.pose, isNot(SproutPose.treadmill));
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a slow load: the magnifier, then the jump once ready',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.walk);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 1600));
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winkJump);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.getRect(find.byType(Sprout)).bottom,
+        closeTo(feetLine(tester), .5),
+        reason: 'no belt to spring off: a hop where he stands',
+      );
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('a slow load keeps him the same Sprout, and no print is cut '
+        'once the machine has gone', (tester) async {
+      // The trail's painter: where the deck's back end is, and whether the
+      // machine stands there to cut the prints (without it each shows
+      // whole, faded by how much of it is out).
+      ({double? edge, bool machine}) trail() {
+        final painter = tester
+            .widgetList<CustomPaint>(find.byType(CustomPaint))
+            .map((p) => p.painter)
+            .firstWhere((p) => p.runtimeType.toString() == '_TrailPainter');
+        return (
+          edge: (painter as dynamic).edge as double?,
+          machine: (painter as dynamic).machine as bool,
+        );
+      }
+
+      await pumpCurtain(tester, scene: LaunchScene.walk);
+      // Frame by frame to him (a cold decode holds him back up to 600
+      // ms), then past both marks a slow load waits for.
+      await untilDoum(tester);
+      await tester.pump(const Duration(milliseconds: 800));
+      final him = tester.state(find.byType(Sprout));
+      expect(trail().edge, isNotNull);
+      expect(trail().machine, isTrue);
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pump();
+      // The deck's shadow leaves the Stack and the lens joins it in this
+      // frame: unkeyed, he was built again and popped in from nothing.
+      expect(doum(tester)!.pose, SproutPose.magnifier);
+      expect(identical(tester.state(find.byType(Sprout)), him), isTrue);
+      expect(picture(SproutPose.treadmill), findsNothing);
+      final lens = doumPicture(SproutPose.magnifier);
+      expect(shown(tester, lens), 1);
+      expect(
+        tester.getRect(lens).height,
+        greaterThan(
+          .8 * Sprout.sizeOf(SproutPose.magnifier, kLaunchDoumHeight).height,
+        ),
+        reason: 'swapped in, not popping up again',
+      );
+      expect(
+        trail().machine,
+        isFalse,
+        reason: 'no machine to cut a print in open sand',
+      );
+      expect(trail().edge, isNotNull, reason: 'the rest still to come out');
+      // Ready well inside this test's 2.6 s cap, which leaves without it.
+      await tester.pump(const Duration(milliseconds: 100));
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winkJump);
+      expect(identical(tester.state(find.byType(Sprout)), him), isTrue);
+      expect(trail().edge, isNull, reason: 'the whole trail, once ready');
+      await tester.pump(const Duration(seconds: 2));
+    });
+
+    testWidgets('Reduce Motion: standing by his seedlings from the start',
+        (tester) async {
+      await pumpCurtain(tester, scene: LaunchScene.walk, reduced: true);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(doum(tester)!.pose, SproutPose.winkJump);
+      expect(
+        tester.getRect(find.byType(Sprout)).bottom,
+        closeTo(feetLine(tester), .5),
+      );
+      ready();
+      await tester.pump();
+      await tester.pump();
+      expect(doum(tester)!.pose, SproutPose.winkJump);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(up(), isFalse);
+    });
+  });
+
+  group('before the first frame', () {
+    tearDown(LaunchMemory.debugReset);
+
+    test('the winter afternoon\'s poses are decoded', () {
+      LaunchMemory.debugReset(lastOpen: DateTime(2026, 10, 5, 9));
+      final now = DateTime(2026, 10, 5, 16);
+      expect(LaunchCurtain.likelyScenes(now), contains(LaunchScene.winterWait));
+      expect(
+        LaunchCurtain.likelyPoses(now),
+        containsAll([SproutPose.winterHourglass, SproutPose.winterHappyHeart]),
+      );
+    });
+
+    test('the walking hour\'s, and the ordinary pair with them', () {
+      // The habits are not known yet: walker or not.
+      LaunchMemory.debugReset(lastOpen: DateTime(2026, 12, 7, 9));
+      final now = DateTime(2026, 12, 7, 16, 30);
+      expect(
+        LaunchCurtain.likelyScenes(now),
+        containsAll(const [
+          LaunchScene.walk,
+          LaunchScene.dayRing,
+          LaunchScene.turnaround,
+        ]),
+      );
+      expect(
+        LaunchCurtain.likelyPoses(now),
+        containsAll([SproutPose.treadmill, SproutPose.winkJump]),
+      );
+    });
+
+    test('neither, outside their hours', () {
+      LaunchMemory.debugReset(lastOpen: DateTime(2026, 12, 7, 9));
+      final scenes = LaunchCurtain.likelyScenes(DateTime(2026, 12, 7, 13));
+      expect(scenes, isNot(contains(LaunchScene.walk)));
+      expect(scenes, isNot(contains(LaunchScene.winterWait)));
     });
   });
 

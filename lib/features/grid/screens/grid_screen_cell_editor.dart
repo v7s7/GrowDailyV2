@@ -227,14 +227,21 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
         if (!mounted) return;
       }
       HapticFeedback.lightImpact();
-      _addVoice(VoiceNote(
+      final note = VoiceNote(
         id: const Uuid().v4(),
         path: result.path,
         name: '',
         durationSeconds: result.durationSeconds,
         createdAt: DateTime.now(),
         audioBase64: audioBase64,
-      ));
+      );
+      _addVoice(note);
+      // Asks for a name at once, as the task sheets do: the moment the take
+      // is fresh is when a name actually gets typed. The pencil's own sheet,
+      // so its save is the same rewrite (_rewriteVoice), which runs after
+      // the append above and reads the list first if it is not whole yet.
+      // Closing it unsaved keeps «تسجيل N», still playable.
+      _renameVoice(note);
       return;
     }
     final granted = await svc.hasPermission();
@@ -270,7 +277,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     return name.isNotEmpty ? name : s.voiceNoteDefaultName(index + 1);
   }
 
-  void _renameVoice(VoiceNote note, String shownName) {
+  void _renameVoice(VoiceNote note) {
     showRenameVoiceNoteSheet(
       context,
       currentName: note.name,
@@ -361,7 +368,7 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
           note: _voiceNotes[i],
           displayName: _voiceName(i, s),
           color: color,
-          onRename: () => _renameVoice(_voiceNotes[i], _voiceName(i, s)),
+          onRename: () => _renameVoice(_voiceNotes[i]),
           onDelete: () => _deleteVoice(_voiceNotes[i]),
         ),
         const SizedBox(height: 6),

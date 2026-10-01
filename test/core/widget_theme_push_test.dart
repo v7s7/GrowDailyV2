@@ -64,8 +64,10 @@ void main() {
         'the system, and the prayer face keeps its skies');
   });
 
-  test('the default theme is sent by its id, which the faces ignore', () async {
-    final base = ThemePresets.byId(ThemePresets.defaultId);
+  // The faces' parchment tokens were solved for Emerald & Gold, the default
+  // until 2026-09-30. Doum, the default since, is sent like any theme.
+  test('Emerald & Gold is sent by its id, which the faces ignore', () async {
+    final base = ThemePresets.byId('emerald_gold');
     await HomeWidgetService.instance.pushTheme(
       presetId: base.id,
       accent: base.gold,

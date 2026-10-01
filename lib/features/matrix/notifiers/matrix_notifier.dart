@@ -236,9 +236,16 @@ class MatrixState {
   });
 
   /// The label to show for [quadrant] — the user's own title if they've
-  /// set one, else the built-in localized label.
-  String titleFor(MatrixQuadrant quadrant, bool isAr) =>
-      quadrantTitles[quadrant.name] ?? quadrant.localLabel(isAr);
+  /// set one, else the built-in localized label. A saved title equal to the
+  /// box's retired Arabic name is an old default frozen by a colour-only
+  /// edit, not a choice, so it gives way to the current name.
+  String titleFor(MatrixQuadrant quadrant, bool isAr) {
+    final saved = quadrantTitles[quadrant.name];
+    if (saved == null || saved == quadrant.retiredArLabel) {
+      return quadrant.localLabel(isAr);
+    }
+    return saved;
+  }
 
   /// The color to show for [quadrant] — the user's own color if they've
   /// set one, else [MatrixQuadrant.defaultColor]. A malformed stored hex
@@ -271,6 +278,13 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   // from ever applying, which would be a much worse outcome than the
   // narrow race this actually guards against.
   bool _quadrantsMutatedBeforeLoad = false;
+
+  // Whether state.tasks is the account's whole task list: set when a load
+  // lands, and never when one is superseded (see [_mutatedBeforeLoad]),
+  // after which the list holds only what was added before it. Every edit
+  // after a landed load keeps the list whole. The reminder resync needs to
+  // know, see [_resyncAllReminders].
+  bool _taskListLoaded = false;
 
   MatrixNotifier(this._ref, this._uid) : super(const MatrixState()) {
     if (_uid != null) {
@@ -332,6 +346,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
           quadrantTitles: quadrantTitles,
           quadrantColors: quadrantColors,
         );
+        _taskListLoaded = true;
         _resyncAllReminders(tasks);
       } else if (mounted) {
         // Task list load was superseded by a mutation, but the quadrant
@@ -395,6 +410,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
         quadrantTitles: quadrantTitles,
         quadrantColors: quadrantColors,
       );
+      _taskListLoaded = true;
       _resyncAllReminders(tasks);
     } catch (_) {
       if (mounted && !_mutatedBeforeLoad) {
@@ -414,8 +430,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// [_syncReminderSchedule]'s overdue branch), the same "resync everything
   /// on load, don't just trust whatever was scheduled last time" pattern
   /// main.dart's _recomputeNotifications already applies to every other
-  /// notification type in this app. Cheap even with many tasks — each call
-  /// is a local plugin call, not a network round trip.
+  /// notification type in this app.
   ///
   /// Passes every task with a [MatrixTask.reminderAt] through, done or not
   /// — [_syncReminderSchedule] itself already decides schedule/catch-up/
@@ -425,12 +440,26 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   /// completion whose cancel call silently failed still gets cleaned up on
   /// the very next load, instead of that gap only ever closing if the task
   /// happens to be touched again.
+  ///
+  /// All of it as one [TaskReminderResync], which is what keeps the done
+  /// tasks cheap. They were not: every call is local, but a done task's
+  /// cancel swept 16 platform slots whether or not anything was there, and
+  /// on Aziz's account (39 done tasks with reminders) that was over 600
+  /// calls per recompute, in the same lane the habit stand-downs use. The
+  /// service now reads once what the system holds and cancels only that,
+  /// and the alarms go in one reap at the end, which runs only when
+  /// [_taskListLoaded] says the list is whole: the reap takes every task
+  /// alarm this resync did not arm, and only a whole list can say that such
+  /// an alarm belongs to no task.
   void _resyncAllReminders(List<MatrixTask> tasks) {
+    final resync = NotificationService.instance
+        .beginTaskResync(coversEveryTask: _taskListLoaded);
     for (final task in tasks) {
       if (task.reminderAt != null) {
-        _syncReminderSchedule(task);
+        _syncReminderSchedule(task, resync: resync);
       }
     }
+    NotificationService.instance.finishTaskResync(resync).ignore();
   }
 
   /// Public entry point for the exact same resync, called from
@@ -1021,9 +1050,10 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   ///   occurrence," so "catch up now" is the closest equivalent to "don't
   ///   let a missed reminder just vanish."
   /// - Anything else (no reminderAt, task done, or notifications off
-  ///   entirely) → cancelled. Clearing a stale schedule is always
-  ///   safe/cheap even when nothing was actually scheduled (see
-  ///   NotificationService.cancelTaskReminder's own doc comment).
+  ///   entirely) → cancelled. Clearing a stale schedule is always safe
+  ///   even when nothing was actually scheduled, and inside a resync cheap
+  ///   as well (see NotificationService.cancelTaskReminder's own doc
+  ///   comment).
   ///
   /// Deliberately fire-and-forget (`.ignore()`'d), same as every Firestore/
   /// Hive write [_persist] itself already makes: every caller here is
@@ -1118,7 +1148,10 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     }
   }
 
-  void _syncReminderSchedule(MatrixTask task) {
+  // [resync] is set when this task is one of [_resyncAllReminders]' whole
+  // pass, and travels to the service untouched; the decision below is the
+  // same either way.
+  void _syncReminderSchedule(MatrixTask task, {TaskReminderResync? resync}) {
     final masterEnabled = _ref.read(notificationSettingsProvider).masterEnabled;
     final isAr = _ref.read(localeProvider).languageCode == 'ar';
 
@@ -1148,6 +1181,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
             anchorAt: task.reminderAnchorAt,
             isAr: isAr,
             alarm: task.alarm,
+            resync: resync,
           )
           .then(
             (_) => _enqueueBookkeeping(
@@ -1170,7 +1204,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       return;
     }
 
-    NotificationService.instance.cancelTaskReminder(task.id).ignore();
+    NotificationService.instance
+        .cancelTaskReminder(task.id, resync: resync)
+        .ignore();
     // Slots just cancelled will never fire, so the armed watermark that
     // covered them stops being a delivery record. Without this revocation,
     // complete -> the moment passes -> uncomplete lost its documented

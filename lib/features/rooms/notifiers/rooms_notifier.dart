@@ -4243,6 +4243,22 @@ class RoomsController {
               );
       }),
     );
+    // Each day's document, decoded ONCE for the whole grading pass.
+    //
+    // DocumentSnapshot.data() copies the whole document on every call (the
+    // plugin copies it twice over, the fake deep-copies it), and isGreen,
+    // isPartial and isSkipped used to ask for it again in every call, as did
+    // the write loop for lastUpdated: up to 8 copies of one day for one blank
+    // habit, 778 in a sync of a 4-habit room over 51 days (measured
+    // 2026-09-30). A snapshot never changes, so one copy reads the same.
+    //
+    // Read-only: every habit and every pass below shares these, so nothing
+    // may write into them. Locals of this call and nowhere else, never on the
+    // snapshot or in RoomDayReads, which every room of a pass shares. And
+    // no await between here and the update() at the end: the grading is one
+    // synchronous stretch, which is part of why one copy grades the same.
+    final dayData = [for (final s in snaps) s.data()];
+    final dayMarks = [for (final d in dayData) d?['squareStates']];
     final todayKey = _clock().effectiveDay.toDateKey();
     // The day [todaySquares] speaks for: today unless the caller says
     // otherwise. A Grid tap on a grace day passes that day, because the
@@ -4250,6 +4266,8 @@ class RoomsController {
     // above would grade the day from the moment before the tap. The same
     // race the today override closes, one day back.
     final liveKey = (liveDay ?? _clock().effectiveDay).toDateKey();
+    // Which of `days` that is, compared once per day rather than per question.
+    final isLiveDay = [for (final d in days) d.toDateKey() == liveKey];
     bool isGreen(int dayIndex, String habitId) {
       // Today comes from the caller's own already-updated Grid state when it
       // handed us one. [syncTodayForHabit] routes a room with any
@@ -4262,10 +4280,10 @@ class RoomsController {
       // above pinned the 0 in place for good. Passing the tap's own truth
       // through is the same reason the fast path takes `todaySquares` at all.
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == liveKey) {
+      if (live != null && isLiveDay[dayIndex]) {
         return (live[habitId] ?? SquareState.none).isGreen;
       }
-      final raw = snaps[dayIndex].data()?['squareStates'];
+      final raw = dayMarks[dayIndex];
       return raw is Map &&
           SquareState.fromJson(raw[habitId]?.toString()).isGreen;
     }
@@ -4276,10 +4294,10 @@ class RoomsController {
     /// habit each. See creditFor for why that is safe on a ranked surface.
     bool isPartial(int dayIndex, String habitId) {
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == liveKey) {
+      if (live != null && isLiveDay[dayIndex]) {
         return (live[habitId] ?? SquareState.none) == SquareState.partial;
       }
-      final raw = snaps[dayIndex].data()?['squareStates'];
+      final raw = dayMarks[dayIndex];
       return raw is Map &&
           SquareState.fromJson(raw[habitId]?.toString()) == SquareState.partial;
     }
@@ -4291,10 +4309,10 @@ class RoomsController {
     /// RoomParticipant.dailyRestedCount, which nothing that scores may read.
     bool isSkipped(int dayIndex, String habitId) {
       final live = todaySquares;
-      if (live != null && days[dayIndex].toDateKey() == liveKey) {
+      if (live != null && isLiveDay[dayIndex]) {
         return (live[habitId] ?? SquareState.none) == SquareState.skipped;
       }
-      final raw = snaps[dayIndex].data()?['squareStates'];
+      final raw = dayMarks[dayIndex];
       return raw is Map &&
           SquareState.fromJson(raw[habitId]?.toString()) == SquareState.skipped;
     }
@@ -4504,6 +4522,22 @@ class RoomsController {
         damagedStartById[id] =
             DateTime(earliest.year, earliest.month, earliest.day);
       }
+    }
+
+    // [countedOn] for day `days[i]`, answered once per habit and day.
+    //
+    // Pass 1, the stand-down loop and pass 2 all ask it about the same habit
+    // on the same day, and every answer builds local midnights for the day
+    // and each stint, the time-zone lookup at the top of the resume profile.
+    // Within one sync the answer cannot change: it reads the habit (always
+    // habitById's, so its id names it), stintsById, and stintFloorById and
+    // damagedStartById, final only once the loop just above has run. That is
+    // why this sits here and not before it.
+    final countedMemo = <String, List<bool?>>{};
+    bool countedOnAt(IslamicHabitTemplate habit, int i) {
+      final known = countedMemo[habit.id] ??=
+          List<bool?>.filled(days.length, null);
+      return known[i] ??= countedOn(habit, days[i]);
     }
 
     // Running per-day totals across every linked habit, regular and weekly
@@ -4716,9 +4750,10 @@ class RoomsController {
         }
         continue;
       }
-      // Alive that day: its own stints, or for a deleted habit graded by its
-      // squares (see above), every day, since its slot is what draws them.
-      bool alive(DateTime day) => habit == null || countedOn(habit, day);
+      // Alive on day `days[i]`: its own stints, or for a deleted habit graded
+      // by its squares (see above), every day, since its slot is what draws
+      // them.
+      bool alive(int i) => habit == null || countedOnAt(habit, i);
       // Walked a week at a time rather than a day at a time, because a
       // weekly-quota habit's answerable days can only be decided by looking
       // at its whole week at once. Whether this habit IS one is read from the
@@ -4731,7 +4766,7 @@ class RoomsController {
         if (weekRule.frequencyType == HabitFrequencyType.weekly) {
           final present = dayIndices
               .where(
-                (i) => alive(days[i]) && joinedPlanBy(id, days[i]),
+                (i) => alive(i) && joinedPlanBy(id, days[i]),
               )
               .toList();
           if (present.isEmpty) continue;
@@ -4853,7 +4888,7 @@ class RoomsController {
           // all - it was never something to do, not something skipped. The
           // weekday list comes from the room's frozen rule, so editing a
           // habit's days can't re-grade finished history.
-          if (!alive(days[i])) continue;
+          if (!alive(i)) continue;
           // A slot the leader added to a running room asks nothing of the
           // days before it joined the plan - for every member equally, since
           // the floor is the room's record, not the member's.
@@ -5004,7 +5039,7 @@ class RoomsController {
       ];
       if (live.isEmpty || live.length != asked.length) continue;
       // Anything actually running that day means this is not a stand-down.
-      if (live.any((e) => countedOn(e.$2, d))) continue;
+      if (live.any((e) => countedOnAt(e.$2, i))) continue;
       // ── A day somebody actually TRAINED is never a stand-down ──────────
       //
       // countedOn answers "was the habit active", which is false for every
@@ -5063,8 +5098,12 @@ class RoomsController {
         // the new habit on the weeks before it was linked and the old one on
         // every week after, and a weekly slot relinked to another weekly
         // habit lost every week it had banked (relink_past_days_test.dart).
+        // A list, not a lazy where: cutByPlan below takes its length after
+        // `window` has already walked it, and walking a lazy one twice asked
+        // countedOn about every day of the week twice.
         final alive = dayIndices
-            .where((i) => habit == null || countedOn(habit, days[i]));
+            .where((i) => habit == null || countedOnAt(habit, i))
+            .toList();
         final window =
             alive.where((i) => slotGradesOn(id, days[i])).toList();
         // From the first week with a share (roomQuotaWeekHasShare), only the
@@ -5213,7 +5252,7 @@ class RoomsController {
       // roomDayMarkedWhileOpen for the day this is named after.
       final markedWhileOpen = roomDayMarkedWhileOpen(
         d,
-        (snaps[di].data()?['lastUpdated'] as Timestamp?)?.toDate(),
+        (dayData[di]?['lastUpdated'] as Timestamp?)?.toDate(),
       );
       // ── Back-dating can take credit away, never add it ────────────────
       // Ticking a past day's square in the Grid must not earn room progress

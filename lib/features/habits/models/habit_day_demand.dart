@@ -198,6 +198,8 @@ List<DayDemand>? quotaDemandForWeekOf({
 ///
 /// [isHalfAt] says which squares hold a جزئي, a half session that takes one
 /// of a quota week's places (see weekly_quota_plan.dart); null reads none.
+///
+/// [alive] and [planned] are handed on to [movedDemandForRow]: see there.
 List<DayDemand?>? quotaDemandForRow({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
@@ -205,6 +207,8 @@ List<DayDemand?>? quotaDemandForRow({
   bool Function(int index)? isUnmarkedAt,
   bool Function(int index)? isHalfAt,
   DateTime? now,
+  List<bool>? alive,
+  List<bool>? planned,
 }) {
   if (!days.any((d) => habit.cadenceOn(d).isFlexibleQuota)) {
     return movedDemandForRow(
@@ -213,6 +217,8 @@ List<DayDemand?>? quotaDemandForRow({
       isGreenAt: isGreenAt,
       isUnmarkedAt: isUnmarkedAt,
       now: now,
+      alive: alive,
+      planned: planned,
     );
   }
   List<DayDemand?>? out;
@@ -257,16 +263,24 @@ List<DayDemand?>? quotaDemandForRow({
 /// up first; the real clock when null. [isUnmarkedAt] says which days have
 /// nothing recorded at all (see [MarkOnDay]); null reads every day that is not
 /// green as unmarked.
+///
+/// [alive] and [planned], index for index with [days], are
+/// `habit.isAliveOn(days[i])` and `habit.isScheduledFor(days[i])` from a
+/// caller that already worked them out for the same row (the Grid's board,
+/// see _WeekFacts in grid_screen_table.dart); left out, they are worked out
+/// here, with the same answers.
 List<DayDemand?>? movedDemandForRow({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
   required bool Function(int index) isGreenAt,
   bool Function(int index)? isUnmarkedAt,
   DateTime? now,
+  List<bool>? alive,
+  List<bool>? planned,
 }) {
   if (days.any((d) => habit.cadenceOn(d).isFlexibleQuota)) return null;
-  final alive = [for (final d in days) habit.isAliveOn(d)];
-  final planned = [for (final d in days) habit.isScheduledFor(d)];
+  alive ??= [for (final d in days) habit.isAliveOn(d)];
+  planned ??= [for (final d in days) habit.isScheduledFor(d)];
   // Only a day the habit existed on and did not plan can hold a moved
   // session. A daily habit has no such day, so nearly every row stops here
   // without reading a single square: this runs for every habit on every day

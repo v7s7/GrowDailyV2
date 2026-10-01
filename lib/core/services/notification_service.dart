@@ -265,6 +265,71 @@ typedef WeeklyNoteSlot = ({
   bool repeatsWeekly,
 });
 
+/// One resync of every Matrix task's reminders, the way MatrixNotifier runs
+/// it on each recompute: every task that has a reminder goes through
+/// [NotificationService.scheduleTaskReminders] or
+/// [NotificationService.cancelTaskReminder] carrying the same resync, done
+/// ones included, and [NotificationService.finishTaskResync] closes it.
+///
+/// It exists because a done task's cancel swept all of its slots blind, in
+/// both systems: 8 notification cancels and 8 AlarmKit cancels, for
+/// reminders that were almost never there. On an account shaped like
+/// Aziz's (133 tasks, 41 with reminders, 39 of them done) one resync cost
+/// 656 platform calls, measured against mocked channels, and main.dart
+/// recomputes two or three times per open. Inside a resync the service
+/// reads once what the notification system holds, pending or delivered,
+/// and cancels only those ids (an id that holds nothing cannot be
+/// cancelled into anything, so the end state is the same), and it leaves
+/// every task alarm to ONE reap over the task band at the end, judged
+/// against what AlarmKit really holds. The same resync measured 6 calls.
+///
+/// Both halves judge by what the system holds rather than by what the app
+/// remembers doing, which is what keeps the two hard cases right. A task
+/// finished on another device arrives here done while the reminders this
+/// phone armed for it are still waiting: the read sees its notifications
+/// and the reap sees its alarms, so both go. A task switched between alarm
+/// and notification never keeps both: a slot armed as an alarm cancels its
+/// notification wherever the system holds one, and an alarm under a slot
+/// that is now a notification is not in the reap's keep set.
+class TaskReminderResync {
+  TaskReminderResync._(this.coversEveryTask);
+
+  /// Whether the caller hands over every task the account has, which is
+  /// what lets the reap treat an alarm this resync did not arm as belonging
+  /// to no task that wants one. False while the task list is not the loaded
+  /// one (MatrixNotifier's load not in yet, or superseded by an edit made
+  /// before it landed): a reap then would take the alarms of every task the
+  /// list left out, so each slot's alarm is cancelled one by one instead.
+  final bool coversEveryTask;
+
+  // What the notification system holds, pending or delivered, read by the
+  // first cancel that needs it and kept current as this resync arms and
+  // cancels. Its jobs queue together and the habit work that may run
+  // between them has its own ids, so the only thing that can add to the
+  // task band behind its back is a banner shown for a task still open (a
+  // catch-up, an alarm ringing with the app in front), which is not what
+  // the sweep is for. Null when the read failed, and cancels then go
+  // blind, exactly as they did before the read existed.
+  Set<int>? _held;
+  bool _heldRead = false;
+
+  // Notification ids a task of this resync armed. Another task's cancel
+  // leaves them alone: two tasks' slots can hash to the same id, and the
+  // blind sweep then cancelled a reminder armed a moment earlier in the
+  // same pass.
+  final Set<int> _armedNotes = {};
+
+  // What the reap keeps: the alarms this resync armed, plus the slots of a
+  // task whose job stopped part-way, which keep whatever an earlier pass
+  // armed for them, as they would have without the reap.
+  final Set<int> _keepAlarms = {};
+
+  void _noteArmed(int id) {
+    _armedNotes.add(id);
+    _held?.add(id);
+  }
+}
+
 /// Real local-notification service backing daily/habit reminders,
 /// prayer-linked reminders, streak-risk nudges, and in-the-moment
 /// celebration pings (habit completed, level up, achievement unlocked).
@@ -1537,9 +1602,35 @@ class NotificationService {
   final List<ArmedBundle> _armedBundles = [];
 
   // What the notification system actually holds, read once at the start of
-  // the pass now running (see [_liveNotificationIds]). Null means the read
-  // failed and the sweep falls back to cancelling blind.
+  // the pass now running (see [_liveNotificationIds]), plus every habit slot
+  // the pass has armed as a notification since (see [_scheduleOne]). So it
+  // covers what the system held when the pass began and what this pass has
+  // armed: a cancel never takes an id out, and one id too many costs a
+  // cancel that finds nothing, which is what every cancel cost before the
+  // read. It does NOT cover a write from outside this lane after the read.
+  // Two writers can make one under a habit id: a Snooze tapped on the lock
+  // screen or the Watch, which the headless engine arms through its own
+  // NotificationService and its own lane (the 6000 band, see
+  // notification_action_background.dart), and [showForegroundAlarm], which
+  // AlarmService calls straight from its handler under the alarm's slot
+  // id. A cancel of such a copy is skipped and the copy stays until the
+  // next pass, which is also what the blind cancel left whenever the write
+  // landed just after it. Null means the read failed and the pass falls
+  // back to cancelling blind, and it is null again once the pass ends (see
+  // [scheduleSmartReminders]), so nothing outside a pass ever trusts a read
+  // that has gone stale.
   Set<int>? _sweepLiveNoteIds;
+
+  // The same for AlarmKit, in the near habit bands: what the bridge held
+  // there when the pass now running began (see [_heldHabitAlarmIds]), plus
+  // every slot the pass has tried to arm as an alarm since, made or not
+  // (see [_scheduleOne]). Nothing else arms an alarm in these bands: the
+  // Done paths outside the app only cancel, and the month ahead and the
+  // tasks have bands of their own. So a cancel of an id outside this set
+  // cannot find anything, and [_cancelHabitAlarm] skips it. Null when the
+  // bridge could not say, where there are no real alarms, and outside a
+  // pass, and every alarm cancel then goes out as it always did.
+  Set<int>? _passHeldAlarms;
 
   // Whether the pass now running can arm AlarmKit alarms at all. False makes
   // every alarm reminder a notification, which spends the pending budget.
@@ -1991,10 +2082,25 @@ class NotificationService {
   /// Every DEPTH of every slot, for the same reason one level down: a habit
   /// deleted after its window was armed has three more days of copies in
   /// the scheduler behind the one that is about to fire.
-  Future<void> _cancelAllHabitReminderSlots(String habitId) async {
+  ///
+  /// [inPass] is for the pass's own habit loop, which reaches this for every
+  /// habit with nothing to remind: no cue, a prayer cue and no place saved,
+  /// or no fire time left. That is 60 notification cancels per such habit on
+  /// every pass, almost all of them for ids that were never armed, so there
+  /// the notification half goes through [_cancelIfHeld] and cancels only
+  /// what the system holds, delivered copy and snooze included. Every other
+  /// caller (a habit deleted, the stale sweep, reminders switched off) is
+  /// rare and cancels every notification blind. The alarm half is the same
+  /// for all of them, [_cancelHabitAlarm], which inside a pass skips an id
+  /// AlarmKit does not hold and outside one cancels blind.
+  Future<void> _cancelAllHabitReminderSlots(
+    String habitId, {
+    bool inPass = false,
+  }) async {
     for (var slot = 0; slot < _maxHabitReminderSlots; slot++) {
-      await _cancelHabitSlotAllDepths(habitId, slot);
-      await _plugin.cancel(_snoozeId(habitId, slot));
+      await _cancelHabitSlotAllDepths(habitId, slot, inPass: inPass);
+      final snooze = _snoozeId(habitId, slot);
+      await (inPass ? _cancelIfHeld(snooze) : _plugin.cancel(snooze));
     }
   }
 
@@ -2036,11 +2142,7 @@ class NotificationService {
   /// (quiet hours, habit done, alarm refused and gone to a notification
   /// instead) is supposed to lose its alarm, and does.
   Future<void> _reapOrphanHabitAlarms() async {
-    const bands = [
-      (_habitBandBase, _habitBandBase + 999),
-      (_aheadBandBase, _aheadBandBase + (kOccurrencesPerSlot - 1) * 1000 - 1),
-    ];
-    for (final (low, high) in bands) {
+    for (final (low, high) in _nearHabitAlarmBands) {
       final reaped = await AlarmService.instance.reapOrphans(
         lowId: low,
         highId: high,
@@ -2051,6 +2153,30 @@ class NotificationService {
             'in $low..$high');
       }
     }
+  }
+
+  /// Where the ordinary pass arms habit alarms one slot at a time: depth 0,
+  /// and the depths ahead of it. Every id [_habitReminderId] gives falls in
+  /// one of them. [_reapOrphanHabitAlarms] reaps exactly these and
+  /// [_heldHabitAlarmIds] reads exactly these, so the two can never drift.
+  static const _nearHabitAlarmBands = [
+    (_habitBandBase, _habitBandBase + 999),
+    (_aheadBandBase, _aheadBandBase + (kOccurrencesPerSlot - 1) * 1000 - 1),
+  ];
+
+  /// What the bridge holds in the near bands, as [_reapOrphanHabitAlarms]
+  /// would count it, one read per band and nothing cancelled. Read once at
+  /// the start of a pass for [_passHeldAlarms]. Null if either band could
+  /// not be read, so the pass then cancels blind in both.
+  Future<Set<int>?> _heldHabitAlarmIds() async {
+    final held = <int>{};
+    for (final (low, high) in _nearHabitAlarmBands) {
+      final ids =
+          await AlarmService.instance.heldIds(lowId: low, highId: high);
+      if (ids == null) return null;
+      held.addAll(ids);
+    }
+    return held;
   }
 
   /// Every armed copy this habit is NOT keeping after a resolution pass,
@@ -2098,21 +2224,72 @@ class NotificationService {
 
   /// Every armed copy of one slot. The snooze id is deliberately NOT
   /// touched — a pending snooze is something the person asked for from a
-  /// reminder that already arrived, and it belongs to no depth.
-  Future<void> _cancelHabitSlotAllDepths(String habitId, int slot) async {
+  /// reminder that already arrived, and it belongs to no depth. [inPass] as
+  /// in [_cancelAllHabitReminderSlots].
+  Future<void> _cancelHabitSlotAllDepths(
+    String habitId,
+    int slot, {
+    bool inPass = false,
+  }) async {
     for (var depth = 0; depth < kOccurrencesPerSlot; depth++) {
-      await _cancelHabitSlot(habitId, slot, depth);
+      await (inPass
+          ? _clearSlotInPass(habitId, slot, depth)
+          : _cancelHabitSlot(habitId, slot, depth));
     }
   }
 
   /// Clears one habit slot in BOTH systems. A slot is scheduled either as a
   /// notification or as an alarm under the same id (see AlarmService), and
   /// a habit switched from one to the other must not keep the old one.
+  /// Inside a pass the alarm half goes out only where AlarmKit holds
+  /// something (see [_cancelHabitAlarm]); a habit deleted between passes
+  /// ([cancelHabitReminders]) is cleared blind in both.
   Future<void> _cancelHabitSlot(String habitId, int slot,
       [int depth = 0]) async {
     final id = _habitReminderId(habitId, slot, depth);
     await _plugin.cancel(id);
-    await AlarmService.instance.cancel(id);
+    await _cancelHabitAlarm(id);
+  }
+
+  /// A habit slot's alarm, cancelled only when the pass now running knows
+  /// the bridge may hold one under [id]: listed or recorded when the pass
+  /// began, or tried by the pass since (see [_passHeldAlarms]). Outside a
+  /// pass, or when the bridge could not say, always cancelled.
+  ///
+  /// Each cancel is an AlarmKit call and an App Group write on the bridge's
+  /// own lane, and nearly all of them found nothing: of the 296 an
+  /// unchanged pass sent on a 12-habit account, none did (measured
+  /// 2026-09-30), because every slot a pass clears in both systems (a habit
+  /// with nothing to remind, the budget trim, a bundle's members, every
+  /// slot armed as a notification) was cleared the same way on the last
+  /// pass. A skipped cancel still forgets the slot's words on this side, as
+  /// the cancel does, so a ring with the app open reads the same.
+  Future<void> _cancelHabitAlarm(int id) async {
+    if (_passHeldAlarms?.contains(id) ?? true) {
+      await AlarmService.instance.cancel(id);
+    } else {
+      AlarmService.instance.forgetLocal(id);
+    }
+  }
+
+  /// [_cancelHabitSlot] for a slot the pass now running is clearing: the
+  /// notification half only when the system holds the id (see
+  /// [_cancelIfHeld]), the alarm half through [_cancelHabitAlarm] as in
+  /// [_cancelHabitSlot].
+  ///
+  /// For the budget trim, a bundle's members and a habit with nothing to
+  /// remind, which all used to cancel blind. A slot trimmed or bundled on
+  /// this pass was nearly always trimmed or bundled on the last one too, so
+  /// its id rarely holds anything: of the 315 notification cancels an
+  /// unchanged pass sent on a 12-habit account, 313 found nothing (measured
+  /// 2026-09-30). An id this pass has already armed counts as held (see
+  /// [_sweepLiveNoteIds]), so a slot whose hashed id meets another habit's
+  /// copy armed earlier in the same pass still cancels that copy, as the
+  /// blind cancel did.
+  Future<void> _clearSlotInPass(String habitId, int slot, int depth) async {
+    final id = _habitReminderId(habitId, slot, depth);
+    await _cancelIfHeld(id);
+    await _cancelHabitAlarm(id);
   }
 
   /// The background action handler's stand-down: a habit just recorded as
@@ -2202,26 +2379,38 @@ class NotificationService {
     }
   }
 
-  /// Every notification id the system is really holding right now — still to
-  /// fire, or already delivered and sitting on the lock screen. Null if it
-  /// could not be read.
-  ///
-  /// Read once per pass so the blind sweep below can skip ids that hold
-  /// nothing. Both halves are needed to make that skip EXACT rather than
-  /// merely cheap: pending alone would stop the sweep clearing a delivered
-  /// copy, which it does today and which some callers rely on. An id in
-  /// neither list cannot be cancelled into anything, so not cancelling it
-  /// is equivalent to cancelling it, minus a channel round trip — and there
-  /// were roughly 60 such round trips per habit per pass, because
-  /// [_sweepUnkeptSlots] walks a fixed 12x4 grid for every habit whether or
-  /// not that habit ever used those slots. Two calls here replace all of
-  /// them.
   /// Cancels [id] unless this pass already knows the system is not holding
-  /// it. Same end state either way; see [_liveNotificationIds].
+  /// it. Same end state either way for anything this lane wrote; see
+  /// [_liveNotificationIds].
+  ///
+  /// Only as exact as [_sweepLiveNoteIds] is current. An id this pass has
+  /// armed is added the moment it is armed, before any later cancel asks:
+  /// otherwise a slot whose hashed id meets another habit's copy armed
+  /// earlier in the same pass would spare that copy, where a blind cancel
+  /// took it. A copy written from outside this lane after the pass read
+  /// the system (a Snooze from the headless engine, [showForegroundAlarm])
+  /// is not in the set, so it is spared until the next pass, as it was
+  /// whenever it landed just after the blind cancel. Outside a pass the set
+  /// is null and this cancels blind.
   Future<void> _cancelIfHeld(int id) async {
     if (_sweepLiveNoteIds?.contains(id) ?? true) await _plugin.cancel(id);
   }
 
+  /// Every notification id the system is really holding right now: still to
+  /// fire, or already delivered and sitting on the lock screen. Null if it
+  /// could not be read.
+  ///
+  /// Read once per pass so the pass's cancels can skip ids that hold
+  /// nothing (see [_cancelIfHeld]). Both halves are needed to make that skip
+  /// EXACT rather than merely cheap: pending alone would stop the sweep
+  /// clearing a delivered copy, which it does today and which some callers
+  /// rely on. An id in neither list cannot be cancelled into anything, so
+  /// not cancelling it is equivalent to cancelling it, minus a channel round
+  /// trip, and there were roughly 60 such round trips per habit per pass,
+  /// because [_sweepUnkeptSlots] walks a fixed 12x4 grid for every habit
+  /// whether or not that habit ever used those slots, and 60 more for every
+  /// habit with nothing to remind (see [_cancelAllHabitReminderSlots]). Two
+  /// calls here replace all of them.
   Future<Set<int>?> _liveNotificationIds() async {
     if (kIsWeb) return null;
     try {
@@ -2342,6 +2531,26 @@ class NotificationService {
     }
     _laneBusy = false;
     _holdBackgroundTime(false);
+    final waiting = List.of(_idleWaiters);
+    _idleWaiters.clear();
+    for (final w in waiting) {
+      w.complete();
+    }
+  }
+
+  final List<Completer<void>> _idleWaiters = [];
+
+  /// Completes once the lane has nothing running or queued: at once when it
+  /// is idle. For the launch curtain (main.dart), which holds for everything
+  /// a reminder pass sends on its way, not only the habit sweep: the Tasks
+  /// resync, the evening and Friday notes and the badge queue behind it,
+  /// and on the simulator on 2026-09-30 they were still running 7 s after
+  /// the sweep had finished.
+  Future<void> whenIdle() {
+    if (!_laneBusy) return Future.value();
+    final waiter = Completer<void>();
+    _idleWaiters.add(waiter);
+    return waiter.future;
   }
 
   static const _backgroundTime =
@@ -2449,12 +2658,21 @@ class NotificationService {
         // Set inside the serial lane, so a pass never reads another pass's.
         _runsOnById = runsOnById;
         _excusedDaysById = excusedDaysById;
-        await _sweepHabitReminders(
-          habits,
-          settings,
-          isAr: isAr,
-          gaveWay: gaveWay,
-        );
+        try {
+          await _sweepHabitReminders(
+            habits,
+            settings,
+            isAr: isAr,
+            gaveWay: gaveWay,
+          );
+        } finally {
+          // What the pass read the systems as holding describes the moment
+          // it began, and is kept current only by its own arming. Dropped on
+          // every way out (done, gave way, or thrown), so a cancel outside a
+          // pass goes blind rather than trusting it.
+          _sweepLiveNoteIds = null;
+          _passHeldAlarms = null;
+        }
       },
       ahead: true,
     );
@@ -2488,6 +2706,7 @@ class NotificationService {
     _armedCopies.clear();
     _armedBundles.clear();
     _sweepLiveNoteIds = await _liveNotificationIds();
+    _passHeldAlarms = await _heldHabitAlarmIds();
 
     final nextHabitIds = habits.map((h) => h.id).toSet();
 
@@ -2811,7 +3030,9 @@ class NotificationService {
       }
 
       if (prayerFires.isEmpty) {
-        await _cancelAllHabitReminderSlots(habit.id);
+        // Nothing is armed yet in this loop, so what the pass read at its
+        // start is still exactly what the system holds.
+        await _cancelAllHabitReminderSlots(habit.id, inPass: true);
         continue;
       }
 
@@ -3081,8 +3302,15 @@ class NotificationService {
     // cleared; and if the alarm could not be made, the notification below
     // takes over, Time Sensitive so the person still gets what they asked
     // for as nearly as the platform allows.
-    if (!r.isQuit &&
-        r.alarm &&
+    final triesAlarm = !r.isQuit && r.alarm;
+    // Held from here on, as far as this pass's alarm cancels know, whether
+    // or not the alarm is made. The bridge can refuse before touching the id
+    // or after clearing it, so what the id holds after a refusal is not
+    // known here, and the cancel below goes out as it always did. A later
+    // slot whose hashed id meets this one still cancels it too (see
+    // [_passHeldAlarms]).
+    if (triesAlarm) _passHeldAlarms?.add(slotId);
+    if (triesAlarm &&
         await AlarmService.instance.schedule(
           id: slotId,
           fireAt: r.fireTime,
@@ -3092,7 +3320,10 @@ class NotificationService {
           targetId: r.id,
           stopLabel: alarmStopAction(isAr),
         )) {
-      await _plugin.cancel(slotId);
+      // Only when held: this slot is an alarm on every pass, so its id
+      // almost never holds a notification, and a copy another habit armed
+      // under it earlier in this pass counts as held.
+      await _cancelIfHeld(slotId);
       _armedHabitAlarmIds.add(slotId);
       _armedCopies.add((
         habitId: r.id,
@@ -3104,8 +3335,11 @@ class NotificationService {
           '${r.depth == 0 ? '' : '+${r.depth}'}) rings as an alarm');
       return false;
     }
-    // A slot that was an alarm on an earlier pass and is a notification now.
-    await AlarmService.instance.cancel(slotId);
+    // A slot that was an alarm on an earlier pass and is a notification now,
+    // or whose alarm was just refused. Only when held (see
+    // [_cancelHabitAlarm]): a slot that is a notification on every pass
+    // holds no alarm, and was the most common of these cancels.
+    await _cancelHabitAlarm(slotId);
     await _zonedSchedule(
       slotId,
       r.name,
@@ -3121,6 +3355,12 @@ class NotificationService {
       alarm: r.alarm,
       payload: r.id,
     );
+    // Held from here on, as far as this pass's later cancels know. Every
+    // habit slot the pass arms as a notification comes through here, the
+    // members of a bundle past the last bundle id included, and a trimmed
+    // or bundled slot, or an alarm slot, whose hashed id meets this one
+    // further on still has to cancel it (see [_cancelIfHeld]).
+    _sweepLiveNoteIds?.add(slotId);
     _armedCopies.add((
       habitId: r.id,
       id: slotId,
@@ -3222,7 +3462,7 @@ class NotificationService {
       // overrun came straight out of the ordinary habits' share.
       if ((r.isQuit || !_alarmsReady) &&
           scheduledCount >= kMaxPendingHabitSlots) {
-        await _cancelHabitSlot(r.id, r.slot, r.depth);
+        await _clearSlotInPass(r.id, r.slot, r.depth);
         trimmed++;
         continue;
       }
@@ -3302,7 +3542,7 @@ class NotificationService {
       if (gaveWay()) return;
       if (scheduledCount >= kMaxPendingHabitSlots) {
         for (final r in group) {
-          await _cancelHabitSlot(r.id, r.slot, r.depth);
+          await _clearSlotInPass(r.id, r.slot, r.depth);
           trimmed++;
         }
         continue;
@@ -3346,9 +3586,12 @@ class NotificationService {
       // bundled slot is by definition not individually scheduled this pass,
       // so this cancel can never race a _scheduleOne for the same id.
       // Snoozes (6000 band) are left alone: a pending snooze is something
-      // the user explicitly asked for from a delivered reminder.
+      // the user explicitly asked for from a delivered reminder. Only a
+      // held id is cancelled: a slot bundled on this pass was almost always
+      // bundled on the last one too, and holds nothing (see
+      // [_clearSlotInPass]).
       for (final r in group) {
-        await _cancelHabitSlot(r.id, r.slot, r.depth);
+        await _clearSlotInPass(r.id, r.slot, r.depth);
       }
       // The habits by name in the title, and the moment, the ask and the
       // praise in the body, with each member's streak re-based onto the day
@@ -4116,6 +4359,11 @@ class NotificationService {
   /// alarm-style notification where a real alarm cannot be made. Same
   /// slot ids either way, so switching a task between the two never leaves
   /// both scheduled; see [_cancelTaskSlot].
+  ///
+  /// [resync] is set when this is one task of MatrixNotifier's resync of
+  /// every task: the slots swept here are then cancelled only where the
+  /// system holds something, and their alarms are left to the reap that
+  /// closes the resync. See [TaskReminderResync].
   Future<void> scheduleTaskReminders({
     required String id,
     required String taskTitle,
@@ -4123,16 +4371,33 @@ class NotificationService {
     required DateTime? anchorAt,
     required bool isAr,
     bool alarm = false,
+    TaskReminderResync? resync,
   }) {
     if (kIsWeb) return Future.value();
-    return _serialized(() => _scheduleTaskRemindersNow(
+    return _serialized(() async {
+      try {
+        await _scheduleTaskRemindersNow(
           id: id,
           taskTitle: taskTitle,
           fireTimes: fireTimes,
           anchorAt: anchorAt,
           isAr: isAr,
           alarm: alarm,
-        ));
+          resync: resync,
+        );
+      } catch (_) {
+        // Stopped part-way, most often by a fire time that passed while the
+        // job waited its turn (zonedSchedule refuses a moment in the past).
+        // The slots it never reached may still hold the alarms an earlier
+        // pass armed for this task, and the reap must not take those.
+        for (var i = 0;
+            i < fireTimes.length && i < kMaxTaskReminderSlots;
+            i++) {
+          resync?._keepAlarms.add(_taskReminderId(id, i));
+        }
+        rethrow;
+      }
+    });
   }
 
   Future<void> _scheduleTaskRemindersNow({
@@ -4142,6 +4407,7 @@ class NotificationService {
     required DateTime? anchorAt,
     required bool isAr,
     required bool alarm,
+    TaskReminderResync? resync,
   }) async {
     await init();
     final wanted = fireTimes.take(kMaxTaskReminderSlots).toList();
@@ -4163,10 +4429,11 @@ class NotificationService {
             doneLabel: taskDoneAction(isAr),
             stopLabel: alarmStopAction(isAr),
           )) {
-        await _plugin.cancel(slotId);
+        resync?._keepAlarms.add(slotId);
+        await _cancelTaskNote(slotId, resync);
         continue;
       }
-      await AlarmService.instance.cancel(slotId);
+      await _cancelTaskAlarm(slotId, resync);
       await _zonedSchedule(
         slotId,
         title,
@@ -4176,17 +4443,79 @@ class NotificationService {
         alarm: alarm,
         payload: id,
       );
+      resync?._noteArmed(slotId);
     }
     for (var i = wanted.length; i < kMaxTaskReminderSlots; i++) {
-      await _cancelTaskSlot(id, i);
+      await _cancelTaskSlot(id, i, resync);
     }
   }
 
-  /// One task slot out of both systems, see [_cancelHabitSlot].
-  Future<void> _cancelTaskSlot(String taskId, int index) async {
+  /// One task slot out of both systems, see [_cancelHabitSlot]. Inside a
+  /// [resync], only what is really there; see [TaskReminderResync].
+  Future<void> _cancelTaskSlot(String taskId, int index,
+      [TaskReminderResync? resync]) async {
     final id = _taskReminderId(taskId, index);
+    await _cancelTaskNote(id, resync);
+    await _cancelTaskAlarm(id, resync);
+  }
+
+  /// A task slot's notification, pending or delivered. Inside a [resync],
+  /// skipped when the system holds nothing under [id], and when another
+  /// task of the same resync just armed it (see [TaskReminderResync]).
+  Future<void> _cancelTaskNote(int id, TaskReminderResync? resync) async {
+    if (resync != null) {
+      if (resync._armedNotes.contains(id)) return;
+      if (!resync._heldRead) {
+        resync._held = await _liveNotificationIds();
+        resync._heldRead = true;
+      }
+      if (resync._held?.contains(id) == false) return;
+    }
     await _plugin.cancel(id);
+    resync?._held?.remove(id);
+  }
+
+  /// A task slot's alarm. Inside a [resync] that covers every task it is
+  /// left to the reap that closes the resync ([finishTaskResync]), which
+  /// clears every task alarm the resync did not arm in one call instead of
+  /// one per slot. Otherwise cancelled here, except one this resync armed.
+  Future<void> _cancelTaskAlarm(int id, TaskReminderResync? resync) async {
+    if (resync != null &&
+        (resync.coversEveryTask || resync._keepAlarms.contains(id))) {
+      return;
+    }
     await AlarmService.instance.cancel(id);
+  }
+
+  /// Starts a resync of every task's reminders; see [TaskReminderResync].
+  /// Runs nothing itself: each task's own call does its work in the lane,
+  /// and [finishTaskResync] closes the pass.
+  TaskReminderResync beginTaskResync({required bool coversEveryTask}) =>
+      TaskReminderResync._(coversEveryTask);
+
+  /// Closes [resync]. When it covered every task, one reap over the whole
+  /// task band clears every task alarm AlarmKit still holds that the resync
+  /// did not arm: a done task's, one under a slot that is now a
+  /// notification, and one whose task is gone altogether (deleted on
+  /// another device, or belonging to an account signed out of here), which
+  /// no cancel could name. The near habit bands have the same reap, see
+  /// [_reapOrphanHabitAlarms].
+  ///
+  /// Queued behind the resync's own jobs, which its caller queued first, so
+  /// it judges against everything they armed. A resync that did not cover
+  /// every task cancelled its alarms slot by slot, and reaps nothing.
+  Future<void> finishTaskResync(TaskReminderResync resync) {
+    if (kIsWeb || !resync.coversEveryTask) return Future.value();
+    return _serialized(() async {
+      final reaped = await AlarmService.instance.reapOrphans(
+        lowId: kTaskReminderLowId,
+        highId: kTaskReminderHighId,
+        keep: resync._keepAlarms,
+      );
+      if (reaped != null && reaped > 0) {
+        debugPrint('[NotificationService] reaped $reaped task alarm(s)');
+      }
+    });
   }
 
   /// Catches up a task reminder whose picked moment already passed without
@@ -4246,12 +4575,16 @@ class NotificationService {
   /// later slot still armed, and by the time this is called the task's own
   /// list is usually already empty, so there's nothing left to tell us how
   /// many it used to have. Cancelling an id that was never scheduled is a
-  /// no-op, so the fixed sweep costs nothing but guarantees no stragglers.
-  Future<void> cancelTaskReminder(String id) {
+  /// no-op, so the fixed sweep is always safe, but it is not free: 16
+  /// platform calls, half of them to AlarmKit. Fine for a tick or a delete,
+  /// and it was the whole cost of the resync, which swept every done task
+  /// on every recompute. With [resync] set, only what the system really
+  /// holds is cancelled; see [TaskReminderResync].
+  Future<void> cancelTaskReminder(String id, {TaskReminderResync? resync}) {
     if (kIsWeb) return Future.value();
     return _serialized(() async {
       for (var i = 0; i < kMaxTaskReminderSlots; i++) {
-        await _cancelTaskSlot(id, i);
+        await _cancelTaskSlot(id, i, resync);
       }
     });
   }

@@ -46,7 +46,7 @@ enum AlarmKitBridge {
         result(false)
       case "authorizationState":
         result("unsupported")
-      case "cancel", "syncWindow":
+      case "cancel", "syncWindow", "heldSlots":
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -157,6 +157,19 @@ enum AlarmKitBridgeImpl {
       }
       onLane {
         result(await reapOrphans(low: low, high: high, keep: Set(keep)))
+      }
+    case "heldSlots":
+      guard let args = call.arguments as? [String: Any],
+            let low = args["lowId"] as? Int,
+            let high = args["highId"] as? Int
+      else {
+        result(nil)
+        return
+      }
+      // On the lane, so it reads after every schedule and cancel already
+      // queued, the headless engine's included.
+      onLane {
+        result(heldSlots(low: low, high: high))
       }
     case "syncWindow":
       guard let args = call.arguments as? [String: Any],
@@ -341,6 +354,32 @@ enum AlarmKitBridgeImpl {
       cancelled += 1
     }
     return cancelled
+  }
+
+  /// The slots in [low]...[high] that [reapOrphans] would count as held,
+  /// and nothing cancelled: what AlarmKit lists joined with what this bridge
+  /// recorded scheduling. A "cancel" of any other slot finds nothing to
+  /// cancel and no record to forget, so the Dart side skips it (see
+  /// NotificationService._passHeldAlarms).
+  ///
+  /// Nil, not the records alone, when AlarmKit cannot be listed: an alarm
+  /// armed by a build older than the records (2026-09-12) is in the listing
+  /// only, and its cancel must still go out. The reap can fall back to the
+  /// records because it only ever cancels; this answer is used to skip.
+  static func heldSlots(low: Int, high: Int) -> [Int]? {
+    let alarms: [Alarm]
+    do {
+      alarms = try AlarmManager.shared.alarms
+    } catch {
+      NSLog("[AlarmKitBridge] held slots \(low)-\(high) unread: \(error)")
+      return nil
+    }
+    var held = Set(AlarmSlotRecords.slots(in: low...high))
+    for alarm in alarms {
+      guard let slot = slotId(for: alarm.id), slot >= low, slot <= high else { continue }
+      held.insert(slot)
+    }
+    return held.sorted()
   }
 
   /// NotificationService._syncAlarmWindow's other end: every alarm in

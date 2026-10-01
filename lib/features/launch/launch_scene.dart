@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/services/local_store_service.dart';
 import '../../core/utils/ramadan_calendar.dart';
+import '../../core/utils/step_habit_detector.dart' show looksLikeStepHabit;
 import '../habits/catalog/islamic_habit_catalog.dart' show IslamicHabitTemplate;
 import '../habits/models/habit_model.dart' show HabitCategory;
 
@@ -64,6 +65,19 @@ enum LaunchScene {
   /// June to September, 12:00 to 15:59: the sun climbs and he puts his
   /// sunglasses on.
   summerNoon,
+
+  /// October and November, the first open from 15:00 to 17:59 (Aziz,
+  /// 2026-09-30, the "Missing winter" board): in his ghutra and bisht by his
+  /// hourglass and a small fire while the late summer sky sinks into a
+  /// starry desert night with the load; when the app is ready the first
+  /// cool breeze comes and he laughs by a big fire.
+  winterWait,
+
+  /// 16:00 to 17:59, for someone with a walking or steps habit (the "Every
+  /// step" board): he runs on his treadmill while a trail of footprints
+  /// comes out behind it with the load; when the app is ready he springs
+  /// off and every footprint sprouts.
+  walk,
 }
 
 /// The one line under Doum in each scene (Aziz, 2026-09-29: one short
@@ -85,6 +99,8 @@ String launchLine(LaunchScene scene) => switch (scene) {
       LaunchScene.update => 'Bright ideas help you Grow Daily',
       LaunchScene.stepsGoal => 'On the move you Grow Daily',
       LaunchScene.summerNoon => 'Under the sun we Grow Daily',
+      LaunchScene.winterWait => 'Missing winter while we Grow Daily',
+      LaunchScene.walk => 'Every step helps us Grow Daily',
     };
 
 /// The line once a slow load has him looking with his magnifier (see
@@ -97,6 +113,39 @@ const int kLaunchDayStartsHour = 4;
 
 /// How long away counts as coming back.
 const int kLaunchAwayDays = 3;
+
+/// The months Doum misses winter in (the phone's own date): October and
+/// November, before the cool has come. From December "missing" is no
+/// longer true.
+const kLaunchWinterMonths = {DateTime.october, DateTime.november};
+
+/// The hour his winter afternoon starts: Bahrain's sun is low from about
+/// 16:00 in those months and sets between 17:25 and 16:45, so the scene's
+/// sky matches the real one. Played on the first open from this hour.
+const int kLaunchWinterFromHour = 15;
+
+/// The hour the walk starts: the late afternoon's walking hour, until the
+/// evening's checklist at 18:00.
+const int kLaunchWalkFromHour = 16;
+
+/// The presets that are walks: the one the steps link was built for (see
+/// IslamicHabitCatalog's daily_walk).
+const kWalkingCatalogIds = {'daily_walk'};
+
+/// Whether any of [habits] is a walk: linked to the phone's step count
+/// (stepGoal, which step_auto_complete settles), the walking preset, or a
+/// name the steps offer reads as walking (looksLikeStepHabit, the same test
+/// that offers the link in Add Habit, in either language). A false yes
+/// only means the walking scene for someone who does not walk.
+bool hasWalkingHabit(Iterable<IslamicHabitTemplate> habits) {
+  for (final h in habits) {
+    if (h.stepGoal != null || kWalkingCatalogIds.contains(h.id)) return true;
+    if (looksLikeStepHabit(h.name)) return true;
+    final ar = h.nameAr;
+    if (ar != null && looksLikeStepHabit(ar)) return true;
+  }
+  return false;
+}
 
 /// The launch day [t] belongs to, as a local midnight.
 DateTime launchDayOf(DateTime t) {
@@ -149,14 +198,18 @@ bool _sameDate(DateTime? a, DateTime b) =>
 /// true is a morning without the mug. [freshInstall] is the very first
 /// launch (nothing seen yet); [updated] the first open of a new version.
 /// [lastFullDay] and [lastStepsGoal] are the last days seen with every owed
-/// habit done and with the steps goal reached (LaunchMemory).
+/// habit done and with the steps goal reached (LaunchMemory). [walker] is
+/// whether this account has a walking habit (hasWalkingHabit); pass false
+/// when the habits are not known yet, since a wrong false only means an
+/// ordinary scene.
 ///
 /// In order: back after days away, then Ramadan, then night (those three
 /// keep their place over everything); then the very first launch, a new
 /// version, Eid, yesterday full, yesterday's steps goal, Saturday's recap;
 /// then the morning's first open (never with a fast on the plan or near
-/// Ramadan), a summer noon, the evening, and otherwise one of the two
-/// ordinary scenes at random.
+/// Ramadan), a summer noon, the evening, the first open of an October or
+/// November afternoon (missing winter), a walker's late afternoon, and
+/// otherwise one of the two ordinary scenes at random.
 LaunchScene pickLaunchScene({
   required DateTime now,
   required DateTime? lastOpen,
@@ -165,6 +218,7 @@ LaunchScene pickLaunchScene({
   bool updated = false,
   DateTime? lastFullDay,
   DateTime? lastStepsGoal,
+  bool walker = false,
   math.Random? random,
 }) {
   final today = launchDayOf(now);
@@ -202,6 +256,17 @@ LaunchScene pickLaunchScene({
     return LaunchScene.eveningChecklist;
   } else if (hour >= 12 && hour < 16 && now.month >= 6 && now.month <= 9) {
     return LaunchScene.summerNoon;
+  } else if (hour >= kLaunchWinterFromHour &&
+      kLaunchWinterMonths.contains(now.month) &&
+      (lastOpen == null ||
+          lastOpen.isBefore(
+            DateTime(now.year, now.month, now.day, kLaunchWinterFromHour),
+          ))) {
+    // Once an afternoon, as Saturday's recap: his worried wait is a treat,
+    // not what every open that afternoon shows.
+    return LaunchScene.winterWait;
+  } else if (hour >= kLaunchWalkFromHour && walker) {
+    return LaunchScene.walk;
   }
   return (random ?? math.Random()).nextBool()
       ? LaunchScene.dayRing
@@ -210,9 +275,35 @@ LaunchScene pickLaunchScene({
 
 /// Set with `--dart-define=GD_LAUNCH_CYCLE=true` to see every scene on a
 /// device without waiting for the hour: each cold start then plays the next
-/// scene in [LaunchScene]'s order. Off in every normal build, where the
-/// compiler drops it.
+/// scene in [LaunchScene]'s order, missing winter and the walk last. Off in
+/// every normal build, where the compiler drops it.
 const bool kLaunchSceneCycle = bool.fromEnvironment('GD_LAUNCH_CYCLE');
+
+/// Set with `--dart-define=GD_LAUNCH_SCENE=<name>` (a [LaunchScene] value's
+/// name, as `winterWait` or `walk`) to play that one scene on every launch
+/// of a debug build, without waiting for its date, hour or habits. Wins
+/// over [kLaunchSceneCycle]. Null in a profile or release build, and for a
+/// name that is not a scene's.
+final LaunchScene? kLaunchSceneForced = launchSceneNamed(
+  const String.fromEnvironment('GD_LAUNCH_SCENE'),
+  debug: kDebugMode,
+);
+
+/// The scene called [name], only in a [debug] build (see
+/// [kLaunchSceneForced]).
+LaunchScene? launchSceneNamed(String name, {required bool debug}) {
+  if (!debug || name.isEmpty) return null;
+  for (final scene in LaunchScene.values) {
+    if (scene.name == name) return scene;
+  }
+  return null;
+}
+
+/// The scene a build's switch fixes for this launch instead of
+/// [pickLaunchScene]'s choice: [kLaunchSceneForced], then the cycle's next
+/// ([kLaunchSceneCycle]). Null in every normal build.
+LaunchScene? launchSceneFixed() =>
+    kLaunchSceneForced ?? (kLaunchSceneCycle ? LaunchMemory.cycledScene : null);
 
 /// What the launch scene is chosen from, kept on this phone.
 ///
@@ -296,11 +387,39 @@ class LaunchMemory {
   /// open) off the disk.
   static void recordOpen(DateTime now) {
     if (!_loaded) return;
-    final version = _version;
     LocalStoreService.settingsBox().then((box) async {
       await box.put(_key, now.toIso8601String());
+      // The version is stored even when [load] ran out of time reading it
+      // (300 ms, a slow cold start): left unstored, the next launch took
+      // this same version for a new one and played the bulb a launch late.
+      final version = _version ?? await _readVersion();
       if (version != null) await box.put(_versionKey, version);
     }).catchError((Object _) {});
+  }
+
+  /// Makes the next scene a return's, not the launch's: [lastOpen] becomes
+  /// [since], the moment the app left the screen, and this version counts
+  /// as seen. Called by main.dart just before a long return plays the
+  /// curtain again (see kLaunchReplayAfter).
+  ///
+  /// Without it the return would choose from what the launch knew: the open
+  /// before this PROCESS, which can be days old (the welcome back to someone
+  /// who used the app an hour ago), and a version not yet recorded in
+  /// memory (the bulb on every return after an update). [recordOpen] only
+  /// writes the disk, for the next launch, so it cannot answer either.
+  static void beginReturn({required DateTime since}) {
+    _lastOpen = since;
+    if (_version != null) _lastVersion = _version;
+    if (kLaunchSceneCycle) _cycle++;
+  }
+
+  static Future<String?> _readVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      return _version = '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Notes [day] as a day with every owed habit done (the Grid's day card
@@ -310,6 +429,19 @@ class LaunchMemory {
     if (_lastFullDay != null && !date.isAfter(_lastFullDay!)) return;
     _lastFullDay = date;
     _write(_fullDayKey, date);
+  }
+
+  /// Takes [day] back when it stops being full: a square undone, or a habit
+  /// owed today added after the last tick. Only [day] itself, so an older
+  /// full day is never touched, and nothing is written unless it changes.
+  static void clearFullDay(DateTime day) {
+    final date = DateTime(day.year, day.month, day.day);
+    if (_lastFullDay != date) return;
+    _lastFullDay = null;
+    if (!_loaded) return;
+    LocalStoreService.settingsBox()
+        .then((box) => box.delete(_fullDayKey))
+        .catchError((Object _) {});
   }
 
   /// Notes [day] as a day the steps goal was reached (step_auto_complete

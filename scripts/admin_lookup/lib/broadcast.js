@@ -38,6 +38,24 @@
  * message cannot go until a day after the first, so nobody gets two in a
  * day. A test is not counted.
  *
+ * A third slot in the same document, `update`, is not a message: it says
+ * which builds the stores have, and an app on an older build shows the
+ * pop-up that sends its owner to update (lib/features/broadcast/app_update.dart).
+ * Aziz, 2026-09-30: whoever is not updating gets a pop-up that sends them to
+ * update. The store's own lookup cannot say it (Apple reports 1.1.0 for every
+ * build shipped so far), so it is said here, once a build is live:
+ *
+ *   ios / android   {latest, min}, build numbers (the +N of pubspec's version)
+ *   latest          an older build is offered the update, once a day, and may
+ *                   put it off
+ *   min             an older build gets a pop-up it cannot close until it
+ *                   updates. 0 = no wall. Never above `latest`: nobody is sent
+ *                   to a build the admin has not said is out.
+ *
+ * Every write here replaces the document whole, so each one carries the
+ * slots it is not changing (liveForWrite). Forgetting one would quietly turn
+ * the update prompt off at the next message.
+ *
  * Writes: broadcast/live (replaced whole inside a transaction, the same
  * rule wording.js's doc comment explains) and broadcast_log/{id}, one row
  * per send, admin only. Never an account: dead device tokens are counted
@@ -59,6 +77,14 @@ const LOG_LIMIT = 40;
 const KINDS = ['popup', 'notification'];
 const AUDIENCES = ['everyone', 'test'];
 const SLOTS = ['everyone', 'test'];
+
+/** The platforms an update can be aimed at, as the page names them. */
+const UPDATE_PLATFORMS = ['ios', 'android'];
+const UPDATE_LABEL = Object.freeze({ ios: 'iPhone', android: 'Android' });
+
+/** The largest build number accepted: far above any real one, so a typo
+ *  that adds a digit is refused instead of becoming a wall. */
+const MAX_BUILD = 100000;
 
 /** How long a pop-up keeps showing to people who have not opened the app yet. */
 const POPUP_DAYS = [1, 3, 7, 14, 30];
@@ -742,6 +768,7 @@ async function readMessages(db, nowMs = Date.now()) {
     live: {
       everyone: shapePopup(data.everyone, nowMs),
       test: shapePopup(data.test, nowMs),
+      update: shapeUpdate(data.update),
       version: Number.isInteger(data.version) ? data.version : 0,
     },
     history: logSnap.docs.map(shapeLogRow),
@@ -749,16 +776,18 @@ async function readMessages(db, nowMs = Date.now()) {
 }
 
 /**
- * The stored document, ready to be written back whole. The slot not being
- * changed is carried over exactly as stored (its dates stay Firestore
+ * The stored document, ready to be written back whole. The slots not being
+ * changed are carried over exactly as stored (their dates stay Firestore
  * timestamps), and a slot holding something unreadable is cleared.
  */
 function liveForWrite(data) {
   const src = data && typeof data === 'object' ? data : {};
   const keep = (p) => (p && typeof p === 'object' && typeof p.id === 'string' ? p : null);
+  const keepUpdate = (u) => (u && typeof u === 'object' && !Array.isArray(u) ? u : null);
   return {
     everyone: keep(src.everyone),
     test: keep(src.test),
+    update: keepUpdate(src.update),
     version: Number.isInteger(src.version) ? src.version : 0,
   };
 }
@@ -819,6 +848,7 @@ async function publishPopup(db, FieldValue, {
     tx.set(liveRef, {
       everyone: live.everyone,
       test: live.test,
+      update: live.update,
       version: live.version + 1,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -872,6 +902,7 @@ async function stopPopup(db, FieldValue, { slot, nowMs = Date.now() }) {
     tx.set(liveRef, {
       everyone: live.everyone,
       test: live.test,
+      update: live.update,
       version: live.version + 1,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -881,6 +912,81 @@ async function stopPopup(db, FieldValue, { slot, nowMs = Date.now() }) {
     await db.collection(LOG_COLLECTION).doc(stoppedId).set({ stoppedAt: new Date(nowMs) }, { merge: true });
   }
   return { ok: true, stopped: stoppedId };
+}
+
+// ---- The update prompt ------------------------------------------------------------
+
+/**
+ * A build number as typed or stored: a whole number from 0 to MAX_BUILD, a
+ * digit string of one, or nothing (0). Null for anything else, so the caller
+ * can say which field was wrong.
+ */
+function buildNumber(value) {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = typeof value === 'string' && /^\s*\d{1,6}\s*$/.test(value) ? Number(value) : value;
+  return Number.isInteger(n) && n >= 0 && n <= MAX_BUILD ? n : null;
+}
+
+/**
+ * Checks what the page sends for the update prompt: `{ios: {latest, min},
+ * android: {latest, min}}`. Every message says which platform and which
+ * number, since two of the four are on screen at once.
+ */
+function checkUpdateGate(raw) {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const errors = [];
+  const gate = {};
+  for (const platform of UPDATE_PLATFORMS) {
+    const label = UPDATE_LABEL[platform];
+    const side = input[platform] && typeof input[platform] === 'object' ? input[platform] : {};
+    const latest = buildNumber(side.latest);
+    const min = buildNumber(side.min);
+    if (latest === null) errors.push(`${label}: the newest build must be a whole number from 0 to ${MAX_BUILD}.`);
+    if (min === null) errors.push(`${label}: the oldest build allowed must be a whole number from 0 to ${MAX_BUILD}.`);
+    if (latest !== null && min !== null && min > latest) {
+      errors.push(`${label}: the oldest build allowed (${min}) cannot be above the newest (${latest}). Nobody can be sent to a build that is not out.`);
+    }
+    gate[platform] = { latest: latest === null ? 0 : latest, min: min === null ? 0 : min };
+  }
+  return errors.length ? { ok: false, errors } : { ok: true, gate };
+}
+
+/** The stored update slot as the page shows it: always four numbers. */
+function shapeUpdate(u) {
+  const src = u && typeof u === 'object' ? u : {};
+  const side = (s) => ({
+    latest: buildNumber(s && s.latest) || 0,
+    min: buildNumber(s && s.min) || 0,
+  });
+  return { ios: side(src.ios), android: side(src.android), setAt: isoOf(src.setAt) };
+}
+
+/**
+ * Says which builds are out: replaces only the `update` slot, carrying the
+ * pop-ups exactly as stored. All zeros turns the prompt off (the slot is
+ * emptied, not stored as zeros). Refused when a minimum is above its newest
+ * build. Not logged in history: `setAt` on the slot is the only record, and
+ * the page shows it.
+ */
+async function publishUpdateGate(db, FieldValue, { gate: raw, nowMs = Date.now() }) {
+  const check = checkUpdateGate(raw);
+  if (!check.ok) throw new BroadcastInputError(check.errors.join(' '));
+  const gate = check.gate;
+  const off = UPDATE_PLATFORMS.every((p) => gate[p].latest === 0 && gate[p].min === 0);
+  const liveRef = db.doc(LIVE_DOC);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(liveRef);
+    const live = liveForWrite(snap.exists ? snap.data() : null);
+    live.update = off ? null : { ios: gate.ios, android: gate.android, setAt: new Date(nowMs) };
+    tx.set(liveRef, {
+      everyone: live.everyone,
+      test: live.test,
+      update: live.update,
+      version: live.version + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true, off, update: shapeUpdate(off ? null : { ...gate, setAt: new Date(nowMs) }) };
 }
 
 /**
@@ -930,8 +1036,12 @@ module.exports = {
   sendNotification,
   holdViaFunction,
   shapePopup,
+  shapeUpdate,
   readMessages,
   publishPopup,
   stopPopup,
+  checkUpdateGate,
+  publishUpdateGate,
   phonesCanRead,
+  MAX_BUILD,
 };

@@ -616,6 +616,7 @@ const List<String> kEditableWordingKeys = [
   'navBarAddTabs',
   'navBarFull',
   'navBarPinned',
+  'navBarKeepOne',
   'navBarRemove',
   'navBarAdd',
   'navBarReset',
@@ -627,6 +628,8 @@ const List<String> kEditableWordingKeys = [
   'navBadgesTitle',
   'navBadgesDesc',
   'navBadgeReviewPending',
+  'startPageTitle',
+  'startPageSheetTitle',
   'appIconTitle',
   'appIconNow',
   'appIconPreviewing',
@@ -1530,6 +1533,12 @@ const List<String> kEditableWordingKeys = [
   'gridSproutHideYes',
   'gridSproutHideNo',
   'gridSproutSetting',
+  'updateAvailableTitle',
+  'updateAvailableBody',
+  'updateRequiredTitle',
+  'updateRequiredBody',
+  'updateNow',
+  'updateLater',
 ];
 
 /// Every other S string. Each picks between several wordings in code (a
@@ -4399,6 +4408,9 @@ class _EditedS extends S {
   String get navBarPinned => plainWording(_edits['navBarPinned']) ?? super.navBarPinned;
 
   @override
+  String get navBarKeepOne => plainWording(_edits['navBarKeepOne']) ?? super.navBarKeepOne;
+
+  @override
   String get navBarRemove => plainWording(_edits['navBarRemove']) ?? super.navBarRemove;
 
   @override
@@ -4430,6 +4442,12 @@ class _EditedS extends S {
 
   @override
   String get navBadgeReviewPending => plainWording(_edits['navBadgeReviewPending']) ?? super.navBadgeReviewPending;
+
+  @override
+  String get startPageTitle => plainWording(_edits['startPageTitle']) ?? super.startPageTitle;
+
+  @override
+  String get startPageSheetTitle => plainWording(_edits['startPageSheetTitle']) ?? super.startPageSheetTitle;
 
   @override
   String get appIconTitle => plainWording(_edits['appIconTitle']) ?? super.appIconTitle;
@@ -9327,4 +9345,22 @@ class _EditedS extends S {
 
   @override
   String get gridSproutSetting => plainWording(_edits['gridSproutSetting']) ?? super.gridSproutSetting;
+
+  @override
+  String get updateAvailableTitle => plainWording(_edits['updateAvailableTitle']) ?? super.updateAvailableTitle;
+
+  @override
+  String get updateAvailableBody => plainWording(_edits['updateAvailableBody']) ?? super.updateAvailableBody;
+
+  @override
+  String get updateRequiredTitle => plainWording(_edits['updateRequiredTitle']) ?? super.updateRequiredTitle;
+
+  @override
+  String get updateRequiredBody => plainWording(_edits['updateRequiredBody']) ?? super.updateRequiredBody;
+
+  @override
+  String get updateNow => plainWording(_edits['updateNow']) ?? super.updateNow;
+
+  @override
+  String get updateLater => plainWording(_edits['updateLater']) ?? super.updateLater;
 }

@@ -4,8 +4,8 @@
 //    theme's colour; otherwise a card offers it, «مو الحين» twice ends that;
 //  - when the plant grows (30 and 90 full days): «نبتتك كبرت» once per
 //    newly opened shape, and «استخدمها» puts the new shape on the phone in
-//    the colour it already has (the original colours after the Ramadan
-//    icon, which has none for the other shapes);
+//    the colour it already has (the shipped icon's, Doum's, after the
+//    Ramadan icon, which has none for the other shapes);
 //  - once each Ramadan, from 1 Ramadan until Eid: «رمضان مبارك» offers the
 //    Ramadan icon, first when both cards are due, one card a call.
 // All of them run on iPhones only, so every test pins the platform to iOS.
@@ -294,7 +294,7 @@ void main() {
     group('35 days, with the Ramadan icon on the phone', () {
       setUp(() => prepare(days: 35, showing: AppIconChoice.ramadan));
 
-      testWidgets('the new shape comes in the original colours',
+      testWidgets("the new shape comes in the shipped icon's colours",
           (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         try {
@@ -304,7 +304,7 @@ void main() {
           await h.settle(tester);
           expect(
             phone.sets,
-            [const AppIconChoice(PlantShape.grown, 'emerald_gold')],
+            [const AppIconChoice(PlantShape.grown, 'doum')],
           );
         } finally {
           debugDefaultTargetPlatformOverride = null;
@@ -325,7 +325,7 @@ void main() {
         ),
       );
 
-      testWidgets('the grown plant comes in the original colours',
+      testWidgets("the grown plant comes in the shipped icon's colours",
           (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
         try {
@@ -335,7 +335,7 @@ void main() {
           await h.settle(tester);
           expect(
             phone.sets,
-            [const AppIconChoice(PlantShape.grown, 'emerald_gold')],
+            [const AppIconChoice(PlantShape.grown, 'doum')],
             reason: 'never the Premium colour without Premium',
           );
         } finally {
@@ -478,8 +478,8 @@ void main() {
           await host(tester, maybeShowIconCard);
           expect(find.text('Ramadan Mubarak'), findsNothing);
           expect(h.container.read(appIconPrefsProvider).ramadanCardYear, 1448);
-          // The plant's card has the turn instead, grown in the original
-          // colours since the Ramadan icon has none for other shapes.
+          // The plant's card has the turn instead, grown in the shipped
+          // icon's colours since the Ramadan icon has none for other shapes.
           expect(find.text('Your plant grew'), findsOneWidget);
           await tester.tap(find.text('Later'));
           await h.settle(tester);

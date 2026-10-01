@@ -10,6 +10,7 @@ import '../../shared/widgets/app_snackbar.dart';
 import '../habits/catalog/habit_plans.dart' show reminderTimeProvider;
 import '../habits/models/habit_model.dart' show GoalType;
 import '../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
+import '../launch/launch_curtain_up.dart';
 import 'daily_reminder_prompt.dart';
 import 'daily_reminder_prompt_dialog.dart';
 
@@ -105,6 +106,21 @@ class _DailyReminderPromptAnnouncerState
     _timer = Timer(delay, _tryShow);
   }
 
+  bool _waitingForCurtain = false;
+
+  /// Nothing opens under the launch curtain: it waits for the curtain to
+  /// go, and this open's window starts from there (see afterLaunchCurtain).
+  void _awaitCurtain() {
+    if (_waitingForCurtain) return;
+    _waitingForCurtain = true;
+    afterLaunchCurtain(ref, () {
+      _waitingForCurtain = false;
+      if (!mounted) return;
+      _openedAt = widget.now();
+      _schedule(widget.settleDelay);
+    });
+  }
+
   bool _withinOpen() {
     final elapsed = widget.now().difference(_openedAt);
     return !elapsed.isNegative && elapsed <= kDailyReminderPromptOpenWindow;
@@ -130,7 +146,9 @@ class _DailyReminderPromptAnnouncerState
               .contains(top.settings.name));
 
   Future<void> _tryShow() async {
-    if (!mounted || _showing || _askedThisRun || !_withinOpen()) return;
+    if (!mounted || _showing || _askedThisRun) return;
+    if (ref.read(launchCurtainUpProvider)) return _awaitCurtain();
+    if (!_withinOpen()) return;
     // Not loaded yet (or still in the first-run walkthrough): look again. A
     // cold start can take several seconds to read these back, and on
     // 2026-09-24 the question never came on a simulator launch because the

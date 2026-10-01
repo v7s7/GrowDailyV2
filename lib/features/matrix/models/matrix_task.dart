@@ -102,12 +102,24 @@ enum MatrixQuadrant {
 
   String localLabel(bool isAr) => isAr
       ? switch (this) {
-          MatrixQuadrant.doFirst => 'أولاً',
-          MatrixQuadrant.schedule => 'جدول',
-          MatrixQuadrant.delegate => 'فوّض',
-          MatrixQuadrant.eliminate => 'احذف',
+          MatrixQuadrant.doFirst => 'الآن',
+          MatrixQuadrant.schedule => 'خطط لها',
+          MatrixQuadrant.delegate => 'عطها غيرك',
+          MatrixQuadrant.eliminate => 'خلها',
         }
       : label;
+
+  /// The Arabic names these boxes had until 2026-09-30 (أولاً / جدول /
+  /// فوّض / احذف), when Aziz swapped them for easier words. The edit sheet
+  /// used to save the name it opened with, so a colour-only edit stored the
+  /// old default as if it were chosen. A saved title equal to this is read
+  /// as "no title of your own" (see MatrixState.titleFor).
+  String get retiredArLabel => switch (this) {
+        MatrixQuadrant.doFirst => 'أولاً',
+        MatrixQuadrant.schedule => 'جدول',
+        MatrixQuadrant.delegate => 'فوّض',
+        MatrixQuadrant.eliminate => 'احذف',
+      };
 
   String localSubtitle(bool isAr) => isAr
       ? switch (this) {

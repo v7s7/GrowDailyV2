@@ -9,6 +9,7 @@ import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/l10n/wording_edits.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/dashboard/widgets/reaction_overlays.dart';
+import 'package:grow_daily_v2/features/launch/launch_curtain_up.dart';
 
 void main() {
   const ar = S(Locale('ar'));
@@ -164,6 +165,37 @@ void main() {
     expect(buzzes, ['heavyImpact', 'mediumImpact']);
     expect(burstSizes(tester), [30, 22]);
     expect(find.text(ar.perfectDayMsg), findsOneWidget);
+    await settle(tester);
+  });
+
+  testWidgets('a day finished out of sight (a long return\'s launch curtain '
+      'up, the widget\'s ticks draining under it) plays once it can be seen, '
+      'after a breath, and only once', (tester) async {
+    listen(tester);
+    await tester.pumpWidget(app(perfectDay: false));
+    // The curtain comes up; the day fills while it is.
+    await tester.pumpWidget(app(perfectDay: false, live: false));
+    await tester.pumpWidget(app(perfectDay: true, live: false));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(bursts, findsNothing, reason: 'nothing plays behind it');
+    expect(buzzes, isEmpty);
+
+    // It lifts.
+    await tester.pumpWidget(app(perfectDay: true));
+    await tester.pump(kLaunchSettle - const Duration(milliseconds: 100));
+    expect(bursts, findsNothing, reason: 'the page has its moment first');
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(buzzes, ['heavyImpact']);
+    expect(burstSizes(tester), [30]);
+    await settle(tester);
+
+    // Out of sight and back again with nothing new: nothing.
+    buzzes.clear();
+    await tester.pumpWidget(app(perfectDay: true, live: false));
+    await tester.pumpWidget(app(perfectDay: true));
+    await tester.pump(const Duration(seconds: 1));
+    expect(buzzes, isEmpty);
+    expect(bursts, findsNothing);
     await settle(tester);
   });
 }

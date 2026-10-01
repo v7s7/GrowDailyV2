@@ -16,6 +16,8 @@
 // These drive the real service against channels that take a little time per
 // call, the way the device's do, and look at what the system still holds a
 // moment after the tick.
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/services.dart';
@@ -181,8 +183,10 @@ void main() {
           ),
       ];
 
-  // What a recompute queues for tasks: one sweep per task that ever carried
-  // a reminder, done ones included (MatrixNotifier._resyncAllReminders).
+  // A backlog of task work: one plain cancel per task, 16 calls each. Every
+  // recompute queued exactly this for each task that ever carried a
+  // reminder, done ones included, until the resync learned to read what the
+  // system holds (TaskReminderResync); a bulk delete still does.
   List<Future<void>> queueTaskSweep(int tasks) => [
         for (var i = 0; i < tasks; i++)
           service.cancelTaskReminder('done-task-$i'),
@@ -392,5 +396,30 @@ void main() {
       reason: 'new work after an empty lane asks again',
     );
     expect(trace.last, 'background:end');
+  });
+
+  test(
+      'whenIdle waits for everything queued behind a pass, not only its '
+      'habit sweep (the launch curtain holds for it)', () async {
+    expect(service.whenIdle(), completes, reason: 'idle: at once');
+    await pumpEventQueue();
+
+    final pass = service.scheduleSmartReminders(
+      others(const TimeOfDay(hour: 6, minute: 0)),
+      settings,
+      isAr: true,
+    );
+    final tasks = queueTaskSweep(20);
+    var sweepDone = false;
+    var idle = false;
+    unawaited(pass.then((_) => sweepDone = true));
+    unawaited(service.whenIdle().then((_) => idle = true));
+
+    await pass;
+    expect(sweepDone, isTrue);
+    expect(idle, isFalse, reason: 'the task sweep queued behind it runs on');
+    await Future.wait(tasks);
+    await pumpEventQueue();
+    expect(idle, isTrue);
   });
 }

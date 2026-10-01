@@ -12,6 +12,7 @@ import 'package:grow_daily_v2/core/providers/day_clock_provider.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
+import 'package:grow_daily_v2/features/dashboard/widgets/reaction_overlays.dart';
 import 'package:grow_daily_v2/features/grid/screens/grid_screen.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart';
 import 'package:grow_daily_v2/features/mascot/sprout_praise.dart';
@@ -116,7 +117,8 @@ class LandingHarness {
   static const Size surface = Size(800, 1000);
 
   /// [home] defaults to [GridScreen] on its own, which is what the landing
-  /// flows below actually exercise. Pass [HomeShell] instead for anything
+  /// flows below actually exercise, with the level-up and medal moments
+  /// HomeShell hosts around it in the app (see [_GridWithReactions]). Pass [HomeShell] instead for anything
   /// that needs the bottom bar: the shell owns the single [GameNavBar] and
   /// hosts Grid/Profile/Matrix as pages of one PageView (see its doc
   /// comment), so a test pumping GridScreen alone has no nav bar in the tree
@@ -140,7 +142,7 @@ class LandingHarness {
           ],
           // Light theme is pure const styles — no runtime font fetching.
           theme: GameTheme.light,
-          home: home ?? const GridScreen(),
+          home: home ?? const _GridWithReactions(),
           routes: {
             '/heatmap': (_) => const MonthlyHeatmapScreen(),
             '/night-review': (_) => const NightReviewScreen(),
@@ -160,5 +162,20 @@ class LandingHarness {
   Future<void> pumpApp(WidgetTester tester, {Widget? home}) async {
     await tester.pumpWidget(app(home: home));
     await settle(tester);
+  }
+}
+
+/// [GridScreen] plus [registerDashboardReactions], which is what the Grid
+/// sits under in the app. The reactions were the Grid's own until
+/// 2026-09-30 and are HomeShell's since (the Grid is not built while
+/// another page shows), so a Grid pumped alone would no longer celebrate
+/// its first square, which the landing flows assert.
+class _GridWithReactions extends ConsumerWidget {
+  const _GridWithReactions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    registerDashboardReactions(context, ref);
+    return const GridScreen();
   }
 }

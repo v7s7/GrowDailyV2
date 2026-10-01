@@ -31,6 +31,12 @@ import 'armed_reminder_record.dart' show ReminderStandDown;
 const int _taskReminderBase = 10000;
 const int _taskReminderRange = 50000;
 
+/// The first and last id of that band, for a sweep that has to cover every
+/// task reminder there could be: NotificationService.finishTaskResync's
+/// reap of the task alarms no resync armed.
+const int kTaskReminderLowId = _taskReminderBase;
+const int kTaskReminderHighId = _taskReminderBase + _taskReminderRange - 1;
+
 /// How many reminder slots a single task can occupy. iOS caps an app at 64
 /// *pending* local notifications in total, app-wide, and this app is already
 /// spending that budget on habit reminders, streak nudges and quit

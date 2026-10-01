@@ -426,11 +426,22 @@ extension DashboardNotifierLoading on DashboardNotifier {
       // dangerous state (see DashboardState.loadFailed). The user doc is the
       // one that must survive; a missing daily doc just means "nothing done
       // yet today", which is exactly what the null path already handles.
-      final userSnap = await _userRef.get();
-      final dailySnap = await _dailyRef.get().then<DocumentSnapshot<Map<String, dynamic>>?>(
+      //
+      // Both are STARTED together, though, and only awaited apart: one did
+      // not need the other, and running them one after the other cost a
+      // whole server round trip on every signed-in cold start, the one the
+      // launch curtain was waiting on (the launch audit, 2026-09-30). The
+      // daily read's error handler is attached as it starts, so a failed
+      // user read cannot leave it unhandled.
+      final userFuture = _userRef.get();
+      final dailyFuture = _dailyRef
+          .get()
+          .then<DocumentSnapshot<Map<String, dynamic>>?>(
             (s) => s,
             onError: (_) => null,
           );
+      final userSnap = await userFuture;
+      final dailySnap = await dailyFuture;
 
       String displayName = '';
       int level = 1,

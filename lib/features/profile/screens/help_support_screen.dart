@@ -247,9 +247,20 @@ const List<FaqEntry> kFaqEntries = [
     questionEn: 'Can I change the tabs in the bottom bar?',
     questionAr: 'أقدر أغيّر الشريط السفلي؟',
     answerEn:
-        'Yes, with Premium. Go to Settings, then Look, then Bottom bar, or press and hold the bar itself. The bar holds up to 5 tabs, and Habits and Profile always stay. Add tabs like Rooms, Progress or Tasbih, drag them into the order you like, or remove Tasks. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
+        'Yes, with Premium. Go to Settings, then Look, then Bottom bar, or press and hold the bar itself. The bar holds up to 5 tabs. Profile always stays, and so does Habits or Tasks: you can remove one of them, not both. Add tabs like Rooms, Progress or Tasbih, and drag them into the order you like. If Premium ends, the bar stays the way you left it, and Reset to default is always available.',
     answerAr:
-        'نعم، مع بريميوم. روح للإعدادات، ثم الشكل، ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. الشريط ياخذ لحد 5 تبويبات، والعادات وملفي دائمًا موجودين. أضف تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي، أو احذف المهام. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
+        'نعم، مع بريميوم. روح للإعدادات، ثم الشكل، ثم الشريط السفلي، أو اضغط مطولًا على الشريط نفسه. الشريط ياخذ لحد 5 تبويبات. ملفي دائمًا موجود، ولازم تبقى العادات أو المهام: تقدر تحذف وحدة منهم، مو الثنتين. أضف تبويبات مثل الغرف أو التقدّم أو السبحة، ورتّبها مثل ما تبي. وإذا انتهى بريميوم، الشريط يبقى مثل ما تركته، واسترجاع الافتراضي متاح دائمًا.',
+    group: FaqGroup.features,
+  ),
+  // Added 2026-09-30 with startPageProvider. Free, unlike the bar above.
+  FaqEntry(
+    id: 'start-page',
+    questionEn: 'Can the app open on Tasks instead of Habits?',
+    questionAr: 'أقدر أخلي التطبيق يفتح على المهام بدل العادات؟',
+    answerEn:
+        'Yes. Go to Settings, then Look, then Start page, and pick Tasks. Habits is the default.',
+    answerAr:
+        'نعم. روح للإعدادات، ثم الشكل، ثم أول صفحة، واختر المهام. العادات هي الافتراضية.',
     group: FaqGroup.features,
   ),
   FaqEntry(

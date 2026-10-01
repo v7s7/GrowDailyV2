@@ -393,6 +393,54 @@ void main() {
       dir.deleteSync(recursive: true);
     });
 
+    test('the question waits for beforeAsking (the launch curtain); a look '
+        'that needs no question does not', () async {
+      widgetPlaced = true;
+      geo.permission = LocationPermission.denied; // never asked yet
+      geo.fresh = _fix(_manama.lat, _manama.lng);
+      container = makeContainer();
+      final gone = Completer<void>();
+      var waited = 0;
+      final running = autoLocatePrayerPlace(
+        container.read,
+        beforeAsking: () {
+          waited++;
+          return gone.future;
+        },
+      );
+      // Real disk reads come first (the settings box), so wait for the step.
+      for (var i = 0; i < 400 && waited == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(waited, 1);
+      await pumpEventQueue();
+      expect(geo.prompts, 0, reason: 'not while the curtain is up');
+      gone.complete();
+      await running;
+      await pumpEventQueue();
+      expect(geo.prompts, 1);
+      expect(container.read(notificationSettingsProvider).location, isNotNull);
+
+      // Allowed already: the look is silent and never waits.
+      final allowed = _FakeGeo()
+        ..permission = LocationPermission.whileInUse
+        ..fresh = _fix(_riyadh.lat, _riyadh.lng);
+      GeolocatorPlatform.instance = allowed;
+      resetAutoLocatePrayerPlace();
+      await LocalStoreService.putSettingsMap(
+          _settingsKey, const NotificationSettings().toMap());
+      container = makeContainer();
+      var waitedAgain = 0;
+      await autoLocatePrayerPlace(
+        container.read,
+        beforeAsking: () async => waitedAgain++,
+      );
+      await pumpEventQueue();
+      expect(waitedAgain, 0);
+      expect(allowed.prompts, 0);
+      expect(container.read(notificationSettingsProvider).location, isNotNull);
+    });
+
     test('a widget placed with no place: asks once, saves the phone\'s',
         () async {
       widgetPlaced = true;

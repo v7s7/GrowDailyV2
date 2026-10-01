@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -12,6 +14,7 @@ import '../../achievements/widgets/tier_palette.dart';
 import '../../character/models/prestige_tier.dart';
 import '../../character/widgets/rank_up_celebration.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart';
+import '../../launch/launch_curtain_up.dart';
 import '../../mascot/pet_settings.dart';
 import '../../mascot/sprout.dart';
 import '../../mascot/sprout_signals.dart';
@@ -30,15 +33,26 @@ void registerDashboardReactions(
 ) {
   ref.listen<DashboardState>(dashboardProvider, (prev, next) {
     if (prev == null) return;
+    // Each moment plays where it can be seen: after the launch curtain has
+    // gone, or at once when it is not up (every moment but a cold start's).
+    // A launch that settled a streak or backfilled a medal used to play it
+    // under Doum's scene, or the instant the curtain lifted.
+    void seen(void Function() show) => afterLaunchCurtain(ref, () {
+          if (context.mounted) show();
+        });
 
     if (next.didUseStreakFreeze && !prev.didUseStreakFreeze) {
-      HapticFeedback.mediumImpact();
-      showStreakFreezeProtectedSnackBar(context, next.streakFreezes);
+      seen(() {
+        HapticFeedback.mediumImpact();
+        showStreakFreezeProtectedSnackBar(context, next.streakFreezes);
+      });
     }
     if (next.perfectDayCelebration && !prev.perfectDayCelebration) {
-      celebrateStreakPoint(context);
-      // The day card's sprout jumps with this moment (see DayCardSprout).
-      ref.read(sproutStreakPointProvider.notifier).state++;
+      seen(() {
+        celebrateStreakPoint(context);
+        // The day card's sprout jumps with this moment (see DayCardSprout).
+        ref.read(sproutStreakPointProvider.notifier).state++;
+      });
     }
     if (next.didJustLevelUp) {
       // A rank crossing needs no persisted state of its own, because a tier
@@ -50,25 +64,27 @@ void registerDashboardReactions(
       // change, see its doc comment).
       final wasTier = PrestigeCatalog.highestFor(prev.level);
       final nowTier = PrestigeCatalog.highestFor(next.level);
-      if (wasTier.id != nowTier.id) {
-        // The rank moment replaces the level-up toast rather than stacking on
-        // it. A snackbar saying "level 20" at the bottom of a full screen
-        // celebration about reaching level 20 is the same fact twice, and the
-        // rarer of the two is the one worth reading: there are 99 level ups in
-        // a lifetime and 7 of these.
-        HapticFeedback.heavyImpact();
-        // Longest delay in this listener on purpose. If a rank crossing lands
-        // on the same tick as an achievement (250ms) or a milestone (350/400),
-        // this settles in after them rather than racing.
-        Future.delayed(const Duration(milliseconds: 450), () {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          showRankUpCelebration(context, from: wasTier, to: nowTier);
-        });
-      } else {
-        HapticFeedback.heavyImpact();
-        showLevelUpSnackBar(context, next.level);
-      }
+      seen(() {
+        if (wasTier.id != nowTier.id) {
+          // The rank moment replaces the level-up toast rather than stacking on
+          // it. A snackbar saying "level 20" at the bottom of a full screen
+          // celebration about reaching level 20 is the same fact twice, and the
+          // rarer of the two is the one worth reading: there are 99 level ups in
+          // a lifetime and 7 of these.
+          HapticFeedback.heavyImpact();
+          // Longest delay in this listener on purpose. If a rank crossing lands
+          // on the same tick as an achievement (250ms) or a milestone (350/400),
+          // this settles in after them rather than racing.
+          Future.delayed(const Duration(milliseconds: 450), () {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            showRankUpCelebration(context, from: wasTier, to: nowTier);
+          });
+        } else {
+          HapticFeedback.heavyImpact();
+          showLevelUpSnackBar(context, next.level);
+        }
+      });
     }
     if (next.newlyUnlocked.isNotEmpty && prev.newlyUnlocked.isEmpty) {
       // Capture before acknowledging — acknowledgeAchievements clears
@@ -76,7 +92,7 @@ void registerDashboardReactions(
       // everything after the first sheet would have nothing left to show.
       final unlocked = next.newlyUnlocked;
       ref.read(dashboardProvider.notifier).acknowledgeAchievements();
-      Future.delayed(const Duration(milliseconds: 250), () async {
+      seen(() => Future.delayed(const Duration(milliseconds: 250), () async {
         if (!context.mounted) return;
         // A level-up or streak-freeze snackbar may already be on screen
         // from earlier in this same reaction batch — clear it so the
@@ -92,12 +108,12 @@ void registerDashboardReactions(
           HapticFeedback.heavyImpact();
           await showAchievementUnlockSheet(context, a);
         }
-      });
+      }));
     }
     if (next.milestoneCelebration != null &&
         prev.milestoneCelebration == null) {
       final m = next.milestoneCelebration!;
-      Future.delayed(const Duration(milliseconds: 350), () {
+      seen(() => Future.delayed(const Duration(milliseconds: 350), () {
         if (context.mounted) {
           // Same reasoning as the achievement sheet above: a milestone is
           // the biggest celebration in the app, so it should never appear
@@ -105,7 +121,7 @@ void registerDashboardReactions(
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           showMilestoneCelebration(context, m, ref);
         }
-      });
+      }));
     }
     if (next.habitMilestoneCelebration != null &&
         prev.habitMilestoneCelebration == null) {
@@ -113,12 +129,12 @@ void registerDashboardReactions(
       // Slightly longer delay than the app-wide milestone above so that on
       // the rare tick both fire together, this one settles in after it
       // rather than the two dialogs racing.
-      Future.delayed(const Duration(milliseconds: 400), () {
+      seen(() => Future.delayed(const Duration(milliseconds: 400), () {
         if (context.mounted) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
           showHabitMilestoneCelebration(context, event, ref);
         }
-      });
+      }));
     }
   });
 }
@@ -239,16 +255,38 @@ class PerfectDayMoment extends StatefulWidget {
 }
 
 class _PerfectDayMomentState extends State<PerfectDayMoment> {
+  /// [PerfectDayMoment.perfectDay] at the last live reading, or null before
+  /// the first. A rise is judged against it rather than against the reading
+  /// just before, so a day finished while the card was out of sight (a long
+  /// return's launch curtain up, the widget's ticks draining under it) still
+  /// gets its moment once the card can be seen, and only once. The first
+  /// live reading is never a rise: the week landing at launch is not
+  /// something anyone did.
+  bool? _lastLivePerfect;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.live) _lastLivePerfect = widget.perfectDay;
+  }
+
   @override
   void didUpdateWidget(covariant PerfectDayMoment old) {
     super.didUpdateWidget(old);
-    if (old.live && widget.live && widget.perfectDay && !old.perfectDay) {
-      // After this frame: the bursts go into the overlay, which must not
-      // change while the board is still building.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!widget.live) return;
+    final was = _lastLivePerfect;
+    _lastLivePerfect = widget.perfectDay;
+    if (!widget.perfectDay || was != false) return;
+    // After this frame: the bursts go into the overlay, which must not
+    // change while the board is still building. Back from out of sight, a
+    // breath first, as for anything else that waited on the curtain.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (old.live) return celebratePerfectDay(context);
+      Timer(kLaunchSettle, () {
         if (mounted) celebratePerfectDay(context);
       });
-    }
+    });
   }
 
   @override

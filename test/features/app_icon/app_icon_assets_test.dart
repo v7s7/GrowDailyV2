@@ -22,7 +22,7 @@ const _sets = 'ios/Runner/Assets.xcassets/AlternateIcons';
 }
 
 void main() {
-  test('every icon but the shipped one is a 1024 set in the bundle', () {
+  test('every icon is a 1024 set in the bundle, the shipped one too', () {
     final expected = <String>{};
     final choices = [
       for (final shape in PlantShape.values)
@@ -30,8 +30,11 @@ void main() {
       AppIconChoice.ramadan,
     ];
     for (final choice in choices) {
-      final name = choice.iosName;
-      if (name == null) continue;
+      // The shipped icon is AppIcon to iOS, but its set is kept under its
+      // own name too: a phone that picked Doum's sprout while it was an
+      // alternate (builds 84 to the swap) still reports that name.
+      final name = choice.iosName ??
+          'AppIcon-${choice.shape.name}-${choice.colourId}';
       expected.add(name);
       final png = File('$_sets/$name.appiconset/icon.png');
       expect(png.existsSync(), isTrue, reason: name);
@@ -45,7 +48,7 @@ void main() {
       final image = (contents['images'] as List).single as Map;
       expect(image['filename'], 'icon.png');
     }
-    expect(expected, hasLength(100), reason: '99 shape-and-colour, 1 Ramadan');
+    expect(expected, hasLength(101), reason: '100 shape-and-colour, 1 Ramadan');
     final onDisk = Directory(_sets)
         .listSync()
         .whereType<Directory>()
@@ -53,6 +56,35 @@ void main() {
         .map((n) => n.replaceAll('.appiconset', ''))
         .toSet();
     expect(onDisk, expected, reason: 'a stale or missing set');
+  });
+
+  test('the shipped icon is the same art as its own picker tile', () {
+    const shipped = AppIconChoice.shipped;
+    expect(
+      shipped,
+      const AppIconChoice(PlantShape.sprout, 'doum'),
+      reason: "Doum's sprout is the main icon since 2026-09-30",
+    );
+    expect(shipped.iosName, isNull);
+    expect(
+      AppIconChoice.fromIosName('AppIcon-sprout-doum'),
+      shipped,
+      reason: 'a phone that picked it as an alternate reads as the shipped',
+    );
+    // The generator renders AppIcon's source from the same art, in one
+    // save: byte for byte the tile's own icon set.
+    final twin =
+        '$_sets/AppIcon-${shipped.shape.name}-${shipped.colourId}.appiconset';
+    expect(
+      File('assets/images/icon_app.png').readAsBytesSync(),
+      File('$twin/icon.png').readAsBytesSync(),
+      reason: 'rerun tool/icons/make_alternate_icons.py',
+    );
+    // And the scripts that build AppIcon and Android's icon from it name
+    // the same icon as the app does.
+    final primary = File('tool/icons/primary_icon.py').readAsStringSync();
+    expect(primary, contains('SHAPE = "${shipped.shape.name}"'));
+    expect(primary, contains('COLOUR = "${shipped.colourId}"'));
   });
 
   test('the Dart art and the JSON it was generated from agree', () {

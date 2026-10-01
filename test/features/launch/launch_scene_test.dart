@@ -21,6 +21,7 @@ LaunchScene at(
   bool updated = false,
   DateTime? fullDay,
   DateTime? stepsGoal,
+  bool walker = false,
   int seed = 1,
 }) =>
     pickLaunchScene(
@@ -31,6 +32,7 @@ LaunchScene at(
       updated: updated,
       lastFullDay: fullDay,
       lastStepsGoal: stepsGoal,
+      walker: walker,
       random: math.Random(seed),
     );
 
@@ -242,7 +244,9 @@ void main() {
           LaunchScene.fullDay, reason: 'over the morning mug');
       expect(at(on(monday, 14), lastOpen: yesterday, fullDay: yday),
           LaunchScene.fullDay);
-      expect(at(on(monday, 15), lastOpen: on(monday, 14), fullDay: yday),
+      // 14:30, not 15:00: an October afternoon's first open from 15:00 is
+      // missing winter's.
+      expect(at(on(monday, 14, 30), lastOpen: on(monday, 14), fullDay: yday),
           isIn(ordinary), reason: 'once, not every open of the day');
       expect(at(on(monday, 8), lastOpen: yesterday, fullDay: DateTime(2026, 10, 2)),
           LaunchScene.morningCoffee, reason: 'an older full day is not yesterday');
@@ -299,6 +303,339 @@ void main() {
     test('some say you and some say we', () {
       expect(lines.where((l) => l.contains(' you ')).length, greaterThan(3));
       expect(lines.where((l) => l.contains(' we ')).length, greaterThan(3));
+    });
+  });
+
+  group('a long return', () {
+    tearDown(LaunchMemory.debugReset);
+
+    test('chooses from when the app was last on screen, not the launch', () {
+      final monday = DateTime(2026, 10, 12);
+      // The process started three days ago; the app was used this morning.
+      LaunchMemory.debugReset(
+        lastOpen: monday.subtract(const Duration(days: 3)),
+        loaded: true,
+        lastVersion: '1.1.0+84',
+        version: '1.1.0+84',
+      );
+      LaunchMemory.beginReturn(since: DateTime(2026, 10, 12, 7, 30));
+      expect(LaunchMemory.lastOpen, DateTime(2026, 10, 12, 7, 30));
+      expect(
+        pickLaunchScene(
+          now: DateTime(2026, 10, 12, 9),
+          lastOpen: LaunchMemory.lastOpen,
+          fastingPlanned: false,
+          freshInstall: false,
+          updated: LaunchMemory.updated,
+          lastFullDay: null,
+          lastStepsGoal: null,
+          random: math.Random(1),
+        ),
+        isNot(LaunchScene.welcomeBack),
+        reason: 'used an hour and a half ago, not three days',
+      );
+    });
+
+    test('a new version plays its bulb once, not on every return', () {
+      LaunchMemory.debugReset(
+        lastOpen: DateTime(2026, 10, 12, 7),
+        loaded: true,
+        lastVersion: '1.1.0+84',
+        version: '1.1.0+85',
+      );
+      expect(LaunchMemory.updated, isTrue, reason: 'the launch after it');
+      LaunchMemory.beginReturn(since: DateTime(2026, 10, 12, 8));
+      expect(LaunchMemory.updated, isFalse);
+    });
+  });
+
+  // Aziz, 2026-09-30: two new scenes, "Missing winter while we Grow Daily"
+  // and "Every step helps us Grow Daily", after the summer noon and before
+  // the coin, every earlier rule keeping its place.
+  group('missing winter: October and November, 15:00 to 17:59', () {
+    final oct1 = DateTime(2026, 10); // 1 October, a Thursday
+    final morning = on(oct1, 9);
+    const winter = LaunchScene.winterWait;
+
+    test('from 1 October to 30 November, and neither side of it', () {
+      final sep30 = DateTime(2026, 9, 30);
+      final nov30 = DateTime(2026, 11, 30);
+      final dec1 = DateTime(2026, 12);
+      for (var seed = 0; seed < 8; seed++) {
+        final before = at(on(sep30, 16), lastOpen: on(sep30, 9), seed: seed);
+        final after = at(on(dec1, 16), lastOpen: on(dec1, 9), seed: seed);
+        expect(before, isIn(ordinary), reason: '30 September');
+        expect(after, isIn(ordinary), reason: '1 December');
+      }
+      expect(at(on(oct1, 16), lastOpen: morning), winter);
+      expect(at(on(nov30, 16), lastOpen: on(nov30, 9)), winter);
+    });
+
+    test('from 15:00, until the evening takes over at 18:00', () {
+      for (var seed = 0; seed < 8; seed++) {
+        final early = at(on(oct1, 14, 59), lastOpen: morning, seed: seed);
+        expect(early, isIn(ordinary));
+      }
+      expect(at(on(oct1, 15), lastOpen: morning), winter);
+      expect(at(on(oct1, 17, 59), lastOpen: morning), winter);
+      final evening = at(on(oct1, 18), lastOpen: morning);
+      expect(evening, LaunchScene.eveningChecklist);
+    });
+
+    test('the first open from 15:00 only, as Saturday\'s recap', () {
+      expect(at(on(oct1, 16), lastOpen: on(oct1, 14, 59)), winter);
+      final afterMidnight = at(on(oct1, 16), lastOpen: on(oct1, 1));
+      expect(afterMidnight, winter, reason: 'not this afternoon\'s open');
+      final noRecord = at(on(oct1, 15, 30));
+      expect(noRecord, winter, reason: 'nothing recorded, not a fresh install');
+      for (var seed = 0; seed < 8; seed++) {
+        final again = at(on(oct1, 16), lastOpen: on(oct1, 15), seed: seed);
+        final later = at(on(oct1, 17, 30), lastOpen: on(oct1, 16), seed: seed);
+        expect(again, isIn(ordinary), reason: 'opened at 15:00 already');
+        expect(later, isIn(ordinary));
+      }
+    });
+
+    test('a fast on the plan does not keep it away (nothing to drink)', () {
+      expect(at(on(oct1, 16), lastOpen: morning, fasting: true), winter);
+    });
+
+    test('every scene above it keeps its place', () {
+      final monday = DateTime(2026, 10, 5);
+      final yday = DateTime(2026, 10, 4);
+      final lastNight = on(yday, 21);
+      final saturday = DateTime(2026, 10, 3);
+      // Ramadan 1456 starts 2034-11-12; Eid al-Fitr 1459 is 2037-11-09.
+      final ramadan = DateTime(2034, 11, 20);
+      final eid = DateTime(2037, 11, 10);
+      final cases = {
+        'back after days away': (
+          at(on(monday, 16), lastOpen: morning),
+          LaunchScene.welcomeBack,
+        ),
+        'the very first launch': (
+          at(on(oct1, 16), fresh: true),
+          LaunchScene.firstOpen,
+        ),
+        'a new version': (
+          at(on(oct1, 16), lastOpen: morning, updated: true),
+          LaunchScene.update,
+        ),
+        'yesterday full': (
+          at(on(monday, 16), lastOpen: lastNight, fullDay: yday),
+          LaunchScene.fullDay,
+        ),
+        'yesterday\'s steps goal': (
+          at(on(monday, 16), lastOpen: lastNight, stepsGoal: yday),
+          LaunchScene.stepsGoal,
+        ),
+        'the recap\'s first open': (
+          at(on(saturday, 16), lastOpen: on(saturday, 9)),
+          LaunchScene.saturday,
+        ),
+        'the recap already seen': (
+          at(on(saturday, 16), lastOpen: on(saturday, 10, 30)),
+          winter,
+        ),
+        'the night': (
+          at(on(oct1, 22), lastOpen: morning),
+          LaunchScene.nightAsleep,
+        ),
+        'Ramadan in November': (
+          at(on(ramadan, 16), lastOpen: on(ramadan, 9)),
+          LaunchScene.ramadanLantern,
+        ),
+        'Eid in November': (
+          at(on(eid, 16), lastOpen: on(eid, 9)),
+          LaunchScene.eid,
+        ),
+      };
+      for (final MapEntry(key: why, value: (got, want)) in cases.entries) {
+        expect(got, want, reason: why);
+      }
+    });
+  });
+
+  group('every step: 16:00 to 17:59, for someone who walks', () {
+    final dec7 = DateTime(2026, 12, 7); // a Monday, no winter, no summer
+    final morning = on(dec7, 9);
+    const walk = LaunchScene.walk;
+    LaunchScene walker(DateTime now, {DateTime? last, int seed = 1}) =>
+        at(now, lastOpen: last ?? morning, walker: true, seed: seed);
+
+    test('from 16:00, until the evening takes over at 18:00', () {
+      for (var seed = 0; seed < 8; seed++) {
+        expect(walker(on(dec7, 15, 59), seed: seed), isIn(ordinary));
+      }
+      expect(walker(on(dec7, 16)), walk);
+      expect(walker(on(dec7, 17, 59)), walk);
+      expect(walker(on(dec7, 18)), LaunchScene.eveningChecklist);
+    });
+
+    test('only for a walker', () {
+      for (var seed = 0; seed < 8; seed++) {
+        final other = at(on(dec7, 17), lastOpen: morning, seed: seed);
+        expect(other, isIn(ordinary));
+      }
+    });
+
+    test('every open in the hour, not only the first', () {
+      expect(walker(on(dec7, 17), last: on(dec7, 16, 30)), walk);
+    });
+
+    test('a fast on the plan does not keep it away', () {
+      final fasting = at(
+        on(dec7, 16),
+        lastOpen: morning,
+        walker: true,
+        fasting: true,
+      );
+      expect(fasting, walk);
+    });
+
+    test('the summer noon keeps its hours, winter its first open', () {
+      final july = DateTime(2026, 7, 13);
+      final oct1 = DateTime(2026, 10);
+      expect(walker(on(july, 15, 59)), LaunchScene.summerNoon);
+      expect(walker(on(july, 16)), walk);
+      final first = walker(on(oct1, 16, 30), last: on(oct1, 9));
+      final next = walker(on(oct1, 16, 45), last: on(oct1, 16, 30));
+      expect(first, LaunchScene.winterWait, reason: 'the afternoon\'s first');
+      expect(next, walk, reason: 'the opens after it');
+    });
+
+    test('every scene above it keeps its place', () {
+      final yday = DateTime(2026, 12, 6);
+      final lastNight = on(yday, 21);
+      final saturday = DateTime(2026, 12, 5);
+      final ramadan = DateTime(2027, 2, 20);
+      final eid = DateTime(2027, 3, 10);
+      LaunchScene walks(
+        DateTime now, {
+        DateTime? last,
+        bool fresh = false,
+        bool updated = false,
+        DateTime? fullDay,
+        DateTime? stepsGoal,
+      }) =>
+          at(
+            now,
+            lastOpen: fresh ? null : last ?? morning,
+            fresh: fresh,
+            updated: updated,
+            fullDay: fullDay,
+            stepsGoal: stepsGoal,
+            walker: true,
+          );
+      final cases = {
+        'back after days away': (
+          walks(on(dec7, 16), last: on(DateTime(2026, 12, 3), 9)),
+          LaunchScene.welcomeBack,
+        ),
+        'the very first launch': (
+          walks(on(dec7, 16), fresh: true),
+          LaunchScene.firstOpen,
+        ),
+        'a new version': (
+          walks(on(dec7, 16), updated: true),
+          LaunchScene.update,
+        ),
+        'yesterday full': (
+          walks(on(dec7, 16), last: lastNight, fullDay: yday),
+          LaunchScene.fullDay,
+        ),
+        'yesterday\'s steps goal': (
+          walks(on(dec7, 16), last: lastNight, stepsGoal: yday),
+          LaunchScene.stepsGoal,
+        ),
+        'the recap\'s first open': (
+          walks(on(saturday, 16), last: on(saturday, 9)),
+          LaunchScene.saturday,
+        ),
+        'the night': (
+          walks(on(dec7, 22)),
+          LaunchScene.nightAsleep,
+        ),
+        'Ramadan': (
+          walks(on(ramadan, 16), last: on(ramadan, 9)),
+          LaunchScene.ramadanLantern,
+        ),
+        'Eid': (
+          walks(on(eid, 16), last: on(eid, 9)),
+          LaunchScene.eid,
+        ),
+      };
+      for (final MapEntry(key: why, value: (got, want)) in cases.entries) {
+        expect(got, want, reason: why);
+      }
+    });
+  });
+
+  group('who walks', () {
+    IslamicHabitTemplate linked(String name) => IslamicHabitTemplate(
+          id: 'c_$name',
+          name: name,
+          description: '',
+          category: HabitCategory.health,
+          frequencyType: HabitFrequencyType.daily,
+          frequencyTarget: 1,
+          hasTimer: false,
+          xpReward: 10,
+          goldReward: 5,
+          stepGoal: 8000,
+        );
+
+    test('a habit linked to the step count, whatever its name', () {
+      expect(hasWalkingHabit([custom('Read'), linked('Move')]), isTrue);
+    });
+
+    test('the walking preset', () {
+      final walk = IslamicHabitCatalog.templates
+          .firstWhere((t) => t.id == 'daily_walk');
+      expect(hasWalkingHabit([walk]), isTrue);
+    });
+
+    test('a name that reads as walking, in either language', () {
+      expect(hasWalkingHabit([custom('Morning walk')]), isTrue);
+      expect(hasWalkingHabit([custom('امشي بعد العصر')]), isTrue);
+      expect(hasWalkingHabit([custom('10k steps')]), isTrue);
+    });
+
+    test('nobody else', () {
+      expect(hasWalkingHabit(const []), isFalse);
+      expect(hasWalkingHabit([custom('Read'), custom('Wake early')]), isFalse);
+      // No preset but the walk reads as one.
+      final walks = [
+        for (final t in IslamicHabitCatalog.templates)
+          if (hasWalkingHabit([t])) t.id,
+      ];
+      expect(walks, ['daily_walk']);
+    });
+  });
+
+  group('GD_LAUNCH_SCENE forces one scene in a debug build', () {
+    test('any scene, by its name', () {
+      expect(launchSceneNamed('winterWait', debug: true), LaunchScene.winterWait);
+      expect(launchSceneNamed('walk', debug: true), LaunchScene.walk);
+      for (final scene in LaunchScene.values) {
+        expect(launchSceneNamed(scene.name, debug: true), scene);
+      }
+    });
+
+    test('never in a release build, nor for a name that is not a scene', () {
+      expect(launchSceneNamed('walk', debug: false), isNull);
+      expect(launchSceneNamed('', debug: true), isNull);
+      expect(launchSceneNamed('Walk', debug: true), isNull);
+      expect(launchSceneNamed('winter', debug: true), isNull);
+    });
+
+    test('the define itself: off in a normal run, read when given', () {
+      // `flutter test --dart-define=GD_LAUNCH_SCENE=walk` checks the second
+      // half.
+      const raw = String.fromEnvironment('GD_LAUNCH_SCENE');
+      final want = raw.isEmpty ? null : LaunchScene.values.byName(raw);
+      expect(kLaunchSceneForced, want);
+      expect(launchSceneFixed(), kLaunchSceneForced);
     });
   });
 }

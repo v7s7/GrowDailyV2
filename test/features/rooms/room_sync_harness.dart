@@ -62,12 +62,13 @@ class _Member implements User {
 /// that call). Without this a day's stale scheduled count survives every
 /// resync here, and a scenario reads numbers no phone could have stored.
 class _ReplacingFirestore implements FirebaseFirestore {
-  _ReplacingFirestore(this._fake);
+  _ReplacingFirestore(this._fake, this._reads);
   final FakeFirebaseFirestore _fake;
+  final DayDocReads? _reads;
 
   @override
   CollectionReference<Map<String, dynamic>> collection(String path) =>
-      _Collection(_fake.collection(path));
+      _Collection(_fake.collection(path), _reads);
 
   /// The plan edits (removeSharedHabit / restoreSharedHabit) read and write
   /// the room document in one transaction. The fake supports transactions,
@@ -130,12 +131,13 @@ class _Txn implements Transaction {
 // code; this only forwards to the fake's own, in a test.
 // ignore: subtype_of_sealed_class
 class _Collection implements CollectionReference<Map<String, dynamic>> {
-  _Collection(this._inner);
+  _Collection(this._inner, this._reads);
   final CollectionReference<Map<String, dynamic>> _inner;
+  final DayDocReads? _reads;
 
   @override
   DocumentReference<Map<String, dynamic>> doc([String? path]) =>
-      _Doc(_inner.doc(path));
+      _Doc(_inner.doc(path), _reads);
 
   @override
   Future<QuerySnapshot<Map<String, dynamic>>> get([GetOptions? options]) =>
@@ -147,8 +149,9 @@ class _Collection implements CollectionReference<Map<String, dynamic>> {
 
 // ignore: subtype_of_sealed_class
 class _Doc implements DocumentReference<Map<String, dynamic>> {
-  _Doc(this._inner);
+  _Doc(this._inner, this._reads);
   final DocumentReference<Map<String, dynamic>> _inner;
+  final DayDocReads? _reads;
 
   @override
   String get id => _inner.id;
@@ -158,11 +161,21 @@ class _Doc implements DocumentReference<Map<String, dynamic>> {
 
   @override
   CollectionReference<Map<String, dynamic>> collection(String path) =>
-      _Collection(_inner.collection(path));
+      _Collection(_inner.collection(path), _reads);
 
+  /// The fake's own snapshot, unless the test asked for the day reads to be
+  /// counted: then a day document comes back in a [_CountedSnapshot].
   @override
-  Future<DocumentSnapshot<Map<String, dynamic>>> get([GetOptions? options]) =>
-      _inner.get(options);
+  Future<DocumentSnapshot<Map<String, dynamic>>> get([GetOptions? options]) {
+    final reads = _reads;
+    if (reads == null || !_inner.path.contains('/daily/')) {
+      return _inner.get(options);
+    }
+    reads.fetches++;
+    return _inner.get(options).then(
+          (snap) => _CountedSnapshot(snap, reads),
+        );
+  }
 
   @override
   Future<void> set(Map<String, dynamic> data, [SetOptions? options]) =>
@@ -183,6 +196,66 @@ class _Doc implements DocumentReference<Map<String, dynamic>> {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// How often the controller fetched and decoded the member's day documents
+/// (`users/{uid}/daily/{date}`), for a test that asks
+/// (RoomSyncHarness.countDayReads).
+///
+/// A decode is one DocumentSnapshot.data() call. The plugin copies the whole
+/// document on every one of them (the fake deep-copies too), so a grader
+/// that asks the same snapshot again per habit pays for the whole day each
+/// time. Writes the harness makes itself (mark, dayDoc) never pass through
+/// here: they go straight to [RoomSyncHarness.db].
+class DayDocReads {
+  /// Day documents fetched with get().
+  int fetches = 0;
+
+  /// data() calls on the snapshots those fetches returned.
+  int decodes = 0;
+
+  void reset() {
+    fetches = 0;
+    decodes = 0;
+  }
+}
+
+// The ignore sits above the doc comment, where the analyzer anchors the
+// declaration; the @sealed hint is the same one _Collection and _Doc carry.
+// ignore: subtype_of_sealed_class
+/// The fake's day snapshot with its data() calls counted. Everything else is
+/// forwarded untouched, so the grader reads exactly what it would have.
+class _CountedSnapshot implements DocumentSnapshot<Map<String, dynamic>> {
+  _CountedSnapshot(this._inner, this._reads);
+  final DocumentSnapshot<Map<String, dynamic>> _inner;
+  final DayDocReads _reads;
+
+  @override
+  Map<String, dynamic>? data() {
+    _reads.decodes++;
+    return _inner.data();
+  }
+
+  @override
+  bool get exists => _inner.exists;
+
+  @override
+  String get id => _inner.id;
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference => _inner.reference;
+
+  @override
+  SnapshotMetadata get metadata => _inner.metadata;
+
+  @override
+  dynamic get(Object field) => _inner.get(field);
+
+  @override
+  dynamic operator [](Object field) => _inner[field];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class RoomSyncHarness {
   RoomSyncHarness({
     required this.room,
@@ -195,7 +268,12 @@ class RoomSyncHarness {
     /// The windows each habit was really active for (habitStintsProvider),
     /// for a habit paused and resumed in the past. None by default.
     Map<String, List<(DateTime?, DateTime?)>> stints = const {},
-  }) : db = db ?? FakeFirebaseFirestore() {
+    /// Counts the controller's day-document fetches and decodes in
+    /// [dayDocReads]. Off by default, so every other test grades from the
+    /// fake's own snapshots.
+    bool countDayReads = false,
+  })  : db = db ?? FakeFirebaseFirestore(),
+        dayDocReads = countDayReads ? DayDocReads() : null {
     container = ProviderContainer(
       overrides: [
         authStateProvider.overrideWith((ref) => Stream<User?>.value(_Member(uid))),
@@ -209,7 +287,7 @@ class RoomSyncHarness {
         roomsControllerProvider.overrideWith(
           (ref) => RoomsController(
             ref,
-            firestore: _ReplacingFirestore(this.db),
+            firestore: _ReplacingFirestore(this.db, dayDocReads),
             clock: () => _now,
           ),
         ),
@@ -223,6 +301,10 @@ class RoomSyncHarness {
   RoomModel room;
   final String uid;
   final FakeFirebaseFirestore db;
+
+  /// The controller's day-document reads, when [countDayReads] was asked
+  /// for. Null otherwise.
+  final DayDocReads? dayDocReads;
   late final ProviderContainer container;
   DateTime _now = DateTime(2000);
 

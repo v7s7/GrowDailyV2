@@ -35,12 +35,21 @@ enum NavTab {
   final String id;
   const NavTab(this.id);
 
-  /// Habits is the app's home (the Android back button walks up to tab 0,
-  /// and every "add your first habit" flow lands there) and Profile is the
-  /// one place Settings, and therefore this very customiser, can be reached
-  /// from. A bar without either would strand someone; a bar without Tasks
-  /// is simply a choice.
-  bool get isPinned => this == NavTab.grid || this == NavTab.profile;
+  /// Profile is the one place Settings, and therefore this very
+  /// customiser, can be reached from. A bar without it would strand
+  /// someone, so it is the one tab that can never leave.
+  ///
+  /// Habits was pinned too, as the app's home, until 2026-09-30. Aziz: a
+  /// person who only wants tasks should be able to drop the habit page, the
+  /// same way a person who only wants habits can drop Tasks. The two now
+  /// share one rule instead ([isHomePage], [canRemoveNavTab]): either may
+  /// go, but never both, because one of them is where the app opens (see
+  /// [resolveStartTab]) and where Android's back button walks to.
+  bool get isPinned => this == NavTab.profile;
+
+  /// Habits and Tasks, the two pages the app can open on. The bar always
+  /// keeps at least one of them.
+  bool get isHomePage => this == NavTab.grid || this == NavTab.matrix;
 
   static NavTab? byId(String? id) {
     for (final t in NavTab.values) {
@@ -56,8 +65,8 @@ enum NavTab {
 const int kNavTabsMax = 5;
 
 /// What everyone starts with, and what Reset returns to. Order matters: it
-/// is the bar's order, and Grid at 0 is what the shell's back handling
-/// assumes is home.
+/// is the bar's order. Where the app OPENS is a separate question, answered
+/// by [resolveStartTab], not by position.
 const List<NavTab> kDefaultNavTabs = [
   NavTab.grid,
   NavTab.profile,
@@ -72,11 +81,20 @@ const List<NavTab> kDefaultNavTabs = [
 /// tab after a hand edit. The rules, in order:
 ///
 ///  1. Unknown ids are dropped, duplicates keep their first position.
-///  2. Pinned tabs that are missing are put back: Grid first, Profile right
-///     after it, which is also their default position.
-///  3. Over [kNavTabsMax], unpinned tabs are dropped from the END, so the
-///     tabs the person placed first survive and pinned ones always do.
-///  4. Nothing usable at all falls back to [kDefaultNavTabs].
+///  2. A list with neither Habits nor Tasks gets Habits back, first. A list
+///     with only one of them is a choice and stays that way (a bar without
+///     Habits is what a tasks-only person arranged).
+///  3. A missing Profile is put back right after Habits, or after Tasks
+///     when Habits is not in the bar: Profile's default position.
+///  4. Over [kNavTabsMax], tabs are dropped from the END, so the tabs the
+///     person placed first survive. Profile and the last of Habits and
+///     Tasks never go (the same [canRemoveNavTab] the editor asks).
+///  5. Nothing usable at all falls back to [kDefaultNavTabs].
+///
+/// Builds up to 1.1.0+84 re-insert Habits when it is missing (they knew
+/// only rule 2's old form, "Habits is pinned"), so a Habits-less layout
+/// synced from this build shows Habits back on such a phone. They never
+/// write a layout back unless edited there, so the account keeps its own.
 ///
 /// Pure, so a corrupt document costs a unit test rather than a device.
 List<NavTab> sanitizeNavTabs(Iterable<Object?> ids) {
@@ -88,18 +106,49 @@ List<NavTab> sanitizeNavTabs(Iterable<Object?> ids) {
     out.add(tab);
   }
   if (out.isEmpty) return List.of(kDefaultNavTabs);
-  if (!out.contains(NavTab.grid)) out.insert(0, NavTab.grid);
+  if (!out.any((t) => t.isHomePage)) out.insert(0, NavTab.grid);
   if (!out.contains(NavTab.profile)) {
-    out.insert(out.indexOf(NavTab.grid) + 1, NavTab.profile);
+    final home = out.contains(NavTab.grid)
+        ? out.indexOf(NavTab.grid)
+        : out.indexOf(NavTab.matrix);
+    out.insert(home + 1, NavTab.profile);
   }
   while (out.length > kNavTabsMax) {
-    final i = out.lastIndexWhere((t) => !t.isPinned);
-    // Unreachable in practice (two pinned tabs, cap of five), kept so a
-    // future cap change cannot loop forever.
+    final i = out.lastIndexWhere((t) => canRemoveNavTab(out, t));
+    // Unreachable in practice (at most two tabs can never go, cap of
+    // five), kept so a future cap change cannot loop forever.
     if (i < 0) break;
     out.removeAt(i);
   }
   return out;
+}
+
+/// Whether [tab] may leave the bar [tabs]: never Profile, and never the
+/// last of Habits and Tasks (see [NavTab.isHomePage]). The one rule the
+/// editor's lock icons, [NavLayoutNotifier.remove] and [sanitizeNavTabs]
+/// all ask, so the three cannot disagree about what a bar may lose.
+bool canRemoveNavTab(List<NavTab> tabs, NavTab tab) {
+  if (tab.isPinned || !tabs.contains(tab)) return false;
+  if (!tab.isHomePage) return true;
+  return tabs.any((t) => t.isHomePage && t != tab);
+}
+
+/// The page the app opens on, for the bar [tabs].
+///
+/// [preferred] is the person's start page (Habits unless they picked Tasks,
+/// see startPageProvider) and wins whenever the bar holds it. When it does
+/// not (Tasks picked, then removed from the bar), the app opens on the
+/// other of the two, which [canRemoveNavTab] guarantees is there. The last
+/// line only guards a layout handed in without being sanitised.
+///
+/// Also what HomeShell treats as home: Android's back button walks there
+/// before it leaves the app, and a removed tab that was showing lands there.
+NavTab resolveStartTab(List<NavTab> tabs, NavTab preferred) {
+  if (tabs.contains(preferred)) return preferred;
+  for (final t in tabs) {
+    if (t.isHomePage) return t;
+  }
+  return tabs.isEmpty ? NavTab.grid : tabs.first;
 }
 
 bool isDefaultNavTabs(List<NavTab> tabs) {
@@ -145,7 +194,7 @@ class NavLayoutNotifier extends StateNotifier<List<NavTab>> {
   }
 
   Future<void> remove(NavTab tab) async {
-    if (tab.isPinned || !state.contains(tab)) return;
+    if (!canRemoveNavTab(state, tab)) return;
     await _apply([for (final t in state) if (t != tab) t]);
   }
 

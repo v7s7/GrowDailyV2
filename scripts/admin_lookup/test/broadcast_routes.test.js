@@ -230,6 +230,41 @@ test('a send that landed is a success even if the page cannot be read back',
   }
 });
 
+test('the update route writes only the update slot, and a refused one writes nothing', async () => {
+  const written = [];
+  const s = await serveRoutes({ onPopup: (data) => written.push(data) });
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      Origin: `http://127.0.0.1:${s.port}`,
+    };
+    const post = (gate, h = headers) => fetch(s.url('/api/messages/update'), {
+      method: 'POST', headers: h, body: JSON.stringify({ gate }),
+    });
+
+    const good = await post({ ios: { latest: 90, min: 0 }, android: { latest: 0, min: 0 } });
+    assert.strictEqual(good.status, 200);
+    const answer = await good.json();
+    assert.strictEqual(answer.ok, true);
+    assert.strictEqual(answer.off, false);
+    assert.strictEqual(written.length, 1);
+    assert.deepStrictEqual(written[0].update.ios, { latest: 90, min: 0 });
+
+    const bad = await post({ ios: { latest: 84, min: 90 } });
+    assert.strictEqual(bad.status, 400, 'a mistake in the numbers is a message, not a fault');
+    assert.match((await bad.json()).error, /cannot be above the newest/);
+    assert.strictEqual(written.length, 1, 'nothing was written');
+
+    const foreign = await post({ ios: { latest: 90, min: 90 } }, {
+      'Content-Type': 'application/json', Origin: 'https://example.com',
+    });
+    assert.strictEqual(foreign.status, 403, 'another site can never raise a wall');
+    assert.strictEqual(written.length, 1);
+  } finally {
+    await s.close();
+  }
+});
+
 test('a bad message is a message, not a server fault', async () => {
   const s = await serveRoutes();
   try {

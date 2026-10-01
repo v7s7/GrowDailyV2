@@ -164,6 +164,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
+    // Every provider the board draws from, watched here and handed down (see
+    // _BoardReads), never from the LayoutBuilder's builder below: that runs
+    // during layout, after this build has returned, and Riverpod closes a
+    // ConsumerState's subscriptions at the end of each build, so each one
+    // made in layout was dropped and made again on every rebuild.
+    final reads = _watchBoard();
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -219,7 +225,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
           // Flooring leaves a few spare pixels instead of a few spare
           // thousandths, and whole-pixel squares render crisper besides.
           cell = cell.floorToDouble();
-          final table = _buildTable(context, ref, cell, habitCol);
+          final table = _buildTable(context, ref, reads, cell, habitCol);
           if (!scroll) return table;
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -230,9 +236,94 @@ class _GridTableState extends ConsumerState<_GridTable> {
     );
   }
 
-  Widget _buildTable(
-      BuildContext context, WidgetRef ref, double cell, double habitCol) {
+  /// What the board reads from its providers, watched once per build (see
+  /// [build] and [_BoardReads]), each exactly as widely as the rows used to
+  /// watch it for themselves: a provider no row read is not watched here
+  /// either.
+  _BoardReads _watchBoard() {
+    final habits = widget.habits;
+    if (habits.isEmpty) return const _BoardReads.empty();
     final days = widget.state.days;
+    // A room's trophy and 2x are drawn only on a row that is neither being
+    // selected nor paused (see _habitRowBody), so only a board holding such
+    // a row watches the room indexes, as its rows did.
+    //
+    // As one '1' or '0' per row, not the indexes themselves. Both hand out a
+    // new Map or Set whenever any of the person's rooms or participants
+    // emits, another member's progress included, and the board only asks
+    // whether each of its habits is in there: watched whole, every such
+    // snapshot rebuilt every square on the board for the same picture.
+    String? linked;
+    String? boosted;
+    if (!widget.selectionMode && habits.any((h) => h.archivedAt == null)) {
+      linked = ref.watch(
+        myLinkedRoomHabitsProvider.select(
+          (m) => [for (final h in habits) m.containsKey(h.id) ? '1' : '0']
+              .join(),
+        ),
+      );
+      boosted = ref.watch(
+        roomBoostedHabitsProvider.select(
+          (s) => [for (final h in habits) s.contains(h.id) ? '1' : '0']
+              .join(),
+        ),
+      );
+      // The one rebuild the flags would drop that is not a no-op: signed
+      // in, the linked index re-reads the day clock (a habit the leader
+      // removed leaves it when its last day closes), so the board used to be
+      // rebuilt at midnight, when yesterday closes at 10:00, and when a
+      // resume finds the clock stale. That rebuild is what takes yesterday's
+      // count off a habit counted several times a day (see _dayCount), and
+      // nothing else rebuilds the board then. Watched exactly when the index
+      // watched it; a guest's index never did, so a guest's board keeps
+      // yesterday's count until something else rebuilds it, as before.
+      if (ref.watch(authStateProvider.select((a) => a.asData?.value?.uid)) !=
+          null) {
+        ref.watch(dayClockProvider);
+      }
+    }
+    // Only a habit counted more than once a day reads the dashboard, and only
+    // on today's square and yesterday's (see liveCount in _habitRowBody).
+    DashboardState? dash;
+    if (habits.any((h) => h.effectiveDailyTarget > 1)) {
+      final today = DateTime.now().effectiveDay;
+      final yesterday = DateTime(today.year, today.month, today.day - 1);
+      if (days.any((d) => d.isSameDayAs(today) || d.isSameDayAs(yesterday))) {
+        dash = ref.watch(dashboardProvider);
+      }
+    }
+    final keys = [for (final d in days) d.toDateKey()];
+    return _BoardReads(
+      stepsStalled: ref.watch(stepsFailureProvider) != null,
+      stepsByDay: ref.watch(stepsByDayProvider),
+      newlyAddedId: ref.watch(newlyAddedHabitIdProvider),
+      linked: linked,
+      boosted: boosted,
+      dash: dash,
+      // One '1' or '0' per square, row by row: see hasVoice in
+      // _habitRowBody.
+      voiced: ref.watch(
+        squareVoiceIndexProvider.select(
+          (m) => [
+            for (final h in habits)
+              for (final k in keys)
+                (m[squareVoiceKeyFor(h.id, k)] ?? 0) > 0 ? '1' : '0',
+          ].join(),
+        ),
+      ),
+      days: days.length,
+    );
+  }
+
+  Widget _buildTable(BuildContext context, WidgetRef ref, _BoardReads reads,
+      double cell, double habitCol) {
+    final days = widget.state.days;
+    // The clock, the week's midnights, date keys and spoken dates, once for
+    // the whole board rather than once per square (see _WeekFacts). Here in
+    // the LayoutBuilder's builder, not in build(), so a re-run for new
+    // constraints reads the clock again exactly as it always did.
+    final facts =
+        _WeekFacts(days, locale: S.of(context).isAr ? 'ar' : 'en');
     // Fixed per-row height, shared by every row regardless of square size —
     // a 2-line habit name (long names wrap) used to make just that row
     // taller than its neighbors, so its squares sat lower than the squares
@@ -243,30 +334,39 @@ class _GridTableState extends ConsumerState<_GridTable> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _headerRow(context, days, cell, habitCol),
+        _headerRow(context, days, facts, cell, habitCol),
         const SizedBox(height: 12),
         // Rows fade in on entrance — fade ONLY, no slideX: the staggered
         // horizontal slide meant every row sat at a slightly different
         // x-offset while entering, which read as "the columns don't line
         // up" in any glance (or screenshot) taken during those first
         // moments. Opacity can't move layout, so alignment is now
-        // guaranteed from the very first frame.
+        // guaranteed from the very first frame. The fade is _OnceFade, which
+        // is flutter_animate's `.animate(delay:).fadeIn()` without the
+        // CurvedAnimation it left behind on every rebuild (see there).
         for (var i = 0; i < widget.habits.length; i++) ...[
-          _habitRow(context, ref, widget.habits[i], days, cell, rowHeight,
-                  habitCol,
-                  todayCellKey: i == 0 ? widget.todayCellKey : null)
-              .animate(delay: (i * 45).ms)
-              .fadeIn(duration: 320.ms),
+          _OnceFade(
+            delay: (i * 45).ms,
+            duration: 320.ms,
+            begin: 0,
+            child: _habitRow(context, ref, reads, i, widget.habits[i], days,
+                facts, cell, rowHeight, habitCol,
+                todayCellKey: i == 0 ? widget.todayCellKey : null),
+          ),
           if (i != widget.habits.length - 1) const SizedBox(height: _gap),
         ],
       ],
     );
   }
 
-  Widget _headerRow(BuildContext context, List<DateTime> days, double cell,
-      double habitCol) {
+  Widget _headerRow(BuildContext context, List<DateTime> days,
+      _WeekFacts facts, double cell, double habitCol) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
+    // One formatter per line for the whole week, not two per day: the same
+    // pattern and locale give the same names.
+    final leadName = DateFormat('EEE', isAr ? 'ar' : 'en');
+    final secondName = DateFormat('EEE', isAr ? 'en' : 'ar');
 
     // Whichever language the app isn't currently in renders as a smaller
     // second line underneath — so a date always reads in both, but the
@@ -299,7 +399,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
     return Row(
       children: [
         SizedBox(width: habitCol),
-        for (final day in days)
+        for (var i = 0; i < days.length; i++)
           Padding(
             padding: const EdgeInsets.only(left: _gap),
             child: SizedBox(
@@ -308,19 +408,19 @@ class _GridTableState extends ConsumerState<_GridTable> {
               // real clock and moves at midnight even during the flex
               // window where the *editable* square (below) is still
               // yesterday's — see DateTimeGameExt.isRealToday.
-              key: day.isRealToday ? _todayKey : null,
+              key: facts.isRealToday[i] ? _todayKey : null,
               width: cell,
               child: Column(
                 children: [
                   dayNameLine(
-                    DateFormat('EEE', isAr ? 'ar' : 'en').format(day),
-                    day.isRealToday,
+                    leadName.format(days[i]),
+                    facts.isRealToday[i],
                     true,
                   ),
                   const SizedBox(height: 1),
                   dayNameLine(
-                    DateFormat('EEE', isAr ? 'en' : 'ar').format(day),
-                    day.isRealToday,
+                    secondName.format(days[i]),
+                    facts.isRealToday[i],
                     false,
                   ),
                   const SizedBox(height: 3),
@@ -328,20 +428,22 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     width: 22,
                     height: 22,
                     alignment: Alignment.center,
-                    decoration: day.isRealToday
+                    decoration: facts.isRealToday[i]
                         ? BoxDecoration(
                             color: GameColors.gold.withOpacity(0.16),
                             shape: BoxShape.circle,
                           )
                         : null,
                     child: Text(
-                      '${day.day}',
+                      '${days[i].day}',
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: day.isRealToday
+                        fontWeight: facts.isRealToday[i]
                             ? FontWeight.w800
                             : FontWeight.w600,
-                        color: day.isRealToday ? context.gp.goldInk : gp.textSec,
+                        color: facts.isRealToday[i]
+                            ? context.gp.goldInk
+                            : gp.textSec,
                       ),
                     ),
                   ),
@@ -353,11 +455,15 @@ class _GridTableState extends ConsumerState<_GridTable> {
     );
   }
 
-  Widget _habitRow(BuildContext context, WidgetRef ref,
-      IslamicHabitTemplate habit, List<DateTime> days, double cell,
-      double rowHeight, double habitCol,
+  Widget _habitRow(BuildContext context, WidgetRef ref, _BoardReads reads,
+      int rowIndex, IslamicHabitTemplate habit, List<DateTime> days,
+      _WeekFacts facts, double cell, double rowHeight, double habitCol,
       {GlobalKey? todayCellKey}) {
     final selected = widget.selectedIds.contains(habit.id);
+    // This row's stored squares, and the days the habit existed on and
+    // planned, once per row: the quota below, the covered check and every
+    // square read them (see _RowFacts).
+    final row = _RowFacts(habit, widget.state, days, facts);
 
     // For a flexible weekly quota ("N times a week, any days") an empty square
     // is ambiguous on its own: it is either a day the person genuinely owed
@@ -379,52 +485,53 @@ class _GridTableState extends ConsumerState<_GridTable> {
     final demand = quotaDemandForRow(
       habit: habit,
       days: days,
-      isGreenAt: (i) => widget.state.squareFor(habit.id, days[i]).isGreen,
-      isUnmarkedAt: (i) =>
-          widget.state.squareFor(habit.id, days[i]) == SquareState.none,
-      isHalfAt: (i) =>
-          widget.state.squareFor(habit.id, days[i]) == SquareState.partial,
+      isGreenAt: (i) => row.stored[i].isGreen,
+      isUnmarkedAt: (i) => row.stored[i] == SquareState.none,
+      isHalfAt: (i) => row.stored[i] == SquareState.partial,
+      alive: row.alive,
+      planned: row.scheduled,
     );
 
     // The row that was JUST created announces itself — see
     // newlyAddedHabitIdProvider for why. Wrapping only the matching row
     // keeps every other row's build byte-identical.
-    if (ref.watch(newlyAddedHabitIdProvider) == habit.id) {
+    if (reads.newlyAddedId == habit.id) {
       return _NewHabitHighlight(
-        child: _habitRowBody(
-            context, ref, habit, days, cell, rowHeight, habitCol,
+        child: _habitRowBody(context, ref, reads, rowIndex, habit, days,
+            facts, row, cell, rowHeight, habitCol,
             todayCellKey: todayCellKey, demand: demand, selected: selected),
       );
     }
 
-    return _habitRowBody(context, ref, habit, days, cell, rowHeight, habitCol,
+    return _habitRowBody(context, ref, reads, rowIndex, habit, days, facts,
+        row, cell, rowHeight, habitCol,
         todayCellKey: todayCellKey, demand: demand, selected: selected);
   }
 
   Widget _habitRowBody(BuildContext context, WidgetRef ref,
-      IslamicHabitTemplate habit, List<DateTime> days, double cell,
+      _BoardReads reads, int rowIndex, IslamicHabitTemplate habit,
+      List<DateTime> days, _WeekFacts facts, _RowFacts row, double cell,
       double rowHeight, double habitCol,
       {GlobalKey? todayCellKey,
       List<DayDemand?>? demand,
       required bool selected}) {
     final gp = context.gp;
     final isAr = S.of(context).isAr;
-    final today = DateTime.now().effectiveDay;
     // Today's count is dropped entirely while the link is stalled. A failed
     // read deliberately leaves the last good count in place rather than
     // zeroing it, which is right for a number the actions sheet can caption
     // ("the link is stalled") and wrong for the board, where a square
     // painted 60% full is an unqualified claim about today that nothing
     // currently supports.
-    final stepsStalled = ref.watch(stepsFailureProvider) != null;
+    final stepsStalled = reads.stepsStalled;
     // Every day's count, today's included, looked up by its date. Today used
     // to come from stepsTodayProvider, which carries no date: at midnight it
     // still held yesterday's walk, and the new day's square drew yesterday's
     // "12k" (seen 2026-09-17, 00:06). The day log is keyed by date, so a day
-    // can only ever show a read OF that day. Watched unconditionally: it
-    // stays empty on accounts that never linked a habit, so an unlinked board
-    // pays nothing for it.
-    final stepsByDay = ref.watch(stepsByDayProvider);
+    // can only ever show a read OF that day. Watched unconditionally (in
+    // build, see _watchBoard): it stays empty on accounts that never linked a
+    // habit, so an unlinked board pays nothing for it.
+    final stepsByDay = reads.stepsByDay;
 
     return SizedBox(
       height: rowHeight,
@@ -487,9 +594,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   stage: widget.sproutStage,
                   reachAbove: !widget.selectionMode &&
                           habit.archivedAt == null &&
-                          ref
-                              .watch(roomBoostedHabitsProvider)
-                              .contains(habit.id)
+                          reads.boostedAt(rowIndex)
                       ? 9
                       : 0,
                   child: Row(
@@ -549,8 +654,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       // myLinkedRoomHabitsProvider) - an inline highlight
                       // rather than a separate "event habits" screen, so
                       // Grid stays the one place every habit lives.
-                      final inRoom =
-                          ref.watch(myLinkedRoomHabitsProvider).containsKey(habit.id);
+                      final inRoom = reads.linkedAt(rowIndex);
                       // 2x while a linked room is LIVE — the visible promise
                       // behind roomBoostedReward's doubled XP/gold. This is
                       // a Positioned overlay on the icon, not a Row sibling
@@ -562,9 +666,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                       // with nothing about the text itself changing. Every
                       // row's icon box and name column are now identically
                       // sized whether or not this badge is showing.
-                      final boosted = ref
-                          .watch(roomBoostedHabitsProvider)
-                          .contains(habit.id);
+                      final boosted = reads.boostedAt(rowIndex);
                       // The boost badge hovers over this icon via a Positioned
                       // in the Clip.none Stack below. Its whole contract is:
                       // PAINT wherever it likes, but contribute nothing to
@@ -717,24 +819,35 @@ class _GridTableState extends ConsumerState<_GridTable> {
               ),
             ),
           ),
-          for (final day in days)
+          // Indexed, so each square reads its day's facts by position: `i` is
+          // this pass's own, so the closures below keep the day they were
+          // built for. days.indexOf(day) was always `i`, since the seven
+          // instants differ even in a week that holds a clock change.
+          for (var i = 0; i < days.length; i++)
             // Read once per cell and shared by the square's state, its fill
             // and its screen-reader label: three independent reads of the
             // same count is how they end up disagreeing mid-frame.
             Builder(builder: (context) {
+              final day = days[i];
               // The count this square shows and a tap adds one to: today's,
               // or yesterday's while it is still open (see _dayCount). Null
               // on every other square and for a habit done once a day, and
-              // watched only on the two squares it can move.
+              // read only on the two squares it can move (the board watches
+              // the dashboard for them, see _watchBoard).
               final liveCount = habit.effectiveDailyTarget > 1 &&
-                      (day.isToday ||
-                          day.isSameDayAs(
-                            DateTime(today.year, today.month, today.day - 1),
-                          ))
-                  ? _dayCount(ref.watch(dashboardProvider), habit, day)
+                      (facts.isToday[i] || facts.isYesterday[i])
+                  ? _dayCount(
+                      reads.dash ?? ref.read(dashboardProvider),
+                      habit,
+                      day,
+                    )
                   : null;
               // Still named for today; it is this square's own count now.
               final doneToday = liveCount ?? 0;
+              // Worked out once and shared by the fill, the covered check,
+              // the square and its label, which each used to ask for it.
+              final square =
+                  _effectiveSquareOf(habit, row.stored[i], doneToday);
               // How far through the day's step goal a linked walking habit
               // got. Any day the session has a count for, not only today:
               // below half the goal nothing is ever written (see
@@ -749,9 +862,9 @@ class _GridTableState extends ConsumerState<_GridTable> {
               // measured count — the same precedence _effectiveSquare gives
               // those marks over a times-per-day tally.
               final steps =
-                  day.isToday && stepsStalled
+                  facts.isToday[i] && stepsStalled
                       ? null
-                      : stepsByDay[day.toDateKey()];
+                      : stepsByDay[facts.keys[i]];
               final stepGoal = habit.stepGoal;
               final stepFraction = stepFillFraction(
                 steps: steps,
@@ -761,8 +874,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
                 // runStepAutoComplete skips it for the same reason, so
                 // filling it in would be the one surface claiming a day the
                 // rest of the app says is off.
-                scheduled: habit.isScheduledFor(day),
-                square: _effectiveSquare(habit, day, doneToday),
+                scheduled: row.scheduled[i],
+                square: square,
               );
               // "8.4k" inside the square, so a week of walking reads at a
               // glance instead of only through a held square (Aziz,
@@ -772,20 +885,23 @@ class _GridTableState extends ConsumerState<_GridTable> {
               final stepCount = stepSquareCount(
                 steps: steps,
                 goal: stepGoal,
-                scheduled: habit.isScheduledFor(day),
-                square: _effectiveSquare(habit, day, doneToday),
+                scheduled: row.scheduled[i],
+                square: square,
               );
               // Hoisted so the marker and the spoken label cannot disagree.
               // trim() because clearing a note used to store '' rather than
               // deleting the key, so old days carry tombstones. A voice note
               // counts as a note (square_voice_notes.dart): a day someone
               // spoke about gets the same corner and stays just as openable.
-              // Selected per square, so a recording repaints only its own.
-              final hasVoice = ref.watch(squareVoiceIndexProvider.select(
-                (m) => (m[squareVoiceKey(habit.id, day)] ?? 0) > 0,
-              ));
+              // One select for the whole board, made in build (see
+              // _watchBoard): the board rebuilds when a square it shows gains
+              // or loses its last recording, and for nothing else.
+              final hasVoice = reads.voicedAt(rowIndex, i);
               final hasNote = hasVoice ||
-                  widget.state.noteFor(habit.id, day).trim().isNotEmpty;
+                  widget.state
+                      .noteForKey(habit.id, facts.keys[i])
+                      .trim()
+                      .isNotEmpty;
               // A day the habit asked nothing of: an off-day of a
               // specific-days schedule, or a quota day that was never
               // load-bearing. Painted soft green so a kept week reads as
@@ -794,11 +910,12 @@ class _GridTableState extends ConsumerState<_GridTable> {
               final covered = isCoveredDay(
                 habit: habit,
                 day: day,
-                today: today,
-                square: _effectiveSquare(habit, day, doneToday),
-                demand: demand == null || !days.contains(day)
-                    ? null
-                    : demand[days.indexOf(day)],
+                today: facts.today,
+                square: square,
+                demand: demand?[i],
+                dayStart: facts.starts[i],
+                todayStart: facts.todayStart,
+                alive: row.window,
               );
               return Padding(
                 padding: const EdgeInsets.only(left: _gap),
@@ -810,8 +927,8 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // that can never respond.
                   semanticLabel: [
                     habit.localName(isAr),
-                    westernDate(day, 'EEEE d MMMM', isAr ? 'ar' : 'en'),
-                    _effectiveSquare(habit, day, doneToday).localLabel(isAr),
+                    facts.labels[i],
+                    square.localLabel(isAr),
                     // "2 / 4" for a counted habit's square today, and
                     // yesterday's while it is still open. The number
                     // is drawn inside the square, where a screen reader cannot
@@ -827,14 +944,14 @@ class _GridTableState extends ConsumerState<_GridTable> {
                     // the schedule for the same reason the fill is: a day
                     // this habit does not run on is not part done.
                     if (stepGoal != null &&
-                        habit.isScheduledFor(day) &&
-                        (day.isToday || steps != null))
-                      day.isToday
+                        row.scheduled[i] &&
+                        (facts.isToday[i] || steps != null))
+                      facts.isToday[i]
                           ? S.of(context).stepsProgressLine(steps, stepGoal)
                           : S.of(context).stepsWalkedLine(steps!, stepGoal),
-                    if (day.isAfter(today))
+                    if (facts.afterToday[i])
                       isAr ? 'يوم قادم' : 'future day'
-                    else if (!habit.isScheduledFor(day))
+                    else if (!row.scheduled[i])
                       isAr ? 'غير مجدول' : 'not scheduled',
                     // container: true on the cell stops the corner mark
                     // announcing itself, so this is the only way a screen
@@ -846,7 +963,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // and _GridTable.todayCellKey's doc comment) — everywhere
                   // else this stays null, since a GlobalKey can only ever be
                   // attached to one live widget at a time.
-                  key: day.isRealToday ? todayCellKey : null,
+                  key: facts.isRealToday[i] ? todayCellKey : null,
                   size: cell,
                   day: day,
                   // isRealToday, not isToday: purely which square gets the
@@ -855,7 +972,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // decided independently inside _handleSquareTap/
                   // _handlePaletteTap (still day.isToday, unchanged) and by
                   // isFuture below, so this is cosmetic only.
-                  isToday: day.isRealToday,
+                  isToday: facts.isRealToday[i],
                   // A day after the reward day (`today` = effectiveDay) is
                   // future and stays locked — *except* the real calendar day
                   // itself during the flex window right after midnight
@@ -867,11 +984,11 @@ class _GridTableState extends ConsumerState<_GridTable> {
                   // sitting dimmed and untappable for 6 hours for no reason.
                   // A day beyond that (tomorrow-of-tomorrow, etc.) still
                   // isn't isRealToday either, so it stays correctly locked.
-                  isFuture: day.startOfDay.isAfter(today) && !day.isRealToday,
-                  isScheduled: habit.isScheduledFor(day),
-                  isAlive: habit.isAliveOn(day),
+                  isFuture: facts.isFuture[i],
+                  isScheduled: row.scheduled[i],
+                  isAlive: row.alive[i],
                   isCovered: covered,
-                  square: _effectiveSquare(habit, day, doneToday),
+                  square: square,
                   // Only today, and only for a habit that is actually counted:
                   // `completions` holds today's count and nothing else, so
                   // handing it to any other day's square would draw today's
@@ -924,8 +1041,18 @@ class _GridTableState extends ConsumerState<_GridTable> {
     IslamicHabitTemplate habit,
     DateTime day,
     int done,
+  ) =>
+      _effectiveSquareOf(habit, widget.state.squareFor(habit.id, day), done);
+
+  /// [_effectiveSquare] from the day's [stored] square, for the board, which
+  /// has read every stored square of the row once already (see _RowFacts).
+  /// One body for both, so what a square draws and what a tap on it acts on
+  /// cannot drift apart.
+  static SquareState _effectiveSquareOf(
+    IslamicHabitTemplate habit,
+    SquareState stored,
+    int done,
   ) {
-    final stored = widget.state.squareFor(habit.id, day);
     if (habit.effectiveDailyTarget <= 1 || done <= 0) {
       return stored;
     }
@@ -1829,6 +1956,195 @@ class _GridTableState extends ConsumerState<_GridTable> {
 
 }
 
+/// What the board read from its providers in [_GridTableState.build], handed
+/// to the LayoutBuilder's builder and every row and square.
+///
+/// A value read in build stays current in the builder: anything watched here
+/// that changes marks the board for build again, and build runs before
+/// layout in the same frame, so the builder never draws from an old read. A
+/// re-run for new constraints alone draws from this build's reads, which are
+/// still the latest.
+class _BoardReads {
+  const _BoardReads({
+    required this.stepsStalled,
+    required this.stepsByDay,
+    required this.newlyAddedId,
+    required this.linked,
+    required this.boosted,
+    required this.dash,
+    required this.voiced,
+    required this.days,
+  });
+
+  /// An empty board reads nothing.
+  const _BoardReads.empty()
+      : stepsStalled = false,
+        stepsByDay = const {},
+        newlyAddedId = null,
+        linked = null,
+        boosted = null,
+        dash = null,
+        voiced = '',
+        days = 7;
+
+  final bool stepsStalled;
+  final Map<String, int> stepsByDay;
+  final String? newlyAddedId;
+
+  /// One '1' or '0' per row: the habit is in a room's plan
+  /// (myLinkedRoomHabitsProvider). Null when no row draws it.
+  final String? linked;
+
+  /// One '1' or '0' per row: a linked room is live, the 2x
+  /// (roomBoostedHabitsProvider). Null when no row draws it.
+  final String? boosted;
+
+  /// Null unless a counted habit's today or yesterday is on this board; a
+  /// square that finds it null reads the dashboard without watching it.
+  final DashboardState? dash;
+
+  /// One '1' or '0' per square, row by row: the square carries a recording.
+  final String voiced;
+
+  /// Squares per row.
+  final int days;
+
+  bool linkedAt(int row) => linked?[row] == '1';
+  bool boostedAt(int row) => boosted?[row] == '1';
+  bool voicedAt(int row, int day) => voiced[row * days + day] == '1';
+}
+
+/// What the board draws about each day of its week, worked out once per
+/// build instead of once per square.
+///
+/// Every square used to ask these for itself: the clock (isToday,
+/// isRealToday, a fresh DateTime.now() per row), its own local midnights,
+/// its date key and its spoken date, with a new DateFormat each time. On a
+/// board of 12 habits that was about 330 clock reads and 3,000 native
+/// time-zone lookups per build, the hottest leaf of the device profile (a
+/// local DateTime(y, m, d) is three of them). Each field here is the
+/// expression the square used to evaluate, on the same day, index for index
+/// with the week's days; only the clock is read once, so a build that runs
+/// across midnight draws the whole board on one day instead of part of it on
+/// each.
+///
+/// Drawing only. A tap or long-press reads the clock when it happens
+/// (_handleSquareTap, _tapRestDay, _openEditor and _dayCount take the day,
+/// never these facts), so a board left open across midnight never acts on
+/// the day it was drawn on. The real clock, DateTime.now(), as the board has
+/// always drawn from; taps ask dayClockSourceProvider (see
+/// grace_day_counted_square_test.dart for why the two differ).
+class _WeekFacts {
+  factory _WeekFacts(List<DateTime> days, {required String locale}) {
+    final now = DateTime.now();
+    final today = now.effectiveDay;
+    final yesterday = DateTime(today.year, today.month, today.day - 1);
+    final starts = [for (final d in days) d.startOfDay];
+    return _WeekFacts._(
+      today: today,
+      todayStart: DateTime(today.year, today.month, today.day),
+      keys: [for (final d in days) d.toDateKey()],
+      starts: starts,
+      isToday: [for (final d in days) d.isSameDayAs(today)],
+      isRealToday: [for (final d in days) d.isSameDayAs(now)],
+      isYesterday: [for (final d in days) d.isSameDayAs(yesterday)],
+      afterToday: [for (final d in days) d.isAfter(today)],
+      isFuture: [
+        for (var i = 0; i < days.length; i++)
+          starts[i].isAfter(today) && !days[i].isSameDayAs(now),
+      ],
+      labels: [
+        for (final d in days) westernDate(d, 'EEEE d MMMM', locale),
+      ],
+    );
+  }
+
+  const _WeekFacts._({
+    required this.today,
+    required this.todayStart,
+    required this.keys,
+    required this.starts,
+    required this.isToday,
+    required this.isRealToday,
+    required this.isYesterday,
+    required this.afterToday,
+    required this.isFuture,
+    required this.labels,
+  });
+
+  /// The reward day, DateTime.now().effectiveDay.
+  final DateTime today;
+
+  /// [today]'s own midnight, as isCoveredDay builds it.
+  final DateTime todayStart;
+
+  /// Each day's toDateKey().
+  final List<String> keys;
+
+  /// Each day's startOfDay: a clock-change week's columns are not all
+  /// midnights, and isCoveredDay judges the midnight.
+  final List<DateTime> starts;
+
+  /// day.isToday: the day a square's own count and today's steps belong to.
+  final List<bool> isToday;
+
+  /// day.isRealToday: the header's circle, the gold ring and the scroll key.
+  final List<bool> isRealToday;
+
+  /// The day before [today], the other day a counted square keeps a count
+  /// for while it is open (see _dayCount).
+  final List<bool> isYesterday;
+
+  /// day.isAfter(today): the spoken "future day".
+  final List<bool> afterToday;
+
+  /// A locked square: after [today], except the real calendar day (see the
+  /// isFuture argument in _habitRowBody).
+  final List<bool> isFuture;
+
+  /// The spoken date, «الأربعاء 30 سبتمبر» or "Wednesday 30 September".
+  final List<String> labels;
+}
+
+/// One row's share of [_WeekFacts]: its squares as stored and the days its
+/// habit existed on and planned, each once per row instead of several times
+/// per square. [alive] is isAliveOn and [scheduled] is isScheduledFor, day
+/// for day, from the same birth and archive midnights ([window]) built once.
+class _RowFacts {
+  factory _RowFacts(
+    IslamicHabitTemplate habit,
+    WeeklyGridState state,
+    List<DateTime> days,
+    _WeekFacts facts,
+  ) {
+    final window = habit.aliveWindow;
+    final alive = [
+      for (final d in days) IslamicHabitTemplate.aliveWithin(window, d),
+    ];
+    return _RowFacts._(
+      window: window,
+      stored: [for (final k in facts.keys) state.squareForKey(habit.id, k)],
+      alive: alive,
+      // isScheduledFor is isAliveOn && runsOn.
+      scheduled: [
+        for (var i = 0; i < days.length; i++) alive[i] && habit.runsOn(days[i]),
+      ],
+    );
+  }
+
+  const _RowFacts._({
+    required this.window,
+    required this.stored,
+    required this.alive,
+    required this.scheduled,
+  });
+
+  final ({DateTime? from, DateTime? to}) window;
+  final List<SquareState> stored;
+  final List<bool> alive;
+  final List<bool> scheduled;
+}
+
 /// [gridStreakRoster] read off this screen's providers: what a mark on [day]
 /// judges today's streak point against, the same board the summary card
 /// counts from.
@@ -1877,15 +2193,24 @@ class _BoostBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.local_fire_department_rounded,
-                  size: 9, color: Colors.black)
-              .animate(onPlay: (c) => c.repeat(reverse: true))
-              .scaleXY(
-                begin: 0.8,
-                end: 1.2,
-                duration: 650.ms,
-                curve: Curves.easeInOut,
-              ),
+          // The pulse is set at paint time on its own layer: as a rebuild
+          // it re-laid out the board up to the page on every frame of a
+          // forever-repeating flame (see PaintOnlyScaleEffect). The same
+          // ScaleEffect scaleXY(0.8, 1.2) built, and the boundary holds the
+          // transform rather than moving with it.
+          RepaintBoundary(
+            child: Icon(Icons.local_fire_department_rounded,
+                    size: 9, color: Colors.black)
+                .animate(onPlay: (c) => c.repeat(reverse: true))
+                .addEffect(
+                  const PaintOnlyScaleEffect(
+                    begin: Offset(0.8, 0.8),
+                    end: Offset(1.2, 1.2),
+                    duration: Duration(milliseconds: 650),
+                    curve: Curves.easeInOut,
+                  ),
+                ),
+          ),
           const SizedBox(width: 1.5),
           const Text(
             '2x',
@@ -1950,6 +2275,92 @@ Widget _levelFill({
         ),
       ),
     );
+
+/// A fade that plays once, from [begin] to fully opaque over [duration],
+/// starting [delay] after it is built: a board row's entrance, and a marked
+/// square settling.
+///
+/// flutter_animate's `.animate().fadeIn()` did this, and builds a new
+/// CurvedAnimation for it on every build of its widget, each adding a status
+/// listener to the fade's controller that nothing removes: one per row and
+/// per marked square on every board rebuild, 23 on a 12-habit board, kept
+/// until the week changes (the board is keyed by its week). This is the same
+/// pipeline built once: flutter_animate 4.5.2's controller, started by
+/// Future.delayed(delay) and then forward(from: 0), its Interval(0, 1) over
+/// the linear default curve, and Tween(begin, 1), so every frame's opacity is
+/// the same double. grid_board_fade_parity_test.dart holds it to a trace
+/// recorded from the library.
+///
+/// Like the library, nothing replays when the widget updates: a row whose
+/// index, and so its delay, moves because a habit was added, removed or
+/// reordered keeps the fade it has. A new key (a marked square's new state)
+/// is a new fade.
+class _OnceFade extends StatefulWidget {
+  const _OnceFade({
+    super.key,
+    this.delay = Duration.zero,
+    required this.duration,
+    required this.begin,
+    required this.child,
+  });
+
+  final Duration delay;
+  final Duration duration;
+  final double begin;
+  final Widget child;
+
+  @override
+  State<_OnceFade> createState() => _OnceFadeState();
+}
+
+class _OnceFadeState extends State<_OnceFade>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final CurvedAnimation _curve;
+  late final Animation<double> _opacity;
+  Timer? _start;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: widget.duration);
+    _curve = CurvedAnimation(
+      parent: _controller,
+      // Curves.linear, Interval's own default and the library's.
+      curve: const Interval(0.0, 1.0),
+    );
+    _opacity = _curve.drive(Tween<double>(begin: widget.begin, end: 1.0));
+    // Through a timer even with no delay, as the library starts it, so the
+    // first frame draws [begin]. Kept, so dispose can cancel it: a row or
+    // square that leaves before its delay is up leaves no timer behind.
+    _start = Timer(widget.delay, () {
+      if (mounted) _controller.forward(from: 0);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _OnceFade oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Built once from the first widget's duration and begin, which both call
+    // sites pass as constants. The library replayed on a new duration; say
+    // so in debug rather than quietly ignoring one.
+    assert(
+      widget.duration == oldWidget.duration && widget.begin == oldWidget.begin,
+    );
+  }
+
+  @override
+  void dispose() {
+    _start?.cancel();
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      FadeTransition(opacity: _opacity, child: widget.child);
+}
 
 /// The green square's one-shot celebration, which stops existing once it
 /// has run.
@@ -2454,9 +2865,14 @@ class _SquareCell extends StatelessWidget {
     if (square.isGreen) {
       cell = _CelebrationShimmer(square: square, child: cell);
     } else if (square.isMarked) {
-      cell = cell
-          .animate(key: ValueKey(square))
-          .fadeIn(duration: 180.ms, begin: 0.6);
+      // Keyed by the state, so a square that lands on a new mark fades in
+      // again (see _OnceFade).
+      cell = _OnceFade(
+        key: ValueKey(square),
+        duration: 180.ms,
+        begin: 0.6,
+        child: cell,
+      );
     }
     final tap = onTap;
     final interactive = !disabled && tap != null;

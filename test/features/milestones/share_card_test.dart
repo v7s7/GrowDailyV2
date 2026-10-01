@@ -195,6 +195,9 @@ void main() {
       for (var i = 1; i <= 3; i++)
         DateTime(today.year, today.month, i).toDateKey(): SquareState.complete,
     };
+    // The report counts no day after today, so on the 1st and 2nd of a month
+    // the 2nd and 3rd are still ahead: three done from the 3rd on.
+    final doneSoFar = today.day < 3 ? today.day : 3;
 
     Future<void> settle(WidgetTester tester) async {
       for (var i = 0; i < 8; i++) {
@@ -263,7 +266,7 @@ void main() {
           tester.widget<ShareProgressCard>(find.byType(ShareProgressCard));
       expect(card.data.scope, ShareCardScope.month);
       expect(card.data.totalDone, header.summary.totalDone);
-      expect(card.data.totalDone, 3);
+      expect(card.data.totalDone, doneSoFar);
       final label =
           tester.widget<ReportPeriodHeader>(find.byType(ReportPeriodHeader));
       expect(card.data.periodLabel, label.label);
@@ -293,7 +296,7 @@ void main() {
           tester.widget<ShareProgressCard>(find.byType(ShareProgressCard));
       expect(card.data.scope, ShareCardScope.year);
       expect(card.data.period, DateTime(today.year));
-      expect(card.data.totalDone, 3);
+      expect(card.data.totalDone, doneSoFar);
     });
   });
 }

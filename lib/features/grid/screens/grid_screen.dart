@@ -14,6 +14,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/services/voice_note_service.dart';
 import '../../../shared/widgets/overlay_notice.dart';
+import '../../../shared/widgets/paint_only_scale_effect.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart' show authStateProvider;
 import '../../launch/launch_curtain.dart' show launchCurtainUpProvider;
@@ -31,7 +32,7 @@ import '../../../core/theme/theme_preset.dart'
     show darkenToContrast, lightenToContrast;
 import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart'
-    show dayClockSourceProvider;
+    show dayClockProvider, dayClockSourceProvider;
 import '../../onboarding/notifiers/guide_chain.dart';
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/providers/nav_bar_hint_provider.dart';
@@ -795,7 +796,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
 
   @override
   Widget build(BuildContext context) {
-    registerDashboardReactions(context, ref);
+    // The level-up, medal and milestone moments are HomeShell's since
+    // 2026-09-30 (registerDashboardReactions there): this page is not built
+    // while another is showing, or at all once Habits leaves the bar.
 
     final gp = context.gp;
     final s = S.of(context);

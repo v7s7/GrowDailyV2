@@ -43,7 +43,7 @@ class _AppIconScreenState extends ConsumerState<AppIconScreen> {
   // then owned by the page until «استخدم».
   bool _seeded = false;
   PlantShape _shape = PlantShape.sprout;
-  String _colourId = 'emerald_gold';
+  String _colourId = AppIconChoice.shipped.colourId;
   bool _follow = false;
   bool _ramadan = false;
   bool _applying = false;

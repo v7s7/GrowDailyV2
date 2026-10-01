@@ -4,6 +4,7 @@
     python tool/mascot/upscale_poses.py                           # all 18
     python tool/mascot/upscale_poses.py --only mascot_laptop      # one pose
     python tool/mascot/upscale_poses.py --sheet 2                 # the second sheet
+    python tool/mascot/upscale_poses.py --sheet sport             # also streak, ghutra
 
 Needs torch, numpy, scipy and Pillow. Step 3 of 3: reads design/mascot/
 poses-native/ (cut_poses.py), writes design/mascot/poses-4x/ (PNG masters,
@@ -87,7 +88,80 @@ SHEETS = {
     2: dict(poses="poses-2.json", src=ROOT / "design/mascot/sheet-2/poses-native",
             masters=ROOT / "design/mascot/sheet-2/poses-4x",
             row_norm={1: 2.90 / S, 2: 2.93 / S, 3: 3.25 / S, 4: 3.25 / S}),
+    # 2026-09-30: three more sheets, named by what they show. Each writes its
+    # app copies to its own folder, and each row's app scale is measured on
+    # that sheet against the app copies already shipped.
+    # sport: this sheet's size drifts inside its rows as much as between
+    # them, so in poses-sport.json "row" is a size class and "sheet_row" the
+    # row the pose sits in. Each pose is measured against the shipped app
+    # copies' medians: the face (open eye height 79, eye spacing 162 open or
+    # 174 shut, cheek spacing 251) and the leaves (square root of their area
+    # 254, tip to tip 566), the two as a geometric mean, because some poses
+    # draw bigger leaves on the same face (dumbbells: face 2.81, leaves 2.46).
+    # In app px per sheet px: dumbbells 2.63, jogging 2.53, water bottle 2.66
+    # (face by its shut eyes, a cheek is behind the bottle); jump rope 2.85,
+    # sit-ups 2.93, mat rest 2.80, plank 2.78, basketball 2.90, gym bag 2.93;
+    # football 3.07, tennis 3.01; boxing 3.21, barbell 3.34; cycling 3.77,
+    # treadmill 3.57. The five classes put every pose within -3.2% to +2.8%
+    # of its measure; the shipped poses spread 5% (one standard deviation) on
+    # the same measure. One scale per row (2.90, 3.00, 3.10) left the jogger
+    # 15% and the dumbbells 10% too big, the boxer and the barbell 7% small.
+    # Measured again on the app copies, every pose is 0.95 to 1.03 of the
+    # shipped median. Settled by eye beside happy sparkles, running, calm,
+    # thumbs up, cheer and mug. Then run fix_poses_sport.py: it redoes the
+    # racket strings and bike spokes, which the model draws wavy.
+    "sport": dict(poses="poses-sport.json", src=ROOT / "design/mascot/sheet-sport/poses-native",
+                  masters=ROOT / "design/mascot/sheet-sport/poses-4x", app=APP / "sport",
+                  row_norm={1: 2.60 / S, 2: 2.85 / S, 3: 3.05 / S, 4: 3.25 / S, 5: 3.65 / S}),
+    # streak: like sport, "row" in poses-streak.json is a size class and
+    # "sheet_row" the row the pose sits in. This sheet draws a smaller face on
+    # the same body: against the shipped app copies' medians (leaf span 563,
+    # square root of leaf area 258 and of green area 394; open eye height 79,
+    # eye spacing 160, cheek spacing 249) the front-facing poses' faces say
+    # 2.66 to 2.94 app px per sheet px where their silhouettes say 2.42 to
+    # 2.50, and by eye the silhouette decides (by the face, body and leaves
+    # come out 6 to 19% big). Silhouette = the mean of leaf span, leaf area
+    # and green area, green left out where a prop covers the body (phone,
+    # watering can, hourglass, the shelter's leaf) and leaf area on lying
+    # scribble (its leaves foreshortened). Per pose: worried 2.42, poke 2.49,
+    # phone 2.50, broken heart 2.46, blow 2.50, watering can 2.47; lying
+    # scribble 2.68, run clock 2.76, shelter 2.70, lying 2.59, hourglass 2.55,
+    # scribble 2.71; calendar 2.93, reach 2.88, chase 2.88. The three classes
+    # put every pose within -4.8% to +3.1% of its measure; the shipped poses
+    # spread 3.5% (one standard deviation) on the same measure. One scale per
+    # sheet row (2.40, 2.55, 2.68) left the calendar and the clock runner 13%
+    # small, lying scribble 10% and the two flame chasers 7%. Settled by eye beside
+    # front wave, running, thumbs up, cheer, mug, calm, shrug and sleeping.
+    "streak": dict(poses="poses-streak.json", src=ROOT / "design/mascot/sheet-streak/poses-native",
+                   masters=ROOT / "design/mascot/sheet-streak/poses-4x", app=APP / "streak",
+                   row_norm={1: 2.45 / S, 2: 2.68 / S, 3: 2.88 / S}),
+    # ghutra: matched by face like the winter pictures (open-eye spacing 163
+    # and eye height 74.5 on front_wave and cheer, closed-eye spacing 171.9 on
+    # mug, calm, headphones, laugh and confetti) and by the agal, the one
+    # object every pose draws, against winter_ghutra_cup's (512.5 app px). A
+    # ring keeps its width as the head turns; the eyes move with the
+    # expression (the laughing faces space theirs 20% wider than the blowing
+    # face in the same row). Row means, agal then face: 2.60 and 2.62, 2.68
+    # and 2.53, 2.77 and 2.76. Rows 1 and 3 agree, row 2 takes the mean of
+    # the two, and row 3 is drawn about 5% smaller. Every pose's agal is
+    # within -6% to +7% of winter_ghutra_cup's at its row's scale. Per pose,
+    # the geometric mean of agal and face lies within -4.5% to +4.4% of its
+    # row's scale in all three rows (row 2: blowing 2.72, warming hands 2.59,
+    # heart 2.57, flame up 2.52), so one scale per row stands. By face alone
+    # the heart would take 2.45 and the blowing pose 2.75; on a board beside
+    # worried, flame hands, laugh, confetti and winter_ghutra_cup that makes
+    # the heart's ghutra and bisht visibly smaller and the blowing pose's
+    # bigger, as this sheet draws the laughing eyes wider on the same head.
+    # Kept at 2.61 by eye (2026-09-30); Aziz may still prefer sizes per pose.
+    "ghutra": dict(poses="poses-ghutra.json", src=ROOT / "design/mascot/sheet-ghutra/poses-native",
+                   masters=ROOT / "design/mascot/sheet-ghutra/poses-4x", app=APP / "winter",
+                   row_norm={1: 2.62 / S, 2: 2.61 / S, 3: 2.75 / S}),
 }
+
+
+def sheet_key(s):
+    """--sheet 1, --sheet 2, or a named sheet such as --sheet sport."""
+    return int(s) if s.isdigit() else s
 
 
 def bounds_up(img, size=3):
@@ -184,16 +258,17 @@ def to_webp(a, path):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--sheet", type=int, choices=sorted(SHEETS), default=1)
+    ap.add_argument("--sheet", type=sheet_key, choices=list(SHEETS), default=1)
     ap.add_argument("--src", type=pathlib.Path, default=None)
     ap.add_argument("--masters", type=pathlib.Path, default=None)
-    ap.add_argument("--app", type=pathlib.Path, default=APP)
+    ap.add_argument("--app", type=pathlib.Path, default=None)
     ap.add_argument("--weights", type=pathlib.Path, default=None, help="a local copy of the model file")
     ap.add_argument("--only", nargs="*", default=None, help="pose names to redo")
     args = ap.parse_args()
     cfg = SHEETS[args.sheet]
     args.src = args.src or cfg["src"]
     args.masters = args.masters or cfg["masters"]
+    args.app = args.app or cfg.get("app", APP)
     poses = json.loads((HERE / cfg["poses"]).read_text())
     net, dev = esrgan.load(args.weights)
     args.masters.mkdir(parents=True, exist_ok=True)

@@ -9,10 +9,12 @@
 //     pop-up only to the accounts it names (by hash, the same hash the
 //     admin tool computes);
 //   - a test meant for this reader comes before everyone's.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/features/broadcast/broadcast_message.dart';
 import 'package:hive/hive.dart';
@@ -263,6 +265,102 @@ void main() {
     });
   });
 
+  // The third slot: not a message but which builds the stores have, read
+  // from the same document (see AppUpdateGate).
+  group('the update slot', () {
+    Map<String, Object?> livePopup() => {
+          'id': 'p_1',
+          'titleAr': 'عنوان',
+          'bodyAr': 'نص',
+        };
+
+    test('is read next to the pop-ups, each platform with its own pair', () {
+      final raw = <String, Object?>{
+        'everyone': livePopup(),
+        'update': {
+          'ios': {'latest': 90, 'min': 0},
+          'android': {'latest': 88, 'min': 80},
+        },
+        'version': 3,
+      };
+      final state = BroadcastState.fromData(raw);
+      expect(state.everyone?.id, 'p_1');
+      final gate = state.update!;
+      expect(gate.iosLatest, 90);
+      expect(gate.iosMin, 0);
+      expect(gate.androidLatest, 88);
+      expect(gate.androidMin, 80);
+      expect(gate.latestFor(TargetPlatform.iOS), 90);
+      expect(gate.minFor(TargetPlatform.android), 80);
+      expect(gate.latestFor(TargetPlatform.macOS), 0, reason: 'no store there');
+    });
+
+    test('nothing set is no gate, and a document with only a gate is not empty',
+        () {
+      for (final raw in <Object?>[
+        null,
+        'x',
+        const {},
+        const {'ios': {'latest': 0, 'min': 0}},
+      ]) {
+        expect(AppUpdateGate.fromData(raw), isNull, reason: '$raw');
+      }
+      final onlyGate = <String, Object?>{
+        'update': {
+          'ios': {'latest': 90},
+        },
+      };
+      final only = BroadcastState.fromData(onlyGate);
+      expect(only.everyone, isNull);
+      expect(only.isEmpty, isFalse, reason: 'or its copy would be dropped');
+    });
+
+    test('a bad number costs itself, a bad slot costs only the slot', () {
+      final gate = AppUpdateGate.fromData({
+        'ios': {'latest': 90, 'min': 'soon'},
+        'android': {'latest': -4, 'min': double.nan},
+      })!;
+      expect(gate.iosLatest, 90);
+      expect(gate.iosMin, 0);
+      expect(gate.androidLatest, 0);
+      expect(gate.androidMin, 0);
+      expect(AppUpdateGate.fromData({'ios': 'nope', 'android': 7}), isNull);
+
+      // A hand-edited document with a number no build could have: the wall
+      // must never be made of that.
+      final wild = AppUpdateGate.fromData({
+        'ios': {'latest': 90, 'min': 1e30},
+        'android': {'latest': kMaxBuildNumber + 1, 'min': kMaxBuildNumber},
+      })!;
+      expect(wild.iosLatest, 90);
+      expect(wild.iosMin, 0);
+      expect(wild.androidLatest, 0);
+      expect(wild.androidMin, kMaxBuildNumber, reason: 'the last number allowed');
+
+      final state = BroadcastState.fromData({
+        'everyone': livePopup(),
+        'update': 'garbage',
+      });
+      expect(state.update, isNull);
+      expect(state.everyone?.id, 'p_1', reason: 'the pop-up is untouched');
+    });
+
+    test('survives the copy kept on the device, and adds nothing when unset',
+        () {
+      const gate = AppUpdateGate(iosLatest: 90, androidLatest: 88, androidMin: 80);
+      final state = BroadcastState(everyone: _popup(), update: gate);
+      final back = BroadcastState.fromData(jsonDecode(jsonEncode(state.toJson())));
+      expect(back.update!.toJson(), gate.toJson());
+      expect(back.everyone?.id, 'p_1');
+
+      expect(
+        BroadcastState(everyone: _popup()).toJson().containsKey('update'),
+        isFalse,
+        reason: 'a copy written before this slot existed reads back the same',
+      );
+    });
+  });
+
   group('remembering what was shown', () {
     setUp(() => BroadcastStore.persistSeen = false);
 
@@ -378,9 +476,63 @@ void main() {
         () async {
       await box.put(BroadcastStore.cacheKey, '{not json');
       await box.put(BroadcastStore.seenKey, 'not a list');
+      await box.put(BroadcastStore.updateAskedKey, 'yesterday');
       await BroadcastStore.loadCached(box);
       expect(BroadcastStore.current.isEmpty, isTrue);
       expect(BroadcastStore.seen, isEmpty);
+      expect(BroadcastStore.updateAskedAt, isNull);
+    });
+
+    test('the update slot follows the document, and a cold start knows it',
+        () async {
+      final db = FakeFirebaseFirestore();
+      BroadcastStore.listen(firestore: db, box: box, retryOnResume: false);
+      await pumpEventQueue();
+
+      // Only a gate, no pop-up at all: it is kept, not treated as empty.
+      await db.doc(kBroadcastDocPath).set({
+        'everyone': null,
+        'test': null,
+        'update': {
+          'ios': {'latest': 90, 'min': 0},
+          'android': {'latest': 88, 'min': 0},
+        },
+        'version': 1,
+      });
+      await pumpEventQueue();
+      expect(BroadcastStore.current.update?.iosLatest, 90);
+      expect(box.get(BroadcastStore.cacheKey), contains('"update"'));
+
+      await BroadcastStore.reset();
+      BroadcastStore.persistSeen = false;
+      await BroadcastStore.loadCached(box);
+      expect(BroadcastStore.current.update?.androidLatest, 88);
+
+      // The admin turns it off: nothing left to keep.
+      BroadcastStore.listen(firestore: db, box: box, retryOnResume: false);
+      await pumpEventQueue();
+      await db.doc(kBroadcastDocPath).set({
+        'everyone': null,
+        'test': null,
+        'version': 2,
+      });
+      await pumpEventQueue();
+      expect(BroadcastStore.current.update, isNull);
+      expect(box.get(BroadcastStore.cacheKey), isNull);
+    });
+
+    test('when the update was offered outlives a restart', () async {
+      await BroadcastStore.loadCached(box);
+      final at = DateTime(2026, 9, 30, 12, 30);
+      BroadcastStore.markUpdateAsked(at);
+      expect(BroadcastStore.updateAskedAt, at);
+      await pumpEventQueue();
+      expect(box.get(BroadcastStore.updateAskedKey), at.millisecondsSinceEpoch);
+
+      await BroadcastStore.reset();
+      expect(BroadcastStore.updateAskedAt, isNull);
+      await BroadcastStore.loadCached(box);
+      expect(BroadcastStore.updateAskedAt, at);
     });
   });
 }

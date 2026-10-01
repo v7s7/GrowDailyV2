@@ -553,6 +553,7 @@
     renderLive();
     renderHistory();
     renderTesters();
+    renderUpdate();
     updateActions(result);
   }
 
@@ -804,6 +805,7 @@
   function setBusy(busy) {
     state.busy = busy;
     updateActions();
+    renderUpdate();
   }
 
   function describeSend(json, audience, kind) {
@@ -991,6 +993,136 @@
     });
   }
 
+  // ---- The update prompt: which builds are out -----------------------------------------
+
+  const UPDATE_FIELDS = {
+    ios: { latest: 'updateIosLatest', min: 'updateIosMin', label: 'iPhone' },
+    android: { latest: 'updateAndroidLatest', min: 'updateAndroidMin', label: 'Android' },
+  };
+  const MAX_BUILD = 100000;
+
+  // True once a field has been typed in: until then the fields follow what
+  // is stored, so a reload of the data never overwrites what is being typed.
+  let updateDirty = false;
+
+  /** The stored slot, or four zeros. */
+  function storedUpdate() {
+    const u = state.data && state.data.live && state.data.live.update;
+    return u || { ios: { latest: 0, min: 0 }, android: { latest: 0, min: 0 }, setAt: null };
+  }
+
+  /** A build number as typed: digits only, empty is 0, null for anything else. */
+  function buildOf(text) {
+    const t = String(text == null ? '' : text).trim();
+    if (t === '') return 0;
+    if (!/^\d{1,6}$/.test(t)) return null;
+    const n = Number(t);
+    return n <= MAX_BUILD ? n : null;
+  }
+
+  /** The rules of lib/broadcast.js checkUpdateGate, applied as it is typed. */
+  function checkUpdate() {
+    const errors = [];
+    const gate = {};
+    for (const p of Object.keys(UPDATE_FIELDS)) {
+      const f = UPDATE_FIELDS[p];
+      const latest = buildOf($(f.latest).value);
+      const min = buildOf($(f.min).value);
+      if (latest === null) errors.push(f.label + ': the newest build must be a whole number from 0 to ' + MAX_BUILD + '.');
+      if (min === null) errors.push(f.label + ': the oldest build allowed must be a whole number from 0 to ' + MAX_BUILD + '.');
+      if (latest !== null && min !== null && min > latest) {
+        errors.push(f.label + ': the oldest build allowed (' + min + ') cannot be above the newest (' + latest + '). Nobody can be sent to a build that is not out.');
+      }
+      gate[p] = { latest: latest === null ? 0 : latest, min: min === null ? 0 : min };
+    }
+    return { ok: errors.length === 0, errors, gate };
+  }
+
+  function sameUpdate(a, b) {
+    return Object.keys(UPDATE_FIELDS).every((p) => a[p].latest === b[p].latest && a[p].min === b[p].min);
+  }
+
+  function renderUpdate() {
+    const stored = storedUpdate();
+    if (!updateDirty) {
+      for (const p of Object.keys(UPDATE_FIELDS)) {
+        $(UPDATE_FIELDS[p].latest).value = String(stored[p].latest);
+        $(UPDATE_FIELDS[p].min).value = String(stored[p].min);
+      }
+    }
+    const result = checkUpdate();
+    const box = clear($('updateChecks'));
+    for (const e of result.errors) append(box, h('div', { class: 'err' }, e));
+    const zeros = { ios: { latest: 0, min: 0 }, android: { latest: 0, min: 0 } };
+    let status = 'Off: nobody is asked to update.';
+    if (state.busy) status = 'Saving…';
+    else if (!sameUpdate(stored, zeros)) status = stored.setAt ? 'Saved ' + when(stored.setAt) + '.' : 'On.';
+    $('updateStatus').textContent = status;
+    $('updateSave').disabled = state.busy || !state.data || !result.ok || sameUpdate(result.gate, stored);
+  }
+
+  /**
+   * Saving asks first, in words about what happens to people: anything that
+   * reaches every phone does, and the minimum is the one setting that can
+   * stop someone from using the app, so it gets its own warning and the red
+   * button.
+   */
+  function confirmUpdate() {
+    const result = checkUpdate();
+    renderUpdate();
+    if (!result.ok) {
+      toast('Fix the numbers first.', true);
+      return;
+    }
+    const gate = result.gate;
+    const items = [];
+    let wall = false;
+    for (const p of Object.keys(UPDATE_FIELDS)) {
+      const label = UPDATE_FIELDS[p].label;
+      if (gate[p].latest > 0) {
+        items.push(h('li', null, h('span', null, h('b', null, label + ': '), 'builds below ' + gate[p].latest + ' are offered the update, at most once a day.')));
+      }
+      if (gate[p].min > 0) {
+        wall = true;
+        items.push(h('li', { class: 'warn' }, h('span', null, h('b', null, label + ': '), 'builds below ' + gate[p].min + ' cannot be used until they update.')));
+      }
+    }
+    const off = items.length === 0;
+    openConfirm({
+      title: off ? 'Turn the update prompt off?' : wall ? 'Require the update?' : 'Ask older builds to update?',
+      body: off
+        ? [h('p', null, 'Nobody will be asked to update, and anyone who is being stopped now can go on.')]
+        : [
+          h('ul', { class: 'facts' }, items),
+          h('p', null, wall
+            ? 'Only do this once those builds are live in the stores. A person on an older build can do nothing but update. To undo it, save the oldest build as 0: apps that are open let go within a moment.'
+            : 'Only do this once the newest build is live in its store: the button in the pop-up goes to the store page.'),
+        ],
+      go: off ? 'Turn it off' : wall ? 'Require the update' : 'Save',
+      danger: wall,
+      action: () => saveUpdate(gate),
+    });
+  }
+
+  async function saveUpdate(gate) {
+    setBusy(true);
+    try {
+      const json = await api('/api/messages/update', { gate });
+      // The answer's own copy first, so a page that could not read the
+      // document back still shows what was saved.
+      if (json.update && state.data && state.data.live) state.data.live.update = json.update;
+      mergeStored(json);
+      updateDirty = false;
+      toast((json.off ? 'The update prompt is off.' : 'Saved. Older builds are asked to update.') +
+        (json.reloadFailed ? ' (done: this page could not refresh itself, reload it)' : ''));
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      setBusy(false);
+      renderAll();
+    }
+  }
+
   // ---- Wiring ------------------------------------------------------------------------
 
   function setKind(kind) {
@@ -1024,6 +1156,15 @@
     $('days').addEventListener('change', onEdit);
     $('sendTest').addEventListener('click', () => send('test'));
     $('sendAll').addEventListener('click', confirmEveryone);
+    for (const p of Object.keys(UPDATE_FIELDS)) {
+      for (const key of ['latest', 'min']) {
+        $(UPDATE_FIELDS[p][key]).addEventListener('input', () => {
+          updateDirty = true;
+          renderUpdate();
+        });
+      }
+    }
+    $('updateSave').addEventListener('click', confirmUpdate);
     $('confirmCancel').addEventListener('click', closeConfirm);
     $('confirmGo').addEventListener('click', async () => {
       const action = confirmAction;

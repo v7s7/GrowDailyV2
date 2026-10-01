@@ -21,12 +21,13 @@ extension _MoreScenes on _LaunchSceneViewState {
   double get _loaded => widget.leaving ? 1.0 : widget.progress;
 
   /// Where [pose]'s picture stands on the curtain, placed as [_doum] places
-  /// it (feet on the line, the body centred), before any hop or walk.
-  Rect _poseBox(Offset c, SproutPose pose) {
+  /// it (feet on the line, the body centred, [mirror]ed as the walk's
+  /// are), before any hop or walk.
+  Rect _poseBox(Offset c, SproutPose pose, {bool mirror = false}) {
     final size = Sprout.sizeOf(pose, kLaunchDoumHeight);
     final body = kLaunchBodyCentre[pose] ?? .5;
     return Rect.fromLTWH(
-      c.dx - body * size.width,
+      c.dx - (mirror ? 1 - body : body) * size.width,
       c.dy + kLaunchFeetBelowCentre - size.height,
       size.width,
       size.height,
@@ -34,16 +35,34 @@ extension _MoreScenes on _LaunchSceneViewState {
   }
 
   /// A point of [pose]'s picture, as a share of its width and height.
-  Offset _prop(Offset c, SproutPose pose, double fx, double fy) {
-    final box = _poseBox(c, pose);
-    return Offset(box.left + fx * box.width, box.top + fy * box.height);
+  Offset _prop(
+    Offset c,
+    SproutPose pose,
+    double fx,
+    double fy, {
+    bool mirror = false,
+  }) {
+    final box = _poseBox(c, pose, mirror: mirror);
+    return Offset(
+      mirror ? box.right - fx * box.width : box.left + fx * box.width,
+      box.top + fy * box.height,
+    );
   }
 
-  Widget _wash(Size size, double opacity, List<Color> colours) => Positioned(
+  /// A wash of [colours] down from the top of the screen, [height] of it
+  /// deep, evenly spaced unless [stops] says where.
+  Widget _wash(
+    Size size,
+    double opacity,
+    List<Color> colours, {
+    double height = .6,
+    List<double>? stops,
+  }) =>
+      Positioned(
         left: 0,
         top: 0,
         width: size.width,
-        height: size.height * .6,
+        height: size.height * height,
         child: Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: DecoratedBox(
@@ -52,6 +71,7 @@ extension _MoreScenes on _LaunchSceneViewState {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: colours,
+                stops: stops,
               ),
             ),
           ),
@@ -677,10 +697,18 @@ extension _MoreScenes on _LaunchSceneViewState {
 
   // ── A slow load ───────────────────────────────────────────────────────
 
-  /// A glint going round his magnifier's lens while he looks.
+  /// A glint going round his magnifier's lens while he looks (on the
+  /// mirrored picture in an Arabic walk, see _walk).
   Widget _lens(Offset c) {
     if (widget.reduced) return const SizedBox.shrink();
-    final lens = _prop(c, SproutPose.magnifier, .698, .562);
+    final lens = _prop(
+      c,
+      SproutPose.magnifier,
+      .698,
+      .562,
+      mirror: widget.scene == LaunchScene.walk &&
+          Directionality.of(context) == TextDirection.rtl,
+    );
     final since = _searchedAt == null ? 1.0 : ((_t - _searchedAt!) / .2);
     return Positioned(
       left: lens.dx - 13,

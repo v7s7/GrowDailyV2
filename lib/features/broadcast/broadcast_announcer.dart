@@ -8,6 +8,8 @@ import '../../core/providers/first_run_offer_provider.dart';
 import '../../core/providers/onboarding_provider.dart';
 import '../../core/theme/game_theme.dart';
 import '../auth/notifiers/auth_notifier.dart' show authStateProvider;
+import '../launch/launch_curtain_up.dart';
+import 'app_update.dart';
 import 'broadcast_message.dart';
 
 /// The signed-in account's uid, or null for a guest: what a test pop-up is
@@ -50,6 +52,12 @@ const Duration _retryDelay = Duration(seconds: 2);
 /// What goes up is what the server says at that moment, not the copy on
 /// the device (BroadcastStore.readFromServer): a pop-up stopped while the
 /// phone was in a pocket must not show from a stale copy.
+///
+/// The same open also decides the update prompt (app_update.dart): a phone
+/// on a build older than the one the admin says is live is sent to the store.
+/// It goes before an ordinary message, which keeps for the next open, and
+/// follows every rule above, the server's word included, so a phone that is
+/// offline is never held up by it.
 ///
 /// Renders nothing itself. Mount it once, below the app's providers and
 /// inside the home route (see main.dart's _OnboardingOrGrid), the same place
@@ -162,26 +170,80 @@ class _BroadcastAnnouncerState extends ConsumerState<BroadcastAnnouncer> {
     _timer = Timer(delay, _tryShow);
   }
 
+  bool _waitingForCurtain = false;
+
+  /// Nothing opens under the launch curtain: it waits for the curtain to
+  /// go, and this open's window starts from there (see afterLaunchCurtain).
+  void _awaitCurtain() {
+    if (_waitingForCurtain) return;
+    _waitingForCurtain = true;
+    afterLaunchCurtain(ref, () {
+      _waitingForCurtain = false;
+      if (!mounted) return;
+      _openedAt = widget.now();
+      _schedule(widget.settleDelay);
+    });
+  }
+
+  /// What the update prompt would do for [state] on this phone: nothing when
+  /// no gate is set, on a platform with no store, or when this build cannot
+  /// be read (see [appUpdateNeed]). The build is only asked for once a gate
+  /// exists, so a phone with none never touches the platform channel.
+  Future<AppUpdateNeed> _updateNeed(BroadcastState state) async {
+    if (state.update == null) return AppUpdateNeed.none;
+    final platform = ref.read(updatePlatformProvider);
+    if (platform == null) return AppUpdateNeed.none;
+    final build = await ref.read(appBuildNumberProvider.future);
+    return appUpdateNeed(
+      gate: state.update,
+      platform: platform,
+      build: build,
+      now: widget.now(),
+      askedAt: BroadcastStore.updateAskedAt,
+    );
+  }
+
   Future<void> _tryShow() async {
-    if (!mounted || _showing || !_withinOpen()) return;
+    if (!mounted || _showing) return;
+    if (ref.read(launchCurtainUpProvider)) return _awaitCurtain();
+    if (!_withinOpen()) return;
     if (!ref.read(onboardingSeenProvider) ||
         !ref.read(firstRunOfferAskedProvider)) {
       return;
     }
     final uid = ref.read(broadcastUidProvider);
-    if (_pick(BroadcastStore.current, uid) == null) return;
-    if (!_homeOnTop()) {
-      _schedule(_retryDelay);
-      return;
-    }
+    // Set before the first await: the build number is one, and a second
+    // timer must not start a second look while this one is still waiting.
     _showing = true;
     try {
+      // Is anything owed at all? Judged on the copy this device holds, so a
+      // phone with nothing to show never spends a read.
+      if (await _updateNeed(BroadcastStore.current) == AppUpdateNeed.none &&
+          _pick(BroadcastStore.current, uid) == null) {
+        return;
+      }
+      if (!mounted) return;
+      if (!_homeOnTop()) {
+        _schedule(_retryDelay);
+        return;
+      }
       final fresh = await BroadcastStore.readFromServer();
       if (!mounted) return;
       if (fresh == null) {
         // Offline or slow: nothing is shown unconfirmed. Inside the open
         // window it asks again; after it, the next open will.
         _schedule(_retryDelay);
+        return;
+      }
+      // An update outranks a message: the message keeps for the next open.
+      final need = await _updateNeed(fresh);
+      if (!mounted) return;
+      if (need != AppUpdateNeed.none) {
+        if (!_homeOnTop()) {
+          _schedule(_retryDelay);
+          return;
+        }
+        await _showUpdate(need);
         return;
       }
       final popup = _pick(fresh, uid);
@@ -195,6 +257,31 @@ class _BroadcastAnnouncerState extends ConsumerState<BroadcastAnnouncer> {
     } finally {
       _showing = false;
     }
+  }
+
+  /// Puts the update prompt up. The one that can be put off is remembered as
+  /// offered as it goes up, for the reason markSeen gives; the one that
+  /// cannot is offered again at every open, so it is not counted.
+  Future<void> _showUpdate(AppUpdateNeed need) async {
+    final platform = ref.read(updatePlatformProvider)!;
+    final build = await ref.read(appBuildNumberProvider.future);
+    if (!mounted) return;
+    final mandatory = need == AppUpdateNeed.mandatory;
+    if (!mandatory) BroadcastStore.markUpdateAsked(widget.now());
+    final launch = ref.read(storeLauncherProvider);
+    await showAppUpdateDialog(
+      context,
+      mandatory: mandatory,
+      onUpdate: () => openStoreListing(platform, launch),
+      stillMandatory: () =>
+          appUpdateNeed(
+            gate: BroadcastStore.current.update,
+            platform: platform,
+            build: build,
+            now: widget.now(),
+          ) ==
+          AppUpdateNeed.mandatory,
+    );
   }
 
   @override

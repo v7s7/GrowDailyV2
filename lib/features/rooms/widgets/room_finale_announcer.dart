@@ -6,6 +6,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/room_finale_seen_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/victory_burst.dart';
+import '../../launch/launch_curtain_up.dart';
 import '../../mascot/sprout.dart';
 import '../models/room_model.dart';
 import '../notifiers/room_plan_notices.dart';
@@ -57,8 +58,15 @@ class _RoomFinaleAnnouncerState extends ConsumerState<RoomFinaleAnnouncer> {
         if (next.isEmpty) return;
         // After the frame — this can fire while the provider graph is still
         // settling, and pushing a route mid-build throws.
+        // And never under the launch curtain: a finale that played there
+        // was never seen (see afterLaunchCurtain).
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _announce(next.first);
+          if (!mounted) return;
+          afterLaunchCurtain(ref, () {
+            if (!mounted) return;
+            final rooms = ref.read(unseenFinishedRoomsProvider);
+            if (rooms.isNotEmpty) _announce(rooms.first);
+          });
         });
       },
       fireImmediately: true,
@@ -68,7 +76,10 @@ class _RoomFinaleAnnouncerState extends ConsumerState<RoomFinaleAnnouncer> {
       (previous, next) {
         if (next.isEmpty) return;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _announcePlanChange().ignore();
+          if (!mounted) return;
+          afterLaunchCurtain(ref, () {
+            if (mounted) _announcePlanChange().ignore();
+          });
         });
       },
       fireImmediately: true,

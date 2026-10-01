@@ -288,7 +288,8 @@ void main() {
   testWidgets('Look and Language lines carry their pages\' values',
       (tester) async {
     await pump(tester);
-    expect(find.text('Light · Emerald & Gold'), findsOneWidget);
+    // Doum is the default look since 2026-09-30.
+    expect(find.text('Light · Doum'), findsOneWidget);
     // Nothing saved in this test's box.
     expect(find.text('English · Not set'), findsOneWidget);
   });

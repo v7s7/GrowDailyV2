@@ -13,6 +13,7 @@
 // golden images so they say WHY they failed.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:grow_daily_v2/core/theme/theme_preset.dart';
 import 'package:grow_daily_v2/features/grid/screens/monthly_heatmap_screen.dart'
     show heatColor;
 import 'package:grow_daily_v2/features/rooms/notifiers/rooms_notifier.dart'
@@ -98,9 +99,15 @@ void main() {
     // indistinguishable from an empty square on a dark card, so a kept
     // four-a-week week read as three misses. The rest tone now sits between
     // empty and the ramp's lowest done level, nearer the green.
-    final rest = fill(0, isRest: true);
-    final empty = fill(0);
-    final lowestDone = fill(0.25);
+    //
+    // Measured on the default theme's own dark card, which is what the
+    // green is laid over. Doum's grid green (the default since 2026-09-30)
+    // is deeper than the old emerald: 22 over empty on its card, where
+    // Emerald & Gold's is 27 on its own; 18 on [card], a card neither has.
+    final ownCard = ThemePresets.byId(ThemePresets.defaultId).darkSurface;
+    final rest = fill(0, isRest: true, backdrop: ownCard);
+    final empty = fill(0, backdrop: ownCard);
+    final lowestDone = fill(0.25, backdrop: ownCard);
     expect(rest, isNot(empty));
     expect(rest, isNot(lowestDone));
     expect(rest.green - empty.green, greaterThan(20),

@@ -19,7 +19,7 @@ void main() {
         kIconColours
             .where((c) => c.tier == IconColourTier.free)
             .map((c) => c.id),
-        ['emerald_gold', 'doum', 'baby_pink'],
+        ['doum', 'emerald_gold', 'baby_pink'],
       );
       expect(
         kIconColours.where((c) => c.tier == IconColourTier.premium).length,
@@ -52,6 +52,12 @@ void main() {
     test('the shipped icon has none, every other one is AppIcon-shape-colour',
         () {
       expect(AppIconChoice.shipped.iosName, isNull);
+      // The gold sprout on emerald shipped until 2026-09-30; an alternate
+      // since Doum's took its place.
+      expect(
+        const AppIconChoice(PlantShape.sprout, 'emerald_gold').iosName,
+        'AppIcon-sprout-emerald_gold',
+      );
       expect(
         const AppIconChoice(PlantShape.bloom, 'sage').iosName,
         'AppIcon-bloom-sage',
@@ -195,11 +201,11 @@ void main() {
       );
     });
 
-    test('another shape from the Ramadan icon comes in the original colours',
-        () {
+    test("another shape from the Ramadan icon comes in the shipped icon's "
+        'colours', () {
       expect(
         AppIconChoice.ramadan.withShape(PlantShape.grown),
-        const AppIconChoice(PlantShape.grown, 'emerald_gold'),
+        const AppIconChoice(PlantShape.grown, 'doum'),
       );
       expect(
         const AppIconChoice(PlantShape.sprout, 'sage')

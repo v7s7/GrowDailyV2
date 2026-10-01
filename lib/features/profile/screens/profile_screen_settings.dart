@@ -168,6 +168,8 @@ class SettingsLookScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isAr = ref.watch(localeProvider).languageCode == 'ar';
     final preset = ThemePresets.byId(ref.watch(themePresetProvider));
+    final tabs = ref.watch(navLayoutProvider);
+    final startTab = resolveStartTab(tabs, ref.watch(startPageProvider));
 
     return _SettingsPage(
       title: s.settingsLookTitle,
@@ -261,6 +263,20 @@ class SettingsLookScreen extends ConsumerWidget {
                 Navigator.pushNamed(context, '/nav-bar');
               },
             ),
+            // Which of Habits and Tasks the app opens on (startPageProvider).
+            // Free, unlike the bar above it. Only while the bar holds both:
+            // with one of them removed the app opens on the other, and there
+            // is nothing to pick.
+            if (tabs.contains(NavTab.grid) && tabs.contains(NavTab.matrix))
+              _SettingsRow(
+                icon: Icons.home_rounded,
+                label: s.startPageTitle,
+                trailing: _SettingsValue(startTab.label(s)),
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  _showStartPageSheet(context);
+                },
+              ),
             // The sprout on the Grid's board (SproutLedge). Pulling it down
             // behind the board hides it after a question that names this
             // page, so this is the way back; it also hides it without the

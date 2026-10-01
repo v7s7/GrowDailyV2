@@ -132,7 +132,16 @@ void resetAutoLocatePrayerPlace() {
 ///
 /// [now] is for tests, which need the [_recheckEvery] spacing without
 /// waiting half an hour.
-Future<void> autoLocatePrayerPlace(ProviderRead read, {DateTime? now}) async {
+///
+/// [beforeAsking] is awaited just before the system's location question,
+/// and only then: main.dart holds the question until the launch curtain has
+/// gone, while a silent look runs at once, under the curtain, so the
+/// reminders the curtain waits for are armed on the right place.
+Future<void> autoLocatePrayerPlace(
+  ProviderRead read, {
+  DateTime? now,
+  Future<void> Function()? beforeAsking,
+}) async {
   if (kIsWeb || _running) return;
   _running = true;
   try {
@@ -157,7 +166,10 @@ Future<void> autoLocatePrayerPlace(ProviderRead read, {DateTime? now}) async {
       askedBefore: await _askedBefore(),
     );
     if (step == AutoLocateStep.stay) return;
-    if (step == AutoLocateStep.askThenLocate) await _markAsked();
+    if (step == AutoLocateStep.askThenLocate) {
+      await beforeAsking?.call();
+      await _markAsked();
+    }
 
     _lastLookAt = at;
     final outcome = await DeviceLocationService.detect(

@@ -159,7 +159,13 @@ class WeeklyGridState {
   bool get canGoForward => weekStart.isBefore(startOfGridWeek(DateTime.now()));
 
   SquareState squareFor(String habitId, DateTime day) =>
-      states[day.toDateKey()]?[habitId] ?? SquareState.none;
+      squareForKey(habitId, day.toDateKey());
+
+  /// [squareFor] by the day's [dateKey] (toDateKey), for a caller that has
+  /// the key already: the Grid's board formats each day once per build, not
+  /// once per question (see _WeekFacts in grid_screen_table.dart).
+  SquareState squareForKey(String habitId, String dateKey) =>
+      states[dateKey]?[habitId] ?? SquareState.none;
 
   /// This week's completed sessions, in the shape a flexible weekly quota
   /// needs to know which of its days were load-bearing (see [habitOwesDay]),
@@ -200,7 +206,11 @@ class WeeklyGridState {
       flatPaid[day.toDateKey()]?[habitId] ?? 0;
 
   String noteFor(String habitId, DateTime day) =>
-      notes[day.toDateKey()]?[habitId] ?? '';
+      noteForKey(habitId, day.toDateKey());
+
+  /// [noteFor] by the day's [dateKey], the way [squareForKey] is.
+  String noteForKey(String habitId, String dateKey) =>
+      notes[dateKey]?[habitId] ?? '';
 
   /// Whether the note stored on [day] is one the free tier may no longer
   /// read.

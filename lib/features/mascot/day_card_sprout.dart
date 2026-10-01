@@ -155,8 +155,13 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
   void initState() {
     super.initState();
     widget.echo?.attach(this, _tickle);
+    if (widget.live) _lastLivePerfect = widget.perfectDay;
     _greetOnce();
   }
+
+  /// [DayCardSprout.perfectDay] at the last live reading, or null before the
+  /// first (see didUpdateWidget).
+  bool? _lastLivePerfect;
 
   /// The once-per-launch hello, only once the numbers are today's real ones.
   /// The card is built while the week is still loading (0 of N), so a hello
@@ -199,12 +204,22 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
       widget.echo?.attach(this, _tickle);
     }
     if (!old.live && widget.live) {
+      final was = _lastLivePerfect;
+      _lastLivePerfect = widget.perfectDay;
+      // A day finished while the card was out of sight (a long return's
+      // launch curtain up, the widget's ticks draining under it): its
+      // moment now, once. Never on the first live reading.
+      if (widget.perfectDay && was == false) {
+        _celebrate(DayCardLine.perfectDay);
+        return;
+      }
       // The week just landed: a hello if this launch has had none, and no
       // reaction to the jump from 0, which nobody did.
       _greetOnce();
       return;
     }
     if (!old.live || !widget.live) return;
+    _lastLivePerfect = widget.perfectDay;
     if (widget.perfectDay && !old.perfectDay) {
       _celebrate(DayCardLine.perfectDay);
     } else if (_somethingWasDone(old) && !_justPartied) {

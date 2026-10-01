@@ -30,6 +30,7 @@ import 'core/providers/home_tab_provider.dart'
 import 'core/providers/nav_badges_setting_provider.dart';
 import 'core/providers/nav_bar_hint_provider.dart';
 import 'core/providers/nav_layout_provider.dart';
+import 'core/providers/start_page_provider.dart';
 import 'core/providers/first_run_offer_provider.dart';
 import 'core/providers/onboarding_provider.dart';
 import 'core/providers/room_finale_seen_provider.dart';
@@ -51,6 +52,7 @@ import 'shared/widgets/overlay_notice.dart';
 import 'core/services/purchase_service.dart';
 import 'core/services/rating_prompt.dart';
 import 'core/theme/game_theme.dart';
+import 'core/theme/status_bar_style.dart';
 import 'core/theme/theme_preset.dart' show ThemePresets;
 import 'core/services/habit_mirror.dart';
 import 'core/services/local_store_service.dart';
@@ -79,6 +81,7 @@ import 'features/habits/notifiers/habit_order_notifier.dart'
     show habitOrderProvider;
 import 'features/insights/insights_screen.dart';
 import 'features/launch/launch_curtain.dart';
+import 'features/launch/launch_scene.dart' show LaunchMemory;
 import 'features/habits/models/habit_model.dart'
     show GoalType, HabitFrequencyType, ReductionType;
 import 'features/habits/notifiers/custom_habits_notifier.dart'
@@ -396,6 +399,9 @@ Future<void> main() async {
     final persistedNavTabs = await loadPersistedNavTabs();
     final persistedNavBarHintSeen = await loadPersistedNavBarHintSeen();
     final persistedNavBadgesEnabled = await loadPersistedNavBadgesEnabled();
+    // Habits or Tasks: HomeShell picks its first page from this in its
+    // initState, before the first frame.
+    final persistedStartPage = await loadPersistedStartPage();
     // The launch curtain, readied now: what picks Doum's scene read from
     // the phone, and the pictures of the scenes this open can be decoded,
     // so he never pops in over an empty box (see LaunchCurtain.prepare).
@@ -439,7 +445,13 @@ Future<void> main() async {
         navBarHintSeenProvider.overrideWith((ref) => persistedNavBarHintSeen),
         navBadgesEnabledProvider.overrideWith(
             (ref) => NavBadgesSettingNotifier(persistedNavBadgesEnabled)),
+        startPageProvider
+            .overrideWith((ref) => StartPageNotifier(persistedStartPage)),
         launchCurtainUpProvider.overrideWith((ref) => !kIsWeb),
+        // The launch always runs a reminder pass, and the curtain holds for
+        // it (see launchRemindersArmingProvider): waiting from the first
+        // frame means the gap before the pass starts cannot read as done.
+        launchRemindersArmingProvider.overrideWith((ref) => !kIsWeb),
       ],
       child: const GrowDailyApp(),
     ));
@@ -473,6 +485,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   Timer? _ratingDelay;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitRemindersSub;
   ProviderSubscription<bool>? _habitsLoadedSub;
+  ProviderSubscription<bool>? _launchDataSub;
+  ProviderSubscription<bool>? _launchCurtainSub;
   ProviderSubscription<List<IslamicHabitTemplate>>? _habitMirrorSub;
   ProviderSubscription<Map<String, double>>? _habitOrderMirrorSub;
   Timer? _habitMirrorDebounce;
@@ -628,6 +642,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(notificationSettingsProvider.notifier).pullFromAccount(uid);
         ref.read(navLayoutProvider.notifier).pullFromAccount(uid);
         ref.read(navBadgesEnabledProvider.notifier).pullFromAccount(uid);
+        ref.read(startPageProvider.notifier).pullFromAccount(uid);
         _hydrateLocaleFromAccount(uid);
         // Keeps this device's FCM token mirrored to this account for the
         // room-finish push (see PushNotificationService's own doc comment)
@@ -705,6 +720,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         ref.read(notificationSettingsProvider.notifier).detachAccount();
         ref.read(navLayoutProvider.notifier).detachAccount();
         ref.read(navBadgesEnabledProvider.notifier).detachAccount();
+        ref.read(startPageProvider.notifier).detachAccount();
         PurchaseService.instance.logOut();
         // Clears the cached entitlement with it. Without this the signed-out
         // device would keep answering "Premium" from disk on the next cold
@@ -733,7 +749,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // is saved, or moved if the phone has travelled. See
       // autoLocatePrayerPlace. It waits for the account pull started above,
       // so it never writes over settings still on their way down.
-      if (next.hasValue) unawaited(autoLocatePrayerPlace(ref.read));
+      // Its location question waits for the launch curtain to go, since it
+      // must not sit over Doum's scene; a silent look runs at once, so the
+      // reminder pass the curtain holds for uses the place it finds.
+      if (next.hasValue) {
+        unawaited(
+          autoLocatePrayerPlace(
+            ref.read,
+            beforeAsking: _untilLaunchCurtainGone,
+          ),
+        );
+      }
     }, fireImmediately: true);
 
     // Wire the notification taps that reach the LIVE app to the exact same
@@ -787,6 +813,24 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // with (nobody's habits changed since last launch, or there are none)
     // notifies no one, and the reminders would then wait for an unrelated
     // trigger or the next resume.
+    // The same for the pass the launch curtain holds back until the week and
+    // the streak's judgement are in (see _runRecomputeNotifications): the
+    // streak's judgement ending is watched by no other trigger, so the data
+    // landing asks again, and so does the curtain lifting on its cap before
+    // it has.
+    _launchDataSub = ref.listenManual<bool>(
+      launchDataReadyProvider,
+      (previous, ready) {
+        if (ready && _passHeldForLaunch) _recomputeNotifications();
+      },
+    );
+    _launchCurtainSub = ref.listenManual<bool>(
+      launchCurtainUpProvider,
+      (previous, up) {
+        if (!up && _passHeldForLaunch) _recomputeNotifications();
+      },
+    );
+
     _habitsLoadedSub = ref.listenManual(
       habitsStillLoadingProvider,
       (previous, stillLoading) {
@@ -881,7 +925,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         if (!streakEarnsRatingAsk(from: from, to: to)) return;
         _ratingDelay?.cancel();
         _ratingDelay = Timer(kRatingAskDelay, () {
-          RatingPrompt.maybeAskAfterStreak(from: from, to: to).ignore();
+          // The system's review sheet over Doum's scene would be seen
+          // before the page is: a milestone reached under the launch
+          // curtain, or under a long return's, asks once it has gone.
+          afterLaunchCurtain(ref, () {
+            if (!mounted) return;
+            RatingPrompt.maybeAskAfterStreak(from: from, to: to).ignore();
+          });
         });
       },
     );
@@ -990,8 +1040,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _dayTurnSub = ref.listenManual<DateTime>(dayClockProvider,
         (previous, next) {
       if (!dayClockTurnedDay(previous: previous, next: next)) return;
-      ref.read(dashboardProvider.notifier).refresh();
-      ref.read(weeklyGridProvider.notifier).refresh();
+      _reloadBoard();
       _maybeAutoResumeDueHabits().ignore();
       // A new day is a new week of prayers to write ahead — the widget's
       // own list otherwise shrinks by five every day until the app happens
@@ -1378,6 +1427,22 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _recomputeDebounce?.cancel();
     _recomputeDebounce =
         Timer(const Duration(milliseconds: 200), _runRecomputeNotifications);
+    // Under the curtain, a pass asked for is a pass it waits on from this
+    // moment, not from when the debounce lets it start: a reload landing
+    // reads as ready for those 200 ms otherwise, and the curtain could lift
+    // onto the pass. A microtask, since this can be reached from a listener
+    // while widgets build, where Riverpod refuses a provider write; it still
+    // runs before any timer, the curtain's included.
+    if (ref.read(launchCurtainUpProvider) &&
+        !ref.read(launchRemindersArmingProvider)) {
+      scheduleMicrotask(() {
+        if (mounted &&
+            ref.read(launchCurtainUpProvider) &&
+            !ref.read(launchRemindersArmingProvider)) {
+          ref.read(launchRemindersArmingProvider.notifier).state = true;
+        }
+      });
+    }
   }
 
   void _scheduleHabitMirrorWrite() {
@@ -1448,7 +1513,90 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // waiting costs nothing. A genuinely empty list still sweeps: this
     // reads false once loading is done, however few habits there are.
     if (ref.read(habitsStillLoadingProvider)) return;
+    // Nor from the day's numbers before they have loaded (the launch audit,
+    // 2026-09-30). A cold start's first pass read DashboardState.initial()'s
+    // zeros for what is done today, re-armed today's reminders for habits
+    // already ticked, and ran its channel calls on iOS's main thread while
+    // the launch curtain played. While auth resolves every read here is the
+    // transient guest instance (see _maybeAutoCleanQuitYesterday). isLoading
+    // is true only for a newly built dashboard, so this holds a cold start or
+    // a sign-in and nothing else; the dashboard listener above runs the pass
+    // again the moment it lands, and last session's reminders stay armed
+    // meanwhile.
+    if (ref.read(authStateProvider).isLoading) return;
+    if (ref.read(dashboardProvider).isLoading) return;
+    // Nor, under the launch curtain, before the rest of what the pass reads
+    // has landed: this week's squares and the streak's judgement. Each of
+    // those landing asked for a pass of its own, and a pass already running
+    // cannot be stopped, only superseded at its next safe point, so a cold
+    // start ran three whole passes back to back (the launch audit,
+    // 2026-09-30: about 1,100 calls into the notification system, from half
+    // a second before the curtain lifted to 25 s after). One pass on the
+    // whole picture instead; the curtain waits for it (see
+    // launchRemindersArmingProvider), and _launchDataSub asks again the
+    // moment the data is in. After the curtain, nothing waits here.
+    if (ref.read(launchCurtainUpProvider) &&
+        !ref.read(launchDataReadyProvider)) {
+      _passHeldForLaunch = true;
+      return;
+    }
+    _passHeldForLaunch = false;
 
+    final pass = ++_reminderPass;
+    // A pass asked for under the curtain holds it again, until the newest
+    // one has finished (see _reminderPassDone).
+    if (ref.read(launchCurtainUpProvider) &&
+        !ref.read(launchRemindersArmingProvider)) {
+      ref.read(launchRemindersArmingProvider.notifier).state = true;
+    }
+    _sweepHandedOver = null;
+    try {
+      _armReminders();
+    } finally {
+      final sweep = _sweepHandedOver;
+      _sweepHandedOver = null;
+      if (sweep == null) {
+        _reminderPassDone(pass);
+      } else {
+        // Done when the lane is empty, not when the sweep is: the Tasks
+        // resync and the notes this pass queued behind it are the same
+        // calls into the phone. ignore(): the error of a failed sweep stays
+        // where the lane left it; only the moment it ended matters here.
+        sweep
+            .then<void>((_) {}, onError: (Object _) {})
+            .then((_) => NotificationService.instance.whenIdle())
+            .whenComplete(() => _reminderPassDone(pass))
+            .ignore();
+      }
+    }
+  }
+
+  /// The newest reminder pass started (see [_reminderPassDone]).
+  int _reminderPass = 0;
+
+  /// The habit sweep [_armReminders] handed to NotificationService, for
+  /// [_runRecomputeNotifications] to wait on.
+  Future<void>? _sweepHandedOver;
+
+  /// Set while a pass was turned away to wait for the launch's data; see
+  /// [_launchDataSub].
+  bool _passHeldForLaunch = false;
+
+  /// A pass has finished, however it ended. Only the newest one clears
+  /// [launchRemindersArmingProvider]: an older one returns early once a
+  /// newer one is asked for (NotificationService's gaveWay), and the curtain
+  /// is waiting on the newest.
+  void _reminderPassDone(int pass) {
+    if (!mounted || pass != _reminderPass) return;
+    if (ref.read(launchRemindersArmingProvider)) {
+      ref.read(launchRemindersArmingProvider.notifier).state = false;
+    }
+  }
+
+  /// The pass itself: every habit's reminders, the evening note, the Friday
+  /// note, the Matrix resync and the badge, from what is loaded now. Only
+  /// through [_runRecomputeNotifications], which decides whether it may run.
+  void _armReminders() {
     final settings = ref.read(notificationSettingsProvider);
     final isAr = ref.read(localeProvider).languageCode == 'ar';
 
@@ -1665,7 +1813,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             habit.id: keys,
       };
     }
-    NotificationService.instance.scheduleSmartReminders(
+    _sweepHandedOver = NotificationService.instance.scheduleSmartReminders(
       reminders,
       settings,
       isAr: isAr,
@@ -1824,6 +1972,18 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _awaySinceResume = true;
+      // When it left the screen, for how long it was away (see
+      // _replayLaunchCurtain). The first of hidden and paused is the moment.
+      if (_awayAt == null) {
+        _awayAt = DateTime.now();
+        // A curtain left while it was on screen is stale by a long return
+        // and is replaced; one that has never been seen (a process begun in
+        // the background) starts its own clock when the app is first shown.
+        _leftDuringCurtain = _lastLifecycle != AppLifecycleState.paused &&
+            _lastLifecycle != AppLifecycleState.hidden &&
+            _lastLifecycle != null &&
+            ref.read(launchCurtainUpProvider);
+      }
     }
     if (state == AppLifecycleState.resumed) {
       _processPendingWidgetCompletions();
@@ -1837,12 +1997,10 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       PrayerWidgetFeed.push(ref.read(notificationSettingsProvider));
       final wasAway = _awaySinceResume;
       _awaySinceResume = false;
-      // Back from the background is when the phone may be somewhere new, or
-      // a prayer widget was just placed and is waiting on a place. Only a
-      // real return: the system's own location prompt makes the app
-      // inactive, and its answer must not start another run. Paced by
-      // itself (autoLocatePrayerPlace), so frequent returns cost nothing.
-      if (wasAway) unawaited(autoLocatePrayerPlace(ref.read));
+      final awayAt = _awayAt;
+      _awayAt = null;
+      final leftDuringCurtain = _leftDuringCurtain;
+      _leftDuringCurtain = false;
       // Before the board reload below, and for its sake. When the day turned
       // while the app was away, _dayTurnSub reloads the dashboard and the
       // Grid for it the moment the clock is re-read, so this resume must not
@@ -1858,6 +2016,35 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       refreshDayClockIfStale(container);
       final dayTurned =
           container.read(dayClockProvider).effectiveDay != dayBefore;
+      // Away long enough, or into a new day: Doum's curtain again, over the
+      // reloads below (Aziz, 2026-09-30). The new day is judged from when
+      // the app left as well as from the day clock: the clock's own timer
+      // can turn it while the app is away, and the read above then already
+      // returns the new day.
+      final now = DateTime.now();
+      if (wasAway &&
+          awayAt != null &&
+          (dayTurned ||
+              !now.effectiveDay.isSameDayAs(awayAt.effectiveDay) ||
+              now.difference(awayAt) >= kLaunchReplayAfter)) {
+        _replayLaunchCurtain(since: awayAt, replaceStale: leftDuringCurtain);
+      }
+      // Back from the background is when the phone may be somewhere new, or
+      // a prayer widget was just placed and is waiting on a place. Only a
+      // real return: the system's own location prompt makes the app
+      // inactive, and its answer must not start another run. Paced by
+      // itself (autoLocatePrayerPlace), so frequent returns cost nothing.
+      // Its location question waits for a replayed curtain, like the
+      // launch's (a system prompt over Doum's scene was the launch audit's
+      // finding); a silent look does not.
+      if (wasAway) {
+        unawaited(
+          autoLocatePrayerPlace(
+            ref.read,
+            beforeAsking: _untilLaunchCurtainGone,
+          ),
+        );
+      }
       // Only a return from the background re-reads the account. Pulling down
       // Control Center or Notification Center, a permission prompt, Face ID
       // or a glance at the app switcher only make the app INACTIVE for a
@@ -1866,7 +2053,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // had. The queued widget and notification taps above still run on any
       // resume, since a tap from Notification Center is one of those.
       final reloadBoard = wasAway && !dayTurned;
-      if (reloadBoard) ref.read(dashboardProvider.notifier).refresh();
+      // The Grid's visible week too: it is otherwise only computed once, at
+      // construction — leaving the app open/backgrounded across the day
+      // cutoff (see DateTimeGameExt.effectiveDay), and especially across a
+      // Saturday grid-week boundary, would keep showing the old week until
+      // a full restart without this. A day turn reloads both through
+      // _dayTurnSub instead.
+      if (reloadBoard) _reloadBoard();
       ref.read(premiumProvider.notifier).refresh();
       // A booked return can fall due while the app sits warm in the switcher
       // (iOS keeps apps resumable for days) or after the day rolls over with
@@ -1876,13 +2069,6 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // until the next cold start. Cheap and self-guarding: it no-ops unless a
       // booking is actually due.
       _maybeAutoResumeDueHabits().ignore();
-      // The Grid's visible week is otherwise only computed once, at
-      // construction — leaving the app open/backgrounded across the day
-      // cutoff (see DateTimeGameExt.effectiveDay), and especially across a
-      // Saturday grid-week boundary, would keep showing the old week until
-      // a full restart without this. A day turn reloads it through
-      // _dayTurnSub instead (see reloadBoard).
-      if (reloadBoard) ref.read(weeklyGridProvider.notifier).refresh();
       // The same suspended-timer gap for a legacy Premium trial: its window
       // can close while the app sleeps, and premiumAccessProvider's own
       // re-check timer does not run then, so the gates would stay open
@@ -1905,9 +2091,12 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // alive kept rescheduling every reminder on the old zone's wall
       // clock. Fire-and-forget like the sync calls below; a recompute
       // triggered by anything else meanwhile just uses the fresher zone.
-      unawaited(NotificationService.instance
-          .refreshTimezone()
-          .then((_) => _recomputeNotifications()));
+      //
+      // Tracked, since the pass waits on it: a replayed curtain lifting
+      // before it had answered ran the pass on the Grid.
+      final zone = NotificationService.instance.refreshTimezone();
+      _trackRefresh(zone);
+      unawaited(zone.then((_) => _recomputeNotifications()));
       // Same self-healing idea for the ambient facts the room-finish push
       // Cloud Function reads (see _syncAmbientAccountFacts) — a trip across
       // time zones mid-session should be reflected by the next resume, not
@@ -1932,6 +2121,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       // a signed-in account does.
       ref.read(nightReviewProvider.notifier).refreshIfDayChanged();
     }
+    _lastLifecycle = state;
   }
 
   /// Pushes this account's own room progress up for every room it's in, on
@@ -1958,6 +2148,92 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// last resume, which is what a resume's reloads are for. True to start
   /// with, so the first resume of a process behaves as it always has.
   bool _awaySinceResume = true;
+
+  /// Completes once the launch curtain has gone and the page has had its
+  /// moment (afterLaunchCurtain), or at once when none is up.
+  Future<void> _untilLaunchCurtainGone() {
+    final gone = Completer<void>();
+    afterLaunchCurtain(ref, () {
+      if (!gone.isCompleted) gone.complete();
+    });
+    return gone.future;
+  }
+
+  /// When the app last left the screen (hidden or paused), until it is back.
+  DateTime? _awayAt;
+
+  /// Whether the launch curtain was up, and on screen, when the app left
+  /// (see _replayLaunchCurtain's replaceStale).
+  bool _leftDuringCurtain = false;
+
+  /// The lifecycle state before the one being handled; null until the
+  /// first change arrives.
+  AppLifecycleState? _lastLifecycle;
+
+  /// Plays the launch curtain again for a long return: away
+  /// [kLaunchReplayAfter] or more, or into a new app day (Aziz, 2026-09-30:
+  /// "also after 30+ min away"). A quick return goes straight back to the
+  /// page. Today's numbers, the week and the reminders reload under it (the
+  /// resume's reloads and the pass the time zone's answer starts, tracked by
+  /// launchRefreshingProvider and launchRemindersArmingProvider), and it
+  /// lifts once they have, as a launch does. The scene is chosen for a
+  /// return: from when the app was last on screen (LaunchMemory.beginReturn).
+  ///
+  /// A curtain still up is left alone, unless the person left while it was
+  /// on screen ([replaceStale]): its clock ran through the time away, so it
+  /// would lift at once onto the reloads, and its scene is the last open's.
+  /// The fresh one's key retires it, timers and all (see LaunchCurtain's
+  /// run check in _leave).
+  void _replayLaunchCurtain({
+    required DateTime since,
+    bool replaceStale = false,
+  }) {
+    if (kIsWeb) return;
+    if (ref.read(launchCurtainUpProvider) && !replaceStale) return;
+    // A field left focused would bring the keyboard back over Doum's scene
+    // and take what is typed unseen. The draft stays in its field.
+    FocusManager.instance.primaryFocus?.unfocus();
+    LaunchMemory.beginReturn(since: since);
+    ref.read(launchRemindersArmingProvider.notifier).state = true;
+    ref.read(launchCurtainUpProvider.notifier).state = true;
+    ref.read(launchCurtainRunProvider.notifier).state++;
+  }
+
+  /// Today's numbers and this week's squares, read again: a return from the
+  /// background, or the day turning.
+  void _reloadBoard() {
+    _trackRefresh(ref.read(dashboardProvider.notifier).refresh());
+    _trackRefresh(ref.read(weeklyGridProvider.notifier).refresh());
+  }
+
+  /// Reloads in flight, for launchRefreshingProvider.
+  int _refreshesInFlight = 0;
+
+  /// The longest one reload holds a curtain (see [_trackRefresh]): past the
+  /// curtain's own cap, so it never decides a lift on its own.
+  static const Duration _refreshHoldCap = Duration(seconds: 10);
+
+  /// Holds a curtain that is up until [work] has finished, however it ends,
+  /// or for [_refreshHoldCap] at most. Tracked whether or not a curtain is
+  /// up: one may be about to be, and only the curtain reads the flag.
+  void _trackRefresh(Future<void> work) {
+    _refreshesInFlight++;
+    if (!ref.read(launchRefreshingProvider)) {
+      ref.read(launchRefreshingProvider.notifier).state = true;
+    }
+    unawaited(
+      // A reload that never answers (offline, a room stream that never
+      // arrives) stops counting after the cap, or every later curtain would
+      // wait for it to its own cap. The work itself carries on.
+      work.timeout(_refreshHoldCap, onTimeout: () {}).whenComplete(() {
+        if (!mounted) return;
+        _refreshesInFlight--;
+        if (_refreshesInFlight == 0 && ref.read(launchRefreshingProvider)) {
+          ref.read(launchRefreshingProvider.notifier).state = false;
+        }
+      }),
+    );
+  }
 
   /// The last time a RESUME ran a full resync.
   DateTime? _lastResumeResync;
@@ -2000,7 +2276,17 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // Waits for the room streams inside the controller. Reading their
     // valueOrNull here skipped every room on a cold start, when none had
     // arrived yet, so the "resume" resync mostly did nothing.
-    ref.read(roomsControllerProvider).resyncAllMyRooms().ignore();
+    //
+    // Tracked (launchRefreshingProvider): grading every day of every room
+    // is the heaviest work a return does on the app's own thread (measured
+    // 2026-09-30, a resume's CPU profile), and a curtain that is up waits
+    // for it rather than lifting onto it. Failures stay swallowed, as they
+    // always were here.
+    _trackRefresh(
+      ref.read(roomsControllerProvider).resyncAllMyRooms().catchError(
+            (Object _) {},
+          ),
+    );
   }
 
   /// Best-effort mirror of two small device facts to `users/{uid}` that
@@ -2118,17 +2404,21 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // the gap closed, and on a launch after that nothing else looks.
         if (_refreshedStreakCharge || dash.streakGapCharge == null) return;
         _refreshedStreakCharge = true;
-        ref.read(dashboardProvider.notifier).refreshStreakGapCharge(
-              habits: ref.read(allHabitsEverProvider),
-              squaresOn: squaresOn,
-            );
+        _judgingStreak(
+          ref.read(dashboardProvider.notifier).refreshStreakGapCharge(
+                habits: ref.read(allHabitsEverProvider),
+                squaresOn: squaresOn,
+              ),
+        );
         return;
       }
       _refreshedStreakCharge = true;
-      ref.read(dashboardProvider.notifier).resolveStreakGap(
-            ref.read(allHabitsEverProvider),
-            squaresOn: squaresOn,
-          );
+      _judgingStreak(
+        ref.read(dashboardProvider.notifier).resolveStreakGap(
+              ref.read(allHabitsEverProvider),
+              squaresOn: squaresOn,
+            ),
+      );
     }
 
     _streakGapSubs.add(
@@ -2138,6 +2428,20 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       ref.listenManual(habitsStillLoadingProvider, (_, __) => tryResolve()),
     );
     tryResolve();
+  }
+
+  /// Holds the launch curtain while [judging] runs (launchStreakJudgingProvider),
+  /// so the streak it settles is on the first look. Cleared however it ends;
+  /// an error still reaches the zone's handler as before.
+  void _judgingStreak(Future<void> judging) {
+    ref.read(launchStreakJudgingProvider.notifier).state = true;
+    unawaited(
+      judging.whenComplete(() {
+        if (mounted) {
+          ref.read(launchStreakJudgingProvider.notifier).state = false;
+        }
+      }),
+    );
   }
 
   /// Resolves true once the dashboard has finished its first load, false
@@ -2758,6 +3062,13 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
   /// [dash] is the state the caller already has; read fresh when omitted.
   void _pushWidgetData([DashboardState? dash]) {
     final DashboardState state = dash ?? ref.read(dashboardProvider);
+    // Not from placeholders: while auth resolves every read is the transient
+    // guest instance, and until the day's numbers load the streak and today
+    // read zero. Every signed-in cold start wrote that to the widgets and
+    // the badge (the launch audit, 2026-09-30); they keep what the last
+    // session wrote instead, and the dashboard listener pushes the moment
+    // it lands.
+    if (ref.read(authStateProvider).isLoading || state.isLoading) return;
     final stats = _todayHabitStats();
     final next = _nextDayHabitList();
     HomeWidgetService.instance.updateWidgetData(
@@ -3073,17 +3384,29 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
       }
       route = '/matrix';
     }
-    final nav = _navKey.currentState;
-    if (nav != null) {
-      nav.pushNamed(route);
-      return;
-    }
-    // Cold launch replay can arrive before MaterialApp has built its
-    // navigator (NotificationService.onAction flushes the pending tap the
-    // moment it's assigned, in initState) — defer one frame and try again.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _navKey.currentState?.pushNamed(route);
-    });
+    // Off the synchronous mount: on a cold launch from a tap this runs from
+    // initState (NotificationService.onAction replays the tap as it is
+    // assigned), where the provider writes below would be refused.
+    await Future<void>.microtask(() {});
+    if (!mounted) return;
+    final tab = switch (route) {
+      '/profile' => NavTab.profile,
+      '/matrix' => NavTab.matrix,
+      _ => NavTab.grid,
+    };
+    // Home, on that tab: never a second HomeShell pushed over the first.
+    // Pushing the route built a whole second shell and Grid under the first
+    // one (found by the launch audit 2026-09-30); both Grids listen for the
+    // day's moments, so every celebration and achievement sheet fired twice,
+    // and each later tap stacked one more. The same hand-over the Lock
+    // Screen controls use (_openFromOutside): close whatever is open, then
+    // ask HomeShell for the tab, which pushes it only when the bar has no
+    // such tab. A cold start has no Navigator yet: HomeShell reads the
+    // waiting request when it is built.
+    _navKey.currentState?.popUntil((r) => r.isFirst);
+    ref.read(requestedHomeTabInstantProvider.notifier).state = true;
+    ref.read(requestedHomeTabProvider.notifier).state = null;
+    ref.read(requestedHomeTabProvider.notifier).state = tab;
   }
 
   @override
@@ -3093,6 +3416,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     _localeSub?.close();
     _habitRemindersSub?.close();
     _habitsLoadedSub?.close();
+    _launchDataSub?.close();
+    _launchCurtainSub?.close();
     _habitMirrorSub?.close();
     _habitOrderMirrorSub?.close();
     // Before super.dispose(): the bodies they would have run read providers.
@@ -3186,13 +3511,23 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
           child: WordingEditsHost(
             child: Stack(
               children: [
-                if (child != null) child,
+                // The status bar's default: icons that read on this theme.
+                // Pages with an AppBar still set their own (the deeper
+                // region wins), and the launch curtain's sits above this
+                // while it is up. Without it the Grid kept whatever was set
+                // last, the curtain's included (see statusIconsOver).
+                if (child != null)
+                  AnnotatedRegion<SystemUiOverlayStyle>(
+                    value: statusIconsOver(Theme.of(context).brightness),
+                    child: child,
+                  ),
                 const GlobalVoiceNotePlayerOverlay(),
-                // Over everything, once, at a cold start: the phone's launch
-                // screen carried on while the home screen loads under it,
-                // with Doum in a scene for the hour (see LaunchCurtain).
-                // Draws nothing once it has lifted.
-                if (!kIsWeb) const Positioned.fill(child: LaunchCurtain()),
+                // Over everything at a cold start: the phone's launch screen
+                // carried on while the home screen loads under it, with Doum
+                // in a scene for the hour (see LaunchCurtain). Draws nothing
+                // once it has lifted, until a long return plays it again
+                // (see _replayLaunchCurtain).
+                if (!kIsWeb) const Positioned.fill(child: LaunchCurtainHost()),
               ],
             ),
           ),

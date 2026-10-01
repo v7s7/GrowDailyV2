@@ -9,7 +9,7 @@ import 'app_icon_art.dart';
 ///
 /// Designed on the "GrowDaily App Icons" canvas and decided by Aziz on
 /// 2026-09-25: the Night family (a deep ground, a light sprout, the same
-/// recipe as the shipped icon), a colour per theme plus five for custom
+/// recipe as the original icon), a colour per theme plus five for custom
 /// themes, and a plant that grows with someone's full days. Growing shapes
 /// are free for everyone; colours follow the themes' own split (the free
 /// themes' colours are free, everything else Premium). One seasonal icon
@@ -155,7 +155,15 @@ class AppIconChoice {
   const AppIconChoice(this.shape, this.colourId);
 
   /// The icon the app ships with. iOS calls it by no name at all.
-  static const shipped = AppIconChoice(PlantShape.sprout, 'emerald_gold');
+  ///
+  /// Doum's since 2026-09-30 (Aziz: "the green and white, is the main
+  /// logo"), beside Doum becoming the default theme. The gold sprout on
+  /// emerald it replaced is an alternate now, 'AppIcon-sprout-emerald_gold',
+  /// still called «الأصلية». A phone that had picked Doum's sprout while it
+  /// was an alternate still reports 'AppIcon-sprout-doum', a set the bundle
+  /// keeps (tool/icons/make_alternate_icons.py), and [fromIosName] reads it
+  /// back as this. tool/icons/primary_icon.py has to name the same icon.
+  static const shipped = AppIconChoice(PlantShape.sprout, 'doum');
 
   /// The Ramadan icon, from the canvas's Ramadan board: the sprout in gold
   /// on a night sky under a crescent. Free for everyone, and pickable only
@@ -206,7 +214,7 @@ class AppIconChoice {
   }
 
   /// [s] in this icon's colour. The Ramadan icon has none of its own for
-  /// the other shapes, so they come in the original colours.
+  /// the other shapes, so they come in the shipped icon's colours.
   AppIconChoice withShape(PlantShape s) =>
       AppIconChoice(s, isRamadan ? shipped.colourId : colourId);
   AppIconChoice withColour(String id) => AppIconChoice(shape, id);
@@ -234,7 +242,9 @@ class AppIconChoice {
 String iconColourForTheme(String presetId, Color customAccent) {
   final id = ThemePresets.canonicalId(presetId)!;
   if (id == ThemePresets.customId) return nearestIconColour(customAccent);
-  return kIconColours.any((c) => c.id == id) ? id : 'emerald_gold';
+  return kIconColours.any((c) => c.id == id)
+      ? id
+      : AppIconChoice.shipped.colourId;
 }
 
 /// The icons a custom accent can land on, each keyed by the hue it was drawn

@@ -59,6 +59,15 @@ void main() {
   });
   tearDown(() => container.dispose());
 
+  // Built once (on first use, once the binding exists), so a second
+  // pumpWidget hands MaterialApp the SAME theme. A fresh GameTheme.dark is
+  // never == the last one (its WidgetStateProperty closures differ), so
+  // AnimatedTheme lerps between the two; on Doum's
+  // colours, the default since 2026-09-30, that lerp rounds a hair off the
+  // cream and restarts Material's 200 ms text-style fade, which reads as a
+  // running animation to the Reduce Motion check below.
+  ThemeData? theme;
+
   Widget app(
     DayCardSprout sprout, {
     bool reduceMotion = false,
@@ -73,7 +82,7 @@ void main() {
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          theme: GameTheme.dark,
+          theme: theme ??= GameTheme.dark,
           home: Builder(
             builder: (context) => MediaQuery(
               data: MediaQuery.of(context)
@@ -557,6 +566,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(poseShown(tester), SproutPose.happySparkles.asset,
         reason: 'the pose still follows the day');
+  });
+
+  testWidgets('a day finished while the card was out of sight (a long '
+      'return\'s launch curtain) says «يوم مثالي!» once it is back, and '
+      'the week landing at launch still never does', (tester) async {
+    DayCardSprout still(int greens, {required bool live}) => DayCardSprout(
+          greens: greens,
+          owed: 5,
+          ratio: greens / 5,
+          perfectDay: greens >= 5,
+          live: live,
+          height: 90,
+          clock: () => DateTime(2026, 9, 27, 10),
+        );
+    await tester.pumpWidget(app(still(4, live: true)));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(app(still(4, live: false)));
+    await tester.pumpWidget(app(still(5, live: false)));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining(ar.sproutPerfectDay), findsNothing,
+        reason: 'nothing said behind the curtain');
+    await tester.pumpWidget(app(still(5, live: true)));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining(ar.sproutPerfectDay), findsOneWidget);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a finished day at night: asleep', (tester) async {

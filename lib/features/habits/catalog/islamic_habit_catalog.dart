@@ -487,6 +487,44 @@ class IslamicHabitTemplate {
     return true;
   }
 
+  /// [isAliveOn]'s two bounds as local midnights, for a caller that asks
+  /// about several days in a row: the day this habit was made ([from]) and
+  /// the day it was archived ([to]), each null when unset. Ask it through
+  /// [aliveWithin], which answers exactly what [isAliveOn] answers.
+  ///
+  /// The Grid's board asks seven days of every row on every build, and each
+  /// isAliveOn builds these midnights again: a local DateTime is three native
+  /// time-zone lookups, the hottest leaf of the device profile. The board
+  /// builds them once per row instead (see _WeekFacts in
+  /// grid_screen_table.dart).
+  ///
+  /// A plain getter on purpose, never stored on the template: a phone whose
+  /// time zone changes mid-session has to work its local midnights out again
+  /// on the next build. [isAliveOn] keeps its own body, which builds the
+  /// archive midnight only when the birth check passes: it is on the rooms
+  /// sync's hot path, where that difference is paid thousands of times.
+  ({DateTime? from, DateTime? to}) get aliveWindow {
+    final born = createdAt;
+    final died = archivedAt;
+    return (
+      from: born == null ? null : DateTime(born.year, born.month, born.day),
+      to: died == null ? null : DateTime(died.year, died.month, died.day),
+    );
+  }
+
+  /// [isAliveOn] against a [window] from [aliveWindow]: the same two
+  /// comparisons on the same midnights, in the same order.
+  static bool aliveWithin(
+    ({DateTime? from, DateTime? to}) window,
+    DateTime day,
+  ) {
+    final from = window.from;
+    if (from != null && day.isBefore(from)) return false;
+    final to = window.to;
+    if (to != null && day.isAfter(to)) return false;
+    return true;
+  }
+
   /// A full copy with [createdAt] swapped in — how habitListProvider
   /// stamps a const catalog template with its activation date without the
   /// template itself carrying per-user state.

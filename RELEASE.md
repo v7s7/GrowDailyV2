@@ -52,6 +52,28 @@ with what's actually in App Store Connect.
   Beta App Review first (usually well under a day). There's no way to skip
   this — it's enforced on Apple's side, not something the script controls.
 
+## When the build is live in the store
+
+The app asks people on an older build to update, with a pop-up that opens the
+store page, but only after you say which builds are out. Nothing shows until
+you do, and nothing knows on its own: Apple reports 1.1.0 for every build so
+far, so the store cannot tell build 83 from 84.
+
+In the admin tool (`npm start` in `scripts/admin_lookup`), Messages page, the
+**App update** card: set **Newest build in the store** to the build now live
+(the `+N` in `pubspec.yaml`'s version), iPhone and Android separately, since
+Apple and Google release on different days. Do it only after that build is
+live, because the pop-up's button goes to the store page. People on an older
+build are offered the update once a day and can put it off.
+
+Leave **Oldest build still allowed** at 0. Above 0, anyone on an older build
+cannot use the app until they update, so it is for a build that must stop
+running and nothing else. Setting it back to 0 lets open apps go within a
+moment. The tool refuses a minimum above its newest build.
+
+Only builds that contain this pop-up (after build 84) can show it. Older ones
+need a notification from the same page.
+
 ## If the upload fails
 
 The script now checks the actual upload output for an `ERROR:` line and

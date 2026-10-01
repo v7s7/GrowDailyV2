@@ -22,6 +22,10 @@
 /// A test never replaces what everyone is shown, which is the whole reason
 /// for the second slot.
 ///
+/// A third slot, `update`, is not a message: it says which builds the stores
+/// have, and an older build shows the pop-up that sends its owner to update
+/// (app_update.dart). See [AppUpdateGate].
+///
 /// ── Once, and only when the app opens ─────────────────────────────────
 /// Each pop-up has its own id and this device remembers the ids it showed
 /// ([BroadcastStore.seen]), so a pop-up appears once per device however
@@ -175,18 +179,106 @@ class BroadcastPopup {
       };
 }
 
-/// The document's two slots at one moment.
+/// The largest number taken as a build. The admin tool refuses more than
+/// this too; the app applies it again because the document can be edited by
+/// hand, and a garbage minimum is a wall for everyone.
+const int kMaxBuildNumber = 100000;
+
+/// Which builds the stores have, as the admin last set it: the newest one
+/// live, and the oldest one still allowed to run. One pair per platform,
+/// because Apple and Google put the same build out on different days.
+///
+/// A build number is the `+N` of pubspec's version, the same on both
+/// platforms (iOS CFBundleVersion, Android versionCode). 0 means "not set":
+/// no prompt on that platform for that half. The admin tool's Messages page
+/// (scripts/admin_lookup/lib/broadcast.js) is the only writer and refuses a
+/// minimum above the newest build, so nobody is ever told to update to
+/// something the admin has not said is out.
+@immutable
+class AppUpdateGate {
+  const AppUpdateGate({
+    this.iosLatest = 0,
+    this.iosMin = 0,
+    this.androidLatest = 0,
+    this.androidMin = 0,
+  });
+
+  /// The newest build in the App Store: an older one is offered the update.
+  final int iosLatest;
+
+  /// A build below this cannot go on without the update.
+  final int iosMin;
+  final int androidLatest;
+  final int androidMin;
+
+  bool get isOff =>
+      iosLatest == 0 && iosMin == 0 && androidLatest == 0 && androidMin == 0;
+
+  int latestFor(TargetPlatform platform) => switch (platform) {
+        TargetPlatform.iOS => iosLatest,
+        TargetPlatform.android => androidLatest,
+        _ => 0,
+      };
+
+  int minFor(TargetPlatform platform) => switch (platform) {
+        TargetPlatform.iOS => iosMin,
+        TargetPlatform.android => androidMin,
+        _ => 0,
+      };
+
+  /// Null when nothing is set. Every number is read on its own, so one that
+  /// is missing, malformed or no build number at all costs itself (0, no
+  /// prompt), never the rest.
+  static AppUpdateGate? fromData(Object? raw) {
+    if (raw is! Map) return null;
+    int build(Object? side, String key) {
+      if (side is! Map) return 0;
+      final value = side[key];
+      return value is num &&
+              value.isFinite &&
+              value > 0 &&
+              value <= kMaxBuildNumber
+          ? value.toInt()
+          : 0;
+    }
+
+    final gate = AppUpdateGate(
+      iosLatest: build(raw['ios'], 'latest'),
+      iosMin: build(raw['ios'], 'min'),
+      androidLatest: build(raw['android'], 'latest'),
+      androidMin: build(raw['android'], 'min'),
+    );
+    return gate.isOff ? null : gate;
+  }
+
+  Map<String, Object?> toJson() => {
+        'ios': {'latest': iosLatest, 'min': iosMin},
+        'android': {'latest': androidLatest, 'min': androidMin},
+      };
+}
+
+/// The document's slots at one moment: the two pop-ups, and the update gate.
 @immutable
 class BroadcastState {
-  const BroadcastState({this.everyone, this.test, this.version = 0});
+  const BroadcastState({
+    this.everyone,
+    this.test,
+    this.update,
+    this.version = 0,
+  });
 
   static const empty = BroadcastState();
 
   final BroadcastPopup? everyone;
   final BroadcastPopup? test;
+
+  /// Not a message: what old builds are asked to do (see [AppUpdateGate]).
+  /// It shares this document so it needs no rule of its own, and old builds,
+  /// which read only the two slots above, ignore it.
+  final AppUpdateGate? update;
   final int version;
 
-  bool get isEmpty => everyone == null && test == null;
+  bool get isEmpty => everyone == null && test == null && update == null;
 
   /// A slot that cannot be read is simply empty; the other slot is kept.
   /// A test slot that names no test account is empty too: read as it
@@ -198,6 +290,7 @@ class BroadcastState {
     return BroadcastState(
       everyone: BroadcastPopup.fromData(data['everyone']),
       test: test != null && test.isTest ? test : null,
+      update: AppUpdateGate.fromData(data['update']),
       version: version is num ? version.toInt() : 0,
     );
   }
@@ -205,6 +298,7 @@ class BroadcastState {
   Map<String, Object?> toJson() => {
         'everyone': everyone?.toJson(),
         'test': test?.toJson(),
+        if (update != null) 'update': update!.toJson(),
         'version': version,
       };
 }
@@ -261,6 +355,7 @@ class BroadcastStore {
 
   static const String cacheKey = 'broadcast_live_v1';
   static const String seenKey = 'broadcast_seen_v1';
+  static const String updateAskedKey = 'broadcast_update_asked_v1';
 
   /// Ids remembered. A few a month at most are ever sent; forty is years.
   static const int seenLimit = 40;
@@ -274,6 +369,12 @@ class BroadcastStore {
   static final Set<String> _seen = <String>{};
 
   static Set<String> get seen => Set.unmodifiable(_seen);
+
+  static DateTime? _updateAskedAt;
+
+  /// When this device last offered the update (the one that can be put
+  /// off), which is what keeps it to once a day.
+  static DateTime? get updateAskedAt => _updateAskedAt;
 
   static Box<dynamic>? _box;
   static FirebaseFirestore? _db;
@@ -306,6 +407,10 @@ class BroadcastStore {
         _seen
           ..clear()
           ..addAll(ids.whereType<String>());
+      }
+      final asked = settings.get(updateAskedKey);
+      if (asked is int) {
+        _updateAskedAt = DateTime.fromMillisecondsSinceEpoch(asked);
       }
     } catch (e) {
       debugPrint('[broadcast] cached pop-up unreadable, starting empty: $e');
@@ -424,6 +529,21 @@ class BroadcastStore {
     }());
   }
 
+  /// Remembers that the update was offered at [at]. Called as the pop-up
+  /// goes up, for the reason [markSeen] gives.
+  static void markUpdateAsked(DateTime at) {
+    _updateAskedAt = at;
+    if (!persistSeen) return;
+    unawaited(() async {
+      try {
+        final settings = _box ?? await LocalStoreService.settingsBox();
+        await settings.put(updateAskedKey, at.millisecondsSinceEpoch);
+      } catch (e) {
+        debugPrint('[broadcast] could not remember the update offer: $e');
+      }
+    }());
+  }
+
   @visibleForTesting
   static void debugPublish(BroadcastState state) => _publish(state);
 
@@ -436,6 +556,7 @@ class BroadcastStore {
     _box = null;
     _db = null;
     _seen.clear();
+    _updateAskedAt = null;
     persistSeen = true;
     debugServerRead = null;
     _publish(BroadcastState.empty);

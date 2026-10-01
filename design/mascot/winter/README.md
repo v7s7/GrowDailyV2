@@ -46,3 +46,33 @@ Before placing one:
   dark card their edge fades into the background. Test on the dark theme.
 - The leaves only show in `winter_blanket_heater`. In the other two, the face
   and cheeks carry the character.
+
+## Doum in a bisht (2026-09-30)
+
+Twelve more winter poses sit in `assets/images/mascot/winter/` beside these
+three, named `winter_bisht_`: Doum in a white ghutra, a black agal and a
+dark navy bisht with gold trim and a cream fur collar, by a small campfire.
+They come from a ChatGPT sheet Aziz generated on 2026-09-29, not from Canva
+pictures, so the sheet pipeline builds them and their source files are in
+`../sheet-ghutra/`. `upscale_winter.py` writes only the three pictures
+above and leaves them alone.
+
+    python tool/mascot/recolor_sheet_ghutra.py         # -> sheet-ghutra-final.png (transparent)
+    python tool/mascot/cut_poses.py --sheet ghutra     # -> sheet-ghutra/poses-native/
+    python tool/mascot/fix_poses_ghutra.py             # firelight at the edges
+    python tool/mascot/upscale_poses.py --sheet ghutra # -> sheet-ghutra/poses-4x/, the app copies here
+
+Like these three, the drawing stays as drawn (thin outline, painted cloth,
+peach cheeks, leaves under the ghutra) and only the body green and the size
+are matched, so Doum is the same size as in every other pose. Show them with
+the same shared scale (`Sprout.sizeOf`). NOT in pubspec.yaml: add a file
+there when a screen draws it.
+
+The pose table, how the colour and sizes were matched, and every caution are
+in `../README.md`, section "The ghutra sheet: Doum in a bisht". In short:
+test them on the dark theme (the bisht's edge fades there, as the ghutra
+cup's does); the worried, sad and tired ones (worried, grey cloud,
+hourglass, cold wind, dizzy lying) and the two with sweat drops (burning
+stick, warm hands) never go on a missed day or in a reminder; and
+`winter_bisht_flame_hands` reads as devout, so it stays away from worship
+moments like every other pose.

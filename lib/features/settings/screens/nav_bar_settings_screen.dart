@@ -6,6 +6,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/nav_badges_setting_provider.dart';
 import '../../../core/providers/nav_bar_hint_provider.dart';
 import '../../../core/providers/nav_layout_provider.dart';
+import '../../../core/providers/start_page_provider.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../shared/providers/nav_badges_provider.dart';
@@ -88,7 +89,11 @@ class NavBarSettingsScreen extends ConsumerWidget {
           // The preview draws the REAL badges, not sample ones: what the
           // switch below changes is exactly what the bar shows right now,
           // and a made-up "2" on Rooms would be a question, not a preview.
-          _BarPreview(tabs: tabs, badges: ref.watch(navBadgesProvider)),
+          _BarPreview(
+            tabs: tabs,
+            badges: ref.watch(navBadgesProvider),
+            showing: resolveStartTab(tabs, ref.watch(startPageProvider)),
+          ),
           const SizedBox(height: 10),
           _BadgesSwitchRow(
             enabled: ref.watch(navBadgesEnabledProvider),
@@ -128,10 +133,15 @@ class NavBarSettingsScreen extends ConsumerWidget {
                   first: i == 0,
                   draggable: unlocked,
                   onTap: unlocked ? null : gate.edit,
-                  trailing: tab.isPinned
+                  // A lock where the tab cannot leave: Profile always, and
+                  // Habits or Tasks when it is the last of the two (see
+                  // canRemoveNavTab), each saying which rule holds it.
+                  trailing: !canRemoveNavTab(tabs, tab)
                       ? _RowAction(
                           icon: Icons.lock_rounded,
-                          tooltip: s.navBarPinned,
+                          tooltip: tab.isPinned
+                              ? s.navBarPinned
+                              : s.navBarKeepOne,
                           color: gp.textTert,
                         )
                       : _RowAction(
@@ -233,7 +243,15 @@ class _Gate {
 class _BarPreview extends StatelessWidget {
   final List<NavTab> tabs;
   final Map<NavTab, NavBadge> badges;
-  const _BarPreview({required this.tabs, this.badges = const {}});
+
+  /// The tab drawn as selected: the page the app opens on, so a bar that
+  /// just lost Habits previews opening on Tasks, as it will.
+  final NavTab showing;
+  const _BarPreview({
+    required this.tabs,
+    required this.showing,
+    this.badges = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -252,7 +270,11 @@ class _BarPreview extends StatelessWidget {
         removeBottom: true,
         child: ExcludeSemantics(
           child: IgnorePointer(
-            child: GameNavBar(currentIndex: 0, tabs: tabs, badges: badges),
+            child: GameNavBar(
+              currentIndex: tabs.contains(showing) ? tabs.indexOf(showing) : 0,
+              tabs: tabs,
+              badges: badges,
+            ),
           ),
         ),
       ),

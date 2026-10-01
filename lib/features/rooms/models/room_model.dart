@@ -1,6 +1,8 @@
+import 'dart:async' show Zone;
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/utils/western_digits.dart';
@@ -415,6 +417,18 @@ String removalStopsOn({
 /// field), a room is read by every member but this top-level doc itself only
 /// changes on create - see [RoomParticipant] for the per-member data each
 /// device owns and writes on its own.
+///
+/// ── Never changed in place ──────────────────────────────────────────────
+/// Every field is final, and no list inside one may be changed after
+/// construction: a plan edit writes a new [sharedHabits] list, and
+/// fromFirestore builds a new instance per snapshot. RoomParticipant's day
+/// memo keeps [RoomParticipant.phantomWeightOn] and the conceded days bound
+/// to one RoomModel instance by identity, so a room changed in place would
+/// be served its old answers. The one input that is not a field is the
+/// device's time zone, through [slotJoinedPlanKey]'s local date of the
+/// addedAt of a slot stamped before [RoomHabitTemplate.addedDay] existed,
+/// which is one reason no kept answer outlives the turn of the event loop
+/// it was worked out in (see RoomParticipant's class comment).
 class RoomModel {
   final String code;
   final String name;
@@ -908,6 +922,117 @@ bool habitMarksAgree(
   return d == done && p == partial && asked == scheduled;
 }
 
+/// What one [RoomParticipant] instance has already worked out about its
+/// days in the current turn of the event loop, kept beside it rather than
+/// on it (see [_dayMemos] and [_dayMemoFor]).
+///
+/// The board asks the same day questions of the same member many times
+/// over. Every score, streak and strip square reads
+/// [RoomParticipant.scheduledCountFor], and one Room Race snapshot of 5
+/// members over 60 days asked it 9,127 times for 300 distinct answers
+/// (measured 2026-09-30), each one a date parse and a local-time lookup
+/// deep. Every answer kept here is a pure function of the instance's final
+/// fields, the question's own arguments and the device's time zone, so it
+/// is worked out once a turn.
+class _DayMemo {
+  _DayMemo(this.turn);
+
+  /// The [_dayMemoTurn] these answers were worked out in.
+  final int turn;
+
+  // Keyed by date key alone.
+  final observed = <String, bool>{};
+  final planCount = <String, int>{};
+  final recorded = <String, int>{};
+  final scheduled = <String, int>{};
+
+  // Bound to one RoomModel instance, by identity (_bindRoom): the phantom
+  // weights by date key, and the conceded days for the last counted day
+  // they were walked to.
+  RoomModel? room;
+  final phantom = <String, double>{};
+  DateTime? concededLast;
+  Set<String>? conceded;
+
+  // Bound to one clock reading, by ==: dayIsCountableAt by date key.
+  DateTime? countableAt;
+  final countable = <String, bool>{};
+}
+
+/// Each [RoomParticipant]'s [_DayMemo], by identity. An Expando rather than
+/// a field because RoomParticipant keeps its const constructor, and an
+/// entry goes when its instance does.
+final Expando<_DayMemo> _dayMemos =
+    Expando<_DayMemo>('RoomParticipant day memo');
+
+/// The turn of the event loop the kept answers belong to, and whether the
+/// microtask that ends it is already queued.
+int _dayMemoTurn = 0;
+bool _dayMemoTurnEnds = false;
+
+/// [p]'s answers from this turn of the event loop, or an empty memo when it
+/// has none from this turn yet.
+///
+/// No answer is kept past the turn it was worked out in: the first question
+/// of a turn queues a microtask that ends it, and a memo from an ended turn
+/// is dropped here rather than read. One build of the board, the race
+/// snapshot or a strip asks all of its questions inside one turn, and that
+/// is where the repeats are. A later turn asks afresh, so whatever the
+/// device's time zone says by then is read exactly as the uncached code
+/// reads it (see RoomParticipant's class comment). The microtask goes on
+/// the root zone, so a zone that keeps its own microtask queue (a test's
+/// FakeAsync) and is dropped before flushing it can never leave the turn
+/// open for good.
+_DayMemo _dayMemoFor(RoomParticipant p) {
+  if (!_dayMemoTurnEnds) {
+    _dayMemoTurnEnds = true;
+    Zone.root.scheduleMicrotask(_endDayMemoTurn);
+  }
+  final kept = _dayMemos[p];
+  if (kept != null && kept.turn == _dayMemoTurn) return kept;
+  return _dayMemos[p] = _DayMemo(_dayMemoTurn);
+}
+
+void _endDayMemoTurn() {
+  _dayMemoTurn++;
+  _dayMemoTurnEnds = false;
+}
+
+/// Stored at: rooms/{code}/participants/{uid}
+///
+/// One member of a room, as their own phone last graded them.
+///
+/// ── Never changed in place ──────────────────────────────────────────────
+/// An instance gives the same answer to the same day question for its whole
+/// life, and [_DayMemo] relies on it. Within one turn of the event loop
+/// (see [_dayMemoFor]), [wasObservedOn], [countedHabitCountOn],
+/// [recordedScheduledCountFor] and [scheduledCountFor] are worked out once
+/// per date key; [phantomWeightOn] once per room instance and date key;
+/// [dayIsCountableAt] once per clock reading and date key; and the conceded
+/// days behind [daysElapsedIn] and [roomDaysElapsedIn] once per room
+/// instance and last counted day. So:
+///  * no field's collection may be changed after construction. fromFirestore
+///    builds fresh ones, the sync edits copies, and [copyWith], [asRecorded]
+///    and the three with...Inferred methods return a new instance (or this
+///    one, untouched). The same goes for RoomModel (see its class comment);
+///  * those questions may never read a mutable or late field, nor the wall
+///    clock. Nothing that reads the clock itself (roomProgressRatio,
+///    roomDaysCompleted, the streak) is kept, and the conceded days are kept
+///    per last counted day, which each call still reads for itself.
+///
+/// The one input that is not a field is the device's time zone: the
+/// DateTime.parse and local DateTime in [wasObservedOn], the local date of
+/// [lastUpdated] in [undatedDeclineFromKey], the Saturday step in
+/// [quotaWeekWasMet], the local midnights behind [dayIsCountableAt], and
+/// RoomModel.slotJoinedPlanKey's local date of the addedAt of a slot stamped
+/// before addedDay existed. That is why no answer is kept past its turn. A
+/// zone change can land at any moment, and inside the one turn it lands in,
+/// the uncached code would itself answer some questions in each zone. From
+/// the next turn on, every answer is worked out afresh in the new zone,
+/// exactly as the uncached code works it out. Keeping answers across turns
+/// as well, until the roster next re-emitted, was faster again on every
+/// rebuild, but after a zone change it served the old zone's answers until
+/// that emission: a changed number on the board, so it was left out.
 class RoomParticipant {
   final String uid;
   final String displayName;
@@ -1497,6 +1622,26 @@ class RoomParticipant {
     this.slotHabitHistory = const {},
   });
 
+  /// This instance's answers so far this turn (see [_dayMemoFor] and the
+  /// class comment).
+  _DayMemo get _memo => _dayMemoFor(this);
+
+  /// How many times [scheduledCountFor] worked its answer out instead of
+  /// reading it back, for the tests that pin the saving. Counted inside an
+  /// assert, so a release build never touches it. A static outlives a test
+  /// in the same isolate: reset it at the start of each one.
+  @visibleForTesting
+  static int debugScheduledComputed = 0;
+
+  /// The same count for [phantomWeightOn], [dayIsCountableAt] and the
+  /// conceded-days walk ([concededDaysIn]), under the same rules.
+  @visibleForTesting
+  static int debugPhantomComputed = 0;
+  @visibleForTesting
+  static int debugCountableComputed = 0;
+  @visibleForTesting
+  static int debugConcededComputed = 0;
+
   /// Whether this member has left the room (see [leftAt]).
   bool get isDeparted => leftAt != null;
 
@@ -1642,7 +1787,11 @@ class RoomParticipant {
   /// Whether the room was already watching on [dateKey] — i.e. a sync ran on
   /// or after that day, so whatever it recorded for that day is a real
   /// observation rather than an absence of one. See [lastSyncedDay].
-  bool wasObservedOn(String dateKey) {
+  bool wasObservedOn(String dateKey) =>
+      _memo.observed[dateKey] ??= _wasObservedOnUncached(dateKey);
+
+  /// [wasObservedOn]'s answer, worked out (see [_DayMemo]).
+  bool _wasObservedOnUncached(String dateKey) {
     final at = lastSyncedAt;
     if (at != null) {
       // Observed means graded after the day CLOSED. Under the overlapping-day
@@ -1885,7 +2034,11 @@ class RoomParticipant {
   /// room_health.js and the admin tool read those written keys. The board
   /// reads a day no sync has written through [unsyncedPlanInference]
   /// instead.
-  int countedHabitCountOn(String dateKey) {
+  int countedHabitCountOn(String dateKey) =>
+      _memo.planCount[dateKey] ??= _countedHabitCountOnUncached(dateKey);
+
+  /// [countedHabitCountOn]'s answer, worked out (see [_DayMemo]).
+  int _countedHabitCountOnUncached(String dateKey) {
     var n = 0;
     var counted = 0;
     for (var i = 0; i < linkedHabitIds.length; i++) {
@@ -1948,10 +2101,19 @@ class RoomParticipant {
   /// records ([recordedScheduledCountFor]). Every score and every drawn
   /// square reads this.
   int scheduledCountFor(String dateKey) =>
-      inferredScheduledCount[dateKey] ??
-      (unsyncedQuotaRestDays.contains(dateKey) ? 0 : null) ??
-      planInferredScheduledCount[dateKey] ??
-      recordedScheduledCountFor(dateKey);
+      _memo.scheduled[dateKey] ??= _scheduledCountForUncached(dateKey);
+
+  /// [scheduledCountFor]'s answer, worked out (see [_DayMemo]).
+  int _scheduledCountForUncached(String dateKey) {
+    assert(() {
+      debugScheduledComputed++;
+      return true;
+    }());
+    return inferredScheduledCount[dateKey] ??
+        (unsyncedQuotaRestDays.contains(dateKey) ? 0 : null) ??
+        planInferredScheduledCount[dateKey] ??
+        recordedScheduledCountFor(dateKey);
+  }
 
   /// [scheduledCountFor] as the document itself records it, with nothing
   /// inferred on top. The anti-backdating clamp in syncLinkedHabitsProgress
@@ -2005,7 +2167,11 @@ class RoomParticipant {
   /// points from back-painting two squares. Days a sync already watched keep
   /// their observed value instead, so back-dating still cannot buy credit
   /// here, exactly as setSquare's past-day branch refuses to pay XP for it.
-  int recordedScheduledCountFor(String dateKey) {
+  int recordedScheduledCountFor(String dateKey) =>
+      _memo.recorded[dateKey] ??= _recordedScheduledCountForUncached(dateKey);
+
+  /// [recordedScheduledCountFor]'s answer, worked out (see [_DayMemo]).
+  int _recordedScheduledCountForUncached(String dateKey) {
     final stored = dailyScheduledCount[dateKey];
     if (stored != null) return stored;
     if (!wasObservedOn(dateKey) &&
@@ -2990,6 +3156,20 @@ class RoomParticipant {
   /// for it. A partial square earns half credit everywhere else, so it too is
   /// enough to make today's live room total move.
   bool dayIsCountableAt(String dateKey, DateTime now) {
+    final m = _memo;
+    if (m.countableAt != now) {
+      m.countableAt = now;
+      m.countable.clear();
+    }
+    return m.countable[dateKey] ??= _dayIsCountableAtUncached(dateKey, now);
+  }
+
+  /// [dayIsCountableAt]'s answer, worked out (see [_DayMemo]).
+  bool _dayIsCountableAtUncached(String dateKey, DateTime now) {
+    assert(() {
+      debugCountableComputed++;
+      return true;
+    }());
     final day = DateTime.tryParse(dateKey);
     if (day == null) return true;
     final today = now.effectiveDay;
@@ -3005,7 +3185,7 @@ class RoomParticipant {
     final last = room.lastCountedDay;
     if (last.isBefore(start)) return (live: 1, allRest: false);
     final span = last.difference(start).inDays + 1;
-    final conceded = concededDaysIn(room);
+    final conceded = _concededMemo(room);
     // No early return. There used to be one when the three stored exemptions
     // were all empty, but a rest day the SCHEDULE grants leaves the
     // denominator too now (see [isRestDay] below), and nothing is stored for
@@ -3102,10 +3282,20 @@ class RoomParticipant {
   Set<String> concededDaysIn(RoomModel room) {
     final from = restAllowanceFrom;
     if (from == null) return const {};
+    return _concededThrough(room, from, room.lastCountedDay);
+  }
+
+  /// [concededDaysIn]'s walk through [last], the room's last counted day as
+  /// the caller read it, so [_concededMemo] can key on it. [from] is
+  /// [restAllowanceFrom], already known to be set.
+  Set<String> _concededThrough(RoomModel room, String from, DateTime last) {
+    assert(() {
+      debugConcededComputed++;
+      return true;
+    }());
     final out = <String>{};
     final usedPerWeek = <String, int>{};
     var day = countedStartIn(room);
-    final last = room.lastCountedDay;
     while (!day.isAfter(last)) {
       final key = day.toDateKey();
       // Before the stamp, nothing is excused. This is the whole of the
@@ -3127,6 +3317,30 @@ class RoomParticipant {
       }
       day = day.add(const Duration(days: 1));
     }
+    return out;
+  }
+
+  /// [concededDaysIn], kept while [room] (by identity) and its last counted
+  /// day stay the same. The two walks built on it ([_liveDaysIn] and
+  /// [roomDaysElapsedIn]) asked for it twice per score, and the board asks
+  /// for the score several times a row.
+  ///
+  /// RoomModel.lastCountedDay is read here once, exactly where concededDaysIn
+  /// reads it, and never taken from the caller's clock or from the last day
+  /// the caller read: across midnight those can differ, and the conceded
+  /// days have always been walked to their own read. The set is shared, so
+  /// its two callers only ever ask it [Set.contains].
+  Set<String> _concededMemo(RoomModel room) {
+    final from = restAllowanceFrom;
+    if (from == null) return const {};
+    final last = room.lastCountedDay;
+    final m = _memo;
+    _bindRoom(m, room);
+    final kept = m.conceded;
+    if (kept != null && m.concededLast == last) return kept;
+    final out = _concededThrough(room, from, last);
+    m.concededLast = last;
+    m.conceded = out;
     return out;
   }
 
@@ -3285,6 +3499,17 @@ class RoomParticipant {
   /// weighs target/7 instead, the same average the linked member is graded
   /// at across a week.
   double phantomWeightOn(RoomModel room, String dateKey) {
+    final m = _memo;
+    _bindRoom(m, room);
+    return m.phantom[dateKey] ??= _phantomWeightOnUncached(room, dateKey);
+  }
+
+  /// [phantomWeightOn]'s answer, worked out (see [_DayMemo]).
+  double _phantomWeightOnUncached(RoomModel room, String dateKey) {
+    assert(() {
+      debugPhantomComputed++;
+      return true;
+    }());
     if (room.habitMode != RoomHabitMode.shared) return 0;
     final shared = room.sharedHabits;
     var weight = 0.0;
@@ -3295,6 +3520,18 @@ class RoomParticipant {
       weight += _slotWeight(slot);
     }
     return weight;
+  }
+
+  /// Binds [m]'s room-keyed answers to [room]: the phantom weights and the
+  /// conceded days are dropped together whenever a different RoomModel
+  /// instance asks, even an equal one, which only costs a recompute. The
+  /// dayIsCountableAt answers do not depend on the room and stay.
+  void _bindRoom(_DayMemo m, RoomModel room) {
+    if (identical(m.room, room)) return;
+    m.room = room;
+    m.phantom.clear();
+    m.concededLast = null;
+    m.conceded = null;
   }
 
   /// What ONE slot of the room's plan weighs on any given day. The single
@@ -3406,7 +3643,7 @@ class RoomParticipant {
   int roomDaysElapsedIn(RoomModel room, {DateTime? now}) {
     final clock = now ?? DateTime.now();
     var elapsed = _liveDaysIn(room, clock).live;
-    final conceded = concededDaysIn(room);
+    final conceded = _concededMemo(room);
     var day = countedStartIn(room);
     final last = room.lastCountedDay;
     while (!day.isAfter(last)) {

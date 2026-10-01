@@ -121,53 +121,65 @@ class _HabitReorderSheetState extends ConsumerState<_HabitReorderSheet> {
                   return Padding(
                     key: ValueKey(habit.id),
                     padding: const EdgeInsets.only(bottom: 8),
-                    // The whole row is the drag handle: with one finger on
-                    // a phone there is nothing else a row in a reorder
-                    // sheet could mean, so no press-and-hold delay and no
-                    // hunting for the grip icon (kept as the visual cue).
-                    child: ReorderableDragStartListener(
-                      index: index,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 9),
-                        decoration: BoxDecoration(
-                          color: gp.surface,
-                          borderRadius:
-                              BorderRadius.circular(GameSpacing.buttonRadius),
-                          border: Border.all(color: gp.border, width: 0.5),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                color: color.withOpacity(0.14),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: CategoryIcon(
-                                category: habit.category,
-                                size: 15,
-                                color: color,
+                    child: Container(
+                      padding: const EdgeInsetsDirectional.only(start: 10),
+                      decoration: BoxDecoration(
+                        color: gp.surface,
+                        borderRadius:
+                            BorderRadius.circular(GameSpacing.buttonRadius),
+                        border: Border.all(color: gp.border, width: 0.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 26,
+                            height: 26,
+                            decoration: BoxDecoration(
+                              color: color.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: CategoryIcon(
+                              category: habit.category,
+                              size: 15,
+                              color: color,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              habit.localName(s.isAr),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                                color: gp.textPrimary,
                               ),
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                habit.localName(s.isAr),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: gp.textPrimary,
-                                ),
-                              ),
+                          ),
+                          // Only the grip starts a drag. The whole row used
+                          // to be the handle, and with more habits than the
+                          // sheet shows, a scroll that began on a row moved
+                          // that habit instead. The grip keeps a finger-size
+                          // zone (the full row height, 48pt wide, the
+                          // transparent box makes the empty space around the
+                          // icon hit-testable) and still drags at once, no
+                          // press-and-hold.
+                          ReorderableDragStartListener(
+                            index: index,
+                            child: Container(
+                              key: ValueKey('reorder-grip-${habit.id}'),
+                              width: 48,
+                              height: 44,
+                              color: Colors.transparent,
+                              padding:
+                                  const EdgeInsetsDirectional.only(end: 10),
+                              alignment: AlignmentDirectional.centerEnd,
+                              child: Icon(Icons.drag_handle_rounded,
+                                  size: 20, color: gp.textTert),
                             ),
-                            Icon(Icons.drag_handle_rounded,
-                                size: 20, color: gp.textTert),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ),
                   );

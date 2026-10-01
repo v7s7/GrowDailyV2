@@ -13,23 +13,28 @@ someone's full days, times twenty-five colours: the Night family Aziz picked
 on 2026-09-25, then black with a white plant and seven light colours with a
 dark one (white, vanilla, matcha, lavender on 2026-09-26; beige, mist blue,
 mint on 2026-09-27), then Doum's, a cream plant on the mascot's green
-(2026-09-28, free with its theme). One of the 100 is the shipped icon itself
-(the sprout in the original colours), which stays AppIcon and is never
-touched here. The other 99 are written as single-size 1024 sets
-under ios/Runner/Assets.xcassets/AlternateIcons/, one folder per icon, named
-AppIcon-<shape>-<colour>. The seasonal icons (Ramadan) come after them, one
-set each, named AppIcon-<id>: a shape in colours of their own with one mark
-on top (the crescent). The Runner target's
+(2026-09-28, free with its theme). All 100 are written as single-size 1024
+sets under ios/Runner/Assets.xcassets/AlternateIcons/, one folder per icon,
+named AppIcon-<shape>-<colour>. The seasonal icons (Ramadan) come after
+them, one set each, named AppIcon-<id>: a shape in colours of their own
+with one mark on top (the crescent). The Runner target's
 ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS makes actool size them and
 list them in the built Info.plist, so there is no name list to keep in step.
 
 The same file also writes lib/features/app_icon/app_icon_art.g.dart, which
-the app draws its previews from. One source for both is the point: a picker
-tile can never show a plant the phone would not get.
+the app draws its previews from, and assets/images/icon_app.png, the shipped
+icon (the one primary_icon.py names: Doum's sprout since 2026-09-30), which
+the rest of the icon scripts build iOS's AppIcon, Android's launcher icon and
+the Play listing from. One source for all of them is the point: a picker tile
+can never show a plant the phone would not get, and the shipped icon is the
+same pixels as its own tile. Its alternate set is still written: a phone that
+picked it while it was an alternate keeps a name that exists (it reads back
+as the shipped icon, see AppIconChoice.fromIosName).
 
-Every path is M/L/Z only, traced from assets/images/icon_app.png at 99.5%
-overlap. Polygons are filled at 4x and box-filtered down, which is exactly
-one-pixel anti-aliasing. Output is RGB with no alpha, like AppIcon.
+Every path is M/L/Z only, traced from the original gold-on-emerald
+assets/images/icon_app.png at 99.5% overlap. Polygons are filled at 4x and
+box-filtered down, which is exactly one-pixel anti-aliasing. Output is RGB
+with no alpha, like AppIcon.
 """
 import json
 import pathlib
@@ -38,14 +43,17 @@ import shutil
 
 from PIL import Image, ImageDraw
 
+import primary_icon
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 ART = ROOT / "tool/icons/app_icon_art.json"
 DST = ROOT / "ios/Runner/Assets.xcassets/AlternateIcons"
 DART = ROOT / "lib/features/app_icon/app_icon_art.g.dart"
+SHIPPED = ROOT / "assets/images/icon_app.png"
 
 SIZE = 1024
 SUPER = 4
-PRIMARY = ("sprout", "emerald_gold")
+PRIMARY = (primary_icon.SHAPE, primary_icon.COLOUR)
 
 CONTENTS = {
     "images": [
@@ -165,15 +173,17 @@ def main() -> None:
     DST.mkdir(parents=True)
     (DST / "Contents.json").write_text(json.dumps(FOLDER, indent=2) + "\n")
     written = 0
+    shipped = None
     for sid, shape in art["shapes"].items():
         for colour in art["colours"]:
-            if (sid, colour["id"]) == PRIMARY:
-                continue
             folder = DST / f"AppIcon-{sid}-{colour['id']}.appiconset"
             folder.mkdir()
-            render(shape, colour, art["flowerLift"]).save(folder / "icon.png", optimize=True)
+            icon = render(shape, colour, art["flowerLift"])
+            icon.save(folder / "icon.png", optimize=True)
             (folder / "Contents.json").write_text(json.dumps(CONTENTS, indent=2) + "\n")
             written += 1
+            if (sid, colour["id"]) == PRIMARY:
+                shipped = icon
     for sid, season in art.get("seasonal", {}).items():
         folder = DST / f"AppIcon-{sid}.appiconset"
         folder.mkdir()
@@ -187,7 +197,11 @@ def main() -> None:
         (folder / "Contents.json").write_text(json.dumps(CONTENTS, indent=2) + "\n")
         written += 1
     write_dart(art)
+    if shipped is None:
+        raise SystemExit(f"primary icon {PRIMARY} is not in {ART.relative_to(ROOT)}")
+    shipped.save(SHIPPED, optimize=True)
     print(f"{written} alternate icons in {DST.relative_to(ROOT)}; wrote {DART.relative_to(ROOT)}")
+    print(f"shipped icon {PRIMARY[0]}-{PRIMARY[1]} -> {SHIPPED.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

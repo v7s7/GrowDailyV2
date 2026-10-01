@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../mascot/sprout.dart';
 import 'launch_scene.dart';
 
+part 'launch_scenes_afternoon.dart';
 part 'launch_scenes_more.dart';
 
 /// Doum's size on the curtain (the reference pose's height) and where his
@@ -24,6 +25,15 @@ const kLaunchLineKey = ValueKey('launch-line');
 
 /// Doum's shadow on the curtain, for tests.
 const kLaunchShadowKey = ValueKey('launch-shadow');
+
+/// Doum on the curtain. Keyed so that he keeps his Sprout while scenery
+/// comes and goes round him in the same Stack (a slow load's lens, the
+/// deck's shadow, the breeze): unkeyed, a list changing length handed his
+/// element to the next Positioned, and he popped in again from nothing.
+const kLaunchDoumKey = ValueKey('launch-doum');
+
+/// Missing winter's sky and dunes, for tests.
+const kLaunchBackdropKey = ValueKey('launch-backdrop');
 
 /// The line's ink, and the colours the scenes paint with.
 const kLaunchInk = Color(0xFF23352A);
@@ -58,6 +68,13 @@ const Map<SproutPose, double> kLaunchBodyCentre = {
   SproutPose.running: .538,
   SproutPose.cheer: .513,
   SproutPose.sunglasses: .441,
+  // Measured on the boards (2026-09-30): the two winter poses so that his
+  // eyes sit on the same x in both, and his face stays put across the swap;
+  // the treadmill and the wink jump by the green of the body.
+  SproutPose.winterHourglass: .44,
+  SproutPose.winterHappyHeart: .50,
+  SproutPose.treadmill: .459,
+  SproutPose.winkJump: .458,
 };
 
 /// Every pose [scene] draws, decoded before it starts (LaunchCurtain), so
@@ -97,7 +114,32 @@ List<SproutPose> launchScenePoses(LaunchScene scene) => switch (scene) {
       LaunchScene.stepsGoal => const [SproutPose.running, SproutPose.cheer],
       LaunchScene.summerNoon =>
         const [SproutPose.threeQuarterWave, SproutPose.sunglasses],
+      // The afternoon's two turn to the magnifier on a slow load too
+      // (LaunchCurtain.searchingScenes).
+      LaunchScene.winterWait => const [
+          SproutPose.winterHourglass,
+          SproutPose.winterHappyHeart,
+          SproutPose.magnifier,
+        ],
+      LaunchScene.walk => const [
+          SproutPose.treadmill,
+          SproutPose.winkJump,
+          SproutPose.magnifier,
+        ],
     };
+
+/// Whether the top of the screen is dark in [scene] with [loaded] of the
+/// home screen in (1 from the ready moment on), so the curtain asks for the
+/// light clock and battery. Missing winter's sky falls from late summer to
+/// night with the load ([reduced] shows its night from the start); the
+/// night scene's own dark is timed by the curtain.
+bool launchTopIsDark(
+  LaunchScene scene, {
+  required double loaded,
+  required bool reduced,
+}) =>
+    scene == LaunchScene.winterWait &&
+    (reduced || loaded >= kWinterLightIconsFrom);
 
 /// One launch scene, drawn over the curtain's cream: nothing but the cream
 /// until [started], then Doum, what goes round him and his line.
@@ -107,7 +149,8 @@ List<SproutPose> launchScenePoses(LaunchScene scene) => switch (scene) {
 /// ring and the checklist show honestly. [leaving] is the home screen being
 /// ready: each scene plays its moment for it (a hop, the ring closing, the
 /// lantern flaring), except the night, which stays quiet. [away] fades Doum,
-/// his line and the scenery out ahead of the ground (the curtain's exit).
+/// his line and the scenery out ahead of the ground (the curtain's exit);
+/// missing winter's sky stays for the ground, as the night's navy does.
 /// [searching] is a slow load in an ordinary scene: he takes out his
 /// magnifier and his line says so, until the app is ready.
 ///
@@ -178,6 +221,14 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         LaunchScene.saturday => SproutPose.chart,
         LaunchScene.update => SproutPose.idea,
         LaunchScene.stepsGoal => SproutPose.running,
+        // Reduce Motion shows the afternoon's two as their boards do: the
+        // end, laughing by the fire under the cool night, standing among
+        // his seedlings, never the worried wait or the machine.
+        LaunchScene.winterWait => widget.reduced
+            ? SproutPose.winterHappyHeart
+            : SproutPose.winterHourglass,
+        LaunchScene.walk =>
+          widget.reduced ? SproutPose.winkJump : SproutPose.treadmill,
       };
 
   /// The pose he turns to when the home screen is ready.
@@ -193,6 +244,8 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         LaunchScene.saturday => SproutPose.determined,
         LaunchScene.stepsGoal => SproutPose.cheer,
         LaunchScene.summerNoon => SproutPose.sunglasses,
+        LaunchScene.winterWait => SproutPose.winterHappyHeart,
+        LaunchScene.walk => SproutPose.winkJump,
         LaunchScene.morningCoffee ||
         LaunchScene.nightAsleep ||
         LaunchScene.update =>
@@ -211,7 +264,19 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     if (!old.started && widget.started) _start();
     if (!old.searching && widget.searching && !widget.leaving) _search();
     if (!old.leaving && widget.leaving) _onReady();
+    if (widget.scene == LaunchScene.winterWait) _markStars();
   }
+
+  /// When the home screen was ready (seconds on [_clock]), and the pose he
+  /// was in then: the afternoon's payoffs run on the time since, past
+  /// [_ready]'s 600 ms, and the walk only springs off a treadmill.
+  double? _readyAt;
+  SproutPose? _readyFrom;
+
+  /// When each of missing winter's stars came out (seconds on [_clock]),
+  /// by star: one at each step of the load, so a stalled load shows as
+  /// stars that wait.
+  final Map<int, double> _starAt = {};
 
   /// When the magnifier came out (seconds on [_clock]), for its glint.
   double? _searchedAt;
@@ -246,6 +311,7 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     }
     if (widget.searching) _search();
     if (widget.leaving) _onReady();
+    if (widget.scene == LaunchScene.winterWait) _markStars();
   }
 
   /// Back, three-quarter back, side, three-quarter, front: one turn, a pose
@@ -268,7 +334,13 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
 
   void _onReady() {
     _stopTurning(); // a turn still running stops where it is
-    final to = _pose == SproutPose.magnifier ? SproutPose.frontWave : _readyPose;
+    _readyAt = _t;
+    _readyFrom = _pose;
+    // Found it: the ordinary scenes wave; the afternoon's two go on to
+    // their own payoff.
+    final to = _pose == SproutPose.magnifier
+        ? (_readyPose ?? SproutPose.frontWave)
+        : _readyPose;
     if (to == SproutPose.sunglasses && _shadesAt == null) _shadesAt = _t;
     if (to != null) setState(() => _pose = to);
     if (widget.reduced) {
@@ -323,6 +395,13 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     final keep = 1 - widget.away;
     final rtl = Directionality.of(context) == TextDirection.rtl;
 
+    // Full-bleed scenery that goes with the ground, as the night's navy
+    // does, not with Doum: missing winter's sky and dunes. Faded with him,
+    // the sky was gone while the cream was still up (a flash of cream
+    // between the night and the Grid) and the light clock and battery,
+    // handed back with the ground, sat on the cream; shrunk with him, it
+    // opened a cream frame round the navy.
+    final backdrop = <Widget>[];
     final behind = <Widget>[];
     final around = <Widget>[];
     if (started) {
@@ -359,6 +438,10 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
           _stepsScene(size, c, rtl, enter, ready, behind, around);
         case LaunchScene.summerNoon:
           _summerScene(size, c, enter, ready, behind, around);
+        case LaunchScene.winterWait:
+          _winterScene(size, c, enter, backdrop, behind);
+        case LaunchScene.walk:
+          _walkScene(size, c, rtl, behind);
       }
       if (_pose == SproutPose.magnifier) around.add(_lens(c));
     }
@@ -369,6 +452,11 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         if (night > 0)
           Positioned.fill(
             child: ColoredBox(color: kLaunchNight.withValues(alpha: night)),
+          ),
+        if (backdrop.isNotEmpty)
+          Positioned.fill(
+            key: kLaunchBackdropKey,
+            child: Stack(children: backdrop),
           ),
         Positioned.fill(
           child: Opacity(
@@ -402,7 +490,9 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     final show = widget.reduced
         ? 1.0
         : Curves.easeOut.transform(((_t - .12) / .3).clamp(0.0, 1.0));
-    final text = _pose == SproutPose.magnifier
+    // Once the magnifier has come out its line stays, through his "found
+    // it" wave and the exit: the words change at most once.
+    final text = _searchedAt != null
         ? kLaunchSlowLine
         : launchLine(widget.scene);
     final split = text.indexOf('Grow Daily');
@@ -429,7 +519,12 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
         child: Transform.translate(
           offset: Offset(0, 8 * (1 - show)),
           child: AnimatedSwitcher(
-            duration: Duration(milliseconds: widget.reduced ? 0 : 220),
+            duration: Duration(milliseconds: widget.reduced ? 0 : 320),
+            // One sentence at a time: the old one leaves in the first half,
+            // the new one comes in the second, never two lines on top of
+            // each other.
+            switchInCurve: const Interval(.5, 1, curve: Curves.easeOut),
+            switchOutCurve: const Interval(.5, 1, curve: Curves.easeIn),
             child: Text.rich(
               key: ValueKey(text),
               TextSpan(
@@ -451,6 +546,11 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
               // English on every phone, in Arabic too: the question mark
               // stays at the end.
               textDirection: TextDirection.ltr,
+              // Grows with the phone's text size, but only so far: at the
+              // largest accessibility sizes three rows of 26pt ran off the
+              // bottom of the screen.
+              textScaler: MediaQuery.textScalerOf(context)
+                  .clamp(maxScaleFactor: 1.25),
             ),
           ),
         ),
@@ -470,6 +570,11 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
   /// from the side reading starts on, facing the way he goes, a bob in his
   /// step (quicker running).
   ({double dx, double dy, bool mirror}) _walk(bool rtl) {
+    // The treadmill runs the way reading goes, like the walk in and the
+    // run; he springs off it at the ready moment (see _leap).
+    if (widget.scene == LaunchScene.walk) {
+      return (dx: 0, dy: _leap(), mirror: rtl);
+    }
     if (!(widget.scene == LaunchScene.welcomeBack &&
             _pose == SproutPose.walkBackpack) &&
         !(widget.scene == LaunchScene.stepsGoal &&
@@ -497,6 +602,7 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
     final body = (0.5 - (kLaunchBodyCentre[pose] ?? .5)) * box.width;
     final walk = _walk(rtl);
     final sleeping = widget.scene == LaunchScene.nightAsleep;
+    final layers = _poseLayers(pose);
     Widget doum = Sprout(
       pose: pose,
       height: kLaunchDoumHeight,
@@ -505,19 +611,45 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
       // The walk, the run and the night bring him in themselves; everything
       // else pops.
       entrance: _onFoot || sleeping ? SproutEntrance.none : SproutEntrance.pop,
-      idleBreaths: sleeping ? 2 : 1,
+      // No breath on the treadmill: it would squash the machine.
+      idleBreaths: sleeping
+          ? 2
+          : pose == SproutPose.treadmill
+              ? 0
+              : 1,
+      underlay: layers.under,
+      overlay: layers.over,
+      // The afternoon's two cut every pose change in one frame, as their
+      // boards do: the walk moves the whole Sprout off the belt at the
+      // swap, and winter lines his face up across two pictures, so the old
+      // pose held for a crossfade showed two of him.
+      cutSwap: widget.scene == LaunchScene.winterWait ||
+          widget.scene == LaunchScene.walk,
     );
     if (sleeping) doum = Opacity(opacity: enter, child: doum);
+    if (widget.scene == LaunchScene.walk) {
+      doum = Transform.scale(
+        scale: _takeOff(),
+        alignment: Alignment.bottomCenter,
+        child: doum,
+      );
+    }
     return Positioned(
+      key: kLaunchDoumKey,
       left: 0,
       right: 0,
       bottom: c.dy * 2 - (c.dy + kLaunchFeetBelowCentre),
       child: Center(
         child: TweenAnimationBuilder<double>(
           // A pose change moves the body's centre a little; slide it back
-          // under the words instead of jumping.
+          // under the words instead of jumping. Not in missing winter, whose
+          // two poses are centred so that his eyes stay put: sliding there
+          // would move his face. Its swaps are cuts (cutSwap), so the new
+          // pose simply stands in its own place.
           tween: Tween(end: walk.mirror ? -body : body),
-          duration: const Duration(milliseconds: 250),
+          duration: widget.scene == LaunchScene.winterWait
+              ? Duration.zero
+              : const Duration(milliseconds: 250),
           curve: Curves.easeOut,
           builder: (_, dx, child) => Transform.translate(
             offset: Offset(dx + walk.dx, walk.dy),
@@ -579,21 +711,30 @@ class _LaunchSceneViewState extends State<LaunchSceneView>
                 Sprout.hopDuration.inMilliseconds,
           )
         : 0.0;
-    const w = 96.0;
+    var opacity = fade * (1 - .4 * lift);
+    var sx = grow * (1 - .3 * lift), sy = sx;
+    // Missing winter's sits wider under the seated figure and his fire,
+    // warmer on the sand (the board's). The walk's is the deck's while he
+    // is on the treadmill, then keeps to his leap (see _walkShadow).
+    final winter = widget.scene == LaunchScene.winterWait;
+    final w = winter ? 150.0 : 96.0;
+    final own = widget.scene == LaunchScene.walk ? _walkShadow() : null;
+    if (own != null) (opacity, sx, sy) = own;
     return Positioned(
       key: kLaunchShadowKey,
-      left: c.dx - w / 2 + walk.dx,
+      left: c.dx - w / 2 + walk.dx + (winter ? -3 : 0),
       top: feet - 7,
       width: w,
       height: 14,
       child: Opacity(
-        opacity: fade * (1 - .4 * lift),
+        opacity: opacity.clamp(0.0, 1.0),
         child: Transform.scale(
-          scale: grow * (1 - .3 * lift),
-          child: const DecoratedBox(
+          scaleX: sx,
+          scaleY: sy,
+          child: DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.all(Radius.elliptical(48, 7)),
-              color: _dayShadow,
+              borderRadius: BorderRadius.all(Radius.elliptical(w / 2, 7)),
+              color: winter ? _winterShadow : _dayShadow,
             ),
           ),
         ),

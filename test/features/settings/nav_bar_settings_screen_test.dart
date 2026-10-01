@@ -55,8 +55,11 @@ void main() {
       await open(tester);
       expect(find.text('Your bar  3/5'), findsOneWidget);
       expect(find.text('Make the bar your own'), findsNothing);
-      // Habits and Profile show a lock, never a remove button.
-      expect(find.byTooltip('Always here'), findsNWidgets(2));
+      // Profile shows a lock, never a remove button. Habits and Tasks can
+      // each go while the other stays.
+      expect(find.byTooltip('Always here'), findsOneWidget);
+      expect(removeButton('Habits'), findsOneWidget);
+      expect(removeButton('Tasks'), findsOneWidget);
 
       await tester.tap(find.text('Rooms'));
       await h.settle(tester);
@@ -71,6 +74,25 @@ void main() {
       await tester.tap(find.text('Reset to default'));
       await h.settle(tester);
       expect(layout(), kDefaultNavTabs);
+    });
+
+    testWidgets('Habits can go, and then Tasks is the one that stays',
+        (tester) async {
+      // Aziz, 2026-09-30: a person who only wants tasks can drop the habit
+      // page. The bar keeps one of the two, because one of them is where
+      // the app opens.
+      await open(tester);
+      await tester.tap(removeButton('Habits'));
+      await h.settle(tester);
+      expect(layout(), [NavTab.profile, NavTab.matrix]);
+
+      expect(removeButton('Tasks'), findsNothing);
+      expect(find.byTooltip('Habits or Tasks has to stay'), findsOneWidget);
+      // And Habits is back on offer below, like any other tab.
+      await tester.tap(find.text('Habits'));
+      await h.settle(tester);
+      expect(layout(), [NavTab.profile, NavTab.matrix, NavTab.grid]);
+      expect(removeButton('Tasks'), findsOneWidget);
     });
 
     testWidgets('a full bar says so and stops adding', (tester) async {
@@ -110,6 +132,16 @@ void main() {
       await h.settle(tester);
       expect(find.byType(PremiumScreen), findsOneWidget);
       expect(layout().length, 4, reason: 'the add went through anyway');
+    });
+
+    testWidgets('removing Habits is a Premium edit too', (tester) async {
+      // Aziz's call, 2026-09-30: one rule for the whole bar. The free way
+      // to open on Tasks is the start page in Settings.
+      await open(tester);
+      await tester.tap(removeButton('Habits'));
+      await h.settle(tester);
+      expect(find.byType(PremiumScreen), findsOneWidget);
+      expect(layout(), contains(NavTab.grid));
     });
 
     testWidgets('the badges switch is free and clears the badge map',

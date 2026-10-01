@@ -80,10 +80,17 @@ class _EditQuadrantSheetState extends ConsumerState<_EditQuadrantSheet> {
     // An emptied field means "go back to the built-in label" — more
     // discoverable than a separate hidden reset action, and mirrors how
     // the color swatch's own picker already treats "Use default color".
+    // The field opens holding the name on screen, so an untouched built-in
+    // name is not a choice either: saving it would freeze today's default
+    // and hide any later rename of the built-in names.
+    final isAr = S.of(context).isAr;
+    final builtIn = typed.isEmpty ||
+        typed == widget.quadrant.localLabel(isAr) ||
+        typed == widget.quadrant.retiredArLabel;
     ref.read(matrixProvider.notifier).updateQuadrant(
           widget.quadrant,
-          title: typed.isEmpty ? null : typed,
-          clearTitle: typed.isEmpty,
+          title: builtIn ? null : typed,
+          clearTitle: builtIn,
           colorHex: _colorHex,
           clearColor: _colorHex == null,
         );

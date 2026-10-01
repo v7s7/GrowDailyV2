@@ -10,7 +10,8 @@
  * itself, the right is a phone showing exactly what arrives (the app's own
  * pop-up, or a lock-screen notification) with who it reaches and what it
  * costs underneath. What is showing now and what was sent before sit below
- * both.
+ * both, and between the two rows sits the App update card: which builds are
+ * in the stores, for the pop-up that sends an older build there to update.
  */
 
 const { BASE_STYLES } = require('./render');
@@ -19,6 +20,7 @@ const { THEME_STYLES, SHELL_STYLES, SHELL_HEAD, icon, sidebar, topBar } = requir
 const PAGE_ICONS = [
   'app-window', 'bell', 'send', 'flask-conical', 'megaphone', 'circle-stop',
   'smartphone', 'clock', 'info', 'x', 'triangle-alert', 'history', 'users', 'moon-star',
+  'download',
 ];
 
 const PAGE_STYLES = `
@@ -159,6 +161,16 @@ const PAGE_STYLES = `
   .cost p:last-child { margin-bottom: 0; }
   .cost .free { display: inline-block; padding: 1px 9px; border-radius: var(--r-pill); background: var(--success-soft); border: 1px solid var(--success-line); color: var(--success); font-weight: 700; font-size: 12px; margin-inline-end: 6px; }
 
+  /* ---- App update: which builds are out ---- */
+  .update-panel { margin-top: var(--s5); }
+  .update-intro { margin: 0 0 var(--s4); font-size: 12.5px; color: var(--text-sec); line-height: 1.55; max-width: 86ch; }
+  .update-grid { display: grid; grid-template-columns: 90px minmax(120px, 210px) minmax(120px, 210px); gap: var(--s2) var(--s4); align-items: end; margin-bottom: var(--s4); }
+  .update-head { font-size: 11.5px; color: var(--text-tert); }
+  .update-plat { font-size: 13px; font-weight: 650; padding-bottom: 9px; }
+  .update-grid .field { margin: 0; }
+  .update-grid .field input { font-variant-numeric: tabular-nums; }
+  .update-facts { margin: 0 0 var(--s4); }
+
   /* ---- Showing now / history ---- */
   .msg-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s4); margin-bottom: var(--s3); background: var(--bg-sunken); }
   .msg-card:last-child { margin-bottom: 0; }
@@ -197,6 +209,7 @@ const PAGE_STYLES = `
   .confirm { width: min(520px, 100%); max-height: 90vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 16px; box-shadow: var(--shadow-lg); padding: var(--s6); }
   .confirm h3 { margin: 0 0 var(--s3); font-size: 17px; font-weight: 750; letter-spacing: -0.2px; text-transform: none; color: var(--text); padding: 0; border: 0; }
   .confirm p { margin: 0 0 var(--s4); font-size: 13px; color: var(--text-sec); line-height: 1.55; }
+  .confirm .facts { margin: 0 0 var(--s4); }
   .confirm .quote { border-inline-start: 3px solid var(--accent); padding: var(--s3) var(--s4); margin: 0 0 var(--s4); background: var(--bg-sunken); border-radius: var(--r-sm); }
   .confirm .actions { margin-top: var(--s4); }
 
@@ -341,6 +354,31 @@ ${PAGE_STYLES}</style>
             </section>
           </aside>
         </div>
+
+        <section class="panel update-panel" aria-labelledby="updateTitle">
+          <h2 id="updateTitle">${icon('download', 15)} App update</h2>
+          <p class="update-intro">Says which builds are in the stores. Someone on an older build gets a pop-up with Doum that sends them to the store to update. Set the numbers <b>only after that build is live</b> in its store: this goes to every phone that opens the app. Builds up to 84 do not have this pop-up and show nothing; a notification, written above, can still send them to the store.</p>
+          <div class="update-grid">
+            <span></span>
+            <span class="update-head">Newest build in the store</span>
+            <span class="update-head">Oldest build still allowed</span>
+            <span class="update-plat">iPhone</span>
+            <label class="field"><input type="text" inputmode="numeric" id="updateIosLatest" aria-label="iPhone newest build" autocomplete="off"></label>
+            <label class="field"><input type="text" inputmode="numeric" id="updateIosMin" aria-label="iPhone oldest build allowed" autocomplete="off"></label>
+            <span class="update-plat">Android</span>
+            <label class="field"><input type="text" inputmode="numeric" id="updateAndroidLatest" aria-label="Android newest build" autocomplete="off"></label>
+            <label class="field"><input type="text" inputmode="numeric" id="updateAndroidMin" aria-label="Android oldest build allowed" autocomplete="off"></label>
+          </div>
+          <ul class="facts update-facts">
+            <li>${icon('info', 14)}<span><b>Newest build:</b> an older build is offered the update, at most once a day, and can put it off. The build number is the <code>+N</code> of the version, the same on both platforms. 0 means nobody is asked.</span></li>
+            <li class="warn">${icon('triangle-alert', 14)}<span><b>Oldest build allowed:</b> an older build cannot be used until it updates. Leave it at 0 unless you must. A wrong number locks people out of their habits; setting it back to 0 lets open apps go within a moment.</span></li>
+          </ul>
+          <div class="checks" id="updateChecks" aria-live="polite"></div>
+          <div class="actions">
+            <span class="why" id="updateStatus"></span>
+            <button type="button" class="btn primary" id="updateSave">${icon('download', 15)}<span>Save</span></button>
+          </div>
+        </section>
 
         <div class="below">
           <section class="panel" aria-labelledby="liveTitle">

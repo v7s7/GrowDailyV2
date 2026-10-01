@@ -13,9 +13,10 @@ flutter_launcher_icons block points at as adaptive_icon_foreground.
 Why this exists: an Android adaptive icon is two layers, and the launcher
 masks them to whatever shape it likes (circle, squircle, teardrop). Handing
 it the flat app icon means the green plate gets masked twice and the mark
-sits too close to the edge. This lifts just the gold seedling onto
-transparency and insets it into the guaranteed-visible safe zone, letting
-the launcher paint the green itself via adaptive_icon_background.
+sits too close to the edge. This lifts just the seedling onto transparency
+and insets it into the guaranteed-visible safe zone, letting the launcher
+paint the ground itself via adaptive_icon_background (which has to be the
+shipped icon's ground, primary_icon.py; #74C878 since 2026-09-30).
 
 Centring is on the POT, not on the mark's bounding box. The two leaves are
 deliberately asymmetric and the taller right-hand one drags the bbox centre
@@ -28,19 +29,24 @@ source art.
 import pathlib
 from PIL import Image
 
+import primary_icon
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SRC = ROOT / "assets/images/icon_app.png"
 DST = ROOT / "tool/icons/icon_adaptive_foreground.png"
 
-# The source art is exactly two flat colours: a green plate and a gold mark.
-# Their red channels (14 vs 226) are far enough apart that red alone is a
-# clean discriminator, and the values in between are precisely the
-# anti-aliased edge pixels worth keeping as partial alpha.
-BG_R, FG_R = 14.0, 226.0
-GOLD = (226, 163, 54)
-# The plate is not perfectly flat (red wanders 14-16). Without a floor that
-# leaves an invisible alpha=1 haze over the whole plate, which still counts
-# toward getbbox() and silently defeats the crop below.
+# The source art is exactly two flat colours: a ground and a plant (Doum's
+# green #74C878 and cream #F5F0E1 since 2026-09-30; a green plate and a gold
+# mark before). Their red channels (116 vs 245; were 14 vs 226) are far
+# enough apart that red alone is a clean discriminator, and the values in
+# between are precisely the anti-aliased edge pixels worth keeping as
+# partial alpha.
+_GROUND, MARK = primary_icon.colours()
+BG_R, FG_R = float(_GROUND[0]), float(MARK[0])
+# The old gold-on-emerald plate was not perfectly flat (red wandered 14-16).
+# Without a floor that noise left an invisible alpha=1 haze over the whole
+# plate, which still counts toward getbbox() and silently defeats the crop
+# below. The rendered plate is flat, and the floor stays as a guard.
 FLOOR = 0.06
 # Adaptive icons are 108dp with only the central 72dp (66.7%) guaranteed
 # visible under every launcher mask. 62% keeps margin beyond that.
@@ -94,7 +100,7 @@ def main() -> None:
             t = (r - BG_R) / span
             if t < FLOOR:
                 continue
-            mp[x, y] = (*GOLD, int(min(t, 1.0) * (a / 255.0) * 255))
+            mp[x, y] = (*MARK, int(min(t, 1.0) * (a / 255.0) * 255))
 
     mark = mark.crop(mark.getbbox())
     pot_cx = pot_centre(mark)

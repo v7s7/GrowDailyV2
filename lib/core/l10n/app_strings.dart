@@ -2328,14 +2328,18 @@ class S {
   // ── Bottom bar customiser (Settings › Look › Pages, Premium) ─────────────
   String get navBarSettingsTitle => isAr ? 'الشريط السفلي' : 'Bottom bar';
   String get navBarSettingsIntro => isAr
-      ? 'اختر لحد 5 تبويبات، واسحبها عشان ترتّبها. العادات وملفي دائمًا موجودين.'
-      : 'Pick up to 5 tabs, and drag to put them in order. Habits and Profile always stay.';
+      ? 'اختر لحد 5 تبويبات، واسحبها عشان ترتّبها. ملفي دائمًا موجود، ولازم تبقى العادات أو المهام.'
+      : 'Pick up to 5 tabs, and drag to put them in order. Profile always stays, and so does Habits or Tasks.';
   String get navBarYourTabs => isAr ? 'شريطك' : 'Your bar';
   String get navBarAddTabs => isAr ? 'أضف تبويب' : 'Add a tab';
   String get navBarFull => isAr
       ? 'الشريط ممتلئ. احذف تبويب عشان تضيف غيره.'
       : 'The bar is full. Remove a tab to add another.';
   String get navBarPinned => isAr ? 'دائمًا موجود' : 'Always here';
+  // The lock on the last of Habits and Tasks (canRemoveNavTab): one of the
+  // two is where the app opens, so the bar keeps at least one.
+  String get navBarKeepOne =>
+      isAr ? 'لازم تبقى العادات أو المهام' : 'Habits or Tasks has to stay';
   String get navBarRemove => isAr ? 'حذف من الشريط' : 'Remove from bar';
   String get navBarAdd => isAr ? 'أضف للشريط' : 'Add to bar';
   String get navBarReset => isAr ? 'استرجاع الافتراضي' : 'Reset to default';
@@ -2358,6 +2362,11 @@ class S {
   // Screen-reader label for the dot on the Night Review tab.
   String get navBadgeReviewPending =>
       isAr ? 'مراجعة الليل ما انحفظت بعد' : 'Night review not saved yet';
+  // Settings › Look › Pages: which of Habits and Tasks the app opens on
+  // (startPageProvider). Free. First wording 2026-09-30; Aziz picks.
+  String get startPageTitle => isAr ? 'أول صفحة' : 'Start page';
+  String get startPageSheetTitle =>
+      isAr ? 'التطبيق يفتح على' : 'The app opens on';
 
   // App icon: Settings › الشكل › أيقونة التطبيق (lib/features/app_icon),
   // iPhone only. First wording, 2026-09-25; Aziz picks the final words.
@@ -3807,10 +3816,10 @@ class S {
   String get onboardingTasksTitle =>
       isAr ? 'رتّب يومك بثواني' : 'Sort your day in seconds';
   String get onboardingTasksBody => isAr
-      // Quadrant names match MatrixQuadrant.localLabel exactly (أولاً /
-      // جدول / فوّض / احذف) so the slide teaches the same words the
-      // Tasks screen actually shows.
-      ? 'حط مهامك في أربع خانات: أولاً، جدول، فوّض، أو احذف. والمهم ما يضيع.'
+      // Quadrant names match MatrixQuadrant.localLabel exactly (الآن /
+      // خطط لها / عطها غيرك / خلها, Aziz 2026-09-30) so the slide teaches
+      // the same words the Tasks screen actually shows.
+      ? 'حط مهامك في أربع خانات: «الآن»، «خطط لها»، «عطها غيرك»، أو «خلها». والمهم ما يضيع.'
       : 'Drop tasks into four boxes: Do First, Schedule, Delegate, or Eliminate. The important stuff never gets lost.';
   String get onboardingRoomsTitle =>
       isAr ? 'مع الربع أحلى' : 'Better with your people';
@@ -5236,7 +5245,7 @@ class S {
   String get notifMatrixNudge =>
       isAr ? 'ذكر المهام العاجلة' : 'Mention urgent tasks';
   String get notifMatrixNudgeDesc => isAr
-      ? 'يذكر مهامك العاجلة من «أولاً».'
+      ? 'يذكر مهامك العاجلة من «الآن».'
       : 'Mentions your open "Do First" tasks.';
   String get notifBundle =>
       isAr ? 'دمج التذكيرات المتقاربة' : 'Bundle close-together reminders';
@@ -6039,8 +6048,8 @@ class S {
 
   /// Hint inside the reorder sheet itself.
   String get reorderHabitsHint => isAr
-      ? 'اسحب أي عادة وحطها بالمكان اللي يناسبك، الترتيب ينحفظ بروحه.'
-      : 'Drag any habit to where you want it. The order saves itself.';
+      ? 'اسحب العادة من العلامة اللي على طرفها وحطها بالمكان اللي يناسبك، الترتيب ينحفظ بروحه.'
+      : 'Drag a habit by the grip at the end of its row. The order saves itself.';
 
   /// One-line description on the menu row that opens the reorder sheet.
   String get reorderHabitsMenuHint => isAr
@@ -6355,4 +6364,35 @@ class S {
   /// The switch in Settings › الشكل (was التخصيص until 2026-09-28).
   String get gridSproutSetting =>
       isAr ? 'دوم في صفحة العادات' : 'Doum on the Habits page';
+
+  // ── The update prompt (lib/features/broadcast/app_update.dart) ──────
+  // Asked when the store has a newer build than this phone's (Aziz,
+  // 2026-09-30: whoever has not updated gets a pop-up that sends them to
+  // the store). Drafted for Aziz to reword, on the Wording page with no
+  // release. The build is what is old, never the person, so no line says
+  // «أنت» did anything; no «!». The one that cannot be put off says the
+  // data is safe, which is what someone told to update is afraid of.
+
+  /// Under Doum's bulb: a newer build is in the store and this one can wait.
+  String get updateAvailableTitle =>
+      isAr ? 'فيه نسخة جديدة' : 'A new version is ready';
+
+  String get updateAvailableBody => isAr
+      ? 'حدّث التطبيق من المتجر عشان تحصل آخر التحسينات.'
+      : 'Update the app from the store to get the latest improvements.';
+
+  /// The pop-up with no way to put it off: the admin raised the oldest
+  /// build that may run. The app is the subject, not the person.
+  String get updateRequiredTitle =>
+      isAr ? 'التطبيق يحتاج تحديث' : 'The app needs an update';
+
+  String get updateRequiredBody => isAr
+      ? 'حدّث من المتجر عشان تكمل. عاداتك وسلسلتك محفوظة.'
+      : 'Update from the store to keep going. Your habits and streak are safe.';
+
+  /// Opens the app's page in the store.
+  String get updateNow => isAr ? 'تحديث' : 'Update';
+
+  /// «بعدين», the app's relaxed way to say not now (see firstRunOfferLater).
+  String get updateLater => isAr ? 'بعدين' : 'Later';
 }

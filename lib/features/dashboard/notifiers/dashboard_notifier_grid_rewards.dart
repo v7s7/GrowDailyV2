@@ -1271,9 +1271,23 @@ class _SquareReader {
         window.add(d);
       }
     }
-    for (final day in window.reversed.take(_maxGapDaysRead)) {
-      final squares = await squaresOn(day);
-      if (squares != null) byDay[day.toDateKey()] = squares;
+    // All at once, each day on its own: one round trip instead of up to 31
+    // in a row, which kept a returning person's streak (the Comeback card,
+    // a freeze's snackbar) arriving seconds after the launch curtain had
+    // lifted. A day that fails stays absent, exactly as when they ran one by
+    // one, and never takes the others with it (the Grid's own week load
+    // reads its days the same way).
+    final picked = window.reversed.take(_maxGapDaysRead).toList();
+    final read = await Future.wait([
+      for (final day in picked)
+        squaresOn(day).then<Map<String, SquareState>?>(
+          (squares) => squares,
+          onError: (Object _) => null,
+        ),
+    ]);
+    for (var i = 0; i < picked.length; i++) {
+      final squares = read[i];
+      if (squares != null) byDay[picked[i].toDateKey()] = squares;
     }
     return _SquareReader(byDay, fallback);
   }

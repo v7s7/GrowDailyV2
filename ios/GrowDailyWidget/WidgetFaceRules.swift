@@ -544,14 +544,17 @@ struct WidgetThemeColors: Equatable {
     let doneHex: String
 }
 
-/// The default theme's id (ThemePresets.defaultId on the Dart side).
+/// The theme the faces' hand-solved parchment tokens belong to: Emerald &
+/// Gold, which was ThemePresets.defaultId on the Dart side until 2026-09-30.
+/// Doum's is the default since, and its colours come through like any other
+/// theme's.
 let widgetDefaultThemeId = "emerald_gold"
 
-/// The app's theme from the string pushTheme wrote, or nil. nil for the
-/// default theme, for nothing written yet, and for anything malformed: the
-/// faces then keep the hand-solved parchment tokens exactly, so an account
-/// on the default theme sees no change at all, and a phone updated before
-/// the app has run once looks as it always did.
+/// The app's theme from the string pushTheme wrote, or nil. nil for Emerald
+/// & Gold, for nothing written yet, and for anything malformed: the faces
+/// then keep the hand-solved parchment tokens exactly, so an account on
+/// Emerald & Gold sees no change at all, and a phone updated before the app
+/// has run once looks as it always did.
 func parseWidgetTheme(_ raw: String?) -> WidgetThemeColors? {
     guard let parts = raw?.split(separator: "|", omittingEmptySubsequences: false),
           parts.count == 3 else { return nil }

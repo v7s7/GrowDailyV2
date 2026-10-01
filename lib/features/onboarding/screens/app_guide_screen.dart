@@ -263,15 +263,12 @@ void startGuideLesson(
       AppGuideLesson.discoverRooms => NavTab.profile,
       AppGuideLesson.addTask => NavTab.matrix,
     };
-    // Instant, not animated — this screen is about to pop, and HomeShell's
-    // PageView sits directly underneath it, so an animated page-turn here
-    // would run at the same time as the pop transition and look like a
-    // glitchy double-shift instead of one clean motion. See
-    // requestedHomeTabInstantProvider's doc comment.
-    ref.read(requestedHomeTabInstantProvider.notifier).state = true;
-    ref.read(requestedHomeTabProvider.notifier).state = tab;
-    ref.read(activeAppGuideLessonProvider.notifier).state = target;
-    // popUntil(isFirst), NOT a single pop.
+    // popUntil(isFirst), NOT a single pop. And BEFORE the tab is asked
+    // for, below: HomeShell hears the ask at once (Riverpod calls listeners
+    // synchronously) and pushes a tab the bar does not hold, so asking
+    // first had the pop right after close that page again, and a lesson
+    // for Tasks, or since 2026-09-30 Habits, opened nothing once it was out
+    // of the bar.
     //
     // A single pop was correct exactly once: back when this screen was pushed
     // straight from Profile, HomeShell really was the route directly
@@ -285,6 +282,14 @@ void startGuideLesson(
     // has to end on HomeShell no matter how deep the guide is reached from,
     // so it should not depend on knowing how many routes are above it.
     if (popFirst) Navigator.of(context).popUntil((route) => route.isFirst);
+    // Instant, not animated — this screen is popping, and HomeShell's
+    // PageView sits directly underneath it, so an animated page-turn here
+    // would run at the same time as the pop transition and look like a
+    // glitchy double-shift instead of one clean motion. See
+    // requestedHomeTabInstantProvider's doc comment.
+    ref.read(requestedHomeTabInstantProvider.notifier).state = true;
+    ref.read(requestedHomeTabProvider.notifier).state = tab;
+    ref.read(activeAppGuideLessonProvider.notifier).state = target;
   }
 
 IconData _iconFor(AppGuideLesson lesson) => switch (lesson) {

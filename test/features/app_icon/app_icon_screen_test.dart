@@ -73,7 +73,7 @@ void main() {
       await open(tester, locale: const Locale('ar'));
       expect(find.text('أيقونة التطبيق'), findsOneWidget);
       expect(
-        find.textContaining('نبتة · الأصلية', findRichText: true),
+        find.textContaining('نبتة · دوم', findRichText: true),
         findsOneWidget,
       );
       expect(find.text('أيقونتك الحين'), findsOneWidget);
@@ -106,7 +106,7 @@ void main() {
       await h.settle(tester);
       expect(find.text('Use this icon'), findsNothing);
       expect(
-        find.text('Sprout · Original', findRichText: true),
+        find.text('Sprout · Doum', findRichText: true),
         findsOneWidget,
       );
       expect(phone.sets, isEmpty);
@@ -137,7 +137,7 @@ void main() {
       await h.settle(tester);
       expect(find.text('Use this icon'), findsNothing);
       expect(
-        find.text('Sprout · Original', findRichText: true),
+        find.text('Sprout · Doum', findRichText: true),
         findsOneWidget,
       );
     });
@@ -181,7 +181,7 @@ void main() {
       await h.settle(tester);
       expect(
         phone.sets,
-        [const AppIconChoice(PlantShape.bloom, 'emerald_gold')],
+        [const AppIconChoice(PlantShape.bloom, 'doum')],
       );
     });
   });
@@ -239,11 +239,22 @@ void main() {
 
     testWidgets('and can always go back to a free colour', (tester) async {
       await open(tester);
-      await tester.tap(find.text('Original'));
+      await tester.tap(find.text('Doum'));
       await h.settle(tester);
       await tester.tap(find.text('Use this icon'));
       await h.settle(tester);
       expect(phone.sets, [AppIconChoice.shipped]);
+
+      // The gold sprout on emerald, shipped until 2026-09-30, is free too.
+      await tester.tap(find.text('Original'));
+      await h.settle(tester);
+      await tester.tap(find.text('Use this icon'));
+      await h.settle(tester);
+      expect(
+        phone.sets.last,
+        const AppIconChoice(PlantShape.sprout, 'emerald_gold'),
+      );
+      expect(find.byType(PremiumScreen), findsNothing);
     });
   });
 
@@ -313,14 +324,14 @@ void main() {
       await tester.tap(find.text('Seedling'));
       await h.settle(tester);
       expect(
-        find.text('Seedling · Original', findRichText: true),
+        find.text('Seedling · Doum', findRichText: true),
         findsOneWidget,
       );
       await tester.tap(find.text('Use this icon'));
       await h.settle(tester);
       expect(
         phone.sets,
-        [const AppIconChoice(PlantShape.seedling, 'emerald_gold')],
+        [const AppIconChoice(PlantShape.seedling, 'doum')],
       );
     });
   });
@@ -328,7 +339,8 @@ void main() {
   group('After Ramadan, the phone still showing it', () {
     setUp(() => prepare(showing: AppIconChoice.ramadan));
 
-    testWidgets('it is kept, and a shape replaces it in the original colours',
+    testWidgets("it is kept, and a shape replaces it in the shipped icon's "
+        'colours',
         (tester) async {
       await open(tester);
       expect(find.text('Your icon now'), findsOneWidget);
@@ -340,7 +352,7 @@ void main() {
       await h.settle(tester);
       expect(
         phone.sets,
-        [const AppIconChoice(PlantShape.seedling, 'emerald_gold')],
+        [const AppIconChoice(PlantShape.seedling, 'doum')],
       );
     });
   });

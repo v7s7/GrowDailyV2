@@ -2,7 +2,9 @@
 // mascot's own colours, "use the hex". The body green 0xFF74C878 and the
 // cream 0xFFF5F0E1 come from design/mascot/README.md; these checks keep them
 // exact, keep the icon free with its theme, and keep both modes at least as
-// readable as the default theme the neutrals were derived from.
+// readable as Emerald & Gold, the original theme the neutrals were derived
+// from. Doum is the default itself since 2026-09-30, so the reference is
+// named, not read off defaultId.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,16 +17,24 @@ const _cream = Color(0xFFF5F0E1);
 
 void main() {
   final doum = ThemePresets.byId('doum');
-  final base = ThemePresets.byId(ThemePresets.defaultId);
+  final base = ThemePresets.byId('emerald_gold');
 
-  test('a free theme, named after the mascot, right after the original', () {
-    expect(doum.id, 'doum', reason: 'byId fell back to the default');
+  test('a free theme, named after the mascot, the default and listed first',
+      () {
+    expect(doum.id, 'doum');
     expect(doum.isPremium, isFalse);
     expect(doum.nameAr, 'دوم');
     expect(doum.nameEn, 'Doum');
+    // Aziz, 2026-09-30: Doum's look is the main one, beside its icon.
+    expect(ThemePresets.defaultId, 'doum');
+    expect(
+      ThemePresets.byId(null).id,
+      'doum',
+      reason: 'someone who never picked a look opens on Doum',
+    );
     expect(
       ThemePresets.free.map((p) => p.id),
-      ['emerald_gold', 'doum', 'baby_pink'],
+      ['doum', 'emerald_gold', 'baby_pink'],
     );
     expect(ThemePresets.isKnown('doum'), isTrue);
   });

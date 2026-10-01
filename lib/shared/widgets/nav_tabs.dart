@@ -86,12 +86,14 @@ extension NavTabUi on NavTab {
   /// The page HomeShell mounts for this tab, and the screen it pushes when
   /// a tab that is NOT in the bar is requested (see HomeShell.openTab).
   ///
-  /// Every one of these is a screen that was already pushed as a route
-  /// somewhere in the app, so each carries its own Scaffold and AppBar.
-  /// Inside the shell, which is the root route, AppBar's implied back
-  /// button simply does not appear (nothing to pop), and none of them pop
-  /// themselves after an action: that was checked screen by screen before
-  /// each was allowed in this list, and it is the bar for adding another.
+  /// Every one of these but Habits and Tasks is a screen that was already
+  /// pushed as a route somewhere in the app, so each carries its own
+  /// Scaffold and AppBar. Inside the shell, which is the root route, AppBar's
+  /// implied back button simply does not appear (nothing to pop), and none
+  /// of them pop themselves after an action: that was checked screen by
+  /// screen before each was allowed in this list, and it is the bar for
+  /// adding another. Habits and Tasks draw their own headers with no AppBar;
+  /// pushed, HomeShell gives them one (_PushedTabPage).
   Widget page() => switch (this) {
         NavTab.grid => const GridScreen(),
         NavTab.profile => const ProfileScreen(),

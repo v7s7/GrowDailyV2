@@ -21,6 +21,9 @@ import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart';
 import '../../../core/providers/home_tab_provider.dart'
     show kSettingsPagePrayerLocation, requestedSettingsPageProvider;
+import '../../../core/providers/nav_layout_provider.dart'
+    show NavTab, navLayoutProvider, resolveStartTab;
+import '../../../core/providers/start_page_provider.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/theme/theme_preset.dart';
@@ -56,6 +59,7 @@ import '../../../features/settings/notifiers/notification_settings_notifier.dart
     show notificationSettingsProvider;
 import '../../../features/settings/widgets/notification_summary.dart';
 import '../../../shared/widgets/coach_mark_overlay.dart';
+import '../../../shared/widgets/nav_tabs.dart' show NavTabUi;
 import '../../milestones/reports/record_lifetime.dart';
 import '../../milestones/reports/record_screen.dart';
 import '../../milestones/reports/record_views.dart'

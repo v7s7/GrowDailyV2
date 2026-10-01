@@ -527,6 +527,143 @@ class _FontTile extends StatelessWidget {
 
 
 
+/// Settings › Look › «أول صفحة»: Habits or Tasks, the page the app opens
+/// on (startPageProvider). Same card as [_FontSheet]; a tap picks and
+/// closes, since there is nothing else on the sheet to do.
+void _showStartPageSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    useSafeArea: true,
+    builder: (ctx) => const _StartPageSheet(),
+  );
+}
+
+class _StartPageSheet extends ConsumerWidget {
+  const _StartPageSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gp = context.gp;
+    final s = S.of(context);
+    final selected = ref.watch(startPageProvider);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: 24 + MediaQuery.of(context).padding.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+        decoration: BoxDecoration(
+          color: gp.surfaceHigh,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: gp.border,
+                  borderRadius: BorderRadius.circular(GameSpacing.pillRadius),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              s.startPageSheetTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: gp.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 18),
+            for (final tab in const [NavTab.grid, NavTab.matrix])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _StartPageTile(
+                  tab: tab,
+                  selected: tab == selected,
+                  onTap: () {
+                    if (tab != selected) {
+                      HapticFeedback.selectionClick();
+                      ref.read(startPageProvider.notifier).set(tab);
+                    }
+                    Navigator.pop(context);
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One choice on [_StartPageSheet]: the tab's own bar icon and name, in
+/// the [_FontTile] frame (gold edge and check when picked).
+class _StartPageTile extends StatelessWidget {
+  final NavTab tab;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _StartPageTile({
+    required this.tab,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: selected ? GameColors.gold.withOpacity(0.08) : gp.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? GameColors.gold.withOpacity(0.5) : gp.border,
+              width: selected ? 1.2 : 0.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(tab.icon, size: 22, color: gp.textSec),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  tab.label(S.of(context)),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: gp.textPrimary,
+                  ),
+                ),
+              ),
+              if (selected)
+                Icon(Icons.check_circle_rounded,
+                    size: 18, color: context.gp.goldInk),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Opens the paywall knowing the user came from a colour, so it leads with
 /// the colour benefit instead of habit limits.
 void _openPremiumForAppearance(BuildContext context) {

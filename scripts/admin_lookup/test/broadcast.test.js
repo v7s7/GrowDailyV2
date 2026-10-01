@@ -704,6 +704,114 @@ test('shapePopup refuses anything without an id', () => {
   assert.strictEqual(Broadcast.shapePopup({ id: 'p_1' }).active, true, 'no dates means no window to be outside of');
 });
 
+// ---- The update prompt ------------------------------------------------------------------
+
+const ZEROS = { ios: { latest: 0, min: 0 }, android: { latest: 0, min: 0 } };
+
+test('the update numbers are whole build numbers, and a minimum never passes its newest build', () => {
+  const ok = Broadcast.checkUpdateGate({ ios: { latest: '90', min: '' }, android: { latest: 88, min: 80 } });
+  assert.strictEqual(ok.ok, true);
+  assert.deepStrictEqual(ok.gate, { ios: { latest: 90, min: 0 }, android: { latest: 88, min: 80 } });
+
+  // Nothing typed is 0, which is off, not a mistake.
+  assert.deepStrictEqual(Broadcast.checkUpdateGate({}).gate, ZEROS);
+  assert.strictEqual(Broadcast.checkUpdateGate(null).ok, true);
+
+  const bad = Broadcast.checkUpdateGate({ ios: { latest: 84, min: 90 }, android: { latest: 1.5, min: 'x' } });
+  assert.strictEqual(bad.ok, false);
+  assert.ok(bad.errors.some((e) => e.startsWith('iPhone') && /cannot be above the newest/.test(e)),
+      'nobody is sent to a build that is not out');
+  assert.ok(bad.errors.some((e) => e.startsWith('Android') && /newest build/.test(e)));
+  assert.ok(bad.errors.some((e) => e.startsWith('Android') && /oldest build allowed/.test(e)));
+
+  for (const v of [-1, Broadcast.MAX_BUILD + 1, '12a', '1e3', NaN, Infinity, {}, [1]]) {
+    assert.strictEqual(Broadcast.checkUpdateGate({ ios: { latest: v } }).ok, false, String(v));
+  }
+  assert.strictEqual(
+      Broadcast.checkUpdateGate({ ios: { latest: Broadcast.MAX_BUILD, min: Broadcast.MAX_BUILD } }).ok, true);
+});
+
+test('saving the update writes only its slot: the pop-ups are carried over exactly, the version moves', async () => {
+  const db = fakeDb();
+  const ends = new Date(NOON_BAHRAIN + 86400000);
+  db.docs.set('broadcast/live', {
+    everyone: { id: 'p_1', titleAr: 'عنوان', bodyAr: 'نص', endsAt: ends },
+    test: null,
+    version: 4,
+  });
+  const r = await Broadcast.publishUpdateGate(db, FieldValue, {
+    gate: { ios: { latest: 90, min: 0 }, android: { latest: 88, min: 80 } },
+    nowMs: NOON_BAHRAIN,
+  });
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(r.off, false);
+  const live = db.docs.get('broadcast/live');
+  assert.strictEqual(live.version, 5);
+  assert.strictEqual(live.everyone.id, 'p_1');
+  assert.strictEqual(live.everyone.endsAt.getTime(), ends.getTime(), 'the pop-up is untouched');
+  assert.deepStrictEqual(live.update.ios, { latest: 90, min: 0 });
+  assert.deepStrictEqual(live.update.android, { latest: 88, min: 80 });
+  assert.strictEqual(live.update.setAt.getTime(), NOON_BAHRAIN);
+});
+
+test('all zeros turns the update prompt off, and the pop-ups stay', async () => {
+  const db = fakeDb();
+  await Broadcast.publishPopup(db, FieldValue, { message: MESSAGE, audience: 'everyone', nowMs: NOON_BAHRAIN });
+  await Broadcast.publishUpdateGate(db, FieldValue, {
+    gate: { ios: { latest: 90, min: 0 }, android: { latest: 0, min: 0 } }, nowMs: NOON_BAHRAIN + 1000,
+  });
+  const off = await Broadcast.publishUpdateGate(db, FieldValue, { gate: ZEROS, nowMs: NOON_BAHRAIN + 2000 });
+  assert.strictEqual(off.off, true);
+  const live = db.docs.get('broadcast/live');
+  assert.strictEqual(live.update, null, 'emptied, not stored as zeros');
+  assert.ok(live.everyone && live.everyone.id);
+});
+
+test('a refused update changes nothing', async () => {
+  const db = fakeDb();
+  await Broadcast.publishUpdateGate(db, FieldValue, {
+    gate: { ios: { latest: 90, min: 0 }, android: { latest: 0, min: 0 } }, nowMs: NOON_BAHRAIN,
+  });
+  const before = JSON.stringify(db.docs.get('broadcast/live'));
+  await assert.rejects(
+      Broadcast.publishUpdateGate(db, FieldValue, { gate: { ios: { latest: 84, min: 90 } } }),
+      (e) => e instanceof Broadcast.BroadcastInputError && e.status === 400 && /cannot be above/.test(e.message));
+  assert.strictEqual(JSON.stringify(db.docs.get('broadcast/live')), before);
+});
+
+test('a pop-up sent or stopped carries the update slot through: the next message never wipes it', async () => {
+  const db = fakeDb();
+  await Broadcast.publishUpdateGate(db, FieldValue, {
+    gate: { ios: { latest: 90, min: 85 }, android: { latest: 0, min: 0 } }, nowMs: NOON_BAHRAIN,
+  });
+  const set = JSON.stringify(db.docs.get('broadcast/live').update);
+  assert.ok(set.includes('"min":85'));
+
+  await Broadcast.publishPopup(db, FieldValue, { message: MESSAGE, audience: 'everyone', nowMs: NOON_BAHRAIN + 1000 });
+  assert.strictEqual(JSON.stringify(db.docs.get('broadcast/live').update), set, 'sending a message');
+  await Broadcast.publishPopup(db, FieldValue, {
+    message: MESSAGE, audience: 'test', testers: [uid(1)], nowMs: NOON_BAHRAIN + 2000,
+  });
+  assert.strictEqual(JSON.stringify(db.docs.get('broadcast/live').update), set, 'sending a test');
+  await Broadcast.stopPopup(db, FieldValue, { slot: 'everyone', nowMs: NOON_BAHRAIN + 3000 });
+  assert.strictEqual(JSON.stringify(db.docs.get('broadcast/live').update), set, 'stopping one');
+});
+
+test('readMessages always gives the four numbers, from whatever is stored', async () => {
+  const db = fakeDb();
+  let r = await Broadcast.readMessages(db, NOON_BAHRAIN);
+  assert.deepStrictEqual(r.live.update, { ...ZEROS, setAt: null });
+
+  db.docs.set('broadcast/live', {
+    update: { ios: { latest: 90, min: 'soon' }, android: 'nope', setAt: new Date(NOON_BAHRAIN) },
+    version: 1,
+  });
+  r = await Broadcast.readMessages(db, NOON_BAHRAIN);
+  assert.deepStrictEqual(r.live.update.ios, { latest: 90, min: 0 }, 'a bad number costs itself');
+  assert.deepStrictEqual(r.live.update.android, { latest: 0, min: 0 });
+  assert.strictEqual(r.live.update.setAt, new Date(NOON_BAHRAIN).toISOString());
+});
+
 // ---- The page ----------------------------------------------------------------------
 
 test('the page renders with its scripts, its icons parse, and every script is valid JavaScript', () => {
@@ -711,6 +819,9 @@ test('the page renders with its scripts, its icons parse, and every script is va
   assert.ok(html.includes('<script src="/messages/app.js"></script>'));
   assert.ok(html.includes('<script src="/wording/rules.js"></script>'));
   assert.ok(html.includes('href="/messages"'), 'the sidebar links here');
+  for (const id of ['updateIosLatest', 'updateIosMin', 'updateAndroidLatest', 'updateAndroidMin', 'updateSave', 'updateChecks', 'updateStatus']) {
+    assert.ok(html.includes(`id="${id}"`), `the update card has #${id}`);
+  }
   const icons = /<script type="application\/json" id="msgIcons">([\s\S]*?)<\/script>/.exec(html);
   assert.ok(icons, 'icon block present');
   const parsed = JSON.parse(icons[1]);

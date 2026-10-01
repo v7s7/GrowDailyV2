@@ -236,8 +236,12 @@ class _HeroHeader extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
+                // Arabic keeps the Latin "XP" out of the label: leading an
+                // RTL line it painted as «19 للمستوى XP», Aziz 2026-09-30
+                // ("arrange it well"). The unit rides with the numbers
+                // instead, inside their own left-to-right run.
                 S.of(context).isAr
-                    ? 'XP للمستوى ${state.level + 1}'
+                    ? 'للمستوى ${state.level + 1}'
                     : 'XP to Level ${state.level + 1}',
                 style: TextStyle(
                     fontSize: 12,
@@ -248,9 +252,16 @@ class _HeroHeader extends ConsumerWidget {
                 // Same rule as the stats row: "0 / 100" on a level 12
                 // account is a claim, and the wrong one. See
                 // DashboardState.statsAreReal.
-                state.statsAreReal
-                    ? progressFraction(state.currentLevelXp, state.xpToNext)
-                    : _kStatPlaceholder,
+                !state.statsAreReal
+                    ? _kStatPlaceholder
+                    : S.of(context).isAr
+                        ? bidiIsolate(
+                            '${state.currentLevelXp} / ${state.xpToNext} XP',
+                          )
+                        : progressFraction(
+                            state.currentLevelXp,
+                            state.xpToNext,
+                          ),
                 style: TextStyle(
                     fontSize: 12,
                     color: gp.textPrimary,

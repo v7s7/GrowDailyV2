@@ -14,6 +14,8 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../core/constants/game_constants.dart';
 import '../../core/l10n/app_strings.dart';
+import '../../core/providers/day_clock_provider.dart'
+    show dayClockSourceProvider;
 import '../../core/services/local_store_service.dart';
 import '../../core/theme/game_theme.dart';
 import '../../core/utils/reduced_motion.dart';
@@ -193,7 +195,7 @@ class SproutLedge extends ConsumerStatefulWidget {
     required this.live,
     this.todayFromStart,
     this.drawLine = false,
-    this.clock = DateTime.now,
+    this.clock,
     this.stage,
     this.namesFromStart,
   });
@@ -215,8 +217,10 @@ class SproutLedge extends ConsumerStatefulWidget {
   /// something to stand behind.
   final bool drawLine;
 
-  /// The wall clock; replaced in tests.
-  final DateTime Function() clock;
+  /// The wall clock; replaced in tests. Without one, the app's
+  /// dayClockSourceProvider (DateTime.now in the app), so a test that pins
+  /// that provider pins the hour his mood is read at too.
+  final DateTime Function()? clock;
 
   /// Where Doum is, shared with [SproutBottomPeek] at the foot of the
   /// screen. With one, this ledge watches where its line is on screen and
@@ -240,6 +244,10 @@ enum _Axis { slide, pull }
 
 class _SproutLedgeState extends ConsumerState<SproutLedge>
     with TickerProviderStateMixin {
+  /// [SproutLedge.clock], else the app's day clock source.
+  DateTime Function() get _clock =>
+      widget.clock ?? ref.read(dayClockSourceProvider);
+
   /// The sprout's centre, from the lane's LEFT edge (physical, so the maths
   /// is one maths in both directions; only the saved spot is directional).
   late final AnimationController _x = AnimationController.unbounded(
@@ -293,11 +301,59 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   /// Where Doum was when this ledge last looked: at the foot of the screen.
   bool _atBottom = false;
 
-  /// He has ducked all the way out of sight up here while he is down there:
-  /// this body is then not painted at all (Offstage), so nothing of it can
-  /// show over the board's edge, whatever pose his mood gives him.
+  /// He is all the way out of sight up here (the hand-off has him at the
+  /// foot, or on his way there past the middle): this body is then not
+  /// painted at all (Offstage), so nothing of it can show over the board's
+  /// edge, whatever pose his mood gives him.
   bool _tucked = false;
+
+  /// Reduce Motion, back from the foot: kept out of sight here until the
+  /// foot's fade has taken him away there.
+  bool _calmTucked = false;
   Timer? _climbBack;
+
+  // ── The hand-off (see "The page carries him" in sprout_bottom.dart) ──────
+
+  /// Moves [SproutStage.handoff] with the page, a frame at a time, while the
+  /// page moves or he is on his way; stopped otherwise, so a still Grid
+  /// draws nothing.
+  late final Ticker _follower;
+  Duration? _lastTick;
+
+  /// The hand-off's speed (units a second), where the page's rate limit has
+  /// got its aim to ([_goal]), and how far the page's own map of it is off
+  /// from where he is since he last finished a way ([_bias], worn off by
+  /// the page moving). [_lastBand] is where the page had him last, [_side]
+  /// the end he last finished at or was sent to (0 or 2).
+  double _handoffSpeed = 0;
+  double _goal = 0;
+  double _bias = 0;
+  double? _lastBand;
+  double _side = 0;
+
+  /// The page moved since the last frame of the hand-off, and how long ago
+  /// it last did: a page moved with no scroll behind it (a mouse wheel, a
+  /// jump) counts as moving for [_kMovedFor], so he follows it as he does a
+  /// finger, then finishes his way.
+  bool _pixelsMoved = false;
+  double _sinceMoved = 1;
+
+  /// Where this ledge's line is in the page's content (the line on screen
+  /// is this less the pixels scrolled), from the last frame's layout.
+  double? _lineInPage;
+
+  /// Whether the foot of the screen is his, as of the last frame.
+  bool _hasSpot = false;
+
+  /// He woke up while the edge was out of sight: what he says for it goes
+  /// down with him on his way to the foot.
+  bool _keepSpeechOnWay = false;
+
+  /// How fast the page moves (pt/s), and the fingers on the screen: the end
+  /// of a glide is his to make way in (SproutStage.settling).
+  double _pageSpeed = 0;
+  double? _lastPixels;
+  final Set<int> _fingers = <int>{};
 
   static final _glide = SpringDescription.withDampingRatio(
     mass: 1,
@@ -320,16 +376,16 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
       duration: const Duration(milliseconds: 320),
     );
     if (!shown) _sink.value = _kMaxSink;
+    _follower = createTicker(_follow);
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_onPointer);
     _speech.addListener(_pickBubbleSide);
     final stage = widget.stage;
     if (stage != null) {
       stage.claim(this);
       stage.addListener(_onStage);
       _atBottom = stage.atBottom;
-      if (_atBottom) {
-        _sink.value = _kMaxSink;
-        _tucked = true;
-      }
+      _tucked = stage.handoff.value >= 1;
+      _goal = stage.handoff.value;
       // After every frame the app draws: a scroll, a card above folding
       // away, the lane opening, the split board's line coming, all redraw,
       // and nothing has moved the line without one. Still screens cost
@@ -351,8 +407,10 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
         : Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
     if (!identical(position, _position)) {
       _position?.isScrollingNotifier.removeListener(_mirrorScrolling);
+      _position?.removeListener(_onPixels);
       _position = position;
       _position?.isScrollingNotifier.addListener(_mirrorScrolling);
+      _position?.addListener(_onPixels);
       _mirrorScrolling();
     }
   }
@@ -368,12 +426,33 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
       stage.scrolling.value = _position?.isScrollingNotifier.value ?? false;
     }
 
+    _wake();
     final scheduler = SchedulerBinding.instance;
     if (scheduler.schedulerPhase == SchedulerPhase.persistentCallbacks) {
       scheduler.addPostFrameCallback((_) => mirror());
       return;
     }
     mirror();
+  }
+
+  /// The page moved. A move with no scroll behind it (a jump to a place) is
+  /// a move and a stop at once, as far as the foot is concerned.
+  void _onPixels() {
+    final stage = widget.stage;
+    if (stage == null || !mounted) return;
+    _pixelsMoved = true;
+    if (!(_position?.isScrollingNotifier.value ?? false)) stage.jumps.value++;
+    _wake();
+  }
+
+  /// Every finger on the screen, wherever it is: one on the page means the
+  /// page is held, not gliding on its own.
+  void _onPointer(PointerEvent event) {
+    if (event is PointerDownEvent) {
+      _fingers.add(event.pointer);
+    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      _fingers.remove(event.pointer);
+    }
   }
 
   @override
@@ -396,7 +475,10 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   void dispose() {
     _speech.removeListener(_pickBubbleSide);
     _position?.isScrollingNotifier.removeListener(_mirrorScrolling);
+    _position?.removeListener(_onPixels);
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_onPointer);
     FrameWatch.remove(_check);
+    _follower.dispose();
     _climbBack?.cancel();
     widget.stage?.removeListener(_onStage);
     widget.stage?.release(this);
@@ -410,49 +492,105 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
 
   // ── Following the page down ─────────────────────────────────────────────
 
-  /// Where this ledge's line (the board's top edge) is, from the top of the
-  /// Grid's scroll view, where the page's pixels say it is: the offset that
-  /// would bring the lane to the top, less the pixels scrolled. A bounce
-  /// past either end is not a scroll anyone meant, so it is not counted.
-  double? _lineOnScreen() {
+  /// Where this ledge's line (the board's top edge) sits in the page's
+  /// content: the offset that would bring the lane to the top, plus the
+  /// lane. Taken from the last frame's layout; the line on screen is this
+  /// less the pixels scrolled (see [_lineNow]).
+  double? _lineInPageNow() {
     final position = _position;
     final box = context.findRenderObject();
-    if (position == null ||
-        box is! RenderBox ||
-        !box.attached ||
-        !box.hasSize ||
-        !position.hasPixels ||
-        !position.hasContentDimensions) {
+    if (position == null || box is! RenderBox || !box.attached || !box.hasSize) {
       return null;
     }
     final viewport = RenderAbstractViewport.maybeOf(box);
     if (viewport == null) return null;
     final reveal = viewport.getOffsetToReveal(box, 0.0).offset;
+    // On a split board the lane draws its own line 6pt above its foot.
+    final below = widget.drawLine ? 6.0 : 0.0;
+    return reveal + box.size.height - below;
+  }
+
+  /// Where the line is, from the top of the Grid's scroll view, where the
+  /// page's pixels say it is now. A bounce past either end is not a scroll
+  /// anyone meant, so it is not counted.
+  double? _lineNow() {
+    final inPage = _lineInPage;
+    final position = _position;
+    if (inPage == null ||
+        position == null ||
+        !position.hasPixels ||
+        !position.hasContentDimensions) {
+      return null;
+    }
     final pixels = position.pixels
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
-    // On a split board the lane draws its own line 6pt above its foot.
-    final below = widget.drawLine ? 6.0 : 0.0;
-    return reveal - pixels + box.size.height - below;
+    return inPage - pixels;
   }
 
-  /// Sends Doum to the foot of the screen when the line nears the top, and
-  /// back when it is well in view again (see _kLeaveAt, _kComeBackAt). He
-  /// stays up here while he is held or asked about, while the lane is
-  /// opening or closing, when the board has no fixed place for the names,
-  /// while the spot down there is someone else's, and while he is asleep:
-  /// he sleeps on his edge, not at the foot of the page.
+  /// Where the page puts him for a line this far down: 0 on the edge, 1
+  /// behind the board, 2 all the way up at the foot; past either end, more.
+  static double _band(double line) =>
+      (_kComeBackAt - line) / (_kComeBackAt - _kLeaveAt);
+
+  bool get _pageScrolling => _position?.isScrollingNotifier.value ?? false;
+
+  /// Whether the page counts as moving: scrolled, or moved some other way
+  /// within the last [_kMovedFor].
+  bool get _pageMoving =>
+      _pageScrolling || _pixelsMoved || _sinceMoved < _kMovedFor;
+
+  /// Where the hand-off is headed with the page's line at [band]. While the
+  /// page moves, where the page has him ([follow]), taken with [bias]: how
+  /// far off the page's map he was left the last time he finished a way,
+  /// worn off as the page moves, so the next scroll takes him on from where
+  /// he is, never with a jump. Once it stops, the page decides the end
+  /// ([target] 0 or 2) from where its line is, not from where he is: the
+  /// nearer side, with [_kStayBy] of margin toward the side he was last at,
+  /// so a nudge never flips him and short scrolls add up. No spot at the
+  /// foot: the edge, whatever the page.
+  ({double bias, double target, bool follow}) _aim(double band) {
+    if (!_hasSpot) return (bias: 0.0, target: 0.0, follow: false);
+    final map = band.clamp(0.0, 2.0).toDouble();
+    final moved = (band - (_lastBand ?? band)).abs();
+    final bias = _bias > 0
+        ? math.max(0.0, _bias - moved)
+        : math.min(0.0, _bias + moved);
+    final want = (map + bias).clamp(0.0, 2.0).toDouble();
+    final double end;
+    if (_side > 1) {
+      end = map < 1 - _kStayBy ? 0 : 2;
+    } else {
+      end = map > 1 + _kStayBy ? 2 : 0;
+    }
+    // A move with no scroll behind it is followed only where it has him
+    // part-way: one that leaves him where he is has nothing to follow.
+    if (_pageScrolling || (_pageMoving && want != end)) {
+      return (bias: bias, target: want, follow: true);
+    }
+    return (bias: end - map, target: end, follow: false);
+  }
+
+  /// Looks after every drawn frame: where the line is in the page, and
+  /// whether the foot of the screen is his (he stays up here while he is
+  /// held or asked about, while the lane is opening or closing, when the
+  /// board has no fixed place for the names, while the spot down there is
+  /// someone else's, and while he is asleep: he sleeps on his edge, not at
+  /// the foot of the page). Then wakes the follower if he has anywhere to
+  /// go. The first look a board takes, and the keyboard's coming and going,
+  /// are not seen: he is simply put where the page has him.
   void _check() {
     final stage = widget.stage;
     if (stage == null || !mounted || _held.value || _asking) return;
-    final line = _lineOnScreen();
+    _lineInPage = _lineInPageNow();
+    final line = _lineNow();
     if (line == null) return;
     final block = stage.block.value;
     final asleep = dayCardMoodFor(
           greens: widget.greens,
           owed: widget.owed,
           perfectDay: widget.perfectDay,
-          hour: widget.clock().hour,
+          hour: _clock().hour,
         ).pose ==
         SproutPose.sleeping;
     // Falling asleep while he waits down there (the day made perfect after
@@ -461,22 +599,12 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
     // leaving mid-sentence with the line lost.
     final sleepyButTalking =
         asleep && stage.atBottom && stage.speech.value != null;
-    final hasSpot = ref.read(gridSproutShownProvider) &&
+    _hasSpot = ref.read(gridSproutShownProvider) &&
         _open.value >= 1 &&
         _width > 0 &&
         block == SproutSpotBlock.none &&
         (!asleep || sleepyButTalking) &&
         (widget.namesFromStart?.call(_width, rtl: _rtl) != null);
-    final bool down;
-    if (!hasSpot) {
-      down = false;
-    } else if (stage.atBottom) {
-      down = line <= _kComeBackAt;
-    } else {
-      down = line < _kLeaveAt;
-    }
-    // Not seen: the first call a board makes, and the keyboard's coming and
-    // going (a sheet is over the page).
     final quiet = !_decided ||
         block == SproutSpotBlock.quietly ||
         _lastBlock == SproutSpotBlock.quietly;
@@ -486,12 +614,165 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
     _decided = true;
     _lastBlock = block;
     _wasAsleep = asleep;
-    stage.moveTo(bottom: down, animate: !quiet, keepSpeech: woke);
+    final band = _band(line);
+    if (quiet) {
+      _stopFollowing();
+      _keepSpeechOnWay = woke;
+      final end = _hasSpot && band > 1 ? 2.0 : 0.0;
+      _bias = _hasSpot ? end - band.clamp(0.0, 2.0) : 0;
+      _lastBand = band;
+      _side = end;
+      _goal = end;
+      _handoffSpeed = 0;
+      _setHandoff(end, animate: false);
+      _keepSpeechOnWay = false;
+      return;
+    }
+    final aim = _aim(band);
+    // Only if it takes him down there; a line said up here stays here.
+    if (woke) _keepSpeechOnWay = aim.target > 1;
+    // Anything to do: the page moved, or he is not where it has him. A
+    // finger holding the page still with him in place is nothing to do.
+    if (_pixelsMoved ||
+        _handoffSpeed != 0 ||
+        (aim.target - stage.handoff.value).abs() > 1e-6 ||
+        (aim.target - _goal).abs() > 1e-6) {
+      _wake();
+    }
   }
 
-  /// The stage moved him (this ledge decided, or its board went away): duck
-  /// out of sight here, or climb back up a moment after the foot of the
-  /// screen has started its own duck.
+  void _wake() {
+    if (widget.stage == null || !mounted || _follower.isActive) return;
+    _lastTick = null;
+    _lastPixels = null;
+    _follower.start();
+  }
+
+  void _stopFollowing() {
+    if (_follower.isActive) _follower.stop();
+    _lastTick = null;
+    _lastPixels = null;
+    _pageSpeed = 0;
+    _sinceMoved = _kMovedFor;
+    _keepSpeechOnWay = false;
+    widget.stage?.settling.value = false;
+  }
+
+  /// A frame of the hand-off: toward where the page has him on a light
+  /// spring while it moves, then to the end the page decides on a softer
+  /// one, never faster than [_kMostHandoffPerSecond]; under Reduce Motion
+  /// from one end to the other at once. Stops once he is there and the page
+  /// is still, or held still under a finger (a move wakes it again).
+  void _follow(Duration elapsed) {
+    final stage = widget.stage;
+    final position = _position;
+    if (stage == null || !mounted || position == null || !position.hasPixels) {
+      _stopFollowing();
+      return;
+    }
+    final last = _lastTick;
+    _lastTick = elapsed;
+    final dt = last == null
+        ? 0.0
+        : ((elapsed - last).inMicroseconds / 1e6).clamp(0.0, 0.05).toDouble();
+    final scrolling = _pageScrolling;
+    // The page's own speed, for the foot: the slow end of a glide with no
+    // finger on the page is his to make way in.
+    final pixels = position.pixels;
+    final lastPixels = _lastPixels;
+    if (dt > 0 && lastPixels != null) {
+      _pageSpeed = _pageSpeed * 0.6 + (pixels - lastPixels) / dt * 0.4;
+    }
+    _lastPixels = pixels;
+    final pageStill = lastPixels != null && pixels == lastPixels;
+    if (_pixelsMoved) {
+      _pixelsMoved = false;
+      _sinceMoved = 0;
+    } else {
+      _sinceMoved += dt;
+    }
+    stage.settling.value = scrolling &&
+        _fingers.isEmpty &&
+        _pageSpeed.abs() < _kSettlingSpeed;
+    final line = _lineNow();
+    if (_held.value || _asking || line == null) {
+      _stopFollowing();
+      return;
+    }
+    final band = _band(line);
+    final aim = _aim(band);
+    _lastBand = band;
+    _bias = aim.bias;
+    if (!aim.follow) _side = aim.target;
+    var h = stage.handoff.value;
+    if (_reduced) {
+      // No travel: at once to one end or the other, and back only once the
+      // page is well on its way back, so a finger trembling at the middle
+      // does not flicker him between the two.
+      final t = aim.target;
+      if (aim.follow) {
+        h = h >= 1 ? (t < 0.5 ? 0 : 2) : (t > 1 ? 2 : 0);
+      } else {
+        h = t;
+      }
+      _goal = h;
+      _handoffSpeed = 0;
+    } else {
+      final most = _kMostHandoffPerSecond * dt;
+      _goal += (aim.target - _goal).clamp(-most, most);
+      final w = aim.follow ? _kFollowW : _kFinishW;
+      var v = _handoffSpeed;
+      if (dt > 0) {
+        // Critically damped, in 2ms steps.
+        final steps = math.max(1, (dt / 0.002).ceil());
+        final step = dt / steps;
+        for (var i = 0; i < steps; i++) {
+          v += (w * w * (_goal - h) - 2 * w * v) * step;
+          h += v * step;
+        }
+      }
+      // There: set exactly on it (a spring stops within a hair of it). A
+      // follow that has caught up counts only once the page stands still
+      // under the finger.
+      if ((!aim.follow || pageStill) &&
+          _goal == aim.target &&
+          (h - aim.target).abs() < 5e-4 &&
+          v.abs() < 5e-3) {
+        h = aim.target;
+        v = 0;
+      }
+      _handoffSpeed = v;
+      h = h.clamp(0.0, 2.0).toDouble();
+    }
+    _setHandoff(h, animate: true);
+    if (_handoffSpeed != 0 || h != aim.target) return;
+    // At rest and there; or a finger holding the page still with him where
+    // it has him (the next move of the page wakes this again).
+    if (!aim.follow || (scrolling && pageStill && !_pixelsMoved)) {
+      _stopFollowing();
+    }
+  }
+
+  /// Moves him to [h] on the stage: out of sight up here from 1 on, and
+  /// the stage's move (his words, his taps, his screen-reader node) as he
+  /// crosses 1, where neither body shows.
+  void _setHandoff(double h, {required bool animate}) {
+    final stage = widget.stage;
+    if (stage == null) return;
+    stage.handoff.value = h;
+    _tuck(h >= 1 || _calmTucked);
+    final bottom = h > 1;
+    if (bottom == stage.atBottom) return;
+    final keep = bottom && _keepSpeechOnWay;
+    _keepSpeechOnWay = false;
+    stage.moveTo(bottom: bottom, animate: animate, keepSpeech: keep);
+  }
+
+  /// The stage moved him (the hand-off crossed the middle, or his board
+  /// went away): this body stops or starts making his moves and taking his
+  /// taps. The hand-off itself has him out of sight here from the middle
+  /// on; under Reduce Motion, with no travel, he shows up here once the
+  /// foot's fade has taken him away there, never both at once.
   void _onStage() {
     final stage = widget.stage;
     if (stage == null || stage.atBottom == _atBottom) return;
@@ -500,59 +781,30 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
     setState(() => _atBottom = stage.atBottom);
     _climbBack?.cancel();
     _reduced = prefersReducedMotion(context);
-    final shown = ref.read(gridSproutShownProvider);
-    if (_atBottom) {
-      // A glide along the line is left to finish out of sight: stopped here,
-      // he would come back short of the spot the glide just saved.
-      if (!stage.animate || _reduced) {
-        _sink.stop();
-        _sink.value = _kMaxSink;
-        _tuck(true);
-      } else {
-        _sink
-            .animateTo(_kMaxSink, duration: _kDuck, curve: Curves.easeIn)
-            .then((_) {
-          if (mounted && _atBottom) _tuck(true);
-        });
-      }
-      return;
-    }
-    if (!shown) {
-      _tuck(false);
-      return;
-    }
-    if (_reduced && stage.animate) {
-      // No travel: he appears up here once the foot's fade has taken him
-      // away there, never both at once.
-      _climbBack = Timer(_kCalmFade, () {
-        if (!mounted || _atBottom) return;
-        _tuck(false);
-        _sink.stop();
-        _sink.value = 0;
-      });
-      return;
-    }
-    _tuck(false);
-    if (!stage.animate) {
-      _sink.stop();
-      _sink.value = 0;
-      return;
-    }
-    // Turned back mid-duck, still partly in view: straight back up from
-    // where he is, with the speed he had, no pause.
-    if (_sink.value < _kMaxSink - 0.5) {
-      final velocity = _sink.velocity;
-      _sink.stop();
-      _settle(_sink, _bounce, 0, velocity);
-      return;
-    }
-    _climbBack = Timer(_kHandoffGap, () {
-      if (mounted && !_atBottom) _settleSink(0);
+    final calm = !_atBottom &&
+        stage.animate &&
+        _reduced &&
+        ref.read(gridSproutShownProvider);
+    _calmTucked = calm;
+    _tuck(stage.handoff.value >= 1 || calm);
+    if (!calm) return;
+    _climbBack = Timer(_kCalmFade, () {
+      if (!mounted || _atBottom) return;
+      _calmTucked = false;
+      _tuck((widget.stage?.handoff.value ?? 0) >= 1);
     });
   }
 
   void _tuck(bool tucked) {
     if (_tucked != tucked && mounted) setState(() => _tucked = tucked);
+  }
+
+  /// How far below its resting place this body is drawn: its own sink (a
+  /// pull, the way back from Settings), taken on down behind the board by
+  /// the hand-off as the page carries him toward the foot of the screen.
+  double get _drawnSink {
+    final away = (widget.stage?.handoff.value ?? 0).clamp(0.0, 1.0);
+    return _sink.value + (_kMaxSink - _sink.value) * away;
   }
 
   bool get _rtl => Directionality.of(context) == TextDirection.rtl;
@@ -685,8 +937,9 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   void _down(DragDownDetails d) => _downAt = d.globalPosition;
 
   void _start(DragStartDetails d) {
-    // Ducking down to the foot of the screen: not to be picked up here.
-    if (_asking || _atBottom) return;
+    // On his way to the foot of the screen, or there: not to be picked up
+    // here.
+    if (_asking || _atBottom || (widget.stage?.handoff.value ?? 0) > 0) return;
     _x.stop();
     _sink.stop();
     _fromX = _x.value;
@@ -846,7 +1099,7 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
           greens: widget.greens,
           owed: widget.owed,
           perfectDay: widget.perfectDay,
-          hour: widget.clock().hour,
+          hour: _clock().hour,
         ).pose ==
         SproutPose.sleeping;
 
@@ -898,7 +1151,7 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
                   perfectDay: widget.perfectDay,
                   live: widget.live,
                   height: kLedgeSproutHeight,
-                  clock: widget.clock,
+                  clock: _clock,
                   drawsBubble: false,
                   onBubble: _hear,
                   echo: widget.stage?.echo,
@@ -940,7 +1193,11 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
               clipBehavior: Clip.none,
               children: [
                 AnimatedBuilder(
-                  animation: Listenable.merge([_x, _sink]),
+                  animation: Listenable.merge([
+                    _x,
+                    _sink,
+                    if (widget.stage != null) widget.stage!.handoff,
+                  ]),
                   child: sprout,
                   builder: (context, child) => TweenAnimationBuilder<double>(
                     tween: Tween(end: sleeping ? _kSleepLift : 0),
@@ -949,7 +1206,7 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
                     child: child,
                     builder: (context, lift, child) => Positioned(
                       left: _x.value,
-                      bottom: under - _kFeetBelowLine + lift - _sink.value,
+                      bottom: under - _kFeetBelowLine + lift - _drawnSink,
                       child: FractionalTranslation(
                         translation: const Offset(-0.5, 0),
                         child: child,
@@ -971,9 +1228,16 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
   /// waits at the foot of the screen (the bubble goes with him there).
   Widget _bubble(double under) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_x, _speech, _held]),
+      animation: Listenable.merge([
+        _x,
+        _speech,
+        _held,
+        if (widget.stage != null) widget.stage!.handoff,
+      ]),
       builder: (context, _) {
-        final text = _held.value || _atBottom ? null : _speech.value;
+        // Gone with him once most of his face is behind the board.
+        final away = (widget.stage?.handoff.value ?? 0) >= 0.5;
+        final text = _held.value || _atBottom || away ? null : _speech.value;
         final x = _x.value;
         final onRight = _bubbleOnRight;
         final room = onRight

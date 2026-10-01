@@ -406,13 +406,14 @@ Future<void> _plantCardTurn(
   final ahead = PlantShape.values.where((p) => p.index > shape.index);
   final next = ahead.isEmpty ? null : ahead.first;
   debugPrint('[AppIcon] plant card: ${shape.name} at $days full days');
-  // The new shape in the colour the phone already shows (the original
-  // colours when that is the Ramadan icon, see AppIconChoice.withShape).
+  // The new shape in the colour the phone already shows (the shipped
+  // icon's colours when that is the Ramadan icon, see
+  // AppIconChoice.withShape).
   // Unless that colour is Premium's and Premium has ended: the phone keeps
   // the colour it has, like a paid theme, but a new icon in it is an edit,
   // which the icon page sends to the paywall. This card applied it with no
-  // question. A grown plant is everyone's, so it comes in the original
-  // colours instead, which is what the card then shows.
+  // question. A grown plant is everyone's, so it comes in the shipped
+  // icon's colours instead (free), which is what the card then shows.
   final kept = current.withShape(shape);
   final choice = kept.needsPremium && !ref.read(premiumAccessProvider)
       ? AppIconChoice(shape, AppIconChoice.shipped.colourId)

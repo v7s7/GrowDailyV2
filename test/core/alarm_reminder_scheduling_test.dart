@@ -213,6 +213,30 @@ void main() {
         NotificationService.kMaxTaskReminderSlots);
   });
 
+  test(
+      'inside a resync, cancelTaskReminder cancels only what the system '
+      'holds and leaves the alarms to one reap over the task band', () async {
+    alarmCalls.clear();
+    notificationCalls.clear();
+    final service = NotificationService.instance;
+    final resync = service.beginTaskResync(coversEveryTask: true);
+    await service.cancelTaskReminder('task-5', resync: resync);
+    await service.finishTaskResync(resync);
+    // Both lists read back empty here, so a done task costs nothing past
+    // the one read, where the plain call above spends 16 calls on the same
+    // nothing. The whole resync is measured in
+    // task_reminder_resync_cost_test.dart.
+    expect(cancelledNotifications(), isEmpty);
+    expect(cancelledAlarms(), isEmpty);
+    final reap = alarmCalls
+        .singleWhere((c) => c.method == 'reapOrphans')
+        .arguments as Map;
+    expect((reap['lowId'], reap['highId']), (10000, 59999),
+        reason: 'exactly the task band, clear of every habit band');
+    expect(reap['keepIds'], isEmpty,
+        reason: 'nothing was armed, so nothing in the band is kept');
+  });
+
   test('the record a widget tick reads names exactly those ids', () async {
     // The one cross-check that matters for a task ticked outside the app:
     // Swift cannot fold a Dart hash, so the widget takes down whatever
