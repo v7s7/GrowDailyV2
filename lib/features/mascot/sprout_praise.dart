@@ -17,11 +17,16 @@ import 'pet_settings.dart';
 /// and the one that can be sent in any category, so if user didn't set, or
 /// so not duplicates", and then "so smart that never a mistake". So every
 /// group has two lists (S.sproutPraise<Group> and its F twin, one line per
-/// row, editable on the admin wording page), the general list serves a habit
-/// with no category of its own and any habit once its own lines have all
-/// been said lately, and when the app cannot tell who is reading
-/// ([PraiseForm.unknown]) only the lines written the same in both lists are
-/// said.
+/// row, editable on the admin wording page), the general list serves only a
+/// habit with no list of its own, and when the app cannot tell who is
+/// reading ([PraiseForm.unknown]) only the lines written the same in both
+/// lists are said.
+///
+/// Aziz, 2026-10-03, after a custom «تنعيم اللحية» heard «تبارك الرحمن»:
+/// the words must always fit the habit. A prayer used to fall back to the
+/// general list once its own lines had all been said, which on day two
+/// meant «تبارك الرحمن» after a prayer too. Now a habit with a list of its
+/// own repeats its oldest line before it ever leaves that list.
 enum PraiseGroup {
   faith,
   quran,
@@ -121,9 +126,11 @@ String pickTickle(S s, [Random? random]) {
 }
 
 /// Picks the praise, remembering what it said so nothing repeats: a fresh
-/// line from the habit's own group (and its parent) first, then a fresh
-/// general one, and only once every line has been said lately, the one said
-/// longest ago.
+/// line from the habit's own group (and its parent), and only once every one
+/// of those has been said lately, the one of them said longest ago. Never a
+/// general line for a habit with lines of its own (Aziz, 2026-10-03: the
+/// words must fit the habit); the general list is for a habit with none,
+/// including a list left empty on the admin page.
 ///
 /// The memory lives in the settings box, so it carries across launches. It
 /// is written only while that box is already open and [persist] is on; the
@@ -169,19 +176,17 @@ class PraisePicker {
   }
 
   String pick({required List<String> own, required List<String> general}) {
-    for (final pool in [own, general]) {
-      final fresh = [
-        for (final line in pool)
-          if (!_said.contains(line)) line,
-      ];
-      if (fresh.isNotEmpty) {
-        return _remember(fresh[_random.nextInt(fresh.length)]);
-      }
+    final pool = (own.isNotEmpty ? own : general).toSet().toList();
+    if (pool.isEmpty) return '';
+    final fresh = [
+      for (final line in pool)
+        if (!_said.contains(line)) line,
+    ];
+    if (fresh.isNotEmpty) {
+      return _remember(fresh[_random.nextInt(fresh.length)]);
     }
-    final all = {...own, ...general}.toList();
-    if (all.isEmpty) return '';
-    all.sort((a, b) => _said.indexOf(a).compareTo(_said.indexOf(b)));
-    return _remember(all.first);
+    pool.sort((a, b) => _said.indexOf(a).compareTo(_said.indexOf(b)));
+    return _remember(pool.first);
   }
 
   String _remember(String line) {
@@ -197,7 +202,7 @@ class PraisePicker {
 }
 
 /// The praise for [group] in the reader's form, through [picker]: its own
-/// lines and its parent's first, the general ones after.
+/// lines and its parent's, the general ones only when those are empty.
 String pickPraise(
   S s,
   PraisePicker picker,

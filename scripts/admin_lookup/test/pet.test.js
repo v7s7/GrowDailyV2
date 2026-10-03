@@ -69,7 +69,20 @@ test('every built-in setting is read out of pet_settings.dart', () => {
   }
   assert.strictEqual(Object.keys(builtIn.categories).length, PetRules.CATEGORIES.length);
   assert.strictEqual(builtIn.categories.fitness, 'sport');
-  assert.deepStrictEqual(builtIn.presets, { tahajjud: 'faith' });
+  assert.deepStrictEqual(builtIn.presets, {
+    tahajjud: 'faith',
+    marriage_dua: 'faith',
+    lower_gaze: 'faith',
+    marriage_gratitude: 'social',
+    marriage_checkin: 'social',
+    marriage_read: 'learning',
+    deep_work_block: 'focus',
+    inbox_zero: 'focus',
+    daily_planning: 'focus',
+    no_phone_morning: 'mind',
+    cold_shower: 'health',
+    no_sugar: 'health',
+  });
   assert.strictEqual(builtIn.alsoHears.quran, 'faith');
   assert.strictEqual(builtIn.quit, 'general');
 });
@@ -116,10 +129,14 @@ test('what a ready-made habit hears, as the app picks it', () => {
   assert.strictEqual(PetRules.listFor(inForce, byId('tahajjud')), 'faith');
   const walk = habits.find((h) => h.category === 'fitness');
   assert.strictEqual(PetRules.listFor(inForce, walk), 'sport');
+  // غض البصر is a quit habit with a list of its own (2026-10-03): the list
+  // wins over the quit rule, and taking it away leaves the quit list.
   const quit = habits.find((h) => h.goalType === 'quit');
-  assert.strictEqual(PetRules.listFor(inForce, quit), 'general');
-  const moved = PetRules.resolve(builtIn, { presets: { [quit.id]: 'faith' } });
-  assert.strictEqual(PetRules.listFor(moved, quit), 'faith', 'its own list wins over the quit rule');
+  assert.strictEqual(PetRules.listFor(inForce, quit), 'faith', 'its own list wins over the quit rule');
+  const bare = PetRules.resolve(builtIn, { presets: { [quit.id]: '' } });
+  assert.strictEqual(PetRules.listFor(bare, quit), 'general');
+  const typed = { id: 'typed_quit', category: 'health', goalType: 'quit' };
+  assert.strictEqual(PetRules.listFor(inForce, typed), 'general');
 });
 
 // ---- Checking a draft ------------------------------------------------------------
@@ -134,7 +151,7 @@ test('only what differs from the built-in values is stored', () => {
   const draft = builtInDraft();
   draft.praiseEverySeconds = 15;
   draft.presets.tahajjud = '';
-  draft.presets.cold_shower = 'health';
+  draft.presets.cold_shower = 'sport';
   draft.categories.custom = 'focus';
   draft.alsoHears.quran = '';
   draft.alsoHears.learning = 'focus';
@@ -143,7 +160,7 @@ test('only what differs from the built-in values is stored', () => {
   assert.deepStrictEqual(check.errors, []);
   assert.deepStrictEqual(check.edits, {
     praiseEverySeconds: 15,
-    presets: { tahajjud: '', cold_shower: 'health' },
+    presets: { tahajjud: '', cold_shower: 'sport' },
     categories: { custom: 'focus' },
     alsoHears: { quran: '', learning: 'focus' },
     quit: 'social',

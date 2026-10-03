@@ -24,7 +24,18 @@
         "fullDaySecondConfettiSpread": 170,
         "fullDaySecondConfettiMs": 1100,
         "presets": {
-          "tahajjud": "faith"
+          "tahajjud": "faith",
+          "marriage_dua": "faith",
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "health",
+          "no_sugar": "health"
         },
         "categories": {
           "faith": "faith",
@@ -158,8 +169,8 @@
       "name": "a ready-made habit's own list, a category's, and the quit list",
       "edits": {
         "presets": {
-          "marriage_dua": "faith",
-          "cold_shower": "health"
+          "wake_early": "sleep",
+          "cold_shower": "sport"
         },
         "categories": {
           "fitness": "health",
@@ -171,7 +182,17 @@
         "presets": {
           "tahajjud": "faith",
           "marriage_dua": "faith",
-          "cold_shower": "health"
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "sport",
+          "no_sugar": "health",
+          "wake_early": "sleep"
         },
         "categories": {
           "faith": "faith",
@@ -201,7 +222,18 @@
       },
       "expect": {
         "presets": {
-          "tahajjud": "athkar"
+          "tahajjud": "athkar",
+          "marriage_dua": "faith",
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "health",
+          "no_sugar": "health"
         }
       }
     },
@@ -213,7 +245,19 @@
         }
       },
       "expect": {
-        "presets": {}
+        "presets": {
+          "marriage_dua": "faith",
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "health",
+          "no_sugar": "health"
+        }
       }
     },
     {
@@ -235,7 +279,18 @@
       },
       "expect": {
         "presets": {
-          "tahajjud": "faith"
+          "tahajjud": "faith",
+          "marriage_dua": "faith",
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "health",
+          "no_sugar": "health"
         },
         "categories": {
           "faith": "faith",
@@ -297,7 +352,18 @@
       "expect": {
         "bubbleSeconds": 4,
         "presets": {
-          "tahajjud": "faith"
+          "tahajjud": "faith",
+          "marriage_dua": "faith",
+          "lower_gaze": "faith",
+          "marriage_gratitude": "social",
+          "marriage_checkin": "social",
+          "marriage_read": "learning",
+          "deep_work_block": "focus",
+          "inbox_zero": "focus",
+          "daily_planning": "focus",
+          "no_phone_morning": "mind",
+          "cold_shower": "health",
+          "no_sugar": "health"
         },
         "alsoHears": {
           "quran": "faith",

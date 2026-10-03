@@ -83,14 +83,30 @@ const Map<String, String> kPetCategoryLists = {
 
 /// Ready-made habits whose category is right for their icon and stats but
 /// not for praise (catalog id: list name). Tahajjud is filed under athkar,
-/// yet it is a night prayer, so it hears the prayer lines.
+/// yet it is a night prayer, so it hears the prayer lines. The rest are
+/// filed under custom, or are a quit habit, and would hear only the general
+/// list, though the app knows exactly what they are (Aziz, 2026-10-03: the
+/// words must fit the habit). «استيقظ قبل الساعة 6» stays general: no list
+/// fits waking early.
 const Map<String, String> kPetPresetLists = {
   'tahajjud': 'faith',
+  'marriage_dua': 'faith',
+  'lower_gaze': 'faith',
+  'marriage_gratitude': 'social',
+  'marriage_checkin': 'social',
+  'marriage_read': 'learning',
+  'deep_work_block': 'focus',
+  'inbox_zero': 'focus',
+  'daily_planning': 'focus',
+  'no_phone_morning': 'mind',
+  'cold_shower': 'health',
+  'no_sugar': 'health',
 };
 
 /// The wider list a narrow one also draws on, so a Quran page can hear
 /// «تقبّل الله» too (list name: list name). One step only: a list's own
-/// lines and this one's, then the general ones.
+/// lines and this one's, never the general ones (Aziz, 2026-10-03: the
+/// words must fit the habit).
 const Map<String, String> kPetAlsoHears = {
   'quran': 'faith',
   'athkar': 'faith',
@@ -284,8 +300,8 @@ class PetSettings {
       final widerList = lists[wider];
       if (widerList != null && widerList != list) alsoHears[list] = widerList;
     });
-    // The general list is where every other list turns when its own lines
-    // are all said; it draws on nothing.
+    // The general list is for a habit with no list of its own (and a list
+    // left empty); it draws on nothing.
     alsoHears.remove(PraiseGroup.general);
 
     return PetSettings._(

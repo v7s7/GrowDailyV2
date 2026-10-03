@@ -335,7 +335,7 @@
     });
     return h('div', { class: 'card', id: 'also' },
       h('h2', null, 'Lists that also draw on another'),
-      h('p', { class: 'about' }, 'A habit hears its own list and this one together, then the general list once all of those were said lately. So a Quran page can hear «تقبّل الله» from the Faith list too. One step only: what the other list draws on is not added.'),
+      h('p', { class: 'about' }, 'A habit hears its own list and this one together, never the general list: once all of those were said lately, the one said longest ago comes round again. So a Quran page can hear «تقبّل الله» from the Faith list too. One step only: what the other list draws on is not added.'),
       h('table', { class: 'pet-table' },
         h('thead', null, h('tr', null, h('th', null, 'List'), h('th', null, 'Also draws on'))),
         h('tbody', null, rows)));

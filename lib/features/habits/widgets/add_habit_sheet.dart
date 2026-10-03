@@ -33,6 +33,7 @@ import '../notifiers/catalog_overrides_notifier.dart';
 import '../models/habit_cadence.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_reminder_stack.dart';
+import '../models/habit_category_guess.dart';
 import '../models/habit_model.dart';
 import '../models/own_category.dart';
 import '../../dashboard/notifiers/dashboard_notifier.dart';
@@ -4930,105 +4931,12 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     });
   }
 
-  /// Splits into whole words, after stripping common punctuation, rather
-  /// than the plain substring match this replaced. Deliberately doesn't use
-  /// regex `\b`/`\w` — those only recognize a-z/0-9 as "word" characters by
-  /// default, so they'd silently fail to find word boundaries anywhere in
-  /// Arabic text. Splitting on whitespace instead works identically for
-  /// both scripts, since both separate words with spaces.
-  Set<String> _wordsIn(String text) {
-    final cleaned = text.toLowerCase().replaceAll(RegExp(r'[.,!?؟،:;]'), ' ');
-    return cleaned.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toSet();
-  }
-
-  /// Guesses a starting category from what's typed so far — never meant to
-  /// be perfect, just a reasonable default the user can always override
-  /// with a manual chip tap (see [_didPickCategory], which also makes this
-  /// function stop being consulted at all once that happens).
-  ///
-  /// Two fixes over the previous version: matching is now whole-word only
-  /// (the old plain substring check matched "run" inside "runway" and
-  /// "bed" inside "bedroom"), and every category is scored by how many of
-  /// its keywords actually appear instead of returning on the first `if`
-  /// that matches — a title mentioning two domains now picks whichever is
-  /// the stronger signal rather than whichever category happened to be
-  /// checked first. `mind` and `social` previously had no keywords at all
-  /// and could never be auto-detected; both now do.
-  HabitCategory _inferCategory(String text) {
-    final words = _wordsIn(text);
-    if (words.isEmpty) {
-      return _didPickCategory ? _category : HabitCategory.custom;
-    }
-    const keywordsByCategory = <HabitCategory, List<String>>{
-      HabitCategory.faith: [
-        'quran', 'قرآن', 'سورة', 'آية', 'ayah', 'surah',
-        'athkar', 'أذكار', 'ذكر', 'dhikr',
-        'pray', 'prayer', 'praying', 'صلاة', 'صلي', 'دعاء', 'dua',
-      ],
-      HabitCategory.health: [
-        'gym', 'رياضة', 'مشي', 'تمرين',
-        'walk', 'walking', 'run', 'running', 'jog', 'jogging',
-        'workout', 'workouts', 'water', 'exercise', 'stretch', 'stretching',
-      ],
-      HabitCategory.learning: [
-        'study', 'studying', 'دراسة', 'قراءة', 'لغة',
-        'read', 'reading', 'language', 'english', 'course', 'كورس',
-        'كتاب', 'book',
-      ],
-      HabitCategory.focus: [
-        'phone', 'scrolling', 'scroll', 'جوال', 'تصفح',
-        'tiktok', 'gaming', 'game', 'games', 'youtube', 'يوتيوب',
-      ],
-      HabitCategory.sleep: [
-        'sleep', 'sleeping', 'نوم', 'سهر', 'bed', 'bedtime', 'nap',
-      ],
-      HabitCategory.money: [
-        'money', 'spending', 'spend', 'صرف', 'مصروف',
-        'budget', 'save', 'saving', 'savings', 'مال', 'ميزانية',
-      ],
-      HabitCategory.mind: [
-        'meditate', 'meditation', 'تأمل',
-        'gratitude', 'امتنان', 'journal', 'journaling', 'يوميات',
-        'breathing', 'تنفس', 'mindfulness', 'stress', 'توتر',
-        'anxiety', 'قلق',
-      ],
-      HabitCategory.social: [
-        'family', 'عائلة', 'friend', 'friends', 'أصدقاء',
-        'call', 'اتصال', 'visit', 'زيارة', 'message', 'رسالة',
-      ],
-    };
-    HabitCategory? best;
-    var bestScore = 0;
-    for (final entry in keywordsByCategory.entries) {
-      var score = entry.value.where((k) => words.contains(k)).length;
-      // The walking detector answers the same question about this name,
-      // only far better than a word list can: it folds Arabic, strips the
-      // definite article and forgives typos, so "المشي", "امشي شوي",
-      // "walkk" and "10k steps" reach Health the way the exact keyword
-      // "walking" already did. Before this they all landed on Custom,
-      // which is how a habit the app was about to offer a step link for
-      // could still be filed as uncategorised.
-      //
-      // Counted as one more health keyword rather than forced, so a name
-      // that is mostly about something else ("read while walking") is
-      // still decided by the rest of the words.
-      if (entry.key == HabitCategory.health && looksLikeStepHabit(text)) {
-        score += 1;
-      }
-      if (score > bestScore) {
-        best = entry.key;
-        bestScore = score;
-      }
-    }
-    // "تيك توك" (TikTok) is the one keyword that's two tokens, not one, so
-    // the word-set match above never sees it as a single unit — checked
-    // separately, only as a fallback so a real single-keyword match
-    // elsewhere still wins.
-    if (best == null && text.toLowerCase().contains('تيك توك')) {
-      best = HabitCategory.focus;
-    }
-    return best ?? (_didPickCategory ? _category : HabitCategory.custom);
-  }
+  /// A starting category from what's typed so far (guessHabitCategory),
+  /// the user's own pick once a chip was tapped (see [_didPickCategory],
+  /// which also stops this being consulted at all), or Custom.
+  HabitCategory _inferCategory(String text) =>
+      guessHabitCategory(text) ??
+      (_didPickCategory ? _category : HabitCategory.custom);
 
   HabitCategory _canonicalCategory(HabitCategory cat) => switch (cat) {
         HabitCategory.quran || HabitCategory.athkar || HabitCategory.fasting || HabitCategory.sadaqah => HabitCategory.faith,

@@ -82,6 +82,29 @@ void main() {
           PraiseGroup.athkar);
     });
 
+    test('ready-made habits filed under custom, or quit, hear the list that '
+        'fits them, not the general one (Aziz, 2026-10-03)', () {
+      const expected = {
+        'marriage_dua': PraiseGroup.faith,
+        'lower_gaze': PraiseGroup.faith,
+        'marriage_gratitude': PraiseGroup.social,
+        'marriage_checkin': PraiseGroup.social,
+        'marriage_read': PraiseGroup.learning,
+        'deep_work_block': PraiseGroup.focus,
+        'inbox_zero': PraiseGroup.focus,
+        'daily_planning': PraiseGroup.focus,
+        'no_phone_morning': PraiseGroup.mind,
+        'cold_shower': PraiseGroup.health,
+        'no_sugar': PraiseGroup.health,
+        'wake_early': PraiseGroup.general,
+      };
+      expected.forEach((id, group) {
+        final preset = IslamicHabitCatalog.findById(id);
+        expect(preset, isNotNull, reason: '$id is in the catalog');
+        expect(praiseGroupFor(preset!), group, reason: id);
+      });
+    });
+
     test('a Quran page can hear faith praise too', () {
       final picker = PraisePicker(random: Random(3), memory: 100);
       final quran = lines(PraiseGroup.quran, PraiseForm.man);
@@ -96,20 +119,49 @@ void main() {
   });
 
   group('never the same line twice', () {
-    test('its own lines first, then the general ones, then the oldest', () {
+    test('its own lines, then the oldest of them, and never a general one '
+        '(Aziz, 2026-10-03: the words must fit the habit)', () {
       final picker = PraisePicker(random: Random(7), memory: 100);
       final sleep = lines(PraiseGroup.sleep, PraiseForm.man);
-      final general = lines(PraiseGroup.general, PraiseForm.man);
       final said = [
-        for (var i = 0; i < sleep.length + general.length; i++)
+        for (var i = 0; i < sleep.length; i++)
           pickPraise(ar, picker, PraiseGroup.sleep, form: PraiseForm.man),
       ];
-      expect(said.take(sleep.length).toSet(), sleep.toSet());
-      expect(said.skip(sleep.length).toSet(), general.toSet());
+      expect(said.toSet(), sleep.toSet());
       expect(said.toSet().length, said.length, reason: 'no repeats');
-      expect(pickPraise(ar, picker, PraiseGroup.sleep, form: PraiseForm.man),
-          said.first,
-          reason: 'everything said: the one said longest ago comes round');
+      final after = [
+        for (var i = 0; i < sleep.length * 3; i++)
+          pickPraise(ar, picker, PraiseGroup.sleep, form: PraiseForm.man),
+      ];
+      expect(
+        after.first,
+        said.first,
+        reason: 'everything said: the one said longest ago comes round',
+      );
+      expect(
+        after.toSet(),
+        sleep.toSet(),
+        reason: 'a night of sleep never hears «زين سويت»',
+      );
+    });
+
+    test('a prayer, on its second day, still hears only prayer lines', () {
+      final picker = PraisePicker(random: Random(2), memory: 30);
+      final faith = lines(PraiseGroup.faith, PraiseForm.man).toSet();
+      for (var i = 0; i < 10; i++) {
+        final line =
+            pickPraise(ar, picker, PraiseGroup.faith, form: PraiseForm.man);
+        expect(faith, contains(line));
+      }
+    });
+
+    test('a list left empty on the admin page falls back to the general one, '
+        'so Doum still speaks', () {
+      final picker = PraisePicker(random: Random(4), memory: 100);
+      final general = lines(PraiseGroup.general, PraiseForm.man);
+      final line = picker.pick(own: const [], general: general);
+      expect(general, contains(line));
+      expect(picker.pick(own: const [], general: const []), '');
     });
 
     test('a short memory still never repeats the line just said', () {
@@ -132,14 +184,14 @@ void main() {
       'جسمك', 'يشكرك', 'صحتك', 'ذهنك', 'رزقك', 'بالك', 'يجزاك', 'يحفظك',
       'يثبتك', 'يسعدك', 'يريّحك', 'لمستقبلك', 'لك', 'قدرك', 'راحتك', 'يعطيك',
       'زادك', 'سويت', 'ركزت', 'خلّصت', 'حصّنت', 'صفّيت', 'الصايم', 'يعافيك',
-      'تعبت', 'بترتاح', 'نفسك', 'خلصت',
+      'تعبت', 'بترتاح', 'نفسك', 'خلصت', 'قصّرت',
     ];
     const onlyWomen = [
       'عليج', 'فيج', 'يوفقج', 'منج', 'حسناتج', 'قلبج', 'صيامج', 'مالج',
       'جسمج', 'يشكرج', 'صحتج', 'ذهنج', 'رزقج', 'بالج', 'يجزاج', 'يحفظج',
       'يثبتج', 'يسعدج', 'يريّحج', 'لمستقبلج', 'لج', 'قدرج', 'راحتج', 'يعطيج',
       'زادج', 'سويتي', 'ركزتي', 'خلّصتي', 'حصّنتي', 'صفّيتي', 'الصايمة',
-      'يعافيج', 'تعبتي', 'بترتاحين', 'نفسج', 'خلصتي',
+      'يعافيج', 'تعبتي', 'بترتاحين', 'نفسج', 'خلصتي', 'قصّرتي',
     ];
     List<String> words(String line) => [
           for (final w in line.split(RegExp(r'\s+')))
@@ -326,6 +378,48 @@ void main() {
             reason: 'English has one form');
       });
     }
+
+    test('«تبارك الرحمن», «ما شاء الله», «ما شاء الله عليك» and «الله يسعدك» '
+        'are for Islamic habits only, never the general list that plays '
+        'after any custom one (Aziz, 2026-10-03, «تبارك الرحمن» after '
+        '«تنعيم اللحية»)', () {
+      for (final form in PraiseForm.values) {
+        for (final line in lines(PraiseGroup.general, form)) {
+          for (final word in ['تبارك', 'ما شاء الله', 'يسعد']) {
+            expect(line, isNot(contains(word)), reason: line);
+          }
+        }
+      }
+      for (final line in lines(PraiseGroup.general, PraiseForm.man, en)) {
+        for (final word in ['tabarak', 'mashaallah', 'happy']) {
+          expect(line.toLowerCase(), isNot(contains(word)), reason: line);
+        }
+      }
+      expect(
+        lines(PraiseGroup.faith, PraiseForm.man),
+        containsAll([
+          'تبارك الرحمن',
+          'ما شاء الله',
+          'ما شاء الله عليك',
+          'الله يسعدك',
+          'يعطيك العافية',
+        ]),
+      );
+      expect(
+        lines(PraiseGroup.faith, PraiseForm.woman),
+        containsAll([
+          'تبارك الرحمن',
+          'ما شاء الله',
+          'ما شاء الله عليج',
+          'الله يسعدج',
+          'يعطيج العافية',
+        ]),
+      );
+      final generalM = lines(PraiseGroup.general, PraiseForm.man);
+      final generalF = lines(PraiseGroup.general, PraiseForm.woman);
+      expect(generalM, contains('يعطيك العافية'));
+      expect(generalF, contains('يعطيج العافية'));
+    });
 
     test('none says full or perfect: they also play at the 80% streak point',
         () {

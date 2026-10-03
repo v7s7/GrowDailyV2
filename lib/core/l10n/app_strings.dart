@@ -6412,21 +6412,21 @@ class S {
   // a fast, a sadaqah or a prayer accepted, and never quotes the Quran
   // (Aziz, 2026-09-28). See sprout_praise.dart for how a line is picked.
 
-  /// Any habit, a habit with no category of its own (custom), a quit habit kept clean, and every group once its own lines have all been said lately.
+  /// A habit with no list of its own (custom, a quit habit kept clean), a square turned green from outside the app, and a list left empty. The app cannot tell what such a habit is, so only words that fit any finished task: «تبارك الرحمن», «ما شاء الله», «ما شاء الله عليك» and «الله يسعدك» live in the faith list instead (Aziz, 2026-10-03).
   String get sproutPraiseGeneral => isAr
-      ? 'كفو عليك\nفخور فيك\nالله يوفقك\nما شاء الله عليك\nزين سويت\nيعطيك العافية\nالله يسعدك\nخطوة حلوة\nما شاء الله\nتبارك الرحمن\nعمل طيب'
-      : 'Well done\nProud of you\nMay Allah grant you success\nMashaAllah, look at you\nNicely done\nMore power to you\nMay Allah make you happy\nA good step\nMashaAllah\nTabarakAllah\nGood work';
+      ? 'كفو عليك\nفخور فيك\nزين سويت\nما قصّرت\nيعطيك العافية\nالله يوفقك\nخطوة حلوة\nعمل طيب\nالتزام حلو\nكل يوم أقوى'
+      : 'Well done\nProud of you\nNicely done\nYou gave it your all\nMay Allah give you strength\nMay Allah grant you success\nA good step\nGood work\nNice commitment\nStronger every day';
   String get sproutPraiseGeneralF => isAr
-      ? 'كفو عليج\nفخور فيج\nالله يوفقج\nما شاء الله عليج\nزين سويتي\nيعطيج العافية\nالله يسعدج\nخطوة حلوة\nما شاء الله\nتبارك الرحمن\nعمل طيب'
-      : 'Well done\nProud of you\nMay Allah grant you success\nMashaAllah, look at you\nNicely done\nMore power to you\nMay Allah make you happy\nA good step\nMashaAllah\nTabarakAllah\nGood work';
+      ? 'كفو عليج\nفخور فيج\nزين سويتي\nما قصّرتي\nيعطيج العافية\nالله يوفقج\nخطوة حلوة\nعمل طيب\nالتزام حلو\nكل يوم أقوى'
+      : 'Well done\nProud of you\nNicely done\nYou gave it your all\nMay Allah give you strength\nMay Allah grant you success\nA good step\nGood work\nNice commitment\nStronger every day';
 
-  /// Prayer and worship (faith), and what Quran, athkar, fasting and sadaqah also draw on.
+  /// Prayer and worship (faith), and what Quran, athkar, fasting and sadaqah also draw on. «تبارك الرحمن», «ما شاء الله», «ما شاء الله عليك», «الله يسعدك» and «يعطيك العافية» belong here (Aziz, 2026-10-03); «يعطيك العافية» is in the general list too.
   String get sproutPraiseFaith => isAr
-      ? 'الله يتقبل منك\nجعلها الله في ميزان حسناتك\nالله يثبتك\nالله يجزاك خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله'
-      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah';
+      ? 'الله يتقبل منك\nجعلها الله في ميزان حسناتك\nالله يثبتك\nالله يجزاك خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله\nتبارك الرحمن\nما شاء الله\nما شاء الله عليك\nالله يسعدك\nيعطيك العافية'
+      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah\nTabarak ar-Rahman\nMashaAllah\nMashaAllah, look at you\nMay Allah make you happy\nMay Allah give you strength';
   String get sproutPraiseFaithF => isAr
-      ? 'الله يتقبل منج\nجعلها الله في ميزان حسناتج\nالله يثبتج\nالله يجزاج خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله'
-      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah';
+      ? 'الله يتقبل منج\nجعلها الله في ميزان حسناتج\nالله يثبتج\nالله يجزاج خير\nتقبّل الله\nتقبّل الله منا ومنكم\nفي ميزان الحسنات إن شاء الله\nتبارك الرحمن\nما شاء الله\nما شاء الله عليج\nالله يسعدج\nيعطيج العافية'
+      : 'May Allah accept it from you\nMay it weigh on your scale of good deeds\nMay Allah keep you steadfast\nMay Allah reward you\nMay Allah accept it\nMay Allah accept from us and you\nOn the scale of good deeds, InshaAllah\nTabarak ar-Rahman\nMashaAllah\nMashaAllah, look at you\nMay Allah make you happy\nMay Allah give you strength';
 
   /// Reading, memorising or listening to the Quran.
   String get sproutPraiseQuran => isAr
@@ -6445,6 +6445,9 @@ class S {
       : 'May Allah protect you\nMay Allah make us of those who remember Him\nIn Allah\'s care\nRemembering Allah is rest';
 
   /// A day of fasting, often marked at dawn: prayers for it, not claims about it.
+  // The words must always fit the habit (Aziz, 2026-10-03, after «تبارك
+  // الرحمن» for a custom «تنعيم اللحية»): a habit with a list of its own
+  // hears only that list, never the general one.
   String get sproutPraiseFasting => isAr
       ? 'الله يتقبل صيامك\nالله يعطيك أجر الصايم\nصيام مقبول إن شاء الله\nاللهم تقبّل'
       : 'May Allah accept your fast\nMay Allah give you the reward of the fasting\nAn accepted fast, InshaAllah\nO Allah, accept it';
@@ -6463,10 +6466,10 @@ class S {
   /// A workout, a walk, any sport (fitness); also draws on health.
   String get sproutPraiseSport => isAr
       ? 'يعطيك العافية\nجسمك يشكرك\nصحتك أهم شي\nتعبت احين؟ بترتاح بعدين\nكل حركة تفرق\nالحركة بركة'
-      : 'More power to you\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
+      : 'May Allah give you strength\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
   String get sproutPraiseSportF => isAr
       ? 'يعطيج العافية\nجسمج يشكرج\nصحتج أهم شي\nتعبتي احين؟ بترتاحين بعدين\nكل حركة تفرق\nالحركة بركة'
-      : 'More power to you\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
+      : 'May Allah give you strength\nYour body thanks you\nYour health comes first\nTired now? You\'ll rest later\nEvery move counts\nMovement is a blessing';
 
   /// Water, vitamins, eating well: health that is not a workout.
   String get sproutPraiseHealth => isAr

@@ -88,17 +88,19 @@ void main() {
       final tahajjud = IslamicHabitCatalog.findById('tahajjud')!;
 
       expect(praiseGroupFor(walk), PraiseGroup.sport);
-      expect(praiseGroupFor(gaze), PraiseGroup.general);
+      expect(praiseGroupFor(gaze), PraiseGroup.faith,
+          reason: 'غض البصر has a list of its own (Aziz, 2026-10-03: the '
+              'words must fit the habit), and it wins over the quit rule');
       expect(praiseGroupFor(tahajjud), PraiseGroup.faith);
 
       publish(PetEdits(
-        presets: {gaze.id: 'faith', tahajjud.id: ''},
+        presets: {gaze.id: '', tahajjud.id: ''},
         categories: const {'fitness': 'health'},
         quit: 'social',
       ));
       expect(praiseGroupFor(walk), PraiseGroup.health);
-      expect(praiseGroupFor(gaze), PraiseGroup.faith,
-          reason: 'a habit\'s own list wins over the quit rule');
+      expect(praiseGroupFor(gaze), PraiseGroup.social,
+          reason: 'its own list taken away: the quit list');
       expect(praiseGroupFor(tahajjud), PraiseGroup.athkar,
           reason: 'sent back to its category');
       expect(praiseGroupFor(prayer), PraiseGroup.faith);

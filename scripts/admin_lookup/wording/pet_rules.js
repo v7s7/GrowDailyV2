@@ -176,8 +176,8 @@
       if (wider === '') delete alsoHears[list];
       else if (isList(wider) && wider !== list) alsoHears[list] = wider;
     }
-    // Every other list turns to the general one once its own lines are all
-    // said; the general list draws on nothing.
+    // The general list is for a habit with no list of its own (and a list
+    // left empty); it draws on nothing.
     delete alsoHears.general;
     out.presets = presets;
     out.categories = categories;
