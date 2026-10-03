@@ -47,12 +47,14 @@ final requestedHomeTabInstantProvider = StateProvider<bool>((ref) => false);
 
 /// Set alongside [requestedHomeTabProvider] (NavTab.matrix) when something outside
 /// the Matrix tab wants it to land straight in the Add Task sheet the
-/// moment it's on screen, rather than just showing the board — currently
-/// only the Matrix home-screen widget's "+" button, via a
-/// `growdaily://matrix/add` deep link (see main.dart's AppLinks wiring and
-/// matrix_notifier.dart's isMatrixQuickAddLink). MatrixScreen consumes and
-/// resets this exactly once, same one-shot pattern as
-/// [requestedHomeTabProvider] itself — see MatrixScreen's own ref.listen.
+/// moment it's on screen, rather than just showing the board: the Matrix
+/// home-screen widget's "+" button (a `growdaily://matrix/add` deep link,
+/// matrix_notifier.dart's isMatrixQuickAddLink) and the Lock Screen's Add
+/// Task control (`/open?tab=matrix&add=1`, deep_links.dart's
+/// openTabLinkWantsAdd), both through main.dart's _openFromOutside.
+/// MatrixScreen._openQuickAdd consumes and resets this exactly once, as the
+/// sheet opens, which is after the launch curtain has lifted: a request
+/// made under the curtain stays set until then.
 final requestedMatrixQuickAddProvider = StateProvider<bool>((ref) => false);
 
 /// Set alongside [requestedHomeTabProvider] (NavTab.settings) when a link

@@ -18,6 +18,8 @@ import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_day_demand.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/features/habits/models/habit_schedule.dart'
+    show scheduledGapBy;
 
 void main() {
   // Saturday 12 September 2026 starts the week 13 September falls in — the
@@ -587,6 +589,77 @@ void main() {
         ).map((h) => h.id),
         ['daily', quota4.id],
       );
+    });
+  });
+
+  group("a flexible quota's own streak keeps through its rest days", () {
+    // Aziz, 2026-10-03: تمرين's streak restarted at 1 across every rest day,
+    // because a quota runs on all seven. Its gaps now count only the days its
+    // week asked for (habitOwesDay), the days the Grid paints red.
+    const w = SquareState.complete;
+    const h = SquareState.partial;
+    DateTime sep(int d) => DateTime(2026, 9, d);
+    MarkOnDay marksOf(Map<int, SquareState> m) => (id, day) =>
+        day.year == 2026 && day.month == 9
+            ? m[day.day] ?? SquareState.none
+            : SquareState.none;
+    bool Function(DateTime) runsOn(Map<int, SquareState> m) => runsOnExcusing(
+          quota4,
+          (id, day) => marksOf(m)(id, day).isGreen,
+          markOn: marksOf(m),
+        );
+    int gap(Map<int, SquareState> m, int from, int to) =>
+        scheduledGapBy(last: sep(from), day: sep(to), runsOn: runsOn(m));
+
+    test('his week of 26 September, W W - ½ ½ W -, never breaks', () {
+      // Laid on 12 to 18 September, the same Saturday-to-Friday shape.
+      final m = {12: w, 13: w, 15: h, 16: h, 17: w};
+      expect(gap(m, 13, 17), 1, reason: 'Thursday continues Sunday');
+      for (final d in [14, 15, 16, 18]) {
+        expect(runsOn(m)(sep(d)), isFalse, reason: '$d asked nothing');
+      }
+      expect(
+        runsOnExcusing(quota4, null, markOn: marksOf(m))(sep(14)),
+        isTrue,
+        reason: 'without the week to read, nothing is excused',
+      );
+    });
+
+    test('a day the week needed and was left empty still breaks it', () {
+      // One session on Saturday: from Wednesday on, every day is needed.
+      final m = {12: w, 17: w};
+      expect(runsOn(m)(sep(15)), isFalse, reason: 'Tuesday was spare');
+      expect(runsOn(m)(sep(16)), isTrue, reason: 'Wednesday was owed');
+      expect(gap(m, 12, 17), 2);
+    });
+
+    test('a half on a day the week needed is not a session for the streak',
+        () {
+      // As a daily habit's half: half of a day that was needed.
+      final m = {12: w, 16: h, 17: w};
+      expect(runsOn(m)(sep(16)), isTrue);
+      expect(gap(m, 12, 17), 2);
+    });
+
+    test('a met week rests into the next one', () {
+      // Four sessions Tuesday to Friday of the week before; the Saturday and
+      // Sunday after are spare in a week just begun.
+      final m = {8: w, 9: w, 10: w, 11: w, 14: w};
+      expect(gap(m, 11, 14), 1);
+    });
+
+    test('the completion path reads the stored squares the same way',
+        () async {
+      final m = {12: w, 13: w, 15: h, 16: h};
+      final fn = await streakRunsOn(
+        habit: quota4,
+        day: sep(17),
+        lastCompletedKey: '2026-09-13',
+        squaresOn: (day) async => {
+          if (m[day.day] case final SquareState s) quota4.id: s,
+        },
+      );
+      expect(scheduledGapBy(last: sep(13), day: sep(17), runsOn: fn), 1);
     });
   });
 }

@@ -1,0 +1,122 @@
+[
+ {
+  "name": "mandoos",
+  "cell": 1,
+  "size": [
+   335,
+   227
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "dallah_set",
+  "cell": 2,
+  "size": [
+   317,
+   300
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "mabkhara",
+  "cell": 3,
+  "size": [
+   186,
+   302
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "cushions",
+  "cell": 4,
+  "size": [
+   393,
+   208
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "low_table",
+  "cell": 5,
+  "size": [
+   330,
+   195
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "carved_door",
+  "cell": 6,
+  "size": [
+   224,
+   326
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "lattice_window",
+  "cell": 7,
+  "size": [
+   257,
+   284
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "shelf",
+  "cell": 8,
+  "size": [
+   270,
+   340
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "hanging_lantern",
+  "cell": 9,
+  "size": [
+   136,
+   338
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "potted_palm",
+  "cell": 10,
+  "size": [
+   300,
+   302
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "pattern_frame",
+  "cell": 11,
+  "size": [
+   257,
+   264
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "frond_mat",
+  "cell": 12,
+  "size": [
+   350,
+   199
+  ],
+  "pieces": 1,
+  "dropped": 0
+ }
+]

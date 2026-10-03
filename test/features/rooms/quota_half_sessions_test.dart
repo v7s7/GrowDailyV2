@@ -96,15 +96,16 @@ Map<String, (int, int, int)> _week(RoomParticipant p) => {
         ),
     };
 
-/// What the week is worth and what it asked, in days, from the stored
-/// counts: the sum over the days it asked for.
-(double, int) _score(RoomParticipant p) {
+/// What the week is worth and what it asked, in days, as the room reads it:
+/// the weights where a day carries them (a shared half asks half a day), the
+/// counts everywhere else.
+(double, double) _score(RoomParticipant p) {
   var credit = 0.0;
-  var asked = 0;
+  var asked = 0.0;
   for (var d = 19; d <= 25; d++) {
     if (p.isRestDay(_k(d))) continue;
-    asked += p.scheduledCountFor(_k(d));
-    credit += p.creditFor(_k(d)) * p.scheduledCountFor(_k(d));
+    asked += p.scheduledWeightFor(_k(d));
+    credit += p.doneWeightFor(_k(d));
   }
   return (credit, asked);
 }
@@ -128,7 +129,7 @@ void main() {
       _k(24): (1, 0, 0),
       _k(25): (1, 0, 0),
     });
-    expect(_score(p), (1.0, 4));
+    expect(_score(p), (1.0, 4.0));
     expect(p.creditFor(_k(19)), 0.5);
     for (final d in [21, 22, 23]) {
       expect(p.isRestDay(_k(d)), isTrue, reason: '$d is a rest day');
@@ -164,7 +165,7 @@ void main() {
       _k(24): (1, 1, 0),
       _k(25): (0, 0, 0),
     });
-    expect(_score(p), (4.0, 4));
+    expect(_score(p), (4.0, 4.0));
     // Met in full, so the week is banked for the streak.
     expect(p.quotaOkWeeks, contains(_k(19)));
   });
@@ -180,13 +181,16 @@ void main() {
       _k(24): (0, 0, 0),
       _k(25): (0, 0, 0),
     });
-    expect(_score(p), (3.0, 4));
+    expect(_score(p), (3.0, 4.0));
     // Its places are held, but not in full: not a week the streak may keep.
     expect(p.quotaOkWeeks, isNot(contains(_k(19))));
   });
 
-  test('three whole and two halves: the earlier half keeps the last place',
-      () async {
+  test(
+      'three whole and two halves add up to 4 of 4: both half days count, '
+      'each asking half a day', () async {
+    // Aziz, 2026-10-03: "make halves add up, 3 + 0.5 + 0.5 = 4". It read
+    // 3.5, with the later half graded as a rest.
     final p = await _liveWeek({
       19: half,
       20: half,
@@ -195,8 +199,64 @@ void main() {
       23: whole,
     });
     expect(_week(p)[_k(19)], (1, 0, 1));
-    expect(_week(p)[_k(20)], (0, 0, 0), reason: 'no place left for it');
-    expect(_score(p), (3.5, 4));
+    expect(_week(p)[_k(20)], (1, 0, 1),
+        reason: 'a day he trained is never a rest');
+    for (final d in [19, 20]) {
+      expect(p.sharedHalfCountFor(_k(d)), 1);
+      expect(p.scheduledWeightFor(_k(d)), 0.5);
+      expect(p.doneWeightFor(_k(d)), 0.5);
+      expect(p.creditFor(_k(d)), 1.0);
+      expect(p.isFullyDone(_k(d)), isTrue,
+          reason: 'finished for its share, so it keeps the streak');
+    }
+    expect(_score(p), (4.0, 4.0));
+    expect(p.quotaOkWeeks, contains(_k(19)), reason: 'the week held');
+  });
+
+  test(
+      "Aziz's 26 September, played as it happened: W W - ½ ½ W - is 4 of 4, "
+      'the Monday and the Friday rest', () async {
+    // Sat whole, Sun whole, Mon nothing, Tue half, Wed half, Thu whole,
+    // Fri nothing, each synced the night it happened.
+    final p = await _liveWeek({
+      19: whole,
+      20: whole,
+      22: half,
+      23: half,
+      24: whole,
+    });
+    expect(_week(p), {
+      _k(19): (1, 1, 0),
+      _k(20): (1, 1, 0),
+      _k(21): (0, 0, 0),
+      _k(22): (1, 0, 1),
+      _k(23): (1, 0, 1),
+      _k(24): (1, 1, 0),
+      _k(25): (0, 0, 0),
+    });
+    expect(_score(p), (4.0, 4.0));
+    expect(p.isRestDay(_k(21)), isTrue);
+    expect(p.isRestDay(_k(25)), isTrue);
+    expect(p.isRestDay(_k(23)), isFalse, reason: 'he trained on the 30th');
+    expect(p.quotaOkWeeks, contains(_k(19)));
+  });
+
+  test('two whole and three halves: one half keeps a whole place, two share',
+      () async {
+    // 2 + 0.5 x 3 = 3.5 of 4, exactly: the earliest half asks a whole day
+    // and gets half, the two later ones share the last place.
+    final p = await _liveWeek({
+      19: whole,
+      20: whole,
+      21: half,
+      22: half,
+      23: half,
+    });
+    expect(p.sharedHalfCountFor(_k(21)), 0);
+    expect(p.sharedHalfCountFor(_k(22)), 1);
+    expect(p.sharedHalfCountFor(_k(23)), 1);
+    expect(_score(p), (3.5, 4.0));
+    expect(p.quotaOkWeeks, isNot(contains(_k(19))), reason: 'short of 4');
   });
 
   test('halves late in the week count the same as halves early in it',
@@ -206,14 +266,14 @@ void main() {
     // Saturday and Sunday were worth nothing.
     final early = await _liveWeek({19: half, 20: half});
     final late = await _liveWeek({24: half, 25: half});
-    expect(_score(early), (1.0, 4));
-    expect(_score(late), (1.0, 4));
+    expect(_score(early), (1.0, 4.0));
+    expect(_score(late), (1.0, 4.0));
   });
 
   test('a week with nothing in it is still 0 of 4 on its last four days',
       () async {
     final p = await _liveWeek(const {});
-    expect(_score(p), (0.0, 4));
+    expect(_score(p), (0.0, 4.0));
     for (final d in [19, 20, 21]) {
       expect(p.isRestDay(_k(d)), isTrue);
     }
@@ -236,7 +296,8 @@ void main() {
     test('the places, once every place is held', () {
       expect(answerable({2, 3, 4, 5}, {0, 1}), [2, 3, 4, 5]);
       expect(answerable({0, 1}, {2, 3}), [0, 1, 2, 3]);
-      expect(answerable({2, 3, 4}, {0, 1}), [0, 2, 3, 4]);
+      // Halves add up: both share the place the three wholes left.
+      expect(answerable({2, 3, 4}, {0, 1}), [0, 1, 2, 3, 4]);
       // A week held by halves alone rests its other days at once, open or
       // closed: nothing more is asked of it, and it can still rise.
       expect(answerable({}, {0, 1, 2, 3}, closed: false), [0, 1, 2, 3]);
@@ -258,7 +319,13 @@ void main() {
   });
 
   group('the strip reads a stored half as a session', () {
-    RoomParticipant stored(Map<String, int> partial) => RoomParticipant(
+    RoomParticipant stored(
+      Map<String, int> partial, {
+      Map<String, int> done = const {},
+      String? lastSyncedDay,
+      DateTime? lastSyncedAt,
+    }) =>
+        RoomParticipant(
           uid: 'M',
           displayName: 'M',
           characterId: 'male_ghutra_blue',
@@ -267,6 +334,9 @@ void main() {
           linkedHabitNames: const ['تمرين'],
           lastUpdated: DateTime(2026, 9, 18),
           dailyPartialCount: partial,
+          dailyDoneCount: done,
+          lastSyncedDay: lastSyncedDay,
+          lastSyncedAt: lastSyncedAt,
           habitRules: {
             'gym': [
               RoomHabitRule(
@@ -301,19 +371,98 @@ void main() {
         'before the member syncs again', () {
       // Halves Saturday to Tuesday, each synced while the week was open, and
       // then nothing from this member's phone: Wednesday to Friday were
-      // never graded, so the record still has them as due. The halves hold
-      // all four places, so those days are rest (earned), never misses.
+      // never graded. The halves hold all four places, so the phone rests
+      // those days the moment the fourth lands, and the record says so
+      // without it: rest, never misses.
       final p = stored({_k(19): 1, _k(20): 1, _k(21): 1, _k(22): 1});
       final now = DateTime(2026, 9, 26, 11);
       for (final d in [23, 24, 25]) {
+        expect(p.scheduledCountFor(_k(d)), 0, reason: '$d');
         expect(
-          roomStripQuotaDemandOn(_room(), p, DateTime(2026, 9, d)),
-          DayDemand.earned,
-        );
-        expect(
-          roomStripMissIsFinal(_room(), p, DateTime(2026, 9, d), now: now),
-          isFalse,
+          roomStripDayOf(_room(), p, DateTime(2026, 9, d), now: now).look,
+          RoomStripDayLook.rest,
           reason: '$d is a rest day of a week its halves filled',
+        );
+      }
+    });
+
+    test(
+        'two whole sessions and two halves hold every place, worth 3: the '
+        "days after the last sync rest on other members' boards", () {
+      // A week that holds its four places and is worth 3 never reaches
+      // quotaOkWeeks, so before this the days the phone had not graded yet
+      // fell back to due, and the strip crossed them out once the week
+      // closed. The phone itself rests them (weeklyQuotaScheduledDays).
+      final p = stored(
+        {_k(21): 1, _k(22): 1},
+        done: {_k(19): 1, _k(20): 1},
+        lastSyncedDay: _k(22),
+        lastSyncedAt: DateTime(2026, 9, 22, 21),
+      );
+      final now = DateTime(2026, 9, 26, 11);
+      expect(p.quotaOkWeeks, isEmpty);
+      for (final d in [23, 24, 25]) {
+        expect(p.scheduledCountFor(_k(d)), 0, reason: '$d');
+        final look =
+            roomStripDayOf(_room(), p, DateTime(2026, 9, d), now: now).look;
+        expect(look, RoomStripDayLook.rest, reason: '$d');
+      }
+      // The week reads what it is worth: 3 of 4.
+      var credit = 0.0;
+      var asked = 0.0;
+      for (var d = 19; d <= 25; d++) {
+        if (p.isRestDay(_k(d))) continue;
+        asked += p.scheduledWeightFor(_k(d));
+        credit += p.doneWeightFor(_k(d));
+      }
+      expect((credit, asked), (3.0, 4.0));
+    });
+
+    test('three sessions are not every place: the unsynced days stay due',
+        () {
+      final p = stored(
+        {_k(21): 1},
+        done: {_k(19): 1, _k(20): 1},
+        lastSyncedDay: _k(21),
+        lastSyncedAt: DateTime(2026, 9, 21, 21),
+      );
+      for (final d in [22, 23, 24, 25]) {
+        expect(p.scheduledCountFor(_k(d)), 1, reason: '$d');
+      }
+    });
+
+    test(
+        'a closed week of two halves, unsynced since Monday, is graded on '
+        "other members' boards as the phone grades it: 1 of 4", () {
+      // Halves on Saturday and Sunday, a sync on Monday evening, and then
+      // nothing. The phone's close rests Monday to Wednesday and owes
+      // Thursday and Friday; the board used to keep all five due until the
+      // phone came back, because a stored half stopped the inference.
+      final p = stored(
+        {_k(19): 1, _k(20): 1},
+        lastSyncedDay: _k(21),
+        lastSyncedAt: DateTime(2026, 9, 21, 20),
+      );
+      final now = DateTime(2026, 9, 28, 12);
+      expect(p.closedQuotaWeekInference(_room(), now: now), {
+        _k(21): 0,
+        _k(22): 0,
+        _k(23): 0,
+      });
+      final graded = p.withClosedQuotaWeeksInferred(_room(), now: now);
+      var credit = 0.0;
+      var asked = 0.0;
+      for (var d = 19; d <= 25; d++) {
+        if (graded.isRestDay(_k(d))) continue;
+        asked += graded.scheduledWeightFor(_k(d));
+        credit += graded.doneWeightFor(_k(d));
+      }
+      expect((credit, asked), (1.0, 4.0));
+      for (final d in [24, 25]) {
+        expect(
+          roomStripDayOf(_room(), graded, DateTime(2026, 9, d), now: now).look,
+          RoomStripDayLook.missed,
+          reason: '$d is owed',
         );
       }
     });

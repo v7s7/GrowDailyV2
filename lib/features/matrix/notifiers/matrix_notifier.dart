@@ -13,6 +13,7 @@ import '../../settings/notifiers/notification_settings_notifier.dart'
     show notificationSettingsProvider;
 import '../models/matrix_task.dart';
 import '../task_day.dart';
+import '../task_prayer.dart';
 
 /// Parses a `growdaily://matrix/add` deep link — the Matrix home-screen
 /// widget's "+" button (see ios/GrowDailyWidget/GrowDailyWidget.swift's
@@ -108,12 +109,19 @@ DateTime? latestMissedTaskReminder(
 /// asked for is not a move. A done task is never moved (null): its board
 /// is history. A task already on [day] with no new [time] comes back
 /// unchanged (the same instance), so the caller can skip the write.
+///
+/// A task whose time was picked from a prayer (MatrixTask.reminderPrayer)
+/// goes to that prayer on [day] instead of the old clock time: «بعد العصر
+/// بـ15 دقيقة» moved to Thursday is Thursday's Asr and 15, worked out by
+/// [prayerAt] (null, or no answer from it, keeps the clock time). A [time]
+/// given by the person is a clock time, so the prayer is dropped with it.
 @visibleForTesting
 MatrixTask? taskMovedToDay(
   MatrixTask task,
   DateTime day, {
   TimeOfDay? time,
   required DateTime now,
+  DateTime? Function(PrayerSlot prayer, DateTime day)? prayerAt,
 }) {
   if (task.isDone) return null;
   final anchor = MatrixTask.resolveAnchor(
@@ -125,13 +133,15 @@ MatrixTask? taskMovedToDay(
     return task.copyWith(plannedDay: dayKey(day));
   }
   if (time == null && taskDay(task).isSameDayAs(day)) return task;
-  final newAnchor = DateTime(
-    day.year,
-    day.month,
-    day.day,
-    time?.hour ?? anchor.hour,
-    time?.minute ?? anchor.minute,
-  );
+  final prayer = time == null ? task.reminderPrayer : null;
+  final newAnchor = (prayer == null ? null : prayerAt?.call(prayer, day)) ??
+      DateTime(
+        day.year,
+        day.month,
+        day.day,
+        time?.hour ?? anchor.hour,
+        time?.minute ?? anchor.minute,
+      );
   if (!newAnchor.isAfter(now)) return null;
   final offsets = offsetsFrom(anchor: anchor, reminders: task.reminderAts);
   final moments = remindersFor(anchor: newAnchor, offsets: offsets)
@@ -140,6 +150,7 @@ MatrixTask? taskMovedToDay(
   return task.copyWith(
     reminderAts: moments,
     reminderAnchorAt: newAnchor,
+    clearReminderPrayer: prayer == null,
     alarm: task.alarm,
     plannedDay: dayKey(newAnchor),
   );
@@ -170,11 +181,15 @@ MatrixTask? taskMovedToDay(
 /// passed would fall back to the day it was created instead of the day it
 /// was on before the move. An untimed task gets [plannedDay] back as given,
 /// null included (a task that was on its created day stays that way).
+///
+/// The prayer the time came from ([prayer]) comes back with the time, and
+/// only with it.
 @visibleForTesting
 MatrixTask taskWithRestoredSchedule(
   MatrixTask task, {
   required List<DateTime> reminderAts,
   DateTime? anchor,
+  PrayerSlot? prayer,
   String? plannedDay,
   required DateTime now,
 }) {
@@ -190,6 +205,8 @@ MatrixTask taskWithRestoredSchedule(
         : const [],
     reminderAnchorAt: timeKept ? previousAnchor : null,
     clearReminderAnchorAt: !timeKept,
+    reminderPrayer: timeKept ? prayer : null,
+    clearReminderPrayer: !timeKept || prayer == null,
     plannedDay: day,
     clearPlannedDay: day == null,
   );
@@ -259,6 +276,27 @@ class MatrixState {
   }
 }
 
+/// The task list once a load lands after something was already done on the
+/// page: the loaded tasks, overlaid by id with this session's own copies
+/// (they are the newer ones), plus the tasks added here that the load did
+/// not hold, less any id deleted here first. In created order, as a load
+/// is shown.
+///
+/// Pure, so the rule is a unit test rather than a race to reproduce.
+List<MatrixTask> mergeLoadedTasks({
+  required List<MatrixTask> loaded,
+  required List<MatrixTask> local,
+  required Set<String> removed,
+}) {
+  final byId = <String, MatrixTask>{
+    for (final t in loaded) t.id: t,
+    for (final t in local) t.id: t,
+  };
+  byId.removeWhere((id, _) => removed.contains(id));
+  return byId.values.toList()
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+}
+
 class MatrixNotifier extends StateNotifier<MatrixState> {
   final Ref _ref;
   final String? _uid;
@@ -267,6 +305,11 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   // read in _loadGuest resolves — both fire in the same tick right after
   // construction. Without this guard the disk read wins the race and
   // silently wipes out the just-added task.
+  //
+  // It makes the load MERGE (see [mergeLoadedTasks]), not stand aside. It
+  // used to stand aside, which kept the new task and dropped everything the
+  // read had found: an account's list gone until the next launch, and a
+  // guest's gone for good once the add's save wrote the short list back.
   bool _mutatedBeforeLoad = false;
 
   // Same idea as [_mutatedBeforeLoad], kept as its own separate flag
@@ -285,6 +328,11 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   // after a landed load keeps the list whole. The reminder resync needs to
   // know, see [_resyncAllReminders].
   bool _taskListLoaded = false;
+
+  // Ids deleted before the load landed, so the merge in [_load] /
+  // [_loadGuest] cannot bring them back: the read may have started before
+  // the delete reached the store, and so still hold them.
+  final Set<String> _removedBeforeLoad = {};
 
   MatrixNotifier(this._ref, this._uid) : super(const MatrixState()) {
     if (_uid != null) {
@@ -335,11 +383,22 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
         quadrantColors = settings.$2;
       }
 
-      if (mounted && !_mutatedBeforeLoad) {
+      if (mounted) {
         // Per document: one unreadable task must not blank the page through
         // the catch-all below. See MatrixTask.listFromFirestore.
-        final tasks = MatrixTask.listFromFirestore(colSnap.docs)
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        final loaded = MatrixTask.listFromFirestore(colSnap.docs);
+        // Merged with what was done while the read was out, never replaced
+        // by it, and never thrown away for it either. This used to drop the
+        // whole loaded list once anything had been added first: a task
+        // added on a Tasks page still loading left that page holding only
+        // the new task, every other one gone until the next launch.
+        final tasks = _mutatedBeforeLoad
+            ? mergeLoadedTasks(
+                loaded: loaded,
+                local: state.tasks,
+                removed: _removedBeforeLoad,
+              )
+            : (loaded..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
         state = MatrixState(
           tasks: tasks,
           isLoading: false,
@@ -347,16 +406,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
           quadrantColors: quadrantColors,
         );
         _taskListLoaded = true;
+        _removedBeforeLoad.clear();
         _resyncAllReminders(tasks);
-      } else if (mounted) {
-        // Task list load was superseded by a mutation, but the quadrant
-        // settings we just read may still be worth keeping.
-        state = MatrixState(
-          tasks: state.tasks,
-          isLoading: false,
-          quadrantTitles: quadrantTitles,
-          quadrantColors: quadrantColors,
-        );
       }
     } catch (e) {
       // Logged, not swallowed: a silent catch here is what kept an empty
@@ -391,19 +442,20 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
         quadrantColors = settings.$2;
       }
 
-      if (!mounted || _mutatedBeforeLoad) {
-        if (mounted) {
-          state = MatrixState(
-            tasks: state.tasks,
-            isLoading: false,
-            quadrantTitles: quadrantTitles,
-            quadrantColors: quadrantColors,
-          );
-        }
-        return;
-      }
-      final tasks = raw.map(MatrixTask.fromMap).toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      if (!mounted) return;
+      final saved = raw.map(MatrixTask.fromMap).toList();
+      // Merged, as in [_load], and here it is more than the view. This used
+      // to keep only what had been added before the read landed, and that
+      // add's own save then wrote that short list over the guest's whole
+      // saved list: every earlier task gone from the phone for good.
+      final merge = _mutatedBeforeLoad;
+      final tasks = merge
+          ? mergeLoadedTasks(
+              loaded: saved,
+              local: state.tasks,
+              removed: _removedBeforeLoad,
+            )
+          : (saved..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
       state = MatrixState(
         tasks: tasks,
         isLoading: false,
@@ -411,6 +463,10 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
         quadrantColors: quadrantColors,
       );
       _taskListLoaded = true;
+      _removedBeforeLoad.clear();
+      // Whatever the early save wrote, the merged list is what belongs on
+      // disk.
+      if (merge) _saveGuest().ignore();
       _resyncAllReminders(tasks);
     } catch (_) {
       if (mounted && !_mutatedBeforeLoad) {
@@ -514,6 +570,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
+    PrayerSlot? reminderPrayer,
     bool alarm = false,
     DateTime? day,
   }) {
@@ -530,6 +587,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       voiceNotes: voiceNotes,
       reminderAts: reminderAts,
       reminderAnchorAt: reminderAnchorAt,
+      reminderPrayer: reminderPrayer,
       alarm: alarm,
       plannedDay: anchor != null
           ? dayKey(anchor.toLocal())
@@ -696,6 +754,9 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     String id,
     List<DateTime> reminderAts, {
     DateTime? reminderAnchorAt,
+    // The prayer the anchor was picked from; null for a clock time (or no
+    // time), which takes any old prayer off. See MatrixTask.reminderPrayer.
+    PrayerSlot? reminderPrayer,
     // Null leaves the task's alarm choice as it was.
     bool? alarm,
   }) {
@@ -707,6 +768,8 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       reminderAts: reminderAts,
       reminderAnchorAt: reminderAnchorAt,
       clearReminderAnchorAt: reminderAnchorAt == null,
+      reminderPrayer: reminderPrayer,
+      clearReminderPrayer: reminderPrayer == null,
       alarm: alarm,
       plannedDay: plannedDayOnWrite(
         before: tasks[idx],
@@ -741,8 +804,14 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   bool moveToDay(String id, DateTime day, {TimeOfDay? time}) {
     final current = _taskById(id);
     if (current == null) return false;
-    final moved =
-        taskMovedToDay(current, day, time: time, now: DateTime.now());
+    final settings = _ref.read(notificationSettingsProvider);
+    final moved = taskMovedToDay(
+      current,
+      day,
+      time: time,
+      now: DateTime.now(),
+      prayerAt: (prayer, day) => taskPrayerMoment(prayer, day, settings),
+    );
     if (moved == null) return false;
     if (!identical(moved, current)) _commitTask(moved);
     return true;
@@ -757,6 +826,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     String id, {
     required List<DateTime> reminderAts,
     DateTime? anchor,
+    PrayerSlot? prayer,
     String? plannedDay,
   }) {
     final current = _taskById(id);
@@ -765,6 +835,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
       current,
       reminderAts: reminderAts,
       anchor: anchor,
+      prayer: prayer,
       plannedDay: plannedDay,
       now: DateTime.now(),
     );
@@ -872,6 +943,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   // can leave behind is a fine trade for undo actually working.
   void delete(String id) {
     _mutatedBeforeLoad = true;
+    if (!_taskListLoaded) _removedBeforeLoad.add(id);
     state = MatrixState(
       tasks: state.tasks.where((t) => t.id != id).toList(),
       isLoading: false,
@@ -894,6 +966,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _mutatedBeforeLoad = true;
+    if (!_taskListLoaded) _removedBeforeLoad.addAll(idSet);
     state = MatrixState(
       tasks: state.tasks.where((t) => !idSet.contains(t.id)).toList(),
       isLoading: false,
@@ -987,6 +1060,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
   void restore(MatrixTask task) {
     if (state.tasks.any((t) => t.id == task.id)) return;
     _mutatedBeforeLoad = true;
+    _removedBeforeLoad.remove(task.id);
     state = MatrixState(
       tasks: [...state.tasks, task],
       isLoading: false,
@@ -1007,6 +1081,7 @@ class MatrixNotifier extends StateNotifier<MatrixState> {
     final toRestore = tasks.where((t) => !existingIds.contains(t.id)).toList();
     if (toRestore.isEmpty) return;
     _mutatedBeforeLoad = true;
+    _removedBeforeLoad.removeAll(toRestore.map((t) => t.id));
     state = MatrixState(
       tasks: [...state.tasks, ...toRestore],
       isLoading: false,

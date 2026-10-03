@@ -11,9 +11,11 @@ import '../theme/theme_preset.dart';
 const _kThemeModeKey = 'theme_mode_v1';
 
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  // Default is light mode regardless of the device's system setting. Users
-  // can still switch to dark mode via the toggle, and that choice persists.
-  ThemeModeNotifier([ThemeMode initial = ThemeMode.light]) : super(initial);
+  // Default is the phone's own light or dark setting (Aziz, 2026-10-02: "the
+  // app takes the default colour of the user"). It used to be light whatever
+  // the phone said. The first flip of the toggle turns that into the
+  // person's own choice, which persists and no longer follows the phone.
+  ThemeModeNotifier([ThemeMode initial = ThemeMode.system]) : super(initial);
 
   // Set once sign-in resolves (see the ref.listen block in GrowDailyApp,
   // main.dart) — null for a guest, so set()/toggle() below only ever touch
@@ -28,7 +30,21 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   // leaves that boot path completely untouched.
   String? _uid;
 
-  void toggle() => _apply(state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
+  /// Flips what is on SCREEN. While following the phone, [state] is
+  /// ThemeMode.system, which says nothing about which of the two is showing,
+  /// so it is read through [platformBrightness]: comparing [state] with dark
+  /// would turn a phone already in dark mode "dark" again, and the first tap
+  /// would do nothing at all.
+  void toggle({Brightness? platformBrightness}) {
+    final showingDark = switch (state) {
+      ThemeMode.dark => true,
+      ThemeMode.light => false,
+      ThemeMode.system => (platformBrightness ??
+              WidgetsBinding.instance.platformDispatcher.platformBrightness) ==
+          Brightness.dark,
+    };
+    _apply(showingDark ? ThemeMode.light : ThemeMode.dark);
+  }
 
   void set(ThemeMode mode) => _apply(mode);
 
@@ -51,9 +67,9 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
 
   /// Called once a signed-in uid is known — pulls this account's saved
   /// theme mode, if any, and applies it here too so a second device
-  /// matches the first instead of always starting at the light-mode
-  /// default. A no-op if the account has never set one (brand-new account,
-  /// or one that's only ever used a device's own default).
+  /// matches the first instead of starting at the phone's own setting.
+  /// A no-op if the account has never set one (brand-new account, or one
+  /// that has only ever followed its phone).
   Future<void> pullFromAccount(String uid) async {
     _uid = uid;
     try {
@@ -87,7 +103,7 @@ Future<ThemeMode?> loadPersistedThemeMode() async {
   final name = box.get(_kThemeModeKey) as String?;
   if (name == null) return null;
   return ThemeMode.values.firstWhere((m) => m.name == name,
-      orElse: () => ThemeMode.light);
+      orElse: () => ThemeMode.system);
 }
 
 // ─── Theme preset (app-wide color template, e.g. Ocean, Burgundy) ─────────

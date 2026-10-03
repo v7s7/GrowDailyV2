@@ -1401,7 +1401,12 @@ const List<String> kEditableWordingKeys = [
   'prayerSinceAdhan',
   'prayerUntilSunrise',
   'prayerSinceSunrise',
+  'prayerTomorrowAt',
   'prayerTimesPhoneClock',
+  'prayerAlarmTitle',
+  'prayerAlarmHint',
+  'prayerAlarmNeedsNotifications',
+  'prayerAlarmNeedsExactAlarms',
   'prayerLocationTitle',
   'prayerLocationPrivacyNote',
   'citySearchHint',
@@ -2701,7 +2706,7 @@ class _EditedS extends S {
   String get progressChartLegend => plainWording(_edits['progressChartLegend']) ?? super.progressChartLegend;
 
   @override
-  String progressDayScore(int done, int owed) {
+  String progressDayScore(String done, int owed) {
     final wordingEdit = _edits['progressDayScore'];
     if (wordingEdit == null) return super.progressDayScore(done, owed);
     return fillWording(
@@ -2720,7 +2725,7 @@ class _EditedS extends S {
   }
 
   @override
-  String progressScoreFraction(int done, int owed) {
+  String progressScoreFraction(String done, int owed) {
     final wordingEdit = _edits['progressScoreFraction'];
     if (wordingEdit == null) return super.progressScoreFraction(done, owed);
     return fillWording(
@@ -5695,7 +5700,7 @@ class _EditedS extends S {
   String get insightDetailByWeek => plainWording(_edits['insightDetailByWeek']) ?? super.insightDetailByWeek;
 
   @override
-  String insightCountOf(int done, int total) {
+  String insightCountOf(String done, int total) {
     final wordingEdit = _edits['insightCountOf'];
     if (wordingEdit == null) return super.insightCountOf(done, total);
     return fillWording(
@@ -7104,7 +7109,7 @@ class _EditedS extends S {
   String get roomNotDoneToday => plainWording(_edits['roomNotDoneToday']) ?? super.roomNotDoneToday;
 
   @override
-  String roomPartialToday(int done, int total) {
+  String roomPartialToday(String done, String total) {
     final wordingEdit = _edits['roomPartialToday'];
     if (wordingEdit == null) return super.roomPartialToday(done, total);
     return fillWording(
@@ -8028,7 +8033,7 @@ class _EditedS extends S {
   }
 
   @override
-  String restDayQuotaMet(int done, int target) {
+  String restDayQuotaMet(String done, int target) {
     final wordingEdit = _edits['restDayQuotaMet'];
     if (wordingEdit == null) return super.restDayQuotaMet(done, target);
     return fillWording(
@@ -8070,7 +8075,7 @@ class _EditedS extends S {
   String get restDayExtra => plainWording(_edits['restDayExtra']) ?? super.restDayExtra;
 
   @override
-  String restDayQuotaCounts(int after, int target) {
+  String restDayQuotaCounts(String after, int target) {
     final wordingEdit = _edits['restDayQuotaCounts'];
     if (wordingEdit == null) return super.restDayQuotaCounts(after, target);
     return fillWording(
@@ -8572,7 +8577,36 @@ class _EditedS extends S {
   String get prayerSinceSunrise => plainWording(_edits['prayerSinceSunrise']) ?? super.prayerSinceSunrise;
 
   @override
+  String prayerTomorrowAt(String time) {
+    final wordingEdit = _edits['prayerTomorrowAt'];
+    if (wordingEdit == null) return super.prayerTomorrowAt(time);
+    return fillWording(
+          wordingEdit,
+          isAr
+              ? <String, String Function()>{
+                  'time': () => '$time',
+                }
+              : <String, String Function()>{
+                  'time': () => '$time',
+                },
+        ) ??
+        super.prayerTomorrowAt(time);
+  }
+
+  @override
   String get prayerTimesPhoneClock => plainWording(_edits['prayerTimesPhoneClock']) ?? super.prayerTimesPhoneClock;
+
+  @override
+  String get prayerAlarmTitle => plainWording(_edits['prayerAlarmTitle']) ?? super.prayerAlarmTitle;
+
+  @override
+  String get prayerAlarmHint => plainWording(_edits['prayerAlarmHint']) ?? super.prayerAlarmHint;
+
+  @override
+  String get prayerAlarmNeedsNotifications => plainWording(_edits['prayerAlarmNeedsNotifications']) ?? super.prayerAlarmNeedsNotifications;
+
+  @override
+  String get prayerAlarmNeedsExactAlarms => plainWording(_edits['prayerAlarmNeedsExactAlarms']) ?? super.prayerAlarmNeedsExactAlarms;
 
   @override
   String get prayerLocationTitle => plainWording(_edits['prayerLocationTitle']) ?? super.prayerLocationTitle;
@@ -9528,7 +9562,7 @@ class _EditedS extends S {
   String get sproutFirstDone => plainWording(_edits['sproutFirstDone']) ?? super.sproutFirstDone;
 
   @override
-  String sproutProgress(int done, int owed) {
+  String sproutProgress(String done, int owed) {
     final wordingEdit = _edits['sproutProgress'];
     if (wordingEdit == null) return super.sproutProgress(done, owed);
     return fillWording(
@@ -9547,7 +9581,7 @@ class _EditedS extends S {
   }
 
   @override
-  String sproutProgressF(int done, int owed) {
+  String sproutProgressF(String done, int owed) {
     final wordingEdit = _edits['sproutProgressF'];
     if (wordingEdit == null) return super.sproutProgressF(done, owed);
     return fillWording(
@@ -9566,7 +9600,7 @@ class _EditedS extends S {
   }
 
   @override
-  String sproutProgressWe(int done, int owed) {
+  String sproutProgressWe(String done, int owed) {
     final wordingEdit = _edits['sproutProgressWe'];
     if (wordingEdit == null) return super.sproutProgressWe(done, owed);
     return fillWording(

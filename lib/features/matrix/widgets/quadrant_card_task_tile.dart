@@ -358,14 +358,18 @@ class _TaskTileState extends State<_TaskTile>
                     children: [
                       Icon(
                         // A bell for a reminder, the alarm clock when it
-                        // rings as an alarm (MatrixTask.alarm), and a
-                        // calendar for an untimed task's date, which
-                        // nothing will ring for.
+                        // rings as an alarm (MatrixTask.alarm), a mosque
+                        // when its time was picked from a prayer
+                        // (MatrixTask.reminderPrayer), and a calendar for
+                        // an untimed task's date, which nothing will ring
+                        // for.
                         widget.task.reminderAts.isEmpty
                             ? Icons.calendar_today_rounded
                             : widget.task.alarm
                                 ? Icons.alarm_rounded
-                                : Icons.notifications_none_rounded,
+                                : widget.task.reminderPrayer != null
+                                    ? Icons.mosque_outlined
+                                    : Icons.notifications_none_rounded,
                         size: _rowMetaIconSize,
                         color: gp.textSec,
                       ),

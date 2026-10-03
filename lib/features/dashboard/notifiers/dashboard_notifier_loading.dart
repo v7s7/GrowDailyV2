@@ -70,6 +70,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         saved['undoneCompletions'],
         DateTime.now().effectiveDay,
       );
+      final heldHabitStreaks = _readHeldHabitStreaks(saved['heldHabitStreaks']);
 
       int streak = (saved['currentStreak'] as int?) ?? 0;
       int streakFreezes = (saved['streakFreezes'] as int?) ?? 1;
@@ -153,6 +154,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
         habitTotalCompletions: habitTotalCompletions,
         habitLastCompletedDate: habitLastCompletedDate,
         undoneCompletions: undone.kept,
+        heldHabitStreaks: heldHabitStreaks,
       );
     } catch (_) {
       if (mounted) state = DashboardState.initial().copyWith(isLoading: false);
@@ -205,6 +207,12 @@ extension DashboardNotifierLoading on DashboardNotifier {
         // one key, so the map that goes in is exactly the map that comes back.
         'undoneCompletions': {
           for (final entry in state.undoneCompletions.entries)
+            entry.key: entry.value.toJson(),
+        },
+        // Whole as well, for the same reason: a run spent or dropped leaves
+        // the store by simply not being in the map that goes back.
+        'heldHabitStreaks': {
+          for (final entry in state.heldHabitStreaks.entries)
             entry.key: entry.value.toJson(),
         },
         // Null once the charge is spent or repaired, and written either way:
@@ -267,6 +275,21 @@ extension DashboardNotifierLoading on DashboardNotifier {
       kept[mapKey] = record;
     });
     return (kept: kept, stale: stale);
+  }
+
+  /// The stored [HeldHabitStreak] records, malformed entries dropped (same
+  /// degrade-don't-throw posture as [_asIntMap]). No expiry sweep: a record
+  /// is only honoured while it still names the habit's last completed day,
+  /// and the habit's next completion removes it either way, so a leftover one
+  /// costs a few bytes and can change nothing.
+  static Map<String, HeldHabitStreak> _readHeldHabitStreaks(Object? raw) {
+    final out = <String, HeldHabitStreak>{};
+    if (raw is! Map) return out;
+    raw.forEach((key, value) {
+      final record = HeldHabitStreak.fromJson(value);
+      if (record != null) out[key.toString()] = record;
+    });
+    return out;
   }
 
   /// The string-valued counterpart, for habitLastCompletedDate.
@@ -477,6 +500,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
       Map<String, int> habitTotalCompletions = {};
       Map<String, String> habitLastCompletedDate = {};
       Map<String, UndoneCompletion> undoneCompletions = {};
+      Map<String, HeldHabitStreak> heldHabitStreaks = {};
       DateTime? accountCreatedAt;
 
       if (userSnap.exists) {
@@ -581,6 +605,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           DateTime.now().effectiveDay,
         );
         undoneCompletions = undone.kept;
+        heldHabitStreaks = _readHeldHabitStreaks(d['heldHabitStreaks']);
         if (undone.stale.isNotEmpty) {
           // Same shape as the junk dailyGreenCounts repair above: a nested map
           // with FieldValue.delete() per key, so merge removes exactly those
@@ -713,6 +738,7 @@ extension DashboardNotifierLoading on DashboardNotifier {
           habitTotalCompletions: habitTotalCompletions,
           habitLastCompletedDate: habitLastCompletedDate,
           undoneCompletions: undoneCompletions,
+          heldHabitStreaks: heldHabitStreaks,
           accountCreatedAt: accountCreatedAt,
         );
       }

@@ -564,6 +564,7 @@ void main() {
       Map<String, int> scheduled = const {},
       List<String> okWeeks = const ['2026-07-18'],
       DateTime? syncedAt,
+      int sessions = 4,
     }) {
       final ids = ['q', 'e', if (thirdDaily) 'w'];
       return RoomParticipant(
@@ -585,7 +586,7 @@ void main() {
             ],
         },
         dailyDoneCount: {
-          for (var d = 18; d <= 21; d++) _k(d): 1,
+          for (var d = 18; d < 18 + sessions; d++) _k(d): 1,
           ...done,
         },
         dailyScheduledCount: {_k(22): 0, ...scheduled},
@@ -622,10 +623,22 @@ void main() {
     });
 
     test('nothing in a week not met', () {
+      // Three sessions of four: not met, and not every place held.
+      expect(
+        member(okWeeks: const ['2026-07-11'], sessions: 3)
+            .unsyncedQuotaRestInference(roomWith(), now: at),
+        isEmpty,
+      );
+    });
+
+    test('a week whose sessions hold every place rests, met or not', () {
+      // The phone rests the rest of a week the moment its places are held
+      // (weeklyQuotaScheduledDays), whether or not it reached quotaOkWeeks:
+      // a week held partly by halves never does.
       expect(
         member(okWeeks: const ['2026-07-11'])
             .unsyncedQuotaRestInference(roomWith(), now: at),
-        isEmpty,
+        {_k(23), _k(24)},
       );
     });
 

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Playground</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1280px; height: 980px; box-sizing: border-box; background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; padding: 36px 40px; display: flex; gap: 40px;">
+
+<div style="display: flex; flex-direction: column; gap: 14px; align-items: center; flex-shrink: 0;">
+<div style="width: 520px; height: 578px; border-radius: 32px; overflow: hidden; background: #FFFFFF; display: flex; align-items: center; justify-content: center;">
+<sc-if value="{{show.planet}}" hint-placeholder-val="{{true}}">
+<dc-import name="Planet" mode="{{mode}}" quiet-style="{{quietStyle}}" level="{{level}}" medals="{{medals}}" pearls="{{pearls}}" thirst="{{thirst}}" watering="{{watering}}" glowing="{{glowing}}" sky="{{sky}}" season="{{season}}" pose="{{pose}}" spot="{{spot}}" size="500" hint-size="500px,556px"></dc-import>
+</sc-if>
+<sc-if value="{{show.tree}}" hint-placeholder-val="{{false}}">
+<dc-import name="Tree" kind="{{kind}}" quiet-style="{{quietStyle}}" level="{{level}}" medals="{{medals}}" pearls="{{pearls}}" thirst="{{thirst}}" watering="{{watering}}" glowing="{{glowing}}" sky="{{sky}}" season="{{season}}" pose="{{pose}}" size="500" hint-size="500px,556px"></dc-import>
+</sc-if>
+<sc-if value="{{show.farm}}" hint-placeholder-val="{{false}}">
+<dc-import name="Farm" quiet-style="{{quietStyle}}" level="{{level}}" medals="{{medals}}" pearls="{{pearls}}" thirst="{{thirst}}" watering="{{watering}}" glowing="{{glowing}}" sky="{{sky}}" season="{{season}}" pose="{{pose}}" size="500" hint-size="500px,556px"></dc-import>
+</sc-if>
+</div>
+<div dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif; font-size: 20px; font-weight: 700; color: #F5F0E1; background: #23352A; border-radius: 16px; padding: 12px 20px; min-height: 30px; text-align: center; width: 480px;">{{line}}</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 22px; flex-grow: 1; min-width: 0;">
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<div style="font-size: 14px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Press Play, then live a few weeks</div>
+<h1 style="margin: 0; font-size: 34px; font-weight: 700;">Playground</h1>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 700;">Direction</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<sc-for list="{{dirs}}" as="d" hint-placeholder-count="6">
+<button type="button" onClick="{{d.pick}}" style="font-family: inherit; font-size: 15px; font-weight: 600; min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 2px solid #23352A; background: {{d.bg}}; color: {{d.fg}}; cursor: pointer;">{{d.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 700;">Live a day</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+<button type="button" onClick="{{doHabit}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #2F7A3A; color: #FFFFFF; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">Do a habit</div><div style="font-size: 13px; opacity: .85;">Doum waters it, thirst goes to 0</div></button>
+<button type="button" onClick="{{quietDay}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #E9E1C9; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">A quiet day passes</div><div style="font-size: 13px;">Owed, nothing done: one step thirstier, three at most</div></button>
+<button type="button" onClick="{{fullDay}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">A full day</div><div style="font-size: 13px;">The streak point: sparkles</div></button>
+<button type="button" onClick="{{restDay}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">A rest day</div><div style="font-size: 13px;">Never thirsty, Doum naps</div></button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 700;">Earn something</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;">
+<button type="button" onClick="{{levelUp}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">Level up</div><div style="font-size: 13px;">Doum plants the next thing</div></button>
+<button type="button" onClick="{{tenLevels}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">+10 levels</div><div style="font-size: 13px;">Skip a few months</div></button>
+<button type="button" onClick="{{medal}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">A medal</div><div style="font-size: 13px;">A flower or fruit</div></button>
+<button type="button" onClick="{{week}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 0; background: #FFFFFF; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">7 days in a row</div><div style="font-size: 13px;">A pearl, bird or basket</div></button>
+<button type="button" onClick="{{reset}}" style="font-family: inherit; text-align: start; min-height: 64px; padding: 12px 16px; border-radius: 16px; border: 2px dashed #B9B3A3; background: transparent; color: #23352A; cursor: pointer;"><div style="font-size: 17px; font-weight: 700;">Start over</div><div style="font-size: 13px;">Day one, level 1</div></button>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 700;">How quiet days look</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<sc-for list="{{styles}}" as="q" hint-placeholder-count="2">
+<button type="button" onClick="{{q.pick}}" style="font-family: inherit; font-size: 15px; font-weight: 600; min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 2px solid #23352A; background: {{q.bg}}; color: {{q.fg}}; cursor: pointer;">{{q.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px;">
+<div style="font-size: 15px; font-weight: 700;">Time and season</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px;">
+<sc-for list="{{skies}}" as="k" hint-placeholder-count="5">
+<button type="button" onClick="{{k.pick}}" style="font-family: inherit; font-size: 15px; font-weight: 600; min-height: 44px; padding: 8px 16px; border-radius: 999px; border: 2px solid #23352A; background: {{k.bg}}; color: {{k.fg}}; cursor: pointer;">{{k.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<div style="display: flex; gap: 22px; font-size: 15px; color: #45574B; flex-wrap: wrap; background: #FFFFFF; border-radius: 14px; padding: 12px 16px;">
+<span>Level <b style="color: #23352A;">{{level}}</b></span>
+<span>Medals <b style="color: #23352A;">{{medals}}</b> of 20</span>
+<span>Weeks in a row <b style="color: #23352A;">{{pearls}}</b></span>
+<span>Thirst <b style="color: #23352A;">{{thirst}}</b> of 3</span>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":980}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = Object.assign({ dir: 'oasis', level: 12, medals: 5, pearls: 2, thirst: 0, watering: false, glowing: false,
+      sky: 'day', season: 'none', pose: 'auto', spot: 0, quietStyle: 'quiet', line: 'هلا، هذا كوكب دوم' }, this.state || {});
+    const set = (patch) => {
+      if (this._t) clearTimeout(this._t);
+      this.setState(Object.assign({}, st, patch));
+      if (patch.watering || patch.glowing || patch.spot || patch.pose !== undefined) {
+        this._t = setTimeout(() => this.setState({ watering: false, glowing: false, spot: 0, pose: 'auto' }), 2600);
+      }
+    };
+    const NAMES = ['', 'بذور حول دوم', 'العشب يمتد', 'ممر حجر', 'أول زهور', 'بئر', 'فسيلة نخل', 'طيارة ورق', 'شجيرة فل', 'حوض خضار',
+      'شجرة ليمون', 'عين ماء', 'سلة ليمون', 'شجيرة ورد', 'شجرة رمان', 'بيت دوم', 'برجيل', 'فوانيس', 'سدرة', 'خلية نحل', 'البحر',
+      'النخلة كبرت', 'قارب', 'رطب', 'منظار', 'نخيل', 'قمر', 'غيمة', 'مرجيحة', 'مزرعة صغيرة', 'نجوم', 'عريشة عنب', 'كرسي خشب',
+      'قوس ورد', 'فلج', 'الشجرة الكبيرة'];
+    const FARM_NAMES = { 4: 'صف خس', 8: 'صف طماط', 13: 'صف جزر' };
+    const grewLine = (lv) => {
+      if (st.dir === 'tree') return 'المستوى ' + lv + ' · الشجرة كبرت';
+      if (st.dir === 'palm') return 'المستوى ' + lv + ' · النخلة كبرت';
+      if (st.dir === 'oasis') return lv % 5 === 0 || lv < 5 || [6, 21, 23].includes(lv) ? 'المستوى ' + lv + ' · نخلة دوم كبرت' : 'المستوى ' + lv + ' · نبت: ' + (FARM_NAMES[lv] || NAMES[lv] || 'شي جديد');
+      if (st.dir === 'farm') return lv <= 35 ? 'المستوى ' + lv + ' · حوض جديد نبت' : 'المستوى ' + lv + ' · المزرعة كبرت';
+      const n = (st.dir === 'farmplanet' && FARM_NAMES[lv]) || NAMES[lv] || 'الشجرة الكبيرة كبرت';
+      return 'المستوى ' + lv + ' · نبت: ' + n;
+    };
+    const DIRS = [['oasis', 'G. Oasis'], ['planet', 'A. Planet'], ['tree', 'B. Tree'], ['palm', 'C. Palm'], ['farm', 'D. Farm'], ['farmplanet', 'F. Doum farms his planet']];
+    const SKIES = [['day', 'Day', 'sky'], ['night', 'Night', 'sky'], ['ramadan', 'A Ramadan night', 'season'], ['winter', 'Winter', 'season'], ['summer', 'Summer', 'season']];
+    const isOn = (key, kind) => kind === 'sky' ? (st.sky === key && st.season === 'none') || (key === 'night' && st.sky === 'night' && st.season === 'none') : st.season === key;
+    return {
+      level: st.level, medals: st.medals, pearls: st.pearls, thirst: st.thirst, watering: st.watering, glowing: st.glowing,
+      sky: st.sky, season: st.season, pose: st.pose, spot: st.spot, line: st.line,
+      quietStyle: st.quietStyle,
+      styles: [['quiet', 'Quiet, not dry'], ['thirsty', 'Thirsty']].map(([k, label]) => ({ label, bg: st.quietStyle === k ? '#23352A' : 'transparent', fg: st.quietStyle === k ? '#F5F0E1' : '#23352A', pick: () => set({ quietStyle: k }) })),
+      mode: st.dir === 'farmplanet' ? 'farm' : st.dir === 'oasis' ? 'oasis' : 'garden', kind: st.dir === 'palm' ? 'palm' : 'tree',
+      show: { planet: st.dir === 'planet' || st.dir === 'farmplanet' || st.dir === 'oasis', tree: st.dir === 'tree' || st.dir === 'palm', farm: st.dir === 'farm' },
+      dirs: DIRS.map(([k, label]) => ({ label, bg: st.dir === k ? '#23352A' : 'transparent', fg: st.dir === k ? '#F5F0E1' : '#23352A',
+        pick: () => set({ dir: k, line: k === 'farmplanet' ? 'دوم يزرع كوكبه' : k === 'oasis' ? 'هذه واحة دوم' : label.slice(3) }) })),
+      skies: SKIES.map(([k, label, kind]) => ({ label, bg: isOn(k, kind) ? '#23352A' : 'transparent', fg: isOn(k, kind) ? '#F5F0E1' : '#23352A',
+        pick: () => k === 'day' ? set({ sky: 'day', season: 'none', line: 'صباح الخير' })
+          : k === 'night' ? set({ sky: 'night', season: 'none', line: 'تصبح على خير' })
+          : k === 'ramadan' ? set({ sky: 'night', season: 'ramadan', line: 'رمضان كريم' })
+          : set({ sky: 'day', season: k, line: k === 'winter' ? 'جا الشتا' : 'الرطب استوى' }) })),
+      doHabit: () => set({ thirst: 0, watering: true, sky: st.sky === 'rest' ? 'day' : st.sky, line: st.thirst > 0 ? 'ارتوى الكوكب' : 'عادة جديدة، والكوكب مرتوي' }),
+      quietDay: () => set({ thirst: Math.min(3, st.thirst + 1), watering: false, glowing: false, sky: 'day',
+        line: st.thirst + 1 >= 2 ? (st.quietStyle === 'quiet' ? 'الكوكب هادي اليوم، أول عادة تصحيه' : 'الكوكب عطشان شوي، أول عادة اليوم تسقيه') : 'نسقي الكوكب؟' }),
+      fullDay: () => set({ thirst: 0, glowing: true, sky: 'day', line: 'يوم كامل، ما شاء الله' }),
+      restDay: () => set({ sky: 'rest', thirst: 0, watering: false, line: 'اليوم راحة، والكوكب بخير' }),
+      levelUp: () => { const lv = Math.min(100, st.level + 1); set({ level: lv, spot: lv, pose: 'plant', sky: 'day', line: grewLine(lv) }); },
+      tenLevels: () => { const lv = Math.min(100, st.level + 10); set({ level: lv, spot: lv, pose: 'plant', sky: 'day', line: grewLine(lv) }); },
+      medal: () => set({ medals: Math.min(20, st.medals + 1), pose: 'heart', line: 'وسام جديد، وزهرة جديدة' }),
+      week: () => set({ pearls: Math.min(6, st.pearls + 1), pose: 'sparkles', line: '7 أيام ورا بعض' }),
+      reset: () => set({ level: 1, medals: 0, pearls: 0, thirst: 0, sky: 'day', season: 'none', line: 'أول يوم: بذور حول دوم' })
+    };
+  }
+}
+</script>
+</body>
+</html>

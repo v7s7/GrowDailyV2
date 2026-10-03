@@ -291,18 +291,18 @@ void main() {
 
     test('the progress line: «خلصت» to a man, «خلصتي» to a woman, «خلصنا» '
         'to anyone else, always Arabic first', () {
-      expect(ar.sproutProgress(5, 10), 'خلصت 5 من 10');
-      expect(ar.sproutProgressF(5, 10), 'خلصتي 5 من 10');
-      expect(ar.sproutProgressWe(5, 10), 'خلصنا 5 من 10');
+      expect(ar.sproutProgress('5', 10), 'خلصت 5 من 10');
+      expect(ar.sproutProgressF('5', 10), 'خلصتي 5 من 10');
+      expect(ar.sproutProgressWe('5', 10), 'خلصنا 5 من 10');
       for (final line in [
-        ar.sproutProgress(5, 10),
-        ar.sproutProgressF(5, 10),
-        ar.sproutProgressWe(5, 10),
+        ar.sproutProgress('5', 10),
+        ar.sproutProgressF('5', 10),
+        ar.sproutProgressWe('5', 10),
       ]) {
         expect(RegExp(r'^[؀-ۿ]').hasMatch(line), isTrue,
             reason: 'an Arabic letter first fixes the line\'s direction');
       }
-      expect(en.sproutProgress(5, 10), '5 of 10 done');
+      expect(en.sproutProgress('5', 10), '5 of 10 done');
     });
   });
 
@@ -313,9 +313,9 @@ void main() {
         s.sproutMorning,
         s.sproutHello,
         s.sproutFirstDone,
-        s.sproutProgress(2, 5),
-        s.sproutProgressF(2, 5),
-        s.sproutProgressWe(2, 5),
+        s.sproutProgress('2', 5),
+        s.sproutProgressF('2', 5),
+        s.sproutProgressWe('2', 5),
         s.sproutStreakPoint,
         s.sproutPerfectDay,
         s.sproutPerfectDayBlessing,

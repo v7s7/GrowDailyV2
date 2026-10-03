@@ -187,11 +187,26 @@ class _CellEditorSheetState extends ConsumerState<_CellEditorSheet> {
     return true;
   }
 
+  /// True while [_toggleRecording] is starting or stopping a take. The same
+  /// double-tap guard as AddTaskSheet's, see its _togglingRecording: two
+  /// starts armed two timers, and a second stop could start a new take.
+  bool _togglingRecording = false;
+
   /// Start or stop a take. The same flow as AddTaskSheet._toggleRecording:
   /// Premium first, then the microphone, then a timer that stops the take
   /// at VoiceNoteService.maxRecordingSeconds. Premium is asked on the start
   /// only: a take running when Premium ends still stops, and is kept.
   Future<void> _toggleRecording() async {
+    if (_togglingRecording) return;
+    _togglingRecording = true;
+    try {
+      await _toggleRecordingOnce();
+    } finally {
+      _togglingRecording = false;
+    }
+  }
+
+  Future<void> _toggleRecordingOnce() async {
     if (!_recording && !hasVoiceNoteAccess(ref)) {
       showVoiceNoteGate(context, ref);
       return;

@@ -8,98 +8,96 @@ import '../../launch/launch_doum_handoff.dart';
 import '../../mascot/doum_language_look.dart';
 import '../../mascot/sprout.dart';
 
-enum _Arrival {
-  /// Not on screen yet: the launch curtain covers the page, or is flying
-  /// the curtain's own Doum here.
-  waiting,
-
-  /// Pops up in his language's look.
-  pop,
-
-  /// The curtain's Doum landed here: the everyday Doum, who then turns
-  /// round into his look.
-  landed,
-}
-
-/// Doum at the head of the sign-in screen, where the app icon used to be
-/// (Aziz, 2026-10-01, the canvas "Doum picks the language").
+/// The language squares at the head of the sign-in screen, where the app
+/// icon used to be: Doum in the suit for English on the left, in the thobe
+/// for العربية on the right, both on screen at once (Aziz, 2026-10-02; see
+/// DoumLanguageSquares). They replaced the «العربية / EN» pill and the one
+/// Doum who turned round from one look into the other.
 ///
-/// He wears the look of the app's language and turns round into the other
-/// one when the language pill beside him is tapped (see DoumLanguageLook and
-/// [controller]). How he first appears depends on what is in front of the
+/// How the two Doums first appear depends on what is in front of the
 /// screen:
 ///  - the very first open's launch scene: the curtain flies its Doum into
-///    this spot and he lands as the everyday Doum, then turns round into his
-///    look (LaunchDoumHandoff);
-///  - any other launch scene: he pops up once the curtain lifts, not under
-///    it, where his pop and his hello would play unseen;
-///  - no curtain (a sign-out, a return to this screen): he pops up at once.
+///    the square of the app's language, where he lands as the everyday Doum
+///    and turns round into its look (LaunchDoumHandoff); the other square's
+///    Doum pops up beside him;
+///  - any other launch scene: both pop up once the curtain lifts, not under
+///    it, where their pop and their hello would play unseen;
+///  - no curtain (a sign-out, a return to this screen): both pop up at once.
 class SignInDoum extends ConsumerStatefulWidget {
-  const SignInDoum({super.key, required this.height, required this.controller});
+  const SignInDoum({
+    super.key,
+    required this.height,
+    required this.doumHeight,
+    required this.controller,
+    this.enabled = true,
+  });
 
-  /// Sprout's reference height for him here (DoumLanguageLook.height).
+  /// Each square's height: the head's whole box.
   final double height;
+
+  /// Sprout's reference height for each Doum (DoumLanguageLook.height), and
+  /// so the size the curtain's flying Doum lands at.
+  final double doumHeight;
+
+  /// The screen's: its words fade around a change of language.
   final DoumLookController controller;
+
+  /// False while a sign-in is running: changing the language mid flight
+  /// rebuilds the screen under the request.
+  final bool enabled;
 
   @override
   ConsumerState<SignInDoum> createState() => _SignInDoumState();
 }
 
 class _SignInDoumState extends ConsumerState<SignInDoum> {
-  /// The box he lands on, registered with the curtain.
+  /// Doum's box in the square of the app's language, registered with the
+  /// curtain as the spot its Doum lands on.
   final GlobalKey _stand = GlobalKey();
   late final LaunchDoumHandoff _handoff;
-  late _Arrival _arrival;
-  Timer? _dress;
+  late DoumSquaresArrival _arrival;
 
   @override
   void initState() {
     super.initState();
     _handoff = ref.read(launchDoumHandoffProvider);
-    _handoff.register(_stand, widget.height);
+    _handoff.register(_stand, widget.doumHeight);
     _arrival = _decide();
     ref.listenManual<DoumHandoffPhase>(
       launchDoumHandoffProvider.select((h) => h.phase),
       (_, phase) {
         if (phase == DoumHandoffPhase.landed) return _landed();
-        if (_arrival == _Arrival.waiting) {
+        if (_arrival == DoumSquaresArrival.waiting) {
           setState(() => _arrival = _decide());
         }
       },
     );
     ref.listenManual<bool>(launchCurtainUpProvider, (_, up) {
-      if (!up && _arrival == _Arrival.waiting) {
+      if (!up && _arrival == DoumSquaresArrival.waiting) {
         setState(() => _arrival = _decide());
       }
     });
   }
 
-  _Arrival _decide() {
+  DoumSquaresArrival _decide() {
     final phase = _handoff.phase;
     if (phase == DoumHandoffPhase.expected ||
         phase == DoumHandoffPhase.flying) {
-      return _Arrival.waiting;
+      return DoumSquaresArrival.waiting;
     }
-    if (ref.read(launchCurtainUpProvider)) return _Arrival.waiting;
-    return _Arrival.pop;
+    if (ref.read(launchCurtainUpProvider)) return DoumSquaresArrival.waiting;
+    return DoumSquaresArrival.pop;
   }
 
   void _landed() {
-    if (_arrival == _Arrival.landed || !mounted) return;
+    if (_arrival == DoumSquaresArrival.landed || !mounted) return;
     // Built in the very frame the curtain's Doum was last drawn, in the
-    // same place: a breath, then he turns round into his look.
-    setState(() => _arrival = _Arrival.landed);
-    _dressSoon();
-    // Spent: the next sign-in screen pops its Doum in as usual. After this
+    // same place: a breath, then he turns round into his look (the squares
+    // time that, see DoumSquaresArrival.landed).
+    setState(() => _arrival = DoumSquaresArrival.landed);
+    // Spent: the next sign-in screen pops its Doums in as usual. After this
     // notification, not inside it.
     scheduleMicrotask(_handoff.done);
-  }
-
-  void _dressSoon() {
-    _dress?.cancel();
-    _dress = Timer(const Duration(milliseconds: 300), () {
-      if (mounted) widget.controller.arriveDressed();
-    });
   }
 
   @override
@@ -109,7 +107,7 @@ class _SignInDoumState extends ConsumerState<SignInDoum> {
     // drawn in the frame the curtain's last one was) nor the pop shows an
     // empty box first.
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
-    final scale = sproutScaleFor(widget.height);
+    final scale = sproutScaleFor(widget.doumHeight);
     for (final pose in const [
       SproutPose.frontWave,
       SproutPose.langThobeFront,
@@ -126,38 +124,24 @@ class _SignInDoumState extends ConsumerState<SignInDoum> {
   @override
   void didUpdateWidget(covariant SignInDoum old) {
     super.didUpdateWidget(old);
-    if (old.height != widget.height) {
-      _handoff.register(_stand, widget.height);
+    if (old.doumHeight != widget.doumHeight) {
+      _handoff.register(_stand, widget.doumHeight);
     }
   }
 
   @override
   void dispose() {
-    _dress?.cancel();
     _handoff.unregister(_stand);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final box = DoumLanguageLook.sizeOf(widget.height);
-    return SizedBox(
-      key: _stand,
-      width: box.width,
-      height: box.height,
-      child: switch (_arrival) {
-        _Arrival.waiting => null,
-        _Arrival.pop => DoumLanguageLook(
-            height: widget.height,
-            controller: widget.controller,
-          ),
-        _Arrival.landed => DoumLanguageLook(
-            height: widget.height,
-            controller: widget.controller,
-            startPlain: true,
-            entrance: SproutEntrance.none,
-          ),
-      },
-    );
-  }
+  Widget build(BuildContext context) => DoumLanguageSquares(
+        height: widget.height,
+        doumHeight: widget.doumHeight,
+        controller: widget.controller,
+        enabled: widget.enabled,
+        arrival: _arrival,
+        standKey: _stand,
+      );
 }

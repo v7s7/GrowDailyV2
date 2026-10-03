@@ -1,0 +1,494 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Art.dc.html": {
+      "expand": "fill",
+      "h": 4200,
+      "title": "7. Art to generate in ChatGPT",
+      "w": 1440,
+      "x": 9120,
+      "y": 0
+    },
+    "Build.dc.html": {
+      "expand": "fill",
+      "h": 3600,
+      "title": "8. How it gets built",
+      "w": 1440,
+      "x": 10640,
+      "y": 0
+    },
+    "Builder.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "Earlier: the first builder (press Play)",
+      "w": 390,
+      "x": -560,
+      "y": 0
+    },
+    "Deeper.dc.html": {
+      "expand": "fill",
+      "h": 4150,
+      "title": "Deeper: visits, level 100, five views",
+      "w": 1440,
+      "x": -6640,
+      "y": 0
+    },
+    "Directions.dc.html": {
+      "expand": "fill",
+      "h": 5000,
+      "title": "2. Seven directions: G scores 5 of 5",
+      "w": 1440,
+      "x": 1520,
+      "y": 0
+    },
+    "DoumDay.dc.html": {
+      "h": 960,
+      "title": "Doum's day, and visitors",
+      "w": 1760,
+      "x": 0,
+      "y": 6980
+    },
+    "Edit.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "F. Edit at level 100 (press Play)",
+      "w": 390,
+      "x": 2350,
+      "y": 10340
+    },
+    "Farm.dc.html": {
+      "h": 400,
+      "is_interactive": true,
+      "title": "D. Farm: open Tweaks and play",
+      "w": 360,
+      "x": 2240,
+      "y": 5600
+    },
+    "Fits.dc.html": {
+      "expand": "fill",
+      "h": 4300,
+      "title": "How it all fits: XP grows it, gold builds in it",
+      "w": 1440,
+      "x": -2080,
+      "y": 0
+    },
+    "Inside.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "G. Inside the coral house: swap furniture, sit (press Play)",
+      "w": 390,
+      "x": 2820,
+      "y": 10340
+    },
+    "Island.dc.html": {
+      "h": 400,
+      "is_interactive": true,
+      "title": "G. The island: open Tweaks (level, medals, sky, colours)",
+      "w": 360,
+      "x": 4480,
+      "y": 5600
+    },
+    "Ladder.dc.html": {
+      "expand": "fill",
+      "h": 3300,
+      "title": "5. The growth ladder (planet)",
+      "w": 1440,
+      "x": 6080,
+      "y": 0
+    },
+    "LevelUp.dc.html": {
+      "h": 844,
+      "title": "D. Level up",
+      "w": 390,
+      "x": 1410,
+      "y": 8340
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 5200,
+      "title": "1. The plan",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Motion.dc.html": {
+      "expand": "fill",
+      "h": 3600,
+      "title": "6. Every animation",
+      "w": 1440,
+      "x": 7600,
+      "y": 0
+    },
+    "Neighbours.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "A. Neighbours: tap an island to visit (press Play)",
+      "w": 390,
+      "x": 0,
+      "y": 10340
+    },
+    "OasisPremium.dc.html": {
+      "h": 844,
+      "title": "D. New rows on the Premium screen",
+      "w": 390,
+      "x": 1410,
+      "y": 10340
+    },
+    "Plan.dc.html": {
+      "expand": "fill",
+      "h": 2800,
+      "title": "Then: the plan, in one page",
+      "w": 1440,
+      "x": -8160,
+      "y": 0
+    },
+    "Planet.dc.html": {
+      "h": 400,
+      "is_interactive": true,
+      "title": "A, F and G. Planet: Tweaks, mode garden, farm or oasis",
+      "w": 360,
+      "x": 1360,
+      "y": 5600
+    },
+    "PlanetPage.dc.html": {
+      "h": 844,
+      "title": "B. The oasis page: the hub (walk, build, neighbours)",
+      "w": 390,
+      "x": 470,
+      "y": 8340
+    },
+    "Play.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "B. Walk your own island (press Play)",
+      "w": 390,
+      "x": 470,
+      "y": 10340
+    },
+    "Playground.dc.html": {
+      "h": 980,
+      "is_interactive": true,
+      "title": "Playground: press Play and live a few weeks",
+      "w": 1280,
+      "x": 0,
+      "y": 5600
+    },
+    "Profile.dc.html": {
+      "h": 844,
+      "title": "A. Profile: the card",
+      "w": 390,
+      "x": 0,
+      "y": 8340
+    },
+    "Proud.dc.html": {
+      "expand": "fill",
+      "h": 3800,
+      "title": "New look: an oasis worth showing",
+      "w": 1440,
+      "x": -3600,
+      "y": 0
+    },
+    "Research.dc.html": {
+      "expand": "fill",
+      "h": 4700,
+      "title": "4. What people love and hate",
+      "w": 1440,
+      "x": 4560,
+      "y": 0
+    },
+    "Reveal.dc.html": {
+      "h": 844,
+      "title": "E. First open: Doum built it",
+      "w": 390,
+      "x": 1880,
+      "y": 8340
+    },
+    "Seen.dc.html": {
+      "expand": "fill",
+      "h": 3300,
+      "title": "3. Seen by others: icon, rooms, share card",
+      "w": 1440,
+      "x": 3040,
+      "y": 0
+    },
+    "Show.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "C. The weekly show (press Play to vote)",
+      "w": 390,
+      "x": 940,
+      "y": 10340
+    },
+    "States.dc.html": {
+      "h": 520,
+      "title": "Every state of one day",
+      "w": 1720,
+      "x": 2680,
+      "y": 5600
+    },
+    "Thirsty.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "C. A thirsty morning: press Play, tap a square",
+      "w": 390,
+      "x": 940,
+      "y": 8340
+    },
+    "Together.dc.html": {
+      "expand": "fill",
+      "h": 5100,
+      "title": "Together: visit, play, compete, and a reason to pay",
+      "w": 1440,
+      "x": -5120,
+      "y": 0
+    },
+    "Tour.dc.html": {
+      "expand": "fill",
+      "h": 3750,
+      "title": "Earlier: the deep version, in order",
+      "w": 1440,
+      "x": -9680,
+      "y": 0
+    },
+    "Tree.dc.html": {
+      "h": 400,
+      "is_interactive": true,
+      "title": "B and C. Tree or palm: Tweaks, kind",
+      "w": 360,
+      "x": 1800,
+      "y": 5600
+    },
+    "Walk.dc.html": {
+      "h": 844,
+      "is_interactive": true,
+      "title": "E. Walk a friend’s island: real walk cycles and actions (press Play)",
+      "w": 390,
+      "x": 1880,
+      "y": 10340
+    },
+    "Widget.dc.html": {
+      "h": 844,
+      "title": "F. Home Screen widget (your call)",
+      "w": 760,
+      "x": 2350,
+      "y": 8340
+    },
+    "Polish.dc.html": {
+      "x": -9680,
+      "y": 3870,
+      "w": 1440,
+      "h": 6350,
+      "expand": "fill",
+      "title": "Before we build: motion, size, places, animation (Sheets 8 to 11 in)"
+    },
+    "Rig.dc.html": {
+      "x": -9680,
+      "y": 10340,
+      "w": 860,
+      "h": 620,
+      "is_interactive": true,
+      "title": "Doum from parts: press the buttons"
+    },
+    "Simple.dc.html": {
+      "x": -9680,
+      "y": -5600,
+      "w": 1440,
+      "h": 5150,
+      "expand": "fill",
+      "title": "Start here: the simple version (one idea, three screens)"
+    },
+    "Oasis.dc.html": {
+      "x": -8160,
+      "y": -5600,
+      "w": 390,
+      "h": 954,
+      "is_interactive": true,
+      "title": "1. Your oasis (press Play; test buttons under the phone)"
+    },
+    "Arrange.dc.html": {
+      "x": -7690,
+      "y": -5600,
+      "w": 390,
+      "h": 844,
+      "is_interactive": true,
+      "title": "2. Arrange (press Play)"
+    },
+    "Friends.dc.html": {
+      "x": -7220,
+      "y": -5600,
+      "w": 390,
+      "h": 844,
+      "is_interactive": true,
+      "title": "3. Friends (press Play)"
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-03T12:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "nLevel": {
+      "fill": "orange",
+      "text": "D. The level-up snackbar today says only the number. Now it says what grew, with a small picture and a button to see it. Rank-ups (5, 10, 15, 20, 35, 50, 75, 100) open the new chapter instead.",
+      "w": 390,
+      "x": 1410,
+      "y": 9224
+    },
+    "nPage": {
+      "fill": "green",
+      "text": "B. The proud view. The island big; tap a thing to see when it grew. Under it: your level plate and what the next base brings, your collection (you choose which six stand out), and the dates ripening from medals.",
+      "w": 390,
+      "x": 470,
+      "y": 9224
+    },
+    "nProfile": {
+      "fill": "green",
+      "text": "A. The door. A card under the stats row: the world, the level bar Profile already has, and what the next level brings. The hero above stays exactly as it is. A thirsty day shows here with one plain line about the world, never about the person.",
+      "w": 390,
+      "x": 0,
+      "y": 9224
+    },
+    "nReveal": {
+      "fill": "purple",
+      "text": "E. People already on level 12 open the update to a world that is already grown: everything they earned, planted at once. One screen, one button, shown once.",
+      "w": 390,
+      "x": 1880,
+      "y": 9224
+    },
+    "nStart": {
+      "fill": "green",
+      "text": "Press Play. Tap any + and pick what Doum plants there; tap a planted thing to change it. Three tabs: things that grow with your level, things you build with gold, and rare showpieces that open with each base. Slide the level and watch the base change: sand, stone, coral, gold, rainbow, pearl ring, star crown. The art is from your seven sheets.",
+      "w": 390,
+      "x": -560,
+      "y": 884
+    },
+    "nThirsty": {
+      "fill": "blue",
+      "text": "C. The loop. Two quiet days: ledge Doum holds his can and asks once, with a tiny picture of the thirsty world in his bubble. Tap any square: he waters, the picture freshens, the bubble says it drank. Then he goes back to his day pose.",
+      "w": 390,
+      "x": 940,
+      "y": 9224
+    },
+    "nTry": {
+      "fill": "green",
+      "size": 24,
+      "text": "How to try. Open a phone full-window: it works like the app, and its buttons move between phones.\n\nStart at «A. Profile» (row above): tap the island card, then «امشِ فيها», «رتّب» or «جيرانك».\n\n1. Neighbours: tap Khalid's island. Water, gift, like, then «انزل وتمشّى في واحته».\n2. Walk: tap the ground; Doum turns and walks with real steps. Palm: «قطّف رطبة». Jasmine: «خذ عقلة». Bench: «اجلس». Lantern arch: «شغّل الأنوار». House: «ادخل». «هدية»: he carries a basket over. Camera, top left: a photo.\n3. Inside: tap any piece to swap it. «اجلس» seats him on the cushions. «ليل» lights the lanterns.\n4. Edit: pick something in the tray, tap a +. Tap a thing: move, flip, make it gold. Switch designs at the top.\n5. Play: your own island; tap the palm, the lemon, the house.\n6. Builder: three tabs and the level slider.",
+      "w": 460,
+      "x": 3290,
+      "y": 10340
+    },
+    "nWidget": {
+      "fill": "gray",
+      "text": "F. Decision 6. The world on the Home Screen, without Doum (rule 7). It changes with the day: thirsty after quiet days, fresh after the first habit, asleep at night. The calmest reminder there is, and it never makes a sound.",
+      "w": 760,
+      "x": 2350,
+      "y": 9224
+    },
+    "rowDay": {
+      "kind": "title1",
+      "maxW": 1760,
+      "text": "His life there",
+      "w": 240,
+      "x": 0,
+      "y": 6720
+    },
+    "rowPhones": {
+      "kind": "title1",
+      "maxW": 3110,
+      "text": "On the phone (the island)",
+      "w": 240,
+      "x": 0,
+      "y": 8080
+    },
+    "rowPlanet": {
+      "kind": "title1",
+      "maxW": 4900,
+      "text": "Play with it: the worlds themselves",
+      "w": 240,
+      "x": 0,
+      "y": 5340
+    },
+    "rowTogether": {
+      "kind": "title1",
+      "maxW": 3300,
+      "text": "Together and deeper: visit, play, show, Premium, walk, edit, inside",
+      "w": 240,
+      "x": 0,
+      "y": 10080
+    },
+    "rowSimple": {
+      "kind": "title1",
+      "maxW": 3300,
+      "text": "The simple version: start here",
+      "w": 240,
+      "x": -9680,
+      "y": -5860
+    },
+    "rowEarlier": {
+      "kind": "title1",
+      "maxW": 3300,
+      "text": "Earlier thinking, kept for reference",
+      "w": 240,
+      "x": -9680,
+      "y": -260
+    },
+    "nSimple": {
+      "fill": "green",
+      "size": 24,
+      "w": 460,
+      "x": -6750,
+      "y": -5600,
+      "text": "How to try. Open «1. Your oasis» full-window: it works like the app, and «رتّب» and «أصحابك» move to the other two.\n\nWait two seconds: Doum walks to the bench, hops up and sits. Tap the palm, a plant, the bench.\n\nThe dashed strip under that phone is for testing only: «مستوى جديد» plants the next thing, «ليالي رمضان» shows the season.\n\nIn «رتّب»: tap a thing you have, then «نسخة ذهبية من هذا».\n\nIn «أصحابك»: «شغّلها», Yousef, the sidr, «خذ شتلة».\n\nEverything below this row is the earlier, deeper version."
+    }
+  },
+  "order": [
+    "Simple.dc.html",
+    "Oasis.dc.html",
+    "Arrange.dc.html",
+    "Friends.dc.html",
+    "Tour.dc.html",
+    "Polish.dc.html",
+    "Rig.dc.html",
+    "Plan.dc.html",
+    "Deeper.dc.html",
+    "Together.dc.html",
+    "Proud.dc.html",
+    "Fits.dc.html",
+    "Builder.dc.html",
+    "Main.dc.html",
+    "Directions.dc.html",
+    "Seen.dc.html",
+    "Research.dc.html",
+    "Ladder.dc.html",
+    "Motion.dc.html",
+    "Art.dc.html",
+    "Build.dc.html",
+    "Playground.dc.html",
+    "Planet.dc.html",
+    "Tree.dc.html",
+    "Farm.dc.html",
+    "States.dc.html",
+    "Island.dc.html",
+    "DoumDay.dc.html",
+    "Profile.dc.html",
+    "PlanetPage.dc.html",
+    "Thirsty.dc.html",
+    "LevelUp.dc.html",
+    "Reveal.dc.html",
+    "Widget.dc.html",
+    "Neighbours.dc.html",
+    "Play.dc.html",
+    "Show.dc.html",
+    "OasisPremium.dc.html",
+    "Walk.dc.html",
+    "Edit.dc.html",
+    "Inside.dc.html"
+  ],
+  "pages": [],
+  "title": "Doum's Planet"
+}

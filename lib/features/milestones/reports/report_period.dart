@@ -488,12 +488,12 @@ class HabitPeriodStat {
   /// "5 يوم" must stay an honest count of days, while the percentage can
   /// reflect a half-finished one.
   ///
-  /// A flexible quota's جزئي earns its half only while it holds one of its
-  /// week's places (quotaWeekPlaces: whole sessions take them first, then
-  /// the earliest halves). Aziz, 2026-09-26: "0.5 is a day count, unless it's
-  /// overwritten with a full day". Two halves and four whole sessions on a
-  /// 4x week are 4, not 5; three whole and two halves are 3.5, not a PERFECT
-  /// 4. Whole sessions are counted as they always were, past the target
+  /// A flexible quota's جزئي earns its half only while its week still has
+  /// room for it (quotaWeekPlaces: whole sessions take the places first,
+  /// then halves, two to a place once they outnumber them). Halves add up
+  /// (Aziz, 2026-10-03): three whole and two halves are a PERFECT 4 of a 4x
+  /// week; two halves and four whole sessions are 4, not 5, since the whole
+  /// ones already fill it. Whole sessions are counted as they always were, past the target
   /// included: whether a week's extra sessions may fill another week's gap is
   /// the per-habit cap the header tests keep open, not this rule.
   final double creditedUnits;
@@ -881,9 +881,12 @@ class PeriodSummary {
 /// A day that asked for nothing is never a weak day. Work done on it anyway
 /// reads full, exactly as its calendar cell draws it (dayFill), so it can be
 /// a best day, counted by the habits done on it. Returned in date order.
+///
+/// [doneOn] is what a day earned, a جزئي at half (heatmapDayScore), so
+/// every fraction is compared in half days: whole numbers again, and exact.
 ({List<DateTime> best, List<DateTime> weakest}) dayExtremes({
   required Iterable<DateTime> days,
-  required int Function(DateTime day) doneOn,
+  required num Function(DateTime day) doneOn,
   required int Function(DateTime day) owedOn,
   required bool Function(DateTime day) settledOn,
 }) {
@@ -896,8 +899,8 @@ class PeriodSummary {
   ({int done, int owed})? top;
   ({int done, int owed})? bottom;
   for (final day in days) {
-    final owedRaw = owedOn(day);
-    final doneRaw = doneOn(day);
+    final owedRaw = owedOn(day) * 2;
+    final doneRaw = (doneOn(day) * 2).round();
     if (owedRaw <= 0 && doneRaw <= 0) continue;
     // Nothing owed but something done: a full day of what was done.
     final owed = owedRaw > 0 ? owedRaw : doneRaw;

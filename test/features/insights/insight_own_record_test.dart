@@ -202,7 +202,7 @@ void main() {
       expect(recordCells(), findsNWidgets(16));
       // The header the rows add up to.
       expect(find.text('63%'), findsOneWidget);
-      expect(find.text(ar.insightDetailRate(10, 16)), findsOneWidget);
+      expect(find.text(ar.insightDetailRate('10', 16)), findsOneWidget);
 
       // Every square is a real day, oldest first, named in full.
       expect(find.bySemanticsLabel('الاثنين 27 يوليو · مكتمل'), findsOneWidget);

@@ -202,21 +202,7 @@ DayScore dayScoreFor({
   var settledOwed = 0;
   var settledCredit = 0.0;
 
-  for (final id in everyId) {
-    final mark = history[id]?[key] ?? SquareState.none;
-    if (markIsRest(mark)) {
-      rested++;
-      continue;
-    }
-    final earned = markCredit(mark);
-    // Credit is checked BEFORE the due check on purpose. A quota habit that
-    // was actually done adds 1 to both sides, so it can only ever pull the
-    // day up; leaving it out of the denominator would let a 3-of-2 day
-    // exist. An explicit فشل also enters, because someone who marked a
-    // failure is telling the app that day was owed. A blank quota day
-    // enters neither side, which is the case missIsAttributable exists for.
-    final counts = earned > 0 || mark == SquareState.failed || dueIds.contains(id);
-    if (!counts) continue;
+  void add(SquareState mark, double earned) {
     owed++;
     credit += earned;
     if (markIsDone(mark)) done++;
@@ -228,6 +214,47 @@ DayScore dayScoreFor({
       settledOwed++;
       settledCredit += earned;
     }
+  }
+
+  // A جزئي on a day its habit did not owe: a quota half the week did not need
+  // that day, or a half on another habit's day off. Held back and let in
+  // below only where it does not pull the day down.
+  final restingHalves = <SquareState>[];
+  for (final id in everyId) {
+    final mark = history[id]?[key] ?? SquareState.none;
+    if (markIsRest(mark)) {
+      rested++;
+      continue;
+    }
+    final earned = markCredit(mark);
+    final due = dueIds.contains(id);
+    if (!due && mark == SquareState.partial) {
+      restingHalves.add(mark);
+      continue;
+    }
+    // Credit is checked BEFORE the due check on purpose. A quota habit that
+    // was actually done adds 1 to both sides, so it can only ever pull the
+    // day up; leaving it out of the denominator would let a 3-of-2 day
+    // exist. An explicit فشل also enters, because someone who marked a
+    // failure is telling the app that day was owed. A blank quota day
+    // enters neither side, which is the case missIsAttributable exists for.
+    final counts = earned > 0 || mark == SquareState.failed || due;
+    if (!counts) continue;
+    add(mark, earned);
+  }
+  // The half the day did not owe, on the terms the Habits page's own ring
+  // gives it (_widenForRestingPartials in grid_screen_summary.dart): kept
+  // only when it does not lower the day, a day with nothing else on it
+  // reading as 0 before it. It used to enter at 0.5 of a whole habit on
+  // every day it fell on, so a quota week whose halves add up to its target
+  // (Aziz's 26 September: three whole and two halves of four) charted its
+  // two half days at 50% each, 4 of 5 for a week that met its 4, and
+  // charted lower than the ring had shown that same day. A whole extra
+  // session needs no such test: one of one can only raise a day.
+  for (final mark in restingHalves) {
+    final before = owed == 0 ? 0.0 : credit / owed;
+    final earned = markCredit(mark);
+    if ((credit + earned) / (owed + 1) >= before) add(mark, earned);
   }
 
   return DayScore(

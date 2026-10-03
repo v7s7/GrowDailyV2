@@ -6,6 +6,8 @@
 // although «صلاة الضحى» and «صلاة الوتر» were right there. The matching
 // rules have their own tests (habit_name_match_test.dart); this one holds
 // the sheet to actually using them, one habit per row.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +18,7 @@ import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
 import 'package:grow_daily_v2/features/rooms/models/room_model.dart';
+import 'package:grow_daily_v2/features/rooms/notifiers/rooms_notifier.dart';
 import 'package:grow_daily_v2/features/rooms/widgets/resolve_new_shared_habits_sheet.dart';
 
 import 'room_sync_harness.dart';
@@ -269,4 +272,123 @@ void main() {
     final after = await tester.runAsync(h.member);
     expect(after!.linkedHabitIds, ['h_صلاة الضحى', 'h_قراءة القرآن']);
   });
+
+  // Room A8GEL7, 2026-10-02: the leader added «صلاة الوتر», HomeShell read
+  // the plan a slot ahead of the leader's own link to it and opened this
+  // sheet, the link landed under it, and «ربط الآن» said «ما تغيّر الربط»
+  // about a link that had saved. addSharedHabit writes the two together now
+  // (leader_add_habit_one_write_test.dart); these hold the sheet to the
+  // room's live links whichever way it went stale.
+  group('a sheet whose slots are linked meanwhile', () {
+    final grown = RoomModel(
+      code: 'TEST45',
+      name: 'Room',
+      createdBy: 'me-uid',
+      createdByName: 'Aziz',
+      createdAt: DateTime(2026, 9),
+      habitMode: RoomHabitMode.shared,
+      duration: RoomDuration.fixed,
+      startDate: DateTime(2026, 9),
+      endDate: DateTime(2026, 12, 31),
+      sharedHabits: [_slot('تمرين'), _slot('قراءة القرآن'), _slot('صلاة الوتر')],
+    );
+    RoomParticipant aziz(List<String> names) => RoomParticipant(
+          uid: 'me-uid',
+          displayName: 'Aziz',
+          characterId: 'male_ghutra_blue',
+          joinedAt: DateTime(2026, 9, 2),
+          linkedHabitIds: [for (final n in names) 'h_$n'],
+          linkedHabitNames: names,
+          lastUpdated: DateTime(2026, 9, 20),
+        );
+    final before = aziz(['تمرين', 'قراءة القرآن']);
+    final after = aziz(['تمرين', 'قراءة القرآن', 'صلاة الوتر']);
+
+    testWidgets('closes by itself, and says nothing', (tester) async {
+      final live = StreamController<List<RoomParticipant>>();
+      addTearDown(live.close);
+      final container = ProviderContainer(
+        overrides: [
+          habitListProvider.overrideWithValue(mine),
+          roomParticipantsProvider.overrideWith((ref, code) => live.stream),
+        ],
+      );
+      addTearDown(container.dispose);
+      live.add([before]);
+      await _openSheet(tester, container, grown, before);
+      final s = S.of(tester.element(find.byType(Scaffold).first));
+      expect(find.text(s.roomResolveHabitsSheetTitle), findsOneWidget,
+          reason: 'still asked: the room has not linked it yet');
+
+      live.add([after]);
+      await tester.pumpAndSettle();
+      expect(find.text(s.roomResolveHabitsSheetTitle), findsNothing);
+      expect(find.text(s.roomRelinkFailed), findsNothing);
+    });
+
+    testWidgets('a save refused because of it is not called a failure',
+        (tester) async {
+      final live = StreamController<List<RoomParticipant>>();
+      addTearDown(live.close);
+      // The save reaches the room after the slot was linked there, and the
+      // room stream catches up while it is on its way: refused as stale.
+      final container = ProviderContainer(
+        overrides: [
+          habitListProvider.overrideWithValue(mine),
+          roomParticipantsProvider.overrideWith((ref, code) => live.stream),
+          roomsControllerProvider.overrideWith(
+            (ref) => _LinkedMeanwhile(ref, () => live.add([after])),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      live.add([before]);
+      await _openSheet(tester, container, grown, before);
+      final s = S.of(tester.element(find.byType(Scaffold).first));
+
+      await tester.tap(find.byType(FilledButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text(s.roomResolveHabitsSheetTitle), findsNothing);
+      expect(find.text(s.roomRelinkFailed), findsNothing);
+    });
+
+    testWidgets('one still unanswered keeps it open', (tester) async {
+      final live = StreamController<List<RoomParticipant>>();
+      addTearDown(live.close);
+      final container = ProviderContainer(
+        overrides: [
+          habitListProvider.overrideWithValue(mine),
+          roomParticipantsProvider.overrideWith((ref, code) => live.stream),
+        ],
+      );
+      addTearDown(container.dispose);
+      final first = aziz(['تمرين']);
+      live.add([first]);
+      await _openSheet(tester, container, grown, first);
+      // Another phone links «قراءة القرآن»; «صلاة الوتر» is still to answer.
+      live.add([before]);
+      await tester.pumpAndSettle();
+      final s = S.of(tester.element(find.byType(Scaffold).first));
+      expect(find.text(s.roomResolveHabitsSheetTitle), findsOneWidget);
+    });
+  });
+}
+
+/// A controller whose every link is refused after [linkedElsewhere] runs:
+/// the save of a sheet whose slot was linked while it was on its way.
+class _LinkedMeanwhile extends RoomsController {
+  _LinkedMeanwhile(super.ref, this.linkedElsewhere);
+  final void Function() linkedElsewhere;
+
+  @override
+  Future<bool> resolvePlanHabit(
+    RoomModel room,
+    int templateIndex, {
+    String? existingHabitId,
+  }) async {
+    linkedElsewhere();
+    await Future<void>.delayed(Duration.zero);
+    return false;
+  }
 }

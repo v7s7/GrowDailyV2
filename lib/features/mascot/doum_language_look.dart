@@ -1,12 +1,18 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
+import '../../core/l10n/wording_edits.dart';
+import '../../core/theme/game_theme.dart';
 import '../../core/utils/reduced_motion.dart';
 import 'sprout.dart';
+
+part 'doum_language_squares.dart';
 
 /// What Doum wears: nothing (the everyday Doum), or the look of a language
 /// (Aziz, 2026-10-01, the canvas "Doum picks the language"): a thobe, a
@@ -16,6 +22,14 @@ enum DoumLook { plain, thobe, suit }
 /// The look for an app language: the thobe for Arabic, the suit otherwise.
 DoumLook doumLookFor(String languageCode) =>
     languageCode == 'ar' ? DoumLook.thobe : DoumLook.suit;
+
+/// The language a look speaks: what his «هلا» or "Hi" is said in. The
+/// everyday Doum has none of his own and speaks the app's.
+String? _languageOf(DoumLook look) => switch (look) {
+      DoumLook.thobe => 'ar',
+      DoumLook.suit => 'en',
+      DoumLook.plain => null,
+    };
 
 enum _Angle { front, threeQuarter, side, back, greet, jump }
 
@@ -42,7 +56,11 @@ SproutPose _poseOf(DoumLook look, _Angle angle) => switch (look) {
           _Angle.threeQuarter => SproutPose.langSuitThreeQuarter,
           _Angle.side => SproutPose.langSuitSide,
           _Angle.back => SproutPose.langSuitBack,
-          _Angle.greet => SproutPose.langSuitGreet,
+          // His wave, not the bow (Aziz, 2026-10-02: "no bow, just hand
+          // on chest, and being lovely"). The suit sheet has no hand on the
+          // chest, so the suit greets the way the thobe would if it could
+          // not: waving, with the hop and the "Hi" (see [_DoumLanguageLookState._greet]).
+          _Angle.greet => SproutPose.langSuitFront,
           _Angle.jump => SproutPose.langSuitJump,
         },
     };
@@ -116,6 +134,11 @@ class DoumLookController extends ChangeNotifier {
   /// look (see DoumLanguageLook.startPlain).
   void arriveDressed() => _host?._arriveDressed();
 
+  /// A small hop onto his greeting (a hand on his chest in the thobe, a
+  /// wave in the suit) and his «هلا» or "Hi": the language squares' answer
+  /// to being picked (DoumLanguageSquares). Nothing while he is turning.
+  void greet() => _host?._greet();
+
   void _words(bool visible, {bool notify = true}) {
     if (_wordsVisible == visible) return;
     _wordsVisible = visible;
@@ -139,7 +162,7 @@ class DoumLookController extends ChangeNotifier {
 /// look there (the app's language changes in that frame, see
 /// [DoumLookController.wordsVisible]), turns back the other way in the new
 /// look, sinks again, jumps, and lands on his greeting (a hand on his chest
-/// in the thobe, a small bow in the suit) with a «هلا» or a "Hi". A moment
+/// in the thobe, a wave in the suit) with a «هلا» or a "Hi". A moment
 /// later he is back on his wave and still. The frames are cuts, 80 ms
 /// apart, every one standing on the same spot ([kDoumFeetCentre]) and
 /// decoded before he first shows, so none of them ever blinks.
@@ -158,6 +181,8 @@ class DoumLanguageLook extends ConsumerStatefulWidget {
     this.startPlain = false,
     this.entrance = SproutEntrance.pop,
     this.onTurned,
+    this.look,
+    this.helloAbove = false,
   });
 
   /// Sprout's reference height: how tall the everyday Doum would stand. The
@@ -176,8 +201,17 @@ class DoumLanguageLook extends ConsumerStatefulWidget {
   final SproutEntrance entrance;
 
   /// Called when a turn asked for by [DoumLookController.switchTo] has
-  /// landed (at once under Reduce Motion): the Settings sheet closes then.
+  /// landed (at once under Reduce Motion).
   final VoidCallback? onTurned;
+
+  /// Always this look, whatever the app's language: each of the language
+  /// squares' two Doums (DoumLanguageSquares) stands for his own language.
+  /// Null follows the app's language, as he always did.
+  final DoumLook? look;
+
+  /// His «هلا» or "Hi" over his head rather than beside it, for a box with
+  /// no room at the side (each language square is about his own width).
+  final bool helloAbove;
 
   /// The box he takes at [height]: wide enough for the widest frame of the
   /// turn either side of his feet, as tall as the everyday Doum.
@@ -264,7 +298,7 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
     widget.controller?._host = this;
     _look = widget.startPlain
         ? DoumLook.plain
-        : doumLookFor(ref.read(localeProvider).languageCode);
+        : widget.look ?? doumLookFor(ref.read(localeProvider).languageCode);
     _rest = _poseOf(_look, _Angle.front);
     // The hello after his pop (an arrival says it after the turn instead).
     if (!widget.startPlain && widget.entrance != SproutEntrance.none) {
@@ -328,6 +362,22 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
     });
   }
 
+  /// Picked: a hop onto his greeting with his hello, then back to his wave.
+  /// Under Reduce Motion the pose and the hello without the hop.
+  void _greet() {
+    if (!mounted || _turning || _look == DoumLook.plain) return;
+    _cancelTimers();
+    setState(() {
+      _hello = false;
+      _rest = _poseOf(_look, _Angle.greet);
+    });
+    if (!_reduced) _moves.hop();
+    _sayHello();
+    _after(const Duration(milliseconds: 1800), () {
+      setState(() => _rest = _poseOf(_look, _Angle.front));
+    });
+  }
+
   bool _switchTo(String code) {
     if (!mounted) return false;
     final to = doumLookFor(code);
@@ -366,7 +416,8 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
 
   void _arriveDressed() {
     if (!mounted || _turning || _look != DoumLook.plain) return;
-    final to = doumLookFor(ref.read(localeProvider).languageCode);
+    final to =
+        widget.look ?? doumLookFor(ref.read(localeProvider).languageCode);
     if (_reduced) {
       setState(() {
         _look = to;
@@ -530,7 +581,7 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
     // His language changed some other way (the account's, adopted after a
     // sign-in): he changes with it, without a turn.
     ref.listen<Locale>(localeProvider, (_, next) {
-      if (_turning || _look == DoumLook.plain) return;
+      if (_turning || _look == DoumLook.plain || widget.look != null) return;
       final want = doumLookFor(next.languageCode);
       if (want != _look) {
         setState(() {
@@ -541,6 +592,13 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
     });
 
     final s = S.of(context);
+    // Each look says hello in its own language: the thobe «هلا», the suit
+    // "Hi", whichever language the app is in (the two squares stand side by
+    // side, one for each).
+    final speaks = _languageOf(_look);
+    final hi = speaks == null
+        ? s.doumHi
+        : S.edited(Locale(speaks), WordingScope.of(context)).doumHi;
     final h = widget.height;
     final box = DoumLanguageLook.sizeOf(h);
     final dpr = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
@@ -561,7 +619,7 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
             rtl ? Alignment.bottomRight : Alignment.bottomLeft,
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutBack,
-        child: SproutBubble(text: s.doumHi, tailAtStart: true),
+        child: SproutBubble(text: hi, tailAtStart: true),
       ),
     );
 
@@ -631,12 +689,20 @@ class _DoumLanguageLookState extends ConsumerState<DoumLanguageLook>
                     builder: (_, __) => _frame(box, dpr),
                   ),
                 ),
-              Positioned(
-                bottom: restSize.height * .5,
-                left: rtl ? null : helloInset,
-                right: rtl ? helloInset : null,
-                child: hello,
-              ),
+              if (widget.helloAbove)
+                Positioned(
+                  bottom: restSize.height + 2 * unit,
+                  left: -box.width,
+                  right: -box.width,
+                  child: Center(child: hello),
+                )
+              else
+                Positioned(
+                  bottom: restSize.height * .5,
+                  left: rtl ? null : helloInset,
+                  right: rtl ? helloInset : null,
+                  child: hello,
+                ),
             ],
           ),
         ),

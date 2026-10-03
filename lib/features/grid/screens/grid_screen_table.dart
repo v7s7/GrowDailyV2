@@ -1718,19 +1718,21 @@ class _GridTableState extends ConsumerState<_GridTable> {
       RestDayReason.coveredBySession =>
         s.restDayCoveredBySession(dayName(day)),
       RestDayReason.quotaMet =>
-        s.restDayQuotaMet(tap.weekAfter! - 1, tap.weekTarget!),
+        s.restDayQuotaMet(roomScoreText(tap.weekNow!), tap.weekTarget!),
       RestDayReason.notNeeded => s.restDayNotNeeded,
     };
+    final now = tap.weekNow;
     final after = tap.weekAfter;
     final target = tap.weekTarget;
     // The day it stands in for first: a specific-days habit's planned day, or
     // the جزئي a whole session would push out of a quota's week (it counts
-    // for the week, in that half's place). Then a quota's count, and an
-    // extra past its target.
+    // for the week, in that half's place). Then what a quota's week becomes,
+    // in what it is worth (halves add up), and an extra once it would add
+    // nothing.
     final what = tap.covers != null
         ? s.restDayCovers(dayName(tap.covers!, midSentence: true))
-        : after != null && target != null && after <= target
-            ? s.restDayQuotaCounts(after, target)
+        : now != null && after != null && target != null && after > now
+            ? s.restDayQuotaCounts(roomScoreText(after), target)
             : s.restDayExtra;
     HapticFeedback.selectionClick();
     final result = await showDialog<bool>(
@@ -1741,7 +1743,7 @@ class _GridTableState extends ConsumerState<_GridTable> {
         // No entrance of its own, the dialog already arrives with one.
         icon: const Sprout(
           pose: SproutPose.sleeping,
-          height: 96,
+          height: kSproutQuestionHeight,
           entrance: SproutEntrance.none,
         ),
         title: Text(

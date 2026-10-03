@@ -1147,6 +1147,44 @@ List<int> weeklyQuotaScheduledDays({
   ];
 }
 
+/// The answerable days of [weeklyQuotaScheduledDays] whose half session
+/// SHARES the week's last place with another half, so the day asks half a
+/// habit of the room, not a whole one (quotaWeekSharedHalves).
+///
+/// Halves add up (Aziz, 2026-10-03): three whole sessions and two halves on
+/// a 4x week are 4 of 4. Graded as two answerable days each asking a whole
+/// habit and earning half of one, that week would read 4 of 5 slots; graded
+/// as before, with the later half pushed out as a rest, it read 3.5 of 4 and
+/// called a day he trained a rest. Asking half a day of each is the one
+/// reading that is exact: the week asks its target and earns its worth.
+///
+/// Same index space and same inputs as [weeklyQuotaScheduledDays], and empty
+/// whenever that grades the week day by day (a week short of its places has
+/// a whole place for every half).
+Set<int> weeklyQuotaSharedHalfDays({
+  required List<int> presentDays,
+  required Set<int> doneDays,
+  required int target,
+  Set<int> halfDays = const {},
+}) {
+  if (presentDays.isEmpty || halfDays.isEmpty) return const {};
+  final whole = <int>{
+    for (var p = 0; p < presentDays.length; p++)
+      if (doneDays.contains(presentDays[p])) p,
+  };
+  final half = <int>{
+    for (var p = 0; p < presentDays.length; p++)
+      if (!whole.contains(p) && halfDays.contains(presentDays[p])) p,
+  };
+  final shared = quotaWeekSharedHalves(
+    dayCount: presentDays.length,
+    doneDays: whole,
+    halfDays: half,
+    target: target.clamp(1, presentDays.length),
+  );
+  return {for (final p in shared) presentDays[p]};
+}
+
 /// Whether the grader WRITES the weekly share (see [weeklyShareFor] and
 /// RoomParticipant.dailyScheduledWeight). Built, tested and held OFF.
 ///
@@ -2758,7 +2796,19 @@ class RoomsController {
       // cannot start counting on a day that ended before it existed.
       addedDay: _clock().startOfDay.toDateKey(),
     );
-    await _rooms.doc(room.code).set(
+    // The new slot and the leader's own link to it go in ONE write. They
+    // used to be two, the link awaited after the slot, and for that whole
+    // server round trip the leader's phone held a plan one slot longer than
+    // their links. That is exactly what pendingSharedPlanPromptsProvider
+    // calls "the leader added a habit you have not linked", so the leader
+    // was asked to link the habit they had just added: HomeShell opened
+    // «عادة جديدة في الخطة» over the room, the link landed underneath it,
+    // and «ربط الآن» was then refused as a stale slot and said
+    // «ما تغيّر الربط» about a link that had saved (A8GEL7, «صلاة الوتر»,
+    // 2026-10-02). A batch reaches the local cache, and the server, whole.
+    final batch = _db.batch();
+    batch.set(
+      _rooms.doc(room.code),
       {
         'sharedHabits': FieldValue.arrayUnion([template.toFirestore()]),
       },
@@ -2781,7 +2831,8 @@ class RoomsController {
       // added for everyone; the leader links it as any member would.
       if (mine.linkedHabitIds.length == room.sharedHabits.length &&
           !mine.habitsHeldBySlotsOtherThan(null).contains(habit.id)) {
-        await participantRef.set(
+        batch.set(
+          participantRef,
           {
             'linkedHabitIds': [...mine.linkedHabitIds, habit.id],
             'linkedHabitNames': [...mine.linkedHabitNames, habit.name],
@@ -2790,6 +2841,7 @@ class RoomsController {
         );
       }
     }
+    await batch.commit();
     // The sync needs to SEE the slot it is about to grade.
     //
     // This used to pass the original, pre-addition `room`, on the reasoning
@@ -4586,6 +4638,12 @@ class RoomsController {
     final partialCount = <String, int>{
       for (final d in days) d.toDateKey(): 0,
     };
+    // The جزئي above that share a quota week's place with another half, so
+    // each asks half a habit of its day (weeklyQuotaSharedHalfDays). Always a
+    // subset of partialCount. See RoomParticipant.dailySharedHalfCount.
+    final sharedHalfCount = <String, int>{
+      for (final d in days) d.toDateKey(): 0,
+    };
     // The weighted halves of scheduledCount and doneCount, in fractions of a
     // habit rather than whole ones. Only a CLOSED flexible-quota week ever
     // makes them differ: every other slot contributes exactly 1.0 of demand
@@ -4811,6 +4869,14 @@ class RoomsController {
             target: weekTarget,
             isWeekClosed: isClosed,
           );
+          // Halves add up: past the places a week has, two halves share one,
+          // each asking half a habit of its day.
+          final sharedHalves = weeklyQuotaSharedHalfDays(
+            presentDays: present,
+            doneDays: done,
+            halfDays: half,
+            target: weekTarget,
+          );
           for (final i in answerable) {
             final key = days[i].toDateKey();
             scheduledCount[key] = scheduledCount[key]! + 1;
@@ -4819,6 +4885,9 @@ class RoomsController {
               doneCount[key] = doneCount[key]! + 1;
             } else if (isPartial(i, id)) {
               partialCount[key] = partialCount[key]! + 1;
+              if (sharedHalves.contains(i)) {
+                sharedHalfCount[key] = sharedHalfCount[key]! + 1;
+              }
             } else if (isSkipped(i, id)) {
               restedCount[key] = restedCount[key]! + 1;
             }
@@ -4869,7 +4938,9 @@ class RoomsController {
           } else {
             for (final i in answerable) {
               final key = days[i].toDateKey();
-              scheduledWeight[key] = scheduledWeight[key]! + 1;
+              // A shared half asks half a habit and gives all of it.
+              scheduledWeight[key] = scheduledWeight[key]! +
+                  (sharedHalves.contains(i) ? 0.5 : 1.0);
               doneWeight[key] = doneWeight[key]! +
                   (done.contains(i) ? 1.0 : (isPartial(i, id) ? 0.5 : 0.0));
             }
@@ -5142,14 +5213,33 @@ class RoomsController {
         );
         final cutByPlan = window.length < alive.length;
         final target = cutByPlan ? share.clamp(1, counted.length) : share;
-        // Whole sessions only: a week is HELD once its target was met in
-        // full, and four halves are 2 of 4. A جزئي still holds its place in
-        // pass 1, which is what rests the days after it (scheduled 0); those
-        // keep a streak through isFullyDone like any rest day, so this list
-        // only ever speaks for days the record still has as due, and the
-        // half days themselves, never fully done, break it.
+        // A week is HELD once what it is worth reaches its target, halves
+        // adding up (Aziz, 2026-10-03): three whole sessions and two halves
+        // of a 4x week hold it, four halves alone are 2 of 4 and do not. The
+        // same worth pass 1 grades the week on (quotaWeekCredit), so the
+        // percentage and the streak cannot read one week two ways. It was
+        // whole sessions only, which left that week short here while pass 1
+        // was meant to count it full.
+        final countedWhole = <int>{
+          for (var p = 0; p < counted.length; p++)
+            if (isGreen(counted[p], id)) p,
+        };
+        final countedHalf = <int>{
+          for (var p = 0; p < counted.length; p++)
+            if (!countedWhole.contains(p) && isPartial(counted[p], id)) p,
+        };
+        final worth = quotaWeekCredit(
+          dayCount: counted.length,
+          doneDays: countedWhole,
+          halfDays: countedHalf,
+          target: target,
+        );
+        // Against the week's own target, never one clamped to the days so
+        // far: quotaWeekCredit caps what a week is worth at the days it
+        // holds, so a week in progress cannot reach a target it has not had
+        // the days for, exactly as with whole sessions alone.
         final credit = weeklyHabitCreditFor(
-          completions: counted.where((i) => isGreen(i, id)).length,
+          completions: worth >= target ? target : countedWhole.length,
           target: target,
           isWeekClosed: isQuotaWeekClosed(
             weekStart: entry.key,
@@ -5188,6 +5278,7 @@ class RoomsController {
     final dailyScheduled = <String, int>{...mineNow.dailyScheduledCount};
     final dailyRested = <String, int>{...mineNow.dailyRestedCount};
     final dailyPartial = <String, int>{...mineNow.dailyPartialCount};
+    final dailySharedHalf = <String, int>{...mineNow.dailySharedHalfCount};
     // Same seed-then-overwrite-the-window treatment as the counts they weigh.
     final dailyScheduledWeight = <String, double>{
       ...mineNow.dailyScheduledWeight,
@@ -5299,6 +5390,7 @@ class RoomsController {
         dailyScheduled.remove(dateKey);
         dailyRested.remove(dateKey);
         dailyPartial.remove(dateKey);
+        dailySharedHalf.remove(dateKey);
         dailyMarks.remove(dateKey);
         dailyScheduledWeight.remove(dateKey);
         dailyDoneWeight.remove(dateKey);
@@ -5424,6 +5516,23 @@ class RoomsController {
       } else {
         dailyPartial.remove(dateKey);
       }
+      // The shared halves among them, held the way the halves are: a settled
+      // day keeps what it already had, so a rule change can never pay a day
+      // the room had stopped watching. Never more than the halves themselves.
+      var sharedHalf = sharedHalfCount[dateKey]!;
+      if (isPastDay &&
+          !asksMoreThanBefore &&
+          !markedWhileOpen &&
+          mineNow.wasObservedOn(dateKey)) {
+        final alreadyShared = mineNow.dailySharedHalfCount[dateKey] ?? 0;
+        if (sharedHalf > alreadyShared) sharedHalf = alreadyShared;
+      }
+      if (sharedHalf > partial) sharedHalf = partial;
+      if (sharedHalf > 0) {
+        dailySharedHalf[dateKey] = sharedHalf;
+      } else {
+        dailySharedHalf.remove(dateKey);
+      }
       if (earned > 0) {
         dailyCounts[dateKey] = earned;
       } else {
@@ -5452,8 +5561,18 @@ class RoomsController {
       // Written only where it actually differs from the whole-habit numbers,
       // and the two are always written or dropped TOGETHER so one can never
       // fall back while the other does not.
-      final demandWeight = scheduledWeight[dateKey]!;
-      var creditWeight = doneWeight[dateKey]!;
+      // With the weekly share off, the only day whose weight differs from its
+      // counts is one carrying a shared half: it asks half a habit for each,
+      // where the counts say a whole one. The share's own spread is not
+      // written while it is off, so this is worked out from the counts here
+      // rather than read from scheduledWeight.
+      final sharedOnly = !kWeeklyShareEnabled && sharedHalf > 0;
+      final demandWeight = kWeeklyShareEnabled
+          ? scheduledWeight[dateKey]!
+          : scheduled - 0.5 * sharedHalf;
+      var creditWeight = kWeeklyShareEnabled
+          ? doneWeight[dateKey]!
+          : earned + partial * 0.5;
       // Only against a weight that was actually RECORDED. doneWeightFor falls
       // back to the whole-habit counts when the day has no stored weight, and
       // clamping a weighted number against that ceiling compares two
@@ -5479,7 +5598,8 @@ class RoomsController {
       );
       final plainDemand = scheduled.toDouble();
       final plainCredit = earned + partial * 0.5;
-      if (presentCount[dateKey]! > 0 &&
+      if ((kWeeklyShareEnabled || sharedOnly) &&
+          presentCount[dateKey]! > 0 &&
           ((demandWeight - plainDemand).abs() > 1e-9 ||
               (creditWeight - plainCredit).abs() > 1e-9)) {
         dailyScheduledWeight[dateKey] = demandWeight;
@@ -5556,8 +5676,11 @@ class RoomsController {
     final allDoneTodayUpdate = finishScheduled == null
         ? const <String, Object?>{}
         : <String, Object?>{
+            // A shared quota half is finished for its share, as
+            // isFullyDone reads it back.
             'allDoneToday': finishScheduled == 0 ||
-                doneCount[finishKey]! >= finishScheduled,
+                doneCount[finishKey]! + sharedHalfCount[finishKey]! >=
+                    finishScheduled,
             'allDoneDate': finishKey,
           };
     // The false/missing -> true edge, for *that day specifically* - checking
@@ -5601,6 +5724,13 @@ class RoomsController {
       'dailyScheduledCount': dailyScheduled,
       'dailyRestedCount': dailyRested,
       'dailyPartialCount': dailyPartial,
+      // Sparse: only a day holding a quota half that shares its week's place.
+      // See RoomParticipant.dailySharedHalfCount. Written only when there is
+      // one now or one to clear, so a document that never had a shared half
+      // stays exactly the document it was.
+      if (dailySharedHalf.isNotEmpty ||
+          mineNow.dailySharedHalfCount.isNotEmpty)
+        'dailySharedHalfCount': dailySharedHalf,
       // Sparse, like the marks: a plan with no flexible quota never writes a
       // weight, so most documents never gain these fields at all.
       //
@@ -5609,10 +5739,23 @@ class RoomsController {
       // REPLACES whatever is stored and clears a weight written by an earlier
       // build. That is what makes pausing the rollout self-healing rather
       // than leaving half the room weighted for good.
-      'dailyScheduledWeight':
-          kWeeklyShareEnabled ? dailyScheduledWeight : const <String, double>{},
-      'dailyDoneWeight':
-          kWeeklyShareEnabled ? dailyDoneWeight : const <String, double>{},
+      //
+      // With the share off it still carries one kind of day: a shared quota
+      // half's, which asks half a habit (weeklyQuotaSharedHalfDays). Only
+      // those keys go out, so a weight an earlier build wrote anywhere else is
+      // still cleared.
+      'dailyScheduledWeight': kWeeklyShareEnabled
+          ? dailyScheduledWeight
+          : {
+              for (final e in dailyScheduledWeight.entries)
+                if (dailySharedHalf.containsKey(e.key)) e.key: e.value,
+            },
+      'dailyDoneWeight': kWeeklyShareEnabled
+          ? dailyDoneWeight
+          : {
+              for (final e in dailyDoneWeight.entries)
+                if (dailySharedHalf.containsKey(e.key)) e.key: e.value,
+            },
       // Replaced whole like its siblings, so a day this pass dropped is gone
       // rather than kept stale. Display only; see RoomParticipant.
       // dailyHabitMarks.

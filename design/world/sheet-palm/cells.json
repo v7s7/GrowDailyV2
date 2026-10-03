@@ -1,0 +1,122 @@
+[
+ {
+  "name": "palm_shoot",
+  "cell": 1,
+  "size": [
+   158,
+   146
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_offshoot",
+  "cell": 2,
+  "size": [
+   194,
+   182
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_young",
+  "cell": 3,
+  "size": [
+   245,
+   250
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_medium",
+  "cell": 4,
+  "size": [
+   268,
+   297
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_tall",
+  "cell": 5,
+  "size": [
+   268,
+   353
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_lanterns",
+  "cell": 6,
+  "size": [
+   255,
+   359
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "dates_hababou",
+  "cell": 7,
+  "size": [
+   204,
+   282
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "dates_khalal",
+  "cell": 8,
+  "size": [
+   202,
+   277
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "dates_rutab",
+  "cell": 9,
+  "size": [
+   213,
+   273
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "dates_tamr",
+  "cell": 10,
+  "size": [
+   205,
+   279
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_crown",
+  "cell": 11,
+  "size": [
+   477,
+   271
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "palm_trunk",
+  "cell": 12,
+  "size": [
+   104,
+   216
+  ],
+  "pieces": 1,
+  "dropped": 0
+ }
+]

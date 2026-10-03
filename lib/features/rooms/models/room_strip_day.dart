@@ -214,8 +214,9 @@ bool roomStripMissIsFinal(
 ///    the slot, or two rules for it: the grader takes the week's first day's
 ///    rule and the habit each day held, and this cannot replay either;
 ///  * a rule that is not a weekly quota with a real target;
-///  * a week whose record already rests a day: the member's own phone has
-///    graded it closed, and its answer stands. It can differ from this one,
+///  * a week whose record already rests a day, unless its recorded sessions
+///    hold every place: the member's own phone has graded it closed, and its
+///    answer stands. It can differ from this one,
 ///    because the phone counts a square painted after its day closed as a
 ///    session (the anti-backdating clamp keeps that day's credit at 0, not
 ///    its place in the week), which the record cannot show. Perla's
@@ -257,30 +258,40 @@ DayDemand? roomStripQuotaDemandOn(
   }
   final at = present.indexOf(key);
   if (at < 0) return null;
-  if (present.any((k) => participant.recordedScheduledCountFor(k) == 0)) {
-    return null;
-  }
   final done = {
     for (var i = 0; i < present.length; i++)
       if ((participant.dailyDoneCount[present[i]] ?? 0) > 0) i,
   };
+  // A day holding a stored جزئي held one of the week's places, the way the
+  // grader counts it (weeklyQuotaScheduledDays): read as blank, two halves
+  // on Saturday and Sunday put the week's misses on Tuesday to Friday
+  // instead of Thursday and Friday.
+  final half = {
+    for (var i = 0; i < present.length; i++)
+      if (!done.contains(i) &&
+          (participant.dailyPartialCount[present[i]] ?? 0) > 0)
+        i,
+  };
+  // The week's own target, a short week's share at a room's start or end,
+  // as the grader asks it (RoomParticipant.quotaWeekTargetFor).
+  final target =
+      participant.quotaWeekTargetFor(habit, rule.frequencyTarget, room, day);
+  // Unless the recorded sessions already hold every place. Then the phone
+  // rests every other day of the week, whatever else it saw, and so does
+  // this: an empty day is owed only when the sessions before it and the
+  // days after it cannot reach the target, and here they always can. Such a
+  // week's days after the last sync read as rest in the record itself
+  // (RoomParticipant.recordedScheduledCountFor), and standing aside for
+  // that crossed out its other blank days.
+  if (done.length + half.length < target.clamp(1, present.length) &&
+      present.any((k) => participant.recordedScheduledCountFor(k) == 0)) {
+    return null;
+  }
   final demand = weeklyQuotaDemand(
     dayCount: present.length,
     doneDays: done,
-    // A day holding a stored جزئي held one of the week's places, the way the
-    // grader counts it (weeklyQuotaScheduledDays): read as blank, two halves
-    // on Saturday and Sunday put the week's misses on Tuesday to Friday
-    // instead of Thursday and Friday.
-    halfDays: {
-      for (var i = 0; i < present.length; i++)
-        if (!done.contains(i) &&
-            (participant.dailyPartialCount[present[i]] ?? 0) > 0)
-          i,
-    },
-    // The week's own target, a short week's share at a room's start or end,
-    // as the grader asks it (RoomParticipant.quotaWeekTargetFor).
-    target:
-        participant.quotaWeekTargetFor(habit, rule.frequencyTarget, room, day),
+    halfDays: half,
+    target: target,
   );
   return demand[at];
 }

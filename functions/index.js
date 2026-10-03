@@ -1171,6 +1171,22 @@ exports.roomsHealthSweep = onSchedule(
               continue;
             }
             undercounts++;
+            if (u.half) {
+              // Halves are the member's phone's to write: set_room_day.js
+              // writes whole counts only. Opening the room there regrades it.
+              logger.warn("roomsHealthSweep found a closed day whose stored " +
+                  "halves trail the member's جزئي squares", {
+                room: code,
+                name: room.name,
+                member: part.displayName || partDoc.id,
+                uid: partDoc.id,
+                day: u.day,
+                storedHalves: u.storedHalves,
+                realHalves: u.realHalves,
+                fix: "the member opens the room in the app",
+              });
+              continue;
+            }
             logger.warn("roomsHealthSweep found a closed day whose stored " +
                 "count trails the member's squares", {
               room: code,

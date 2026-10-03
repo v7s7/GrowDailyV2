@@ -51,7 +51,7 @@ void main() {
 
   HabitPattern pattern(String id, int completed, int scheduled) =>
       HabitPattern(id)
-        ..completed = completed
+        ..completed = completed.toDouble()
         ..scheduled = scheduled;
 
   Future<void> openSheet(
@@ -225,14 +225,14 @@ void main() {
 
   group('the count under the big percent', () {
     test('أيام after 3 to 10, يوم after the rest', () {
-      expect(ar.insightDetailRate(9, 9), '9 من 9 أيام');
-      expect(ar.insightDetailRate(0, 3), '0 من 3 أيام');
-      expect(ar.insightDetailRate(7, 10), '7 من 10 أيام');
-      expect(ar.insightDetailRate(3, 11), '3 من 11 يوم',
+      expect(ar.insightDetailRate('9', 9), '9 من 9 أيام');
+      expect(ar.insightDetailRate('0', 3), '0 من 3 أيام');
+      expect(ar.insightDetailRate('7', 10), '7 من 10 أيام');
+      expect(ar.insightDetailRate('3', 11), '3 من 11 يوم',
           reason: 'the screenshot line, which was already right');
-      expect(ar.insightDetailRate(20, 56), '20 من 56 يوم');
-      expect(ar.insightDetailRate(90, 103), '90 من 103 أيام');
-      expect(en.insightDetailRate(9, 9), '9 of 9 days');
+      expect(ar.insightDetailRate('20', 56), '20 من 56 يوم');
+      expect(ar.insightDetailRate('90', 103), '90 من 103 أيام');
+      expect(en.insightDetailRate('9', 9), '9 of 9 days');
     });
 
     testWidgets('on the sheet of a habit owed nine days', (tester) async {

@@ -99,7 +99,10 @@ test('diagnose_room.js reads an unsynced day after a removal the way the board d
   assert.match(SOURCE, /const unsynced = stored\.planInferred \?/);
   assert.match(SOURCE, /the record alone says \$\{stored\.recorded\}/);
   assert.match(SOURCE, /still open\$\{unsynced\}/);
-  const graded = SOURCE.match(/\} else \{\n\s+countsCell = `\$\{num\(credited\)\}\/\$\{stored\.scheduled\}` \+([\s\S]*?);\n/);
+  // `asked` is the stored count, or the weighted demand on a shared quota
+  // half's day (halves add up, 2026-10-03).
+  const graded = SOURCE.match(/\} else \{\n\s+countsCell = `\$\{num\(credited\)\}\/\$\{asked\}` \+([\s\S]*?);\n/);
+  assert.match(SOURCE, /const asked = weighted \? num\(demandW\) : stored\.scheduled;/);
   assert.ok(graded, 'the graded branch is still there');
   assert.match(graded[1], /unsynced/);
 });

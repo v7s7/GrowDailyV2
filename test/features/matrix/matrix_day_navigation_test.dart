@@ -133,6 +133,13 @@ void main() {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     }
     final notifier = container.read(matrixProvider.notifier);
+    // Let the load land first, then empty the board and seed it. Seeding
+    // before it landed used to make the load stand aside, which is what hid
+    // the tasks earlier tests had saved to the shared store; the load merges
+    // now (mergeLoadedTasks), so they would come back. Not by awaiting the
+    // box in setUp: an earlier test's save is still queued there, inside its
+    // fake-async zone, and never completes.
+    await tester.pump();
     notifier.deleteMany(
       container.read(matrixProvider).tasks.map((t) => t.id).toSet(),
     );

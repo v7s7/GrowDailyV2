@@ -203,13 +203,22 @@ test('a جزئي is a session holding a place at half credit (2026-09-26)', () =
   // Two whole and two halves: 3 of 4.
   assert.equal(
     R.quotaWeekCredit({ dayCount: 7, doneDays: [0, 1], halfDays: [2, 3], target: 4 }), 3);
-  // Three whole and two halves: the earlier half keeps the last place.
+  // Three whole and two halves add up (2026-10-03, "3 + 0.5 + 0.5 = 4"):
+  // both halves count, sharing the place the wholes left.
   assert.deepEqual(
     [...R.quotaWeekPlaces({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 })]
       .sort(),
-    [0, 2, 3, 4]);
+    [0, 1, 2, 3, 4]);
+  assert.deepEqual(
+    [...R.quotaWeekSharedHalves({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 })]
+      .sort(),
+    [0, 1]);
   assert.equal(
-    R.quotaWeekCredit({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 }), 3.5);
+    R.quotaWeekCredit({ dayCount: 7, doneDays: [2, 3, 4], halfDays: [0, 1], target: 4 }), 4);
+  // Aziz's own 26 September: W W - half half W -, 4 of 4, the 30th not a rest.
+  assert.deepEqual(
+    R.weeklyQuotaDemand({ dayCount: 7, doneDays: [0, 1, 5], halfDays: [3, 4], target: 4 }),
+    ['done', 'done', 'spare', 'half', 'half', 'done', 'earned']);
   // No halves: exactly the old answer.
   assert.deepEqual(
     R.weeklyQuotaDemand({ dayCount: 7, doneDays: [1, 3], target: 3 }),
@@ -737,6 +746,54 @@ test('a met quota week keeps its own excuse over the plan inference', () => {
   assert.equal(unmet.planInferred, true);
 });
 
+test('a week whose recorded sessions hold every place rests the days no '
+  + 'phone has graded, met or not', () => {
+  // Two whole sessions and two halves of a 4x week: every place held, worth
+  // 3, so the week never reaches quotaOkWeeks. The phone rests the rest of
+  // it the moment the fourth lands (weeklyQuotaScheduledDays), and the
+  // app's record now says so too (RoomParticipant._quotaWeekPlacesHeld).
+  const room = {
+    habitMode: 'shared',
+    sharedHabits: [{ name: 'تمرين', frequencyType: 'weekly', frequencyTarget: 4 }],
+  };
+  const part = {
+    joinedAt: new Date('2026-09-18T21:00:00Z'),
+    linkedHabitIds: ['gym'],
+    habitRules: {
+      gym: [{ from: '2026-09-19', frequencyType: 'weekly', frequencyTarget: 4 }],
+    },
+    dailyDoneCount: { '2026-09-19': 1, '2026-09-20': 1 },
+    dailyPartialCount: { '2026-09-21': 1, '2026-09-22': 1 },
+    quotaOkWeeks: [],
+    lastSyncedAt: new Date('2026-09-22T18:00:00Z'),
+  };
+  for (const dayKey of ['2026-09-23', '2026-09-24', '2026-09-25']) {
+    assert.equal(R.quotaWeekPlacesHeld({ room, participant: part, dayKey }), true, dayKey);
+    assert.equal(R.storedScheduledOn({ room, participant: part, dayKey, offsetMinutes: 180 }), 0, dayKey);
+  }
+  // Three sessions are not every place: still due.
+  const short = { ...part, dailyPartialCount: { '2026-09-21': 1 } };
+  assert.equal(R.storedScheduledOn({ room, participant: short, dayKey: '2026-09-23', offsetMinutes: 180 }), 1);
+  // A second habit in the plan: dailyDoneCount cannot say whose sessions.
+  const two = {
+    ...part,
+    linkedHabitIds: ['gym', 'run'],
+    habitRules: { ...part.habitRules, run: part.habitRules.gym },
+  };
+  const twoRoom = { ...room, sharedHabits: [room.sharedHabits[0], room.sharedHabits[0]] };
+  assert.equal(R.quotaWeekPlacesHeld({ room: twoRoom, participant: two, dayKey: '2026-09-23' }), false);
+});
+
+test('the places-held rest asks what the app asks', () => {
+  const dart = DART('features', 'rooms', 'models', 'room_model.dart');
+  assert.match(dart, /\(quotaWeekWasMet\(dateKey\) \|\| _quotaWeekPlacesHeld\(dateKey\)\)/);
+  const body = dart.match(/bool _quotaWeekPlacesHeld\(String dateKey, \{RoomModel\? room\}\) \{([\s\S]*?)\n  \}\n/);
+  assert.ok(body, 'RoomParticipant._quotaWeekPlacesHeld is still there');
+  assert.match(body[1], /if \(habits\.length != 1\) return false;/);
+  assert.match(body[1], /if \(isStoodDownOn\(k\)\) continue;/);
+  assert.match(body[1], /return sessions >= rule\.frequencyTarget;/);
+});
+
 test('a stretch out of the plan (offSpans) is inferred the same way', () => {
   const room = removedHabitRoom();
   room.sharedHabits = room.sharedHabits.map(({ removedAt, stopsOn, ...t }) => t);
@@ -812,8 +869,15 @@ test('a removed daily habit no longer keeps a met quota week from resting '
       room.sharedHabits[1]],
   };
   assert.equal(at('2026-07-23', part, unedited), 2);
-  // A week not met is owed as before.
-  assert.equal(at('2026-07-23', { ...part, quotaOkWeeks: ['2026-07-11'] }), 2);
+  // A week not met is owed as before, unless its sessions hold every place
+  // (the phone rests the rest of the week then, met or not).
+  const threeDone = {
+    ...part,
+    quotaOkWeeks: ['2026-07-11'],
+    dailyDoneCount: { '2026-07-18': 1, '2026-07-19': 1, '2026-07-20': 1 },
+  };
+  assert.equal(at('2026-07-23', threeDone), 2);
+  assert.equal(at('2026-07-23', { ...part, quotaOkWeeks: ['2026-07-11'] }), 0);
   // A day a sync observed keeps the fallback: the arm is for unseen days.
   assert.equal(
     at('2026-07-23', { ...part, lastSyncedAt: new Date('2026-07-25T08:00:00Z') }),
@@ -886,4 +950,33 @@ test('the repair never writes a key on a met week\'s blank day the removal '
   });
   assert.equal(plan.action, 'keep');
   assert.equal(plan.reads, 0);
+});
+
+test('every quota week is exact: asked equals the target, given equals its worth', () => {
+  // The same property the app proves in weekly_quota_plan_test.dart, so this
+  // copy cannot drift from it: places ask a day each (half a day for a shared
+  // half), owed empty days a day each, and together that is the target;
+  // whole sessions plus half of every half, capped, is what the week gives.
+  for (let target = 1; target <= 7; target++) {
+    for (let code = 0; code < 3 ** 7; code++) {
+      const done = [];
+      const half = [];
+      let c = code;
+      for (let i = 0; i < 7; i++) {
+        const v = c % 3;
+        c = Math.floor(c / 3);
+        if (v === 1) done.push(i);
+        if (v === 2) half.push(i);
+      }
+      const args = { dayCount: 7, doneDays: done, halfDays: half, target };
+      const demand = R.weeklyQuotaDemand(args);
+      const places = R.quotaWeekPlaces(args);
+      const shared = R.quotaWeekSharedHalves(args);
+      let asked = demand.filter((d) => d === 'owed').length;
+      for (const i of places) asked += shared.has(i) ? 0.5 : 1;
+      assert.equal(asked, target, `target ${target}, code ${code}`);
+      const worth = Math.min(target, Math.min(done.length, target) + 0.5 * half.length);
+      assert.equal(R.quotaWeekCredit(args), worth, `target ${target}, code ${code}`);
+    }
+  }
 });

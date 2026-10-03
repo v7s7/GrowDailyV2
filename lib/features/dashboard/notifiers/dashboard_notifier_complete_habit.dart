@@ -216,6 +216,10 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
     // GameConstants.habitStreakBonuses' thresholds — see below.
     HabitMilestoneEvent? newHabitMilestoneEvent;
     int habitMilestoneBonusXp = 0;
+    // This habit's held run (see [HeldHabitStreak]) before and after this
+    // tap. Only the day's first tap touches it, like every per-habit field.
+    final heldBefore = state.heldHabitStreaks[habitId];
+    var heldAfter = heldBefore;
     if (current == 0) {
       final lastKey = state.habitLastCompletedDate[habitId];
       final last = lastKey == null ? null : DateTime.tryParse(lastKey);
@@ -227,26 +231,48 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       // was. See scheduledGap.
       // Each day between by the schedule it had then, when the caller knows
       // it: a habit made daily on Wednesday still rested last Tuesday.
-      final gap = last == null
-          ? null
-          : runsOn != null
-              ? scheduledGapBy(
-                  last: DashboardNotifier._dateOnly(last),
-                  day: markDay,
-                  runsOn: runsOn,
-                )
-              : scheduledGap(
-                  last: DashboardNotifier._dateOnly(last),
-                  day: markDay,
-                  weekdays: scheduledWeekdays,
-                );
+      int gapBetween(DateTime from, DateTime to) => runsOn != null
+          ? scheduledGapBy(last: from, day: to, runsOn: runsOn)
+          : scheduledGap(last: from, day: to, weekdays: scheduledWeekdays);
+      final lastDay = last == null ? null : DashboardNotifier._dateOnly(last);
+      final gap = lastDay == null ? null : gapBetween(lastDay, markDay);
       final prevStreak = state.habitStreakCounts[habitId] ?? 0;
       // Only a completion on the very next day the habit runs continues the
       // streak; a gap of 2+, or no prior completion at all, restarts it at
       // 1. A gap of zero is reachable and used to be destructive — see
       // [nextHabitStreak], which owns the whole rule now so it can be tested.
-      final newHabitStreak =
+      //
+      // A NEGATIVE gap is yesterday being marked after today already was,
+      // and it has its own rule: it can only lengthen the run that ends
+      // today, joining back the run today's tap cut off when yesterday was
+      // the one day missing. See [habitStreakForEarlierDay]. It used to go
+      // through nextHabitStreak like any other non-1 gap and restart the
+      // streak at 1, so ticking the Fajr habit before last night's turned a
+      // long streak into a 1 for good.
+      final earlier = gap != null && gap < 0
+          ? habitStreakForEarlierDay(
+              day: markDay,
+              last: lastDay!,
+              currentStreak: prevStreak,
+              held: heldBefore,
+              gapBetween: gapBetween,
+            )
+          : null;
+      final newHabitStreak = earlier?.streak ??
           nextHabitStreak(gapDays: gap, previousStreak: prevStreak);
+      // A restart on TODAY with yesterday the only day missing keeps the run
+      // it cut off, so marking yesterday before it closes can join them.
+      // Every other first tap of the habit drops a held run: either it was
+      // just joined, or it is stale.
+      heldAfter = !isGraceDay && earlier == null
+          ? heldStreakForOpenYesterday(
+              day: markDay,
+              last: lastDay,
+              previousStreak: prevStreak,
+              yesterdayOpen: dayPlus(markDay, -1).isOpenDayAt(_clock()),
+              gapBetween: gapBetween,
+            )
+          : null;
       newHabitStreakCounts[habitId] = newHabitStreak;
       final prevLongest = state.habitLongestStreaks[habitId] ?? 0;
       newHabitLongestStreaks[habitId] =
@@ -268,20 +294,36 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       //
       // Skipped when the streak did not actually advance — see
       // [habitStreakAdvanced] for the one case that is and why paying its
-      // bonus again would be paying twice for one day.
-      final habitBonus = habitStreakAdvanced(gap)
-          ? GameConstants.habitStreakBonuses[newHabitStreak]
-          : null;
+      // bonus again would be paying twice for one day. Yesterday marked
+      // after today can move the streak by more than one, so it pays
+      // whatever the move newly crosses rather than an exact landing; what
+      // either run already passed was paid when it passed it.
+      final habitBonus = earlier != null
+          ? habitMilestoneCrossed(
+              from: earlier.alreadyPaidThrough,
+              to: newHabitStreak,
+            )
+          : habitStreakAdvanced(gap)
+              ? switch (GameConstants.habitStreakBonuses[newHabitStreak]) {
+                  final int bonus => (milestone: newHabitStreak, bonusXp: bonus),
+                  null => null,
+                }
+              : null;
       if (habitBonus != null) {
-        habitMilestoneBonusXp = habitBonus;
+        habitMilestoneBonusXp = habitBonus.bonusXp;
         newHabitMilestoneEvent = HabitMilestoneEvent(
           habitId: habitId,
           habitName: habitName ?? habitId,
-          milestone: newHabitStreak,
-          bonusXp: habitBonus,
+          milestone: habitBonus.milestone,
+          bonusXp: habitBonus.bonusXp,
         );
       }
     }
+    final newHeldHabitStreaks = heldAfter == heldBefore
+        ? null
+        : heldAfter == null
+            ? ({...state.heldHabitStreaks}..remove(habitId))
+            : {...state.heldHabitStreaks, habitId: heldAfter};
 
     // ── Surprise bonus ───────────────────────────────────────────
     //
@@ -319,6 +361,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
         prevLongest: state.habitLongestStreaks[habitId] ?? 0,
         prevTotal: state.habitTotalCompletions[habitId] ?? 0,
         prevLastCompletedDate: state.habitLastCompletedDate[habitId],
+        prevHeld: heldBefore,
         bonusXp: habitMilestoneBonusXp + surpriseBonusXp,
         bonusGold: surpriseBonusGold,
       );
@@ -659,6 +702,7 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      heldHabitStreaks: newHeldHabitStreaks,
       // A grace day's board is not the one on screen, so its counts must not
       // land in `state`. perfectDayCelebration is the exact completion that
       // finished the list, the same justReachedAllDone moment that earns the
@@ -864,6 +908,13 @@ extension DashboardNotifierCompleteHabit on DashboardNotifier {
           'habitLongestStreaks': newHabitLongestStreaks,
           'habitTotalCompletions': newHabitTotalCompletions,
           'habitLastCompletedDate': newHabitLastCompletedDate,
+          // One nested key, written only when this tap changed it: a held run
+          // kept, or one spent or dropped (FieldValue.delete inside the
+          // wrapped map, see habitCompletionDelta for why never bare).
+          if (newHeldHabitStreaks != null)
+            'heldHabitStreaks': {
+              habitId: heldAfter?.toJson() ?? FieldValue.delete(),
+            },
           // Same fields Grid's own applyGridSquareChange writes — no new
           // schema, just a second writer here. Unconditional (every
           // completion, not just isGridSyncable ones — see the doc

@@ -1,0 +1,122 @@
+[
+ {
+  "name": "water_arc",
+  "cell": 1,
+  "size": [
+   301,
+   241
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "drops",
+  "cell": 2,
+  "size": [
+   236,
+   246
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "splash",
+  "cell": 3,
+  "size": [
+   268,
+   212
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "soil_puff",
+  "cell": 4,
+  "size": [
+   267,
+   234
+  ],
+  "pieces": 6,
+  "dropped": 0
+ },
+ {
+  "name": "sparkle",
+  "cell": 5,
+  "size": [
+   238,
+   233
+  ],
+  "pieces": 4,
+  "dropped": 0
+ },
+ {
+  "name": "ripple",
+  "cell": 6,
+  "size": [
+   325,
+   162
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "pearl",
+  "cell": 7,
+  "size": [
+   175,
+   175
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "shell_pearl",
+  "cell": 8,
+  "size": [
+   250,
+   262
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "harvest_basket",
+  "cell": 9,
+  "size": [
+   328,
+   295
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "canopy",
+  "cell": 10,
+  "size": [
+   322,
+   289
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "trunk",
+  "cell": 11,
+  "size": [
+   290,
+   292
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "flower_head",
+  "cell": 12,
+  "size": [
+   284,
+   263
+  ],
+  "pieces": 1,
+  "dropped": 0
+ }
+]

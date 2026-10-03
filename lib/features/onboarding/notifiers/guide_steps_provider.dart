@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/providers/app_guide_provider.dart';
+import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider;
@@ -50,9 +51,13 @@ final guideStepsProvider = Provider<List<GuideStep>>((ref) {
       ref.watch(myRoomCodesProvider).asData?.value.isNotEmpty ?? false;
   return [
     GuideStep(AppGuideLesson.addHabit, habits.isNotEmpty),
-    // cumulativeXp, not a green-square count: any coloured square earns XP,
-    // and the lesson is "a square responds to you", not "get it green".
-    GuideStep(AppGuideLesson.colorSquare, dash.cumulativeXp > 0),
+    // A habit mark, not XP. This read cumulativeXp > 0, on the reasoning
+    // that any coloured square earns XP, which is true, but XP is not only
+    // earned on squares: a finished task pays it, and so do the tasbih and a
+    // room's bonus. So somebody who added a task and ticked it off before
+    // ever touching the board saw «لوّن مربّع اليوم» ticked, and the one step
+    // that teaches what the app IS was skipped for them. See habitMarkCount.
+    GuideStep(AppGuideLesson.colorSquare, habitMarkCount(dash) > 0),
     GuideStep(AppGuideLesson.addTask, matrixState.tasks.isNotEmpty),
     // Rooms is the one step with no single source of truth. A guest cannot
     // join at all and a signed-in person may look without joining, so the
@@ -96,13 +101,47 @@ AppGuideLesson? guideStepAfter(List<GuideStep> steps, AppGuideLesson lesson) {
   return null;
 }
 
-/// Which tab a lesson's target lives on: 0 Grid, 1 Profile, 2 Tasks.
+/// Every mark this account has put on a habit: finished habit-days, green
+/// squares (a past day's square counts here and nowhere else), and today's
+/// and the still-open yesterday's taps, which is where a habit counted
+/// several times a day shows its first tap before the day is finished.
 ///
-/// Duplicated deliberately from startGuideLesson's own switch rather than
-/// shared, because that one also has side effects (it WRITES the tab). This
-/// is a pure question, and the chain needs to ask it without answering it.
-int guideLessonTab(AppGuideLesson lesson) => switch (lesson) {
-      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => 0,
-      AppGuideLesson.discoverRooms => 1,
-      AppGuideLesson.addTask => 2,
+/// What «لوّن مربّع اليوم» means by done, and what the Grid listens to for
+/// the lesson's own end. Habit-only on purpose: XP, which this used to be,
+/// also comes from tasks, the tasbih and rooms.
+///
+/// [withYesterday] false for that listener. Yesterday's counts are read in
+/// AFTER a load says it has finished (readGraceDay runs once the loaded
+/// state is set), so between midnight and the 10:00 cutoff a reload would
+/// look like a tap and end a lesson nobody had finished. The lesson circles
+/// today's square anyway; a tap on yesterday's is outside its ring.
+int habitMarkCount(DashboardState d, {bool withYesterday = true}) =>
+    d.totalCompletions +
+    d.totalGreenSquares +
+    d.completions.values.fold<int>(0, (a, b) => a + b) +
+    (withYesterday
+        ? d.graceCompletions.values.fold<int>(0, (a, b) => a + b)
+        : 0);
+
+/// The page a lesson's target lives on.
+///
+/// By [NavTab], not by position: the bar is customisable, so a position
+/// says nothing about which page is showing. startGuideLesson asks for
+/// this page, the chain compares two lessons' pages, and HomeShell ends a
+/// lesson whose page has been left (see [guideLessonLivesOn]). One answer
+/// for all three, so they cannot disagree about where a lesson is.
+NavTab guideLessonTab(AppGuideLesson lesson) => switch (lesson) {
+      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => NavTab.grid,
+      AppGuideLesson.discoverRooms => NavTab.profile,
+      AppGuideLesson.addTask => NavTab.matrix,
     };
+
+/// Whether [tab] showing keeps [lesson] going.
+///
+/// Its own page, and for the Rooms lesson the Rooms page too: that lesson
+/// starts on Profile's Rooms row and finishes on the Rooms page's Create
+/// and Join buttons, and somebody with Rooms in their bar who answers it by
+/// tapping that tab has done exactly what it asked.
+bool guideLessonLivesOn(AppGuideLesson lesson, NavTab tab) =>
+    guideLessonTab(lesson) == tab ||
+    (lesson == AppGuideLesson.discoverRooms && tab == NavTab.rooms);

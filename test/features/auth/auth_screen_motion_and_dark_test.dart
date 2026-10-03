@@ -20,7 +20,7 @@ import '../../helpers/landing_harness.dart';
 /// already be where it will finish, while a normal build must not be.
 ///
 /// The language picker used to be tested here too. It no longer exists: the
-/// app now opens in the phone's own language and offers a LanguageToggle on
+/// app now opens in the phone's own language and offers its language squares on
 /// this screen instead, so there is no picker left to keep calm.
 ///
 /// DARK MODE. The signed-out screen was only ever looked at in light during

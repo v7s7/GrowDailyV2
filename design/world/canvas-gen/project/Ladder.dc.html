@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The growth ladder</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 56px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 1000px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">The growth ladder</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">One new thing every level</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">Levels 1 to 35 each add one thing. After that a level takes weeks, so the great tree takes over and grows every 5 levels, to 100. The chapters follow the ranks the app already has, so a rank-up and a new chapter land on the same day. Everything is built from the highest level ever reached.</p>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 34px; font-weight: 700; color: #2F6B3A;">1 week</div><div style="font-size: 15px; color: #45574B;">to level 5: a well, then a palm shoot</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 34px; font-weight: 700; color: #2F6B3A;">1 month</div><div style="font-size: 15px; color: #45574B;">to level 10: the first fruit tree</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 34px; font-weight: 700; color: #2F6B3A;">4 months</div><div style="font-size: 15px; color: #45574B;">to level 20: the sea arrives</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 6px;"><div style="font-size: 34px; font-weight: 700; color: #2F6B3A;">1 year</div><div style="font-size: 15px; color: #45574B;">to level 35: the great tree</div></div>
+</section>
+<p style="margin: -36px 0 0; font-size: 14px; line-height: 1.5; color: #6B7A6F;">Paced for about 6 habits a day, roughly 150 XP. The curve is the app’s own: level n needs n × 100 XP, so level 35 is 59,500 XP in all and level 100 is 495,000.</p>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(310px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{chapters}}" as="c" hint-placeholder-count="8">
+<article style="background: #FFFFFF; border-radius: 20px; padding: 18px 18px 22px; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; justify-content: center;">
+<dc-import name="Planet" level="{{c.lv}}" medals="{{c.medals}}" pearls="{{c.pearls}}" size="250" pose="wave" hint-size="250px,278px"></dc-import>
+</div>
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+<h2 style="margin: 0; font-size: 20px; font-weight: 700;">{{c.title}}</h2>
+<span style="font-size: 13px; font-weight: 600; color: #3F7A4A;">{{c.when}}</span>
+</div>
+<div style="font-size: 13px; color: #6B7A6F;">{{c.rank}}</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<sc-for list="{{c.items}}" as="i" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; font-size: 15px; line-height: 1.35;">
+<span style="font-weight: 700; color: #2F6B3A;">{{i.l}}</span>
+<span style="color: #45574B;">{{i.en}}</span>
+<span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif; font-weight: 600; color: #23352A;">{{i.ar}}</span>
+</div>
+</sc-for>
+</div>
+</article>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 20px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">Medal flowers: the family picks the flower</h2>
+<p style="margin: 0; font-size: 17px; line-height: 1.5; color: #45574B; max-width: 980px;">Every one of the 20 medals plants one flower in the grass, the day it is earned. Five families, five kinds, four of each: a set people like to finish. Tap a flower on the planet to see its medal and the date.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; gap: 16px; align-items: center;">
+<svg width="44" height="56" viewBox="-8 -16 16 18" aria-hidden="true" stroke="#1E3A24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-7" fill="none" stroke-width="1.3"></path><g transform="translate(0 -9)"><ellipse cx="0" cy="2.4" rx="1.9" ry="1.5" fill="#9C8AD0" stroke-width="0.8"></ellipse><ellipse cx="0" cy="0" rx="1.9" ry="1.5" fill="#9C8AD0" stroke-width="0.8"></ellipse><ellipse cx="0" cy="-2.4" rx="1.9" ry="1.5" fill="#9C8AD0" stroke-width="0.8"></ellipse><ellipse cx="0" cy="-4.6" rx="1.9" ry="1.5" fill="#9C8AD0" stroke-width="0.8"></ellipse></g></svg>
+<div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 17px; font-weight: 700;">Lavender <span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif;">خزامى</span></div><div style="font-size: 14px; line-height: 1.45; color: #45574B;">Grid medals «الشبكة»: 1, 100, 500, 2,000 done squares</div></div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; gap: 16px; align-items: center;">
+<svg width="44" height="56" viewBox="-8 -16 16 18" aria-hidden="true" stroke="#1E3A24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-7" fill="none" stroke-width="1.3"></path><g transform="translate(0 -9)"><circle cx="0" cy="0" r="4.2" fill="#F2C14E" stroke-width="1"></circle><circle cx="0" cy="0" r="1.9" fill="#8B5E3C" stroke-width="0.8"></circle></g></svg>
+<div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 17px; font-weight: 700;">Sunflower <span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif;">دوار الشمس</span></div><div style="font-size: 14px; line-height: 1.45; color: #45574B;">Streak medals «بدون انقطاع»: 7, 30, 100, 365 days</div></div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; gap: 16px; align-items: center;">
+<svg width="44" height="56" viewBox="-8 -16 16 18" aria-hidden="true" stroke="#1E3A24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-7" fill="none" stroke-width="1.3"></path><g transform="translate(0 -9)"><ellipse cx="0" cy="-2.6" rx="1.7" ry="1.7" fill="#FFFFFF" stroke-width="0.8"></ellipse><ellipse cx="2.5" cy="-0.8" rx="1.7" ry="1.7" fill="#FFFFFF" stroke-width="0.8"></ellipse><ellipse cx="1.5" cy="2.1" rx="1.7" ry="1.7" fill="#FFFFFF" stroke-width="0.8"></ellipse><ellipse cx="-1.5" cy="2.1" rx="1.7" ry="1.7" fill="#FFFFFF" stroke-width="0.8"></ellipse><ellipse cx="-2.5" cy="-0.8" rx="1.7" ry="1.7" fill="#FFFFFF" stroke-width="0.8"></ellipse><circle cx="0" cy="0" r="1.4" fill="#F2C14E" stroke-width="0.6"></circle></g></svg>
+<div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 17px; font-weight: 700;">Daisy <span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif;">أقحوان</span></div><div style="font-size: 14px; line-height: 1.45; color: #45574B;">Completion medals «الثبات»: 50, 500, 2,000, 5,000</div></div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; gap: 16px; align-items: center;">
+<svg width="44" height="56" viewBox="-8 -16 16 18" aria-hidden="true" stroke="#1E3A24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-7" fill="none" stroke-width="1.3"></path><g transform="translate(0 -9)"><path d="M-3.2 -2.6 L-1.6 -0.6 L0 -3 L1.6 -0.6 L3.2 -2.6 C3.4 2 1.6 3.2 0 3.2 C-1.6 3.2 -3.4 2 -3.2 -2.6 Z" fill="#E8708A" stroke-width="1"></path></g></svg>
+<div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 17px; font-weight: 700;">Tulip <span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif;">توليب</span></div><div style="font-size: 14px; line-height: 1.45; color: #45574B;">Level medals «الصعود»: levels 10, 25, 50, 100</div></div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; gap: 16px; align-items: center;">
+<svg width="44" height="56" viewBox="-8 -16 16 18" aria-hidden="true" stroke="#1E3A24" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0 V-7" fill="none" stroke-width="1.3"></path><g transform="translate(0 -9)"><circle cx="0" cy="0" r="3.4" fill="#E39BB0" stroke-width="1"></circle><path d="M-1.2 0 A1.2 1.2 0 1 1 1.2 0" fill="none" stroke-width="0.7"></path></g></svg>
+<div style="display: flex; flex-direction: column; gap: 4px;"><div style="font-size: 17px; font-weight: 700;">Wild rose <span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif;">ورد بري</span></div><div style="font-size: 14px; line-height: 1.45; color: #45574B;">Long-breath medals «النَفَس الطويل»: 150, 200, 250, 300 days</div></div>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 20px; padding: 24px 26px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+<dc-import name="Planet" level="26" medals="10" pearls="6" size="190" pose="wave" hint-size="190px,211px"></dc-import>
+<div style="display: flex; flex-direction: column; gap: 10px; flex: 1 1 200px; min-width: 0;">
+<h2 style="margin: 0; font-size: 24px; font-weight: 700;">Pearls: a week in a row</h2>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;">Each time the streak reaches 7, 14, 21 and on, a pearl lands in the sea: a nod to the old pearling days. Today the app logs this week as a milestone and shows it only in the monthly story. Before level 20 there is no sea yet, so pearls wait in a shell by the well and pour in when it comes.</div>
+</div>
+</div>
+<div style="background: #FFFFFF; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 24px; font-weight: 700;">It changes even when nothing grows</h2>
+<div style="display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px 14px; font-size: 15px; line-height: 1.45;">
+<div style="font-weight: 600;">Night</div><div style="color: #45574B;">Doum’s own hours from the admin page: asleep after 21:00, awake at 4:00. Stars, the moon, lanterns glowing.</div>
+<div style="font-weight: 600;">Ramadan</div><div style="color: #45574B;">A crescent every night and Doum with his fanous. No food poses by day (rule 4). Ramadan 1448 starts about 8 February 2027.</div>
+<div style="font-weight: 600;">Eid</div><div style="color: #45574B;">Lights strung between the palm and the house, his Eid thobe.</div>
+<div style="font-weight: 600;">Winter</div><div style="color: #45574B;">December to February: a cooler sky and his fireside looks, like the splash.</div>
+<div style="font-weight: 600;">Summer</div><div style="color: #45574B;">June to August: a bigger sun, and the dates ripen.</div>
+</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":3300}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const it = (l, en, ar) => ({ l: String(l), en, ar });
+    return {
+      chapters: [
+        { lv: 4, medals: 1, pearls: 0, title: 'Levels 1 to 4', when: 'day 1', rank: 'with the first rank, «الباحث»', items: [
+          it(1, 'Sprouts around Doum', 'بذور حول دوم'), it(2, 'The grass spreads', 'العشب يمتد'), it(3, 'Stepping stones', 'ممر حجر'), it(4, 'First flowers', 'أول زهور') ] },
+        { lv: 9, medals: 2, pearls: 0, title: 'Levels 5 to 9', when: 'about a week in', rank: 'rank «الملتزم» at 5', items: [
+          it(5, 'A well', 'بئر'), it(6, 'A palm shoot', 'فسيلة نخل'), it(7, 'A kite', 'طيارة ورق'), it(8, 'A jasmine bush', 'شجيرة فل'), it(9, 'A vegetable bed', 'حوض خضار') ] },
+        { lv: 14, medals: 4, pearls: 0, title: 'Levels 10 to 14', when: 'about a month in', rank: 'rank «المجتهد» at 10', items: [
+          it(10, 'A lemon tree', 'شجرة ليمون'), it(11, 'A spring', 'عين ماء'), it(12, 'A basket of lemons', 'سلة ليمون'), it(13, 'A rose bush', 'شجيرة ورد'), it(14, 'A pomegranate tree', 'شجرة رمان') ] },
+        { lv: 19, medals: 6, pearls: 0, title: 'Levels 15 to 19', when: 'about 10 weeks in', rank: 'rank «المثابر» at 15', items: [
+          it(15, 'Doum’s house', 'بيت دوم'), it(16, 'A wind tower', 'برجيل'), it(17, 'Lanterns, lit at night', 'فوانيس'), it(18, 'A sidr tree', 'سدرة'), it(19, 'A beehive', 'خلية نحل') ] },
+        { lv: 34, medals: 11, pearls: 5, title: 'Levels 20 to 34', when: 'about 4 months in', rank: 'rank «الثابت» at 20', items: [
+          it(20, 'The sea', 'البحر'), it(21, 'The palm grows tall', 'النخلة تكبر'), it(22, 'A boat', 'قارب'), it(23, 'Dates on the palm', 'رطب'), it(24, 'A telescope by the well', 'منظار'),
+          it(25, 'A palm grove', 'نخيل'), it(26, 'A moon', 'قمر'), it(27, 'A cloud that rains when you water', 'غيمة'), it(28, 'A swing on the sidr', 'مرجيحة'), it(29, 'The bed becomes a small farm', 'مزرعة'),
+          it(30, 'Stars at night', 'نجوم'), it(31, 'A grape vine on the house', 'عريشة عنب'), it(32, 'A bench by the house', 'كرسي خشب'), it(33, 'A rose arch over the spring', 'قوس ورد'), it(34, 'A falaj, a little water channel', 'فلج') ] },
+        { lv: 49, medals: 14, pearls: 6, title: 'Levels 35 to 49', when: 'about a year in', rank: 'rank «المنجز» at 35', items: [
+          it(35, 'The great tree, behind Doum', 'الشجرة الكبيرة'), it(40, 'The great tree grows', 'الشجرة تكبر'), it(45, 'The great tree grows', 'الشجرة تكبر') ] },
+        { lv: 74, medals: 17, pearls: 6, title: 'Levels 50 to 74', when: 'about 2 years in', rank: 'rank «المتميز» at 50', items: [
+          it(50, 'The great tree grows', 'الشجرة تكبر'), it(60, 'The great tree grows', 'الشجرة تكبر'), it(70, 'The great tree grows', 'الشجرة تكبر') ] },
+        { lv: 100, medals: 20, pearls: 6, title: 'Levels 75 to 100', when: 'years in', rank: 'ranks «المكرَّم» at 75 and «الإرث» at 100', items: [
+          it(75, 'Blossom on the great tree', 'زهر على الشجرة'), it(80, 'The great tree grows', 'الشجرة تكبر'), it(90, 'The great tree grows', 'الشجرة تكبر'), it(100, 'A ring of light round the planet', 'حلقة نور') ] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

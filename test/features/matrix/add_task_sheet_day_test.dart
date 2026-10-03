@@ -9,6 +9,7 @@
 // Days come from the real clock and sit a few days ahead, so the hour the
 // suite runs at cannot matter; the pure carry rule is pinned with fixed
 // dates.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -110,6 +111,7 @@ void main() {
                       voiceNotes,
                       reminderAts,
                       reminderAnchorAt,
+                      reminderPrayer,
                       alarm,
                       required day,
                     }) =>
@@ -244,6 +246,69 @@ void main() {
 
     // No "find it under All" line any more.
     expect(find.textContaining('«الكل»'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('taps while the permission ask is out add ONE task',
+      (tester) async {
+    // The ask is a platform round trip. While it was out the text stayed in
+    // the field and the button stayed live, so every extra tap, and the
+    // keyboard's Done, ran its own submit and added its own copy.
+    final ask = Completer<bool>();
+    addTaskPermissionAsk = () => ask.future;
+    final day = inDays(4);
+    await open(tester, day: day);
+
+    await openWheel(tester);
+    await wheelDone(tester);
+    await tester.enterText(find.byType(TextField).first, 'اتصل بالمكتب');
+    await tester.pump();
+
+    for (var i = 0; i < 3; i++) {
+      await tester.tap(find.text(ar.matrixAddTask));
+      await tester.pump();
+    }
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(added, isEmpty, reason: 'nothing is added before the ask answers');
+
+    ask.complete(true);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(added, hasLength(1));
+    expect(added.single.title, 'اتصل بالمكتب');
+
+    // The sheet is still usable: the next task adds normally.
+    await typeAndEnter(tester, 'اشتر حليب');
+    expect(added, hasLength(2));
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('a double tap on «أضف مهمة» adds once and keeps the sheet',
+      (tester) async {
+    // The add clears the field and the button turns into «تم» in the same
+    // spot, so the second tap of the double tap used to close the sheet.
+    await open(tester, day: inDays(4));
+    await tester.enterText(find.byType(TextField).first, 'اشتر حليب');
+    await tester.pump();
+    final spot = tester.getCenter(find.text(ar.matrixAddTask));
+    await tester.tapAt(spot);
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.tapAt(spot);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(added, hasLength(1));
+    expect(find.byType(AddTaskSheet), findsOneWidget,
+        reason: 'the sheet is still open for the next task');
+
+    // «تم» on its own, after the moment has passed, closes it.
+    await tester.tap(find.text(ar.matrixDone));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(AddTaskSheet), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 1));
   });

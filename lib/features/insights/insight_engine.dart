@@ -59,9 +59,10 @@ enum InsightDayState {
   /// Completed, and marked as a bonus on the Grid.
   bonus,
 
-  /// A جزئي on a day that has closed. This engine reads a day as done or not
-  /// and has always counted it as not done, which is what a half-filled cell
-  /// beside the row's count says: half a day is not a whole one.
+  /// A جزئي, or a counted habit part of the way there, on a day that has
+  /// closed: half a day, counted as half (Aziz, 2026-10-03: "make all 0.5
+  /// counts"). Until then this engine counted it as not done, and a counted
+  /// habit with any count at all as done in full.
   partial,
 
   /// An explicit فشل.
@@ -88,9 +89,12 @@ class InsightDay {
   /// The square as it was recorded, [SquareState.none] when nothing was.
   final SquareState mark;
 
-  /// Completed by this engine's reading: a green square, or any recorded
-  /// count (a counted habit part way there included, see [computeInsights]).
+  /// Completed: a green square, or a counted habit's whole count.
   final bool done;
+
+  /// Half done: a جزئي, or a counted habit part of the way there. Worth
+  /// half a day (see [computeInsights]).
+  final bool half;
 
   /// Whether the habit owed this day (see habitOwesDay).
   final bool owed;
@@ -103,9 +107,13 @@ class InsightDay {
     required this.day,
     required this.mark,
     required this.done,
+    this.half = false,
     required this.owed,
     required this.counted,
   });
+
+  /// What the day is worth: 1 done, 0.5 half, 0 otherwise.
+  double get worth => done ? 1 : half ? 0.5 : 0;
 
   InsightDayState get state {
     if (mark == SquareState.skipped) return InsightDayState.rest;
@@ -114,6 +122,9 @@ class InsightDay {
           ? InsightDayState.bonus
           : InsightDayState.done;
     }
+    // A half the week did not need is drawn as the half it is, not as a
+    // day nobody asked for.
+    if (half && (counted || !owed)) return InsightDayState.partial;
     if (!owed) return InsightDayState.covered;
     if (!counted) return InsightDayState.open;
     return switch (mark) {
@@ -129,8 +140,10 @@ class QuotaWeek {
   /// The week's first day, as the Grid draws it.
   final DateTime start;
 
-  /// Sessions recorded: the days of the week with a completion, up to today.
-  final int done;
+  /// What the week is worth so far: its whole sessions, and half for every
+  /// جزئي (halves add up, Aziz 2026-10-03), up to today. Not capped: a fifth
+  /// session on a 4x week counts as it happened.
+  final double done;
 
   /// Sessions the week asks for.
   final int target;
@@ -173,9 +186,11 @@ class HabitPattern {
   final List<int> weekdays;
 
   int scheduled = 0;
-  int completed = 0;
+
+  /// What the counted days were worth: 1 for each done, 0.5 for each half.
+  double completed = 0;
   final Map<int, int> scheduledByWeekday = {};
-  final Map<int, int> completedByWeekday = {};
+  final Map<int, double> completedByWeekday = {};
 
   /// Every day in the window this habit was alive on and allowed on, keyed
   /// by dateKey: the cells of its record. Counted or not, so a rest and a
@@ -255,7 +270,7 @@ class HabitPattern {
   double? get quotaAveragePerWeek {
     final scored = quotaWeeks.where((w) => w.scored).toList();
     if (scored.isEmpty) return null;
-    return scored.fold<int>(0, (sum, w) => sum + w.done) / scored.length;
+    return scored.fold<double>(0, (sum, w) => sum + w.done) / scored.length;
   }
 
   /// For a weekly quota: the sessions each week asks for. Null otherwise.
@@ -315,7 +330,7 @@ class InsightsResult {
   /// Weekly quotas are left out of both, for the reason
   /// [InsightCadence.weeklyQuota] gives.
   final Map<int, int> overallScheduledByWeekday;
-  final Map<int, int> overallCompletedByWeekday;
+  final Map<int, double> overallCompletedByWeekday;
 
   /// Highest/lowest completion-rate habits (need >= 7 scheduled samples
   /// each, so a habit added two days ago can't claim either title).
@@ -351,12 +366,14 @@ class InsightsResult {
 /// work happens before this is called, so it's trivially unit-testable —
 /// see test/features/insights/insight_engine_test.dart.
 ///
-/// "Completed" = a green square (complete/bonus) OR any habitCompletions
-/// count > 0 (multi-tap habits never mirror squares — same rule the
-/// heatmap's day sheet uses). Skipped squares count as neither completed
-/// nor missed: a deliberate skip is a decision, and it shouldn't poison a
-/// habit's miss-rate the way a real slip does — so it's excluded from the
-/// scheduled total entirely.
+/// "Completed" = a green square (complete/bonus) OR a habitCompletions
+/// count that reached the habit's daily target (multi-tap habits never
+/// mirror squares). Half = a جزئي, or a count part of the way there, and it
+/// is worth half a day, as everywhere else (Aziz, 2026-10-03: "make all 0.5
+/// counts"). Skipped squares count as neither completed nor missed: a
+/// deliberate skip is a decision, and it shouldn't poison a habit's
+/// miss-rate the way a real slip does — so it's excluded from the scheduled
+/// total entirely.
 ///
 /// [now] holds back a day still open (see DateTimeGameExt.isSettledAt). The
 /// window always includes today, so a blank today counted as a miss from
@@ -365,13 +382,9 @@ class InsightsResult {
 /// when it is answered by THIS engine's own reading: "completed" as above,
 /// or a فشل square. Anything else waits for its day to close.
 ///
-/// That is not the reports' reading for a counted habit part way there (1 of
-/// 4). This engine has always called that day completed, and the reports
-/// credit it as a جزئي (half, and only once it closes). Holding it out here
-/// until 10:00 and then counting it whole would only move the same number
-/// to the cutoff, so it counts as completed at once, exactly as before the
-/// clock existed. The two screens still value that day differently; that
-/// difference predates the open-day rule.
+/// A counted habit part way there (1 of 4) is a half, read as the reports
+/// read it: half a day, once its day closes. Until 2026-10-03 this engine
+/// called it completed, at once, while the reports credited it half.
 ///
 /// [now] is required, though nullable, so a screen cannot forget its clock
 /// and compile. Null counts every day, as before.
@@ -424,7 +437,8 @@ InsightsResult computeInsights({
     greenIdsByDay[day.toDateKey()] = {
       for (final h in habits)
         if (SquareState.fromJson(states[h.id]?.toString()).isGreen ||
-            (completions[h.id] is num && (completions[h.id] as num) > 0))
+            (completions[h.id] is num &&
+                (completions[h.id] as num) >= h.effectiveDailyTarget))
           h.id,
     };
     marksByDay[day.toDateKey()] = {
@@ -456,9 +470,11 @@ InsightsResult computeInsights({
       }
       final p = patterns[h.id]!;
       final sq = SquareState.fromJson(rawStates[h.id]?.toString());
-      final done = sq.isGreen ||
-          (rawCompletions[h.id] is num &&
-              (rawCompletions[h.id] as num) > 0);
+      final count = rawCompletions[h.id] is num
+          ? (rawCompletions[h.id] as num).toInt()
+          : 0;
+      final done = sq.isGreen || count >= h.effectiveDailyTarget;
+      final half = !done && (sq == SquareState.partial || count > 0);
       final owed = habitOwesDay(
         habit: h,
         day: day,
@@ -473,12 +489,14 @@ InsightsResult computeInsights({
         day: DateTime(day.year, day.month, day.day),
         mark: sq,
         done: done,
+        half: half,
         owed: owed,
         counted: counted,
       );
       if (!counted) continue;
+      final worth = done ? 1.0 : half ? 0.5 : 0.0;
       p.scheduled++;
-      if (done) p.completed++;
+      p.completed += worth;
       // The weekday spread is about the days the habit runs on NOW, the ones
       // its sheet has rows for. A day owed under an older schedule still
       // counts in the habit's own rate above, but a Wednesday from before it
@@ -486,9 +504,9 @@ InsightsResult computeInsights({
       if (!p.weekdays.contains(day.weekday)) continue;
       p.scheduledByWeekday[day.weekday] =
           (p.scheduledByWeekday[day.weekday] ?? 0) + 1;
-      if (done) {
+      if (worth > 0) {
         p.completedByWeekday[day.weekday] =
-            (p.completedByWeekday[day.weekday] ?? 0) + 1;
+            (p.completedByWeekday[day.weekday] ?? 0) + worth;
       }
     }
   }
@@ -500,6 +518,7 @@ InsightsResult computeInsights({
       windowStart: windowStart,
       windowEnd: windowEnd,
       isGreen: isGreen,
+      markOn: markOn,
       now: now,
     );
   }
@@ -508,7 +527,7 @@ InsightsResult computeInsights({
 
   // Overall strongest weekday, across all habits together.
   final weekdayScheduled = <int, int>{};
-  final weekdayCompleted = <int, int>{};
+  final weekdayCompleted = <int, double>{};
   var totalSamples = 0;
   for (final p in patterns.values) {
     totalSamples += p.scheduled;
@@ -587,6 +606,7 @@ void _fillQuotaWeeks({
   required DateTime windowStart,
   required DateTime windowEnd,
   required GreenOnDay isGreen,
+  required SquareState Function(String habitId, DateTime day) markOn,
   required DateTime? now,
 }) {
   final stints = <String, List<IslamicHabitTemplate>>{};
@@ -633,9 +653,19 @@ void _fillQuotaWeeks({
               ? own.first.frequencyTarget
               : quotaDays.last.frequencyTarget)
           .clamp(1, 7);
-      final done = week
-          .where((d) => !d.isAfter(windowEnd) && isGreen(p.habitId, d))
-          .length;
+      // What the week is worth: whole sessions, and half for every جزئي.
+      // Halves add up (Aziz, 2026-10-03, "3 + 0.5 + 0.5 = 4"), the number the
+      // rooms and the reports grade the same week by. It counted green
+      // squares alone, so his week of three whole and two halves read «3 من 4»
+      // here, not met, while the room called it 4 of 4.
+      final inWindow = week.where((d) => !d.isAfter(windowEnd));
+      final done = inWindow.where((d) => isGreen(p.habitId, d)).length +
+          0.5 *
+              inWindow
+                  .where((d) =>
+                      !isGreen(p.habitId, d) &&
+                      markOn(p.habitId, d) == SquareState.partial)
+                  .length;
       final spendable = week
           .where((d) => alive(d) && !isGreen(p.habitId, d) && stillOpen(d))
           .length;

@@ -1,7 +1,8 @@
-// Settings › Language with Doum over the two cards (Aziz, 2026-10-01, the
-// canvas "Doum picks the language"): picking the other card turns him round
-// into its look, the language changing while his back is turned, and the
-// sheet closes itself once he has landed, so a change is still one tap.
+// Settings › Language as the two language squares (Aziz, 2026-10-02): Doum
+// in the suit for English and in the thobe for العربية, both on screen.
+// Picking a square changes the language and its Doum greets, and the sheet
+// STAYS OPEN, so neither look disappears (it used to close itself the moment
+// the one Doum had turned).
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -67,63 +68,64 @@ void main() {
   }
 
   String language() => harness.container.read(localeProvider).languageCode;
-  bool sheetOpen() => find.byType(DoumLanguageLook).evaluate().isNotEmpty;
+  bool sheetOpen() => find.byType(DoumLanguageSquares).evaluate().isNotEmpty;
 
-  testWidgets('fits a small phone with Doum over the cards', (tester) async {
+  SproutPose pose(WidgetTester tester, String code) => tester
+      .widget<Sprout>(
+        find.descendant(
+          of: find.byKey(ValueKey('doum-square-$code')),
+          matching: find.byType(Sprout),
+        ),
+      )
+      .pose;
+
+  testWidgets('fits a small phone with both Doums', (tester) async {
     await open(tester);
     expect(tester.takeException(), isNull);
     expect(sheetOpen(), isTrue);
-    expect(
-      tester.widget<Sprout>(
-        find.descendant(
-          of: find.byType(DoumLanguageLook),
-          matching: find.byType(Sprout),
-        ),
-      ).pose,
-      SproutPose.langSuitFront,
-    );
+    expect(pose(tester, 'en'), SproutPose.langSuitFront);
+    expect(pose(tester, 'ar'), SproutPose.langThobeFront);
     await tester.pump(const Duration(seconds: 12));
   });
 
   testWidgets(
-      'the other card: he turns, the language changes behind his back, '
-      'the sheet closes after he lands', (tester) async {
+      'the other square: the language changes, its Doum greets, and the '
+      'sheet stays open', (tester) async {
     await open(tester);
     await tester.tap(find.text('العربية'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
     expect(language(), 'en');
-    expect(sheetOpen(), isTrue);
     await tester.pump(const Duration(milliseconds: 150));
-    expect(language(), 'ar');
-    expect(sheetOpen(), isTrue, reason: 'it waits for him to land');
-    await tester.pump(const Duration(milliseconds: 750));
     await tester.pump();
-    expect(sheetOpen(), isTrue, reason: 'a moment for his greeting');
-    await tester.pump(const Duration(milliseconds: 750));
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(sheetOpen(), isFalse);
     expect(language(), 'ar');
+    expect(pose(tester, 'ar'), SproutPose.langThobeGreet);
+    await tester.pump(const Duration(seconds: 3));
+    expect(sheetOpen(), isTrue, reason: 'nothing closes on its own');
+    expect(pose(tester, 'en'), SproutPose.langSuitFront);
+    expect(pose(tester, 'ar'), SproutPose.langThobeFront);
+    await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('the card already chosen just closes the sheet', (tester) async {
+  testWidgets('the square already chosen greets and keeps the sheet',
+      (tester) async {
     await open(tester);
     await tester.tap(find.text('English'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
-    expect(sheetOpen(), isFalse);
+    expect(sheetOpen(), isTrue);
     expect(language(), 'en');
+    await tester.pump(const Duration(seconds: 12));
   });
 
-  testWidgets('Reduce Motion: the language at once, the sheet closes',
+  testWidgets('Reduce Motion: the language changes, the sheet stays',
       (tester) async {
     await open(tester, reduced: true);
     await tester.tap(find.text('العربية'));
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
     expect(language(), 'ar');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(sheetOpen(), isFalse);
+    await tester.pump(const Duration(seconds: 1));
+    expect(sheetOpen(), isTrue);
+    await tester.pump(const Duration(seconds: 12));
   });
 }

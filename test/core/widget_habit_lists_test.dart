@@ -65,6 +65,7 @@ void main() {
     int perDay = 1,
     bool notDue = false,
     bool rest = false,
+    bool half = false,
   }) =>
       (
         id: id,
@@ -73,6 +74,7 @@ void main() {
         count: count,
         perDay: perDay,
         notDue: notDue,
+        half: half,
         rest: rest,
         category: 'faith',
         color: null,

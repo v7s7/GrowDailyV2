@@ -100,6 +100,32 @@ void main() {
       expect(barIndex(tester), 2);
     });
 
+    testWidgets('the same bar again does not turn a requested tab back',
+        (tester) async {
+      // Aziz, 2026-10-03: the Lock Screen's Add Task control opened the add
+      // sheet, and closing it showed Habits. Every cold start pulls the
+      // account's bar, a new list with the same tabs, and the shell's
+      // layout listener scheduled a jump for the next frame to the page it
+      // was on when it fired. A request for Tasks between the two was
+      // turned back to Habits under the sheet.
+      await phoneSized(tester);
+      await harness.pumpApp(tester,
+          home: const HomeShell(initialTab: NavTab.grid));
+      expect(barIndex(tester), 0);
+
+      final layout = harness.container.read(navLayoutProvider.notifier);
+      // ignore: invalid_use_of_protected_member
+      layout.state = List.of(layout.state);
+      harness.container.read(requestedHomeTabInstantProvider.notifier).state =
+          true;
+      harness.container.read(requestedHomeTabProvider.notifier).state =
+          NavTab.matrix;
+      await pumpFrames(tester);
+
+      expect(barIndex(tester), 2, reason: 'still on Tasks');
+      expect(find.byType(MatrixScreen), findsOneWidget);
+    });
+
     testWidgets('with nothing asked for, still opens on its own tab',
         (tester) async {
       await phoneSized(tester);

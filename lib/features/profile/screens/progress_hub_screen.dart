@@ -30,6 +30,8 @@ import '../../../features/grid/screens/grid_screen.dart' show categoryVisual;
 import '../../../features/habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../../features/habits/models/habit_model.dart' show HabitCategory;
+import '../../../features/habits/models/weekly_quota_plan.dart'
+    show sessionsText;
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
 import '../../../features/insights/insight_engine.dart';
 import '../../../features/insights/insights_screen.dart';
@@ -574,7 +576,10 @@ class _ProgressReportBody extends ConsumerWidget {
     final locale = Localizations.localeOf(context).languageCode;
 
     final total = scores.fold<int>(0, (running, p) => running + p.done);
-    final best = scores.fold<int>(0, (b, p) => p.done > b ? p.done : b);
+    // The fullest day's worth, a جزئي at half, as the chart above draws
+    // it. The total stays finished squares, like every tally of them.
+    final best =
+        scores.fold<double>(0, (b, p) => p.credit > b ? p.credit : b);
     final rate = windowRate(scores);
 
     return Column(
@@ -636,7 +641,7 @@ class _ProgressReportBody extends ConsumerWidget {
               value: rate == null ? '-' : '${(rate * 100).round()}%',
             ),
             const SizedBox(width: 8),
-            _MiniReportStat(label: s.bestDay, value: '$best'),
+            _MiniReportStat(label: s.bestDay, value: sessionsText(best)),
           ],
         ),
       ],
@@ -980,7 +985,7 @@ class _DayDetailSheet extends ConsumerWidget {
     // Three sentences, not one, because a day with no obligation and a day
     // with an unmet one are different facts. Never "0 من 0".
     final summary = score.owed > 0
-        ? s.progressDayScore(score.done, score.owed)
+        ? s.progressDayScore(sessionsText(score.credit), score.owed)
         : score.rested > 0
             ? s.progressDayRested
             : s.progressDayNothingDue;

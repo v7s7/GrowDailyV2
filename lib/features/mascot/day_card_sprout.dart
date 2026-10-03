@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/l10n/app_strings.dart';
 import '../../core/utils/reduced_motion.dart';
+import '../habits/models/weekly_quota_plan.dart' show sessionsText;
 import '../habits/notifiers/custom_habits_notifier.dart'
     show allHabitsEverProvider;
 import 'pet_settings.dart';
@@ -57,10 +58,12 @@ class DayCardSprout extends ConsumerStatefulWidget {
   const DayCardSprout({
     super.key,
     required this.greens,
+    this.done,
     required this.owed,
     required this.ratio,
     required this.perfectDay,
     this.live = true,
+    this.walkIn = false,
     this.height = 100,
     this.clock = DateTime.now,
     this.drawsBubble = true,
@@ -70,6 +73,17 @@ class DayCardSprout extends ConsumerStatefulWidget {
   });
 
   final int greens;
+
+  /// What today's owed habits are worth, a جزئي at half: the card's big
+  /// number, which «خلصت N من M» repeats. [greens] when null.
+  final double? done;
+
+  /// Walks in (SproutEntrance.walkIn) instead of popping up: on a day the
+  /// Habits page welcomes someone back (ComebackCard), whose own Doum this
+  /// one stands in for, so one Doum comes back with them rather than two
+  /// greeting at once (Aziz, 2026-10-03: one Doum per screen). Read once,
+  /// at his first frame: an entrance is not replayed.
+  final bool walkIn;
   final int owed;
 
   /// The ring's own ratio, partial credit included.
@@ -328,6 +342,10 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
     }
   }
 
+  /// The card's own big number (see [DayCardSprout.done]).
+  String get _doneText =>
+      sessionsText(widget.done ?? widget.greens.toDouble());
+
   String _lineText(DayCardLine line) {
     final s = S.of(context);
     return switch (line) {
@@ -335,10 +353,9 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
       DayCardLine.hello => s.sproutHello,
       DayCardLine.firstDone => s.sproutFirstDone,
       DayCardLine.progress => switch (_form()) {
-          PraiseForm.man => s.sproutProgress(widget.greens, widget.owed),
-          PraiseForm.woman => s.sproutProgressF(widget.greens, widget.owed),
-          PraiseForm.unknown =>
-            s.sproutProgressWe(widget.greens, widget.owed),
+          PraiseForm.man => s.sproutProgress(_doneText, widget.owed),
+          PraiseForm.woman => s.sproutProgressF(_doneText, widget.owed),
+          PraiseForm.unknown => s.sproutProgressWe(_doneText, widget.owed),
         },
       // The two big moments say what happened, then the words under it: the
       // streak point takes praise in turn, the perfect day always «ما شاء
@@ -406,6 +423,7 @@ class _DayCardSproutState extends ConsumerState<DayCardSprout> {
         Sprout(
           pose: pose,
           height: widget.height,
+          entrance: widget.walkIn ? SproutEntrance.walkIn : SproutEntrance.pop,
           controller: widget.bodyAway ? null : _moves,
           onTap: _tickle,
           semanticLabel: s.sproutName,

@@ -167,6 +167,11 @@ SHEETS = {
     # 164, square root of the leaves' cream area 314.5. A pose's scale is the
     # geometric mean of its face (eye height and spacing) and its leaves;
     # where the eyes are shut or winking, of its leaves over the sheet's median
+    # (work, 2026-10-03: the same method, leaf-to-face ratio 1.19; the
+    # lantern and asleep-by-the-palm poses, whose leaves a prop covers, took
+    # the sheet's median 2.62. In a lineup beside front wave all twelve came
+    # out about 12% big, which the green body area agreed with (median 2.30),
+    # so every scale was brought down by 0.88.)
     # leaf-to-face ratio (moments 1.12, habits 1.15, ramadan 1.09: these
     # sheets draw the leaves about a tenth smaller on the same face); where a
     # cream prop or a cap spoils the leaf measure (thobe, sleep cap, the
@@ -177,7 +182,7 @@ SHEETS = {
     # night lantern 2.50, dallah, crescent 2.60, telescope, sunset 2.65.
     **{name: dict(poses=f"poses-{name}.json", src=ROOT / f"design/mascot/sheet-{name}/poses-native",
                   masters=ROOT / f"design/mascot/sheet-{name}/poses-4x", app=APP / name,
-                  row_norm={1: 2.5 / S}) for name in ("moments", "habits", "ramadan")},
+                  row_norm={1: 2.5 / S}) for name in ("moments", "habits", "ramadan", "work")},
     # 2026-10-01: the language switch's two looks, both into assets/images/
     # mascot/language/. The spin swaps one look for the other mid-turn, so
     # each look keeps ONE scale for all its poses (a per-pose scale would make

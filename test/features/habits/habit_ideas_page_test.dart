@@ -58,6 +58,7 @@ import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/habit_ideas.dart';
+import 'package:grow_daily_v2/features/habits/catalog/idea_search.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_cue.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
@@ -501,18 +502,28 @@ void main() {
 
       expect(card(charity.id), findsOneWidget);
       expect(card(mulk.id, all: true), findsNothing);
-      for (final id in builtCards(tester)) {
-        final i = idea(id);
-        expect(
-          [i.nameAr, i.nameEn, i.shortAr, i.shortEn]
-              .any((t) => t.toLowerCase().contains(word)),
-          isTrue,
-          reason: '$id matches «$word»',
-        );
-      }
+      // Exactly what the search gives this side (idea_search_test.dart holds
+      // its rules), the best match first.
+      final side = [
+        for (final i in resolveIdeas(ideas, null))
+          if (i.idea.type == GoalType.build) i,
+      ];
+      final expected = {
+        for (final i in IdeaSearch(side).search(word)) i.idea.id,
+      };
+      expect(builtCards(tester), expected);
+      expect(
+          tester.getTopLeft(card(charity.id)).dy,
+          lessThanOrEqualTo(tester.getTopLeft(card(expected.last)).dy),
+          reason: 'the idea it names comes first');
       expect(pill(s.ideasFilterAll), findsNothing,
           reason: 'the filter steps aside while searching');
       expect(onPage(find.text(s.ideasPlansTitle)), findsNothing);
+
+      // Typed the way people type: no taa marbuta, or a typo.
+      await tester.enterText(searchBox(), s.isAr ? 'صدقه' : 'charty');
+      await tester.pumpAndSettle();
+      expect(card(charity.id), findsOneWidget);
 
       await tester.enterText(searchBox(), 'zzqqxx');
       await tester.pumpAndSettle();

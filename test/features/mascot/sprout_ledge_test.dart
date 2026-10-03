@@ -317,6 +317,13 @@ void main() {
       expect(find.text(ar.gridSproutHideTitle), findsOneWidget);
       expect(find.text(ar.gridSproutHideBody),
           findsOneWidget);
+      // The size every question pop-up draws him at.
+      expect(
+          tester
+              .widget<Sprout>(find.descendant(
+                  of: find.byType(AlertDialog), matching: find.byType(Sprout)))
+              .height,
+          kSproutQuestionHeight);
       // Out of sight while it asks: the leaves are below the line too.
       final ducked = tester
           .getRect(find.descendant(

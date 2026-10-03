@@ -100,6 +100,7 @@ class _MoveTaskSheet extends ConsumerWidget {
 
     final previousReminders = current.reminderAts;
     final previousAnchor = current.reminderAnchorAt;
+    final previousPrayer = current.reminderPrayer;
     final previousPlannedDay = current.plannedDay;
 
     var moved = notifier.moveToDay(current.id, picked);
@@ -143,6 +144,7 @@ class _MoveTaskSheet extends ConsumerWidget {
             current.id,
             reminderAts: previousReminders,
             anchor: previousAnchor,
+            prayer: previousPrayer,
             plannedDay: previousPlannedDay,
           ),
         ),

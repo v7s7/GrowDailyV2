@@ -188,6 +188,22 @@ class _TasbihScreenState extends ConsumerState<TasbihScreen> {
   /// reachable from the live grid), and completeHabit's own guards refuse
   /// a still-loading or failed account anyway.
   Future<void> _markHabit(IslamicHabitTemplate habit) async {
+    // One log per tap. The streak read below waits on stored days before
+    // the completion, and the button stayed up the whole time: a double tap
+    // on «سجّل» recorded the one round twice for a habit counted several
+    // times a day (a once-a-day habit's second call is refused on its own).
+    if (!_markingIds.add(habit.id)) return;
+    try {
+      await _markHabitOnce(habit);
+    } finally {
+      _markingIds.remove(habit.id);
+    }
+  }
+
+  /// The habits [_markHabit] is logging right now.
+  final Set<String> _markingIds = {};
+
+  Future<void> _markHabitOnce(IslamicHabitTemplate habit) async {
     unawaited(HapticFeedback.mediumImpact());
     final dashState = ref.read(dashboardProvider);
     // Today's answerable board, the same rule main.dart's Mark Done branch

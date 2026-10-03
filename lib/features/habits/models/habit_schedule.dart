@@ -135,17 +135,19 @@ int scheduledGapBy({
 ///
 /// A جزئي holds one of the week's places (weekly_quota_plan.dart), so it is a
 /// day trained: two halves are «٢ من ٤», and the days after them are owed or
-/// rest exactly as the Grid paints them. But «هدف الأسبوع تم» is only true of
-/// whole sessions: once they meet [target] the reminder counts them alone,
-/// and while halves fill the places short of that, the week is neither met
-/// (a whole session would still take a half's place and raise it) nor
-/// lacking a day, so nothing is said about it at all.
+/// rest exactly as the Grid paints them. «هدف الأسبوع تم» is true once what
+/// the week is WORTH meets [target], halves adding up (Aziz, 2026-10-03:
+/// three whole and two halves of four are met): whole sessions alone, or with
+/// the halves counted in. While the days trained fill the places short of
+/// that worth (two whole and two halves of four, worth 3), the week is
+/// neither met nor lacking a day, so nothing is said about it at all.
 Set<int>? quotaReminderWeekDays({
   required Set<int> whole,
   required Set<int> half,
   required int target,
 }) {
   if (whole.length >= target) return whole;
+  if (whole.length + 0.5 * half.length >= target) return {...whole, ...half};
   if (whole.length + half.length >= target) return null;
   return {...whole, ...half};
 }

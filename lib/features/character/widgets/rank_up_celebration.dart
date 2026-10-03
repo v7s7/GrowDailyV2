@@ -6,6 +6,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../../core/utils/reduced_motion.dart';
 import '../../../shared/widgets/victory_burst.dart';
 import '../models/prestige_tier.dart';
 import 'prestige_mark.dart';
@@ -85,9 +86,13 @@ Future<void> showRankUpCelebration(
     transitionDuration: const Duration(milliseconds: 300),
     pageBuilder: (_, __, ___) =>
         RankUpCelebration(from: fromSpec, to: toSpec, tier: to),
+    // Reduce Motion keeps the fade and drops the growth, the one entrance
+    // [prefersReducedMotion] allows. Through the helper and not MediaQuery:
+    // iOS's switch never reaches MediaQuery, so a MediaQuery check scaled
+    // this in for exactly the iPhone users who had asked it not to.
     transitionBuilder: (ctx, anim, __, child) => FadeTransition(
       opacity: anim,
-      child: MediaQuery.disableAnimationsOf(ctx)
+      child: prefersReducedMotion(ctx)
           ? child
           : ScaleTransition(
               scale: Tween<double>(begin: 0.90, end: 1.0).animate(
@@ -147,8 +152,10 @@ class _RankUpCelebrationState extends State<RankUpCelebration>
     _configured = true;
     // Read the flag once, here, not in build: the controller's whole layout is
     // decided at construction, so a mid-flight toggle would otherwise leave a
-    // half configured animation running.
-    _calm = MediaQuery.disableAnimationsOf(context);
+    // half configured animation running. [prefersReducedMotion], not
+    // MediaQuery.disableAnimationsOf: that is Android's animator flag only,
+    // and with it alone an iPhone with Reduce Motion on got the full sweep.
+    _calm = prefersReducedMotion(context);
     if (_calm) {
       // Reduce Motion means the new mark, at rest, immediately. Not a faster
       // version of the same thing: the sweep IS the content, and a rushed
@@ -477,8 +484,8 @@ class _FloodedMark extends StatelessWidget {
     // things moving over each other during the flood would just read as
     // noise, and the medal has not been struck yet at that point.
     final settled = floodProgress >= 1;
-    // calm IS MediaQuery.disableAnimations (see _calm above), so the sheen
-    // is exactly the thing it is asking not to happen.
+    // calm IS Reduce Motion ([prefersReducedMotion], see _calm above), so the
+    // sheen is exactly the thing it is asking not to happen.
     if (calm) return PrestigeMark(spec: solid, size: size);
     return Stack(
       alignment: Alignment.center,

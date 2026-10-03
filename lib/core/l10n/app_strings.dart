@@ -1189,7 +1189,8 @@ class S {
   /// Impersonal on purpose. «أنجزت» carries a gender in a vowel nobody
   /// types, so every second-person verb in this app is avoided rather than
   /// guessed at.
-  String progressDayScore(int done, int owed) =>
+  /// [done] is already written out, a جزئي at half.
+  String progressDayScore(String done, int owed) =>
       isAr ? 'تم إنجاز $done من $owed' : '$done of $owed done';
 
   /// The compact form for the chart's scrub readout, where the date is
@@ -1198,7 +1199,8 @@ class S {
   ///
   /// Same no-isolate reasoning as [progressDayScore]: «من» between the two
   /// numbers stops them merging the way a bare "4 / 10" does.
-  String progressScoreFraction(int done, int owed) =>
+  /// [done] is already written out, a جزئي at half: «4.5 من 6».
+  String progressScoreFraction(String done, int owed) =>
       isAr ? '$done من $owed' : '$done of $owed';
 
   /// Readout text for a day that owed nothing. Short because it shares a row
@@ -3244,7 +3246,9 @@ class S {
   /// keeps. One «يوم» after every number printed «9 من 9 يوم» under a habit
   /// owed nine days. From 11 up it stays the spoken «يوم» this line has
   /// always used, not [daysCount]'s «يومًا».
-  String insightDetailRate(int completed, int scheduled) {
+  ///
+  /// [completed] is already written out, a half day at half: «8.5 من 9 أيام».
+  String insightDetailRate(String completed, int scheduled) {
     if (!isAr) return '$completed of $scheduled days';
     final mod100 = scheduled % 100;
     final days = mod100 >= 3 && mod100 <= 10 ? 'أيام' : 'يوم';
@@ -3266,7 +3270,7 @@ class S {
 
   /// A record row's count, «6 من 8». No noun: the weekday at the start of
   /// the row already says what is being counted.
-  String insightCountOf(int done, int total) =>
+  String insightCountOf(String done, int total) =>
       isAr ? '$done من $total' : '$done of $total';
 
   /// A weekly quota's card, the quota's own version of [insightWeekdayMiss].
@@ -4361,7 +4365,10 @@ class S {
   /// when some but not all of a multi-habit plan is done today (see
   /// RoomParticipant.isFullyDone) - the partial-credit middle state
   /// between the other two.
-  String roomPartialToday(int done, int total) =>
+  ///
+  /// Both already written out: a جزئي is half, and a shared quota half asks
+  /// half a habit, so a day can read «1.5 من 2.5 اليوم».
+  String roomPartialToday(String done, String total) =>
       isAr ? '$done من $total اليوم' : '$done/$total today';
 
   /// One line per flexible weekly-quota habit on the plan card ("تمرين:
@@ -5068,7 +5075,7 @@ class S {
   String restDayCoveredBySession(String day) => isAr
       ? '$day مغطّى، لأنك سويتها يوم ثاني هذا الأسبوع.'
       : '$day is covered: you did it on another day this week.';
-  String restDayQuotaMet(int done, int target) => isAr
+  String restDayQuotaMet(String done, int target) => isAr
       ? 'خلّصت هدف الأسبوع: $done من $target.'
       : "This week's target is done: $done of $target.";
   String get restDayNotNeeded =>
@@ -5082,7 +5089,7 @@ class S {
   String get restDayExtra => isAr
       ? 'إذا سويتها، تنحسب زيادة على خطتك.'
       : 'If you did it, it counts as an extra.';
-  String restDayQuotaCounts(int after, int target) => isAr
+  String restDayQuotaCounts(String after, int target) => isAr
       ? 'إذا سويتها، يصير أسبوعك $after من $target.'
       : 'If you did it, this week becomes $after of $target.';
 
@@ -5497,11 +5504,36 @@ class S {
   String get prayerSinceAdhan => isAr ? 'مضى على الأذان' : 'since the adhan';
   String get prayerUntilSunrise => isAr ? 'باقي على الشروق' : 'until sunrise';
   String get prayerSinceSunrise => isAr ? 'مضى على الشروق' : 'since sunrise';
+  // The sky's time once today's Isha is behind and it counts to the next
+  // Fajr, which is tomorrow's. Without the word it reads as a clash with
+  // today's Fajr in the list under it, a minute apart in autumn (Aziz,
+  // 2026-10-02: 4:13 over 4:12).
+  String prayerTomorrowAt(String time) =>
+      isAr ? 'باجر $time' : '$time tomorrow';
   // Under the list when a picked city keeps a different clock from the
   // phone's: the times are when they fall where the phone is.
   String get prayerTimesPhoneClock => isAr
       ? 'الأوقات بتوقيت تلفونك، مو بتوقيت المدينة.'
       : "Times are on your phone's clock, not the city's.";
+  // «منبّه الأذان», the card under the two ways to choose a place
+  // (PrayerAlarmCard, Aziz 2026-10-03): one switch per prayer, all off until
+  // turned on. The hint says what an alarm does that a notification does
+  // not, in the same words as the alarm hint under a habit's reminder.
+  String get prayerAlarmTitle => isAr ? 'منبّه الأذان' : 'Adhan alarm';
+  String get prayerAlarmHint => isAr
+      ? 'يرن مثل المنبّه وقت الأذان، حتى لو الجوال صامت.'
+      : 'Rings like an alarm at the adhan, even on silent.';
+  // Android, where the alarm reaches the phone as a notification: shown
+  // when turning one on found notifications blocked and the phone's own
+  // prompt or settings did not turn them back on.
+  String get prayerAlarmNeedsNotifications => isAr
+      ? 'المنبّه يحتاج الإشعارات. فعّلها من إعدادات الجهاز.'
+      : 'The alarm needs notifications. Turn them on in Settings.';
+  // Android 12 only, where «المنبّهات والتذكيرات» can be switched off for an
+  // app; without it the alarm could ring up to an hour late.
+  String get prayerAlarmNeedsExactAlarms => isAr
+      ? 'المنبّه يحتاج إذن «المنبّهات والتذكيرات». فعّله من إعدادات الجهاز.'
+      : 'The alarm needs "Alarms & reminders". Turn it on in Settings.';
 
   // ── City search (prayer-time location) ───────────────────────────────
 
@@ -6360,11 +6392,13 @@ class S {
   /// the wrong order. Spoken to the reader, so it has a woman's form, and a
   /// "we" form (the sprout's own voice, «نبدأ؟») for when the app does not
   /// know which to use (see sproutAddressProvider).
-  String sproutProgress(int done, int owed) =>
+  ///
+  /// [done] is already written out, a جزئي at half: «خلصت 3.5 من 5».
+  String sproutProgress(String done, int owed) =>
       isAr ? 'خلصت $done من $owed' : '$done of $owed done';
-  String sproutProgressF(int done, int owed) =>
+  String sproutProgressF(String done, int owed) =>
       isAr ? 'خلصتي $done من $owed' : '$done of $owed done';
-  String sproutProgressWe(int done, int owed) =>
+  String sproutProgressWe(String done, int owed) =>
       isAr ? 'خلصنا $done من $owed' : '$done of $owed done';
 
   /// Said on the tap that earns the day's streak point, 80% of its habits,
@@ -6411,6 +6445,9 @@ class S {
   // prayers for the reader, or carry «إن شاء الله»: the sprout never declares
   // a fast, a sadaqah or a prayer accepted, and never quotes the Quran
   // (Aziz, 2026-09-28). See sprout_praise.dart for how a line is picked.
+  // The words must always fit the habit (Aziz, 2026-10-03, after «تبارك
+  // الرحمن» for a custom «تنعيم اللحية»): a habit with a list of its own
+  // hears only that list, never the general one.
 
   /// A habit with no list of its own (custom, a quit habit kept clean), a square turned green from outside the app, and a list left empty. The app cannot tell what such a habit is, so only words that fit any finished task: «تبارك الرحمن», «ما شاء الله», «ما شاء الله عليك» and «الله يسعدك» live in the faith list instead (Aziz, 2026-10-03).
   String get sproutPraiseGeneral => isAr
@@ -6445,9 +6482,6 @@ class S {
       : 'May Allah protect you\nMay Allah make us of those who remember Him\nIn Allah\'s care\nRemembering Allah is rest';
 
   /// A day of fasting, often marked at dawn: prayers for it, not claims about it.
-  // The words must always fit the habit (Aziz, 2026-10-03, after «تبارك
-  // الرحمن» for a custom «تنعيم اللحية»): a habit with a list of its own
-  // hears only that list, never the general one.
   String get sproutPraiseFasting => isAr
       ? 'الله يتقبل صيامك\nالله يعطيك أجر الصايم\nصيام مقبول إن شاء الله\nاللهم تقبّل'
       : 'May Allah accept your fast\nMay Allah give you the reward of the fasting\nAn accepted fast, InshaAllah\nO Allah, accept it';

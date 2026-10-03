@@ -13,6 +13,7 @@ import '../../../core/utils/text_moderation.dart';
 import '../../../core/utils/xp_calculator.dart';
 import '../../../features/achievements/models/achievement_model.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../models/held_habit_streak.dart';
 import '../models/streak_gap_charge.dart';
 import '../models/undone_completion.dart';
 import '../../milestones/models/milestone_event.dart';
@@ -269,6 +270,116 @@ int nextHabitStreak({required int? gapDays, required int previousStreak}) =>
       _ => 1,
     };
 
+/// The run to keep when a tap on TODAY restarts this habit's streak because
+/// the one day missing since its last completion is yesterday, still open.
+/// Null when there is nothing worth keeping. See [HeldHabitStreak] for why
+/// the restart alone lost the streak for good.
+///
+/// [gapBetween] is the habit's own gap measure (scheduledGap or
+/// scheduledGapBy, whichever completeHabit used), so "yesterday is the only
+/// day missing" means the same thing here as in the gap that restarted the
+/// streak: a weekday habit whose yesterday was not one of its days never got
+/// here, because its gap was already 1.
+///
+/// Pure so the rule is unit-testable without Firebase — see
+/// test/features/dashboard/held_habit_streak_test.dart.
+HeldHabitStreak? heldStreakForOpenYesterday({
+  required DateTime day,
+  required DateTime? last,
+  required int previousStreak,
+  required bool yesterdayOpen,
+  required int Function(DateTime from, DateTime to) gapBetween,
+}) {
+  if (last == null || previousStreak < 1 || !yesterdayOpen) return null;
+  // Two or more: the tap restarts. Exactly one between the old run and
+  // yesterday: yesterday is the only day keeping them apart.
+  if (gapBetween(last, day) < 2) return null;
+  if (gapBetween(last, dayPlus(day, -1)) != 1) return null;
+  return HeldHabitStreak(
+    streak: previousStreak,
+    lastKey: last.toDateKey(),
+    cutOnKey: day.toDateKey(),
+  );
+}
+
+/// This habit's streak when [day] is marked AFTER a later day already was:
+/// yesterday inside its grace tail, once today has been ticked.
+///
+/// [nextHabitStreak] reads that as a negative gap and restarted the streak
+/// at 1, which was never right. The counters describe a run ending on
+/// [last], and doing one more day before it can only lengthen that run,
+/// never shorten it. So:
+///  - the run is just [last] ([currentStreak] 1) and [day] is the habit's
+///    day right before it: they join, and if [held] is the run today's tap
+///    cut off (see [heldStreakForOpenYesterday]) and [day] is the very next
+///    day after it, that run joins too. Yesterday filled the one hole, so
+///    the streak is what it would have been had yesterday been marked first;
+///  - anything else: the run is left exactly as it is. A run of two or more
+///    ending today already holds yesterday (or yesterday was a day it rests),
+///    and guessing past that would be inventing.
+///
+/// [alreadyPaidThrough] is the highest streak whose milestone was paid on the
+/// way here, by either run, so the caller pays only what the join newly
+/// crosses (see [habitMilestoneCrossed]).
+///
+/// Pure so the rule is unit-testable without Firebase — see
+/// test/features/dashboard/held_habit_streak_test.dart.
+({int streak, int alreadyPaidThrough, bool joinedHeld})
+    habitStreakForEarlierDay({
+  required DateTime day,
+  required DateTime last,
+  required int currentStreak,
+  required HeldHabitStreak? held,
+  required int Function(DateTime from, DateTime to) gapBetween,
+}) {
+  if (currentStreak < 1) {
+    return (streak: 1, alreadyPaidThrough: 0, joinedHeld: false);
+  }
+  if (currentStreak != 1 || gapBetween(day, last) != 1) {
+    return (
+      streak: currentStreak,
+      alreadyPaidThrough: currentStreak,
+      joinedHeld: false,
+    );
+  }
+  final heldLast = held?.lastDay;
+  final joins = held != null &&
+      heldLast != null &&
+      held.cutOnKey == last.toDateKey() &&
+      gapBetween(heldLast, day) == 1;
+  final heldRun = joins ? held.streak : 0;
+  return (
+    streak: heldRun + 1 + currentStreak,
+    alreadyPaidThrough: heldRun > currentStreak ? heldRun : currentStreak,
+    joinedHeld: joins,
+  );
+}
+
+/// The per-habit milestone a streak passes moving from [from] to [to] in a
+/// single step, or null when it passes none.
+///
+/// An ordinary tap moves the streak by one and pays the bonus keyed to
+/// exactly the value it lands on. A join moves it by more than one, so it
+/// could step over a threshold without ever landing on it; this pays every
+/// threshold strictly above [from] and at or below [to], announced as the
+/// highest of them. GameConstants.habitStreakBonuses has no two neighbours,
+/// so in practice that is one.
+({int milestone, int bonusXp})? habitMilestoneCrossed({
+  required int from,
+  required int to,
+}) {
+  int? top;
+  var sum = 0;
+  GameConstants.habitStreakBonuses.forEach((threshold, bonus) {
+    if (threshold > from && threshold <= to) {
+      sum += bonus;
+      if (top == null || threshold > top!) top = threshold;
+    }
+  });
+  final milestone = top;
+  return milestone == null ? null : (milestone: milestone, bonusXp: sum);
+}
+
 /// Whether a completion landing today with [gapDays] since the previous one
 /// actually MOVED this habit's streak, and so whether it can pay a per-habit
 /// milestone bonus.
@@ -403,6 +514,11 @@ class _HabitCompletionSnapshot {
   final int prevTotal;
   final String? prevLastCompletedDate;
 
+  /// The habit's [HeldHabitStreak] before this tap, null when it had none.
+  /// A tap can write one (today, cutting a run off) or spend one (yesterday,
+  /// joining it back), so an exact undo has to put it back as it was.
+  final HeldHabitStreak? prevHeld;
+
   /// Surprise-bonus + per-habit-milestone XP/Gold this one completion
   /// awarded on top of the habit's base xpReward/goldReward — deliberately
   /// excludes any app-wide streak-milestone bonus, which stays
@@ -417,6 +533,7 @@ class _HabitCompletionSnapshot {
     required this.prevLongest,
     required this.prevTotal,
     required this.prevLastCompletedDate,
+    this.prevHeld,
     required this.bonusXp,
     required this.bonusGold,
   });
@@ -438,6 +555,7 @@ class _HabitCompletionSnapshot {
         prevLongest: prevLongest,
         prevTotal: prevTotal,
         prevLastCompletedDate: prevLastCompletedDate,
+        prevHeld: prevHeld,
         bonusXp: bonusXp + xp,
         bonusGold: bonusGold + gold,
       );
@@ -714,6 +832,11 @@ class DashboardState {
   UndoneCompletion? undoneFor(String habitId, String dateKey) =>
       undoneCompletions[UndoneCompletion.keyFor(habitId, dateKey)];
 
+  /// Per habit, the run a tap on today cut off while yesterday was still open
+  /// and could rejoin it — see [HeldHabitStreak]. Written and spent only by
+  /// [DashboardNotifier.completeHabit] and [DashboardNotifier.uncompleteHabit].
+  final Map<String, HeldHabitStreak> heldHabitStreaks;
+
   /// What [dayKey] has already been paid from repeatable sources.
   ///
   /// Answers zero for any day that is not the stamped one, which is the whole
@@ -810,6 +933,7 @@ class DashboardState {
     this.habitTotalCompletions = const {},
     this.habitLastCompletedDate = const {},
     this.undoneCompletions = const {},
+    this.heldHabitStreaks = const {},
     this.habitMilestoneCelebration,
     this.lastCompletionBonusXp = 0,
     this.lastCompletionBonusGold = 0,
@@ -880,15 +1004,17 @@ class DashboardState {
   /// still blank, it reads 0. Null keeps the older reading, which judged
   /// yesterday from midnight.
   ///
-  /// No screen passes [now] yet, on purpose (2026-09-11). The writer is not
-  /// ready for it: ticking TODAY while yesterday is still open and blank
-  /// measures a scheduledGap of 2 in completeHabit and restarts the streak at
-  /// 1 (nextHabitStreak), and ticking yesterday afterwards cannot bring it
-  /// back. A sheet or a reminder reading [now] would show a 12-day streak at
-  /// 05:00 that the next natural tap turns into 1. Until completeHabit keeps
-  /// a streak across a still-open day, the habit detail sheet and the
-  /// reminder builder read the older rule, which never shows more than a tap
-  /// on today keeps. Pinned in habit_streak_staleness_test.dart.
+  /// No screen passes [now] yet, on purpose (2026-09-11). Ticking TODAY while
+  /// yesterday is still open and blank measures a scheduledGap of 2 in
+  /// completeHabit and restarts the streak at 1 (nextHabitStreak). Since
+  /// 2026-10-02 ticking yesterday afterwards joins the run back
+  /// ([HeldHabitStreak], habitStreakForEarlierDay), so nothing is lost for
+  /// good, but between those two taps the stored streak is 1. A sheet or a
+  /// reminder reading [now] would therefore show a 12-day streak at 05:00
+  /// that the first tap on today turns into 1 until yesterday is marked. The
+  /// habit detail sheet and the reminder builder keep the older rule, which
+  /// never shows more than a tap on today keeps. Pinned in
+  /// habit_streak_staleness_test.dart.
   ///
   /// [runsOn], when given, is the habit's schedule as it stood on each day
   /// (IslamicHabitTemplate.runsOn) and wins over [scheduledWeekdays], so a
@@ -966,6 +1092,7 @@ class DashboardState {
     Map<String, int>? habitTotalCompletions,
     Map<String, String>? habitLastCompletedDate,
     Map<String, UndoneCompletion>? undoneCompletions,
+    Map<String, HeldHabitStreak>? heldHabitStreaks,
     HabitMilestoneEvent? setHabitMilestone,
     bool clearHabitMilestone = false,
     int? lastCompletionBonusXp,
@@ -1025,6 +1152,7 @@ class DashboardState {
         habitLastCompletedDate:
             habitLastCompletedDate ?? this.habitLastCompletedDate,
         undoneCompletions: undoneCompletions ?? this.undoneCompletions,
+        heldHabitStreaks: heldHabitStreaks ?? this.heldHabitStreaks,
         habitMilestoneCelebration: clearHabitMilestone
             ? null
             : (setHabitMilestone ?? this.habitMilestoneCelebration),

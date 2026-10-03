@@ -370,7 +370,16 @@ function weekStartKey(key) {
       const stored = roomDayCounts({
         room, participant: p, dayKey: dk, offsetMinutes: ROOM_OFFSET_MINUTES,
       });
-      const credited = stored.done + stored.partial * 0.5;
+      // A shared quota half's day asks half a habit for it (weekly_quota_plan
+      // .dart, halves add up since 2026-10-03), stored as a weight beside the
+      // counts: print the weighted pair, which is what the app divides, and
+      // name the shared halves.
+      const demandW = (p.dailyScheduledWeight || {})[dk];
+      const creditW = (p.dailyDoneWeight || {})[dk];
+      const weighted = typeof demandW === 'number' && typeof creditW === 'number';
+      const shared = (p.dailySharedHalfCount || {})[dk] || 0;
+      const credited = weighted ? creditW : stored.done + stored.partial * 0.5;
+      const asked = weighted ? num(demandW) : stored.scheduled;
       // A day their phone has not graded since the leader took a habit out
       // of the plan reads the plan's count, as the board does
       // (planInferredScheduledOn). It printed 0/7 for PBYAS5's 2026-09-28
@@ -386,7 +395,7 @@ function weekStartKey(key) {
         // is progress, not a verdict. Counting today as a zero-credit day is
         // the same mistake that had the report calling an unfinished today a
         // miss. Shown, and left out of the total below.
-        countsCell = `${num(credited)}/${stored.scheduled}  still open${unsynced}`;
+        countsCell = `${num(credited)}/${asked}  still open${unsynced}`;
       } else if (stored.stoodDown) {
         countsCell = 'stood down, not graded';
       } else if (!roomDayVerdict(stored).counts) {
@@ -396,8 +405,10 @@ function weekStartKey(key) {
         // 2026-09-09, which put YW68B9's Aziz at 58% on a board saying 39%.
         countsCell = 'rest, left out of the score';
       } else {
-        countsCell = `${num(credited)}/${stored.scheduled}` +
-            (stored.partial > 0 ? `  (${stored.partial} جزئي)` : '') + unsynced;
+        countsCell = `${num(credited)}/${asked}` +
+            (stored.partial > 0 ? `  (${stored.partial} جزئي` +
+              (shared > 0 ? `, ${shared} shared: half a day asked` : '') + ')' : '') +
+            unsynced;
         storedTotal += stored.credit;
         gradedDays++;
       }
@@ -515,6 +526,14 @@ function weekStartKey(key) {
       console.log(`  >> ${real.length} day(s) where the squares beat the ` +
           `stored count:`);
       for (const s of real) {
+        if (s.half) {
+          // set_room_day.js writes whole counts only (room_health.js).
+          console.log(`     ${s.day}: stored ${s.storedHalves} جزئي, ` +
+              `squares say ${s.realHalves}`);
+          console.log('       fix: the member opens the room in the app, ' +
+              'which regrades it');
+          continue;
+        }
         console.log(`     ${s.day}: stored ${s.stored}, squares say ${s.real}`);
         console.log(`       fix: node set_room_day.js --room=${roomCode} ` +
             `--user=${uid} --date=${s.day} --done=${s.real} --confirm`);

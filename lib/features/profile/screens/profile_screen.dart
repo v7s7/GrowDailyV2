@@ -47,12 +47,10 @@ import '../../../features/grid/screens/monthly_heatmap_screen.dart'
     show watchHeatmapInputs;
 import '../../../features/grid/widgets/weekly_recap_card.dart';
 import '../../../features/habits/models/habit_day_demand.dart' show boardHabitsOn;
-import '../../../core/utils/reduced_motion.dart';
 import '../../../features/mascot/doum_language_look.dart';
 import '../../../features/mascot/sprout.dart';
 import '../../../features/mascot/sprout_ledge.dart';
 import '../../../features/habits/notifiers/custom_habits_notifier.dart';
-import '../../../features/language/widgets/language_option_card.dart';
 import '../../../features/night_review/notifiers/night_review_notifier.dart';
 import '../../../features/premium/notifiers/premium_notifier.dart';
 import '../../../features/premium/screens/premium_screen.dart';

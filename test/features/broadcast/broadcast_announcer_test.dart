@@ -433,6 +433,8 @@ void main() {
       expect(find.text(ar.updateAvailableBody), findsOneWidget);
       expect(doum(), findsOneWidget);
       expect(kUpdatePose, SproutPose.idea);
+      // The size every question pop-up draws him at.
+      expect(tester.widget<Sprout>(doum()).height, kSproutQuestionHeight);
       expect(find.text(ar.updateNow), findsOneWidget);
       expect(find.text(ar.updateLater), findsOneWidget);
       expect(BroadcastStore.updateAskedAt, clock, reason: 'counted as it goes up');

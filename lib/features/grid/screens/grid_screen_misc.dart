@@ -216,7 +216,10 @@ class _GridEmptyState extends ConsumerWidget {
             // be. This is the first real screen a brand-new account lands
             // on, which makes it the one place a character earns the most.
             // Decorative to screen readers: the title below says it all.
-            const Sprout(pose: SproutPose.pencil, height: 170),
+            // Standing on a line with a shadow at his feet (GroundedSprout):
+            // he floated mid-screen with nothing under him (Aziz,
+            // 2026-10-03).
+            const GroundedSprout(pose: SproutPose.pencil, height: 170),
             const SizedBox(height: 20),
             Text(
               s.gridEmptyTitle,

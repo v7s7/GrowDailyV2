@@ -50,6 +50,12 @@ Last updated 2026-10-01: 130 poses, 45 wired into the app.
 6. Dark props (phones, treadmill, bike, dumbbells, the doorway's inside)
    fade on a dark card: check the dark theme.
 7. The home-screen widgets do not show Doum (Aziz, 2026-09-29). Ask first.
+8. One Doum per screen (Aziz, 2026-10-03, the canvas "Doum review"): where
+   two cards could each bring one, the top card keeps him.
+9. Something under him: an edge he rises from, a card he sits in, or on an
+   empty page `GroundedSprout`'s line and shadow. Never floating.
+10. A question pop-up draws him at `kSproutQuestionHeight` (96). The heart
+   is Premium's thanks only; a win cheers or plants a flag.
 
 ## Folders
 
@@ -59,7 +65,7 @@ Last updated 2026-10-01: 130 poses, 45 wired into the app.
 | `mascot/sport/` | sport (09-30) | 15 | 1 |
 | `mascot/streak/` | streak flame (09-30) | 15 | 1 |
 | `mascot/winter/` | bisht by the fire (09-30) and 3 winter pictures | 15 | 2 |
-| `mascot/moments/` | app moments (10-01) | 12 | 2 |
+| `mascot/moments/` | app moments (10-01) | 12 | 3 |
 | `mascot/habits/` | daily habits (10-01) | 12 | 0 |
 | `mascot/ramadan/` | Ramadan and Eid (10-01) | 12 | 0 |
 | `mascot/language/` | the two language looks, suit and thobe (10-01) | 12 | 12 |
@@ -73,14 +79,14 @@ Last updated 2026-10-01: 130 poses, 45 wired into the app.
 | `mascot_happy_sparkles` | arms up, gold sparkles | Grid day card on a perfect day, splash full day and first open | big wins |
 | `mascot_laugh` | laughing, eyes shut | Grid day card when tapped | |
 | `mascot_sleeping` | asleep, "zZ" | rest days, night on the Grid, rest-day dialog, splash night | |
-| `mascot_love_heart` | hugging a big heart | streak milestone, room finale, Premium active | Premium bought, thanks |
+| `mascot_love_heart` | hugging a big heart | Premium active | Premium bought, thanks. Only thanks: the streak milestone and the room finale moved off it (Aziz, 2026-10-03) |
 | `mascot_walk_backpack` | walking in with a backpack | comeback card, splash welcome back | |
 | `mascot_pencil` | winking, holding a pencil | empty Grid, onboarding slide 1 (on the week row) | Grid medals, journal empty |
 | `mascot_checklist` | holding a ticked clipboard | Saturday recap, splash evening | |
 | `mascot_idea` | hand up, light bulb | app update dialog, splash update | |
 | `mascot_side_right`, `mascot_back`, `mascot_back_three_quarter`, `mascot_side_right_leaf_up` | the turnaround angles | splash turnaround, first run | |
 | `mascot_determined` | fists up, frowning with resolve | splash Saturday | Steadiness medals |
-| `mascot_cheer` | one arm high, cheering | splash steps goal | Streak medals, first habit |
+| `mascot_cheer` | one arm high, cheering | streak milestone (190, full screen), splash steps goal | Streak medals, first habit |
 | `mascot_magnifier` | looking through a magnifier | splash slow load | errors, offline, search |
 | `mascot_confetti` | arms up in confetti | splash Eid | Platinum medals, team day won |
 | `mascot_thumbs_up` | winking, thumbs up | splash evening | Tasks cleared, comeback claimed |
@@ -167,7 +173,7 @@ scene plays in the other months.
 | `moments_clap` | clapping, eyes shut happy | WIRED: onboarding slide 3, on the board. Also a teammate finished, praise |
 | `moments_doorway_wave` | waving from an open doorway | room joined, welcome (dark doorway: rule 6) |
 | `moments_stairs` | stepping up three blocks | level up |
-| `moments_flag_hill` | planting a flag on a hill | Get Started finished, a goal reached |
+| `moments_flag_hill` | planting a flag on a hill | WIRED: the room finished dialog (120; the hill makes its box bigger than the others). Also Get Started finished, a goal reached |
 | `moments_photo_album` | looking through a photo album | Doum's album, the records page |
 | `moments_phone_show` | showing his phone's screen | the share card, "share the code" |
 | `moments_notebook_lamp` | writing at a table by a lamp | Night Review |

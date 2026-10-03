@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
+import 'package:grow_daily_v2/features/grid/screens/grid_screen.dart'
+    show todayColumnFromStart;
 import 'package:grow_daily_v2/features/mascot/sprout.dart';
 import 'package:grow_daily_v2/features/mascot/sprout_ledge.dart';
 
@@ -104,12 +106,12 @@ void main() {
         expect(sprout.top, lessThan(ledge.top));
         expect(sprout.bottom, greaterThan(board.top));
 
+        final half =
+            Sprout.sizeOf(SproutPose.frontWave, kLedgeSproutHeight).width / 2;
+
         if (scrolls.evaluate().isNotEmpty) {
           // Squares under 30pt: the board scrolls sideways, today's column
           // has no fixed place, and the sprout stands at the end of the line.
-          final half =
-              Sprout.sizeOf(SproutPose.frontWave, kLedgeSproutHeight).width /
-                  2;
           final fromStart =
               rtl ? ledge.right - sprout.center.dx : sprout.center.dx - ledge.left;
           expect(fromStart,
@@ -119,15 +121,52 @@ void main() {
 
         final row = firstRow(tester);
         expect(row, hasLength(7), reason: 'a full week in the first row');
+
+        // Where the sprout rests when [square] is today's: over its middle,
+        // except that his centre keeps half his width from each end of the
+        // line so he never hangs past the board (SproutLedge._restX). In a
+        // left-to-right row the last square, Friday, has only the board's
+        // padding after it, so on some widths he stands a point or so short
+        // of its middle (1.3pt at 430).
+        double restOver(Rect square) => square.center.dx
+            .clamp(ledge.left + half, ledge.right - half)
+            .toDouble();
+
+        // Every day of the week, not only today, so a run on any weekday
+        // reaches the ends of the line too: this test was first run on a
+        // Friday four days after it was written. The app's arithmetic finds
+        // each square of the real board, and the edge never takes the
+        // sprout off the square he stands for.
         final now = DateTime.now();
+        final weekStart = now.startOfDisplayWeek;
+        for (var i = 0; i < 7; i++) {
+          final day =
+              DateTime(weekStart.year, weekStart.month, weekStart.day + i);
+          final square = rtl ? row[6 - i] : row[i];
+          final fromStart =
+              todayColumnFromStart(ledge.width, rtl: rtl, now: day)!;
+          expect(
+            rtl ? ledge.right - fromStart : ledge.left + fromStart,
+            moreOrLessEquals(square.center.dx, epsilon: 0.5),
+            reason: 'day $i of the week is not where the board draws it '
+                'at $width',
+          );
+          expect(
+            restOver(square),
+            inExclusiveRange(square.left, square.right),
+            reason: 'on day $i the edge pushes the sprout off its square '
+                'at $width',
+          );
+        }
+
         final index = (DateTime(now.year, now.month, now.day)
-                        .difference(now.startOfDisplayWeek)
+                        .difference(weekStart)
                         .inHours /
                     24)
                 .round();
         final today = rtl ? row[6 - index] : row[index];
         expect(sprout.center.dx,
-            moreOrLessEquals(today.center.dx, epsilon: 0.5),
+            moreOrLessEquals(restOver(today), epsilon: 0.5),
             reason: "the sprout is not over today's square at $width");
       });
     }

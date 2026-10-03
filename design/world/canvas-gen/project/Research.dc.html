@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What people love and hate</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 56px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 980px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Research · reviews, studies and numbers</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">What people love and hate in a companion that grows</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">Ten apps that grow something while you keep habits, what their reviews praise and complain about, and the studies behind it. Each card ends with what Doum’s planet takes from it. Ratings are as shown on each store page on 3 October 2026.</p>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{apps}}" as="a" hint-placeholder-count="10">
+<article style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">{{a.name}}</h2>
+<span style="font-size: 14px; font-weight: 600; color: #3F7A4A;">{{a.score}}</span>
+</div>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">{{a.what}}</div>
+<div style="display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px 12px; font-size: 15px; line-height: 1.45;">
+<div style="font-weight: 600; color: #23352A;">Missed day</div><div style="color: #45574B;">{{a.miss}}</div>
+<div style="font-weight: 600; color: #2F6B3A;">Loved</div><div style="color: #45574B;">{{a.love}}</div>
+<div style="font-weight: 600; color: #9A3B2E;">Hated</div><div style="color: #45574B;">{{a.hate}}</div>
+</div>
+<div style="background: #EEF6EC; border-radius: 12px; padding: 10px 12px; font-size: 15px; line-height: 1.45; color: #23352A;"><span style="font-weight: 700;">We take: </span>{{a.take}}</div>
+<div style="font-size: 13px; color: #6B7A6F;">{{a.src}}</div>
+</article>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 20px;">
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">The studies behind it</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{studies}}" as="s" hint-placeholder-count="7">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 34px; font-weight: 700; color: #2F6B3A; line-height: 1.1;">{{s.n}}</div>
+<div style="font-size: 18px; font-weight: 600;">{{s.t}}</div>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">{{s.d}}</div>
+<div style="font-size: 15px; line-height: 1.45; color: #23352A;"><span style="font-weight: 700;">So: </span>{{s.so}}</div>
+<div style="font-size: 13px; color: #6B7A6F;">{{s.src}}</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 26px 28px; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 24px; font-weight: 700; color: #2F6B3A;">What people love</h2>
+<sc-for list="{{love}}" as="x" hint-placeholder-count="5">
+<div style="display: flex; gap: 12px; font-size: 16px; line-height: 1.45; color: #45574B;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2F6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 3px;"><polyline points="5 12.5 10 17 19 7.5"></polyline></svg><span>{{x}}</span></div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 26px 28px; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 24px; font-weight: 700; color: #9A3B2E;">What people hate</h2>
+<sc-for list="{{hate}}" as="x" hint-placeholder-count="6">
+<div style="display: flex; gap: 12px; font-size: 16px; line-height: 1.45; color: #45574B;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A3B2E" stroke-width="2.4" stroke-linecap="round" style="flex-shrink: 0; margin-top: 3px;"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg><span>{{x}}</span></div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 20px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Round two</div>
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">Farms, companions with a life, tiny worlds, and our own details</h2>
+<p style="margin: 0; font-size: 17px; line-height: 1.5; color: #45574B; max-width: 1000px;">Asked after you said “a farm that Doum works on”. The headline: every big farming game took crop death out, and a character visibly working with your effort is one of the strongest reasons people value what they build.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{round2}}" as="r" hint-placeholder-count="8">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;">
+<div style="font-size: 19px; font-weight: 700;">{{r.t}}</div>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">{{r.d}}</div>
+<div style="font-size: 15px; line-height: 1.45; color: #23352A;"><span style="font-weight: 700;">So: </span>{{r.so}}</div>
+<div style="font-size: 13px; color: #6B7A6F;">{{r.src}}</div>
+</div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<h3 style="margin: 0; font-size: 22px; font-weight: 700;">Ten rules for Doum’s world, from both rounds</h3>
+<ol style="margin: 0; padding-inline-start: 22px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 8px 28px; font-size: 15.5px; line-height: 1.5; color: #45574B;">
+<sc-for list="{{rules10}}" as="x" hint-placeholder-count="10"><li>{{x}}</li></sc-for>
+</ol>
+</div>
+</section>
+
+<section style="background: #23352A; color: #F5F0E1; border-radius: 22px; padding: 30px 32px; display: flex; flex-wrap: wrap; gap: 24px 40px; align-items: center;">
+<div style="display: flex; flex-direction: column; gap: 12px; flex: 999 1 520px; min-width: 0;">
+<h2 style="margin: 0; font-size: 30px; font-weight: 700;">Should a neglected world visibly die? No.</h2>
+<p style="margin: 0; font-size: 17px; line-height: 1.55; color: #DCE5D6;">Apps that started with death moved away from it: Plant Nanny 2, and Tamagotchi since 2009. The best-rated companions never had it. The research says a broken record makes people quit, not try again. The only apps where loss works, Forest and SleepTown, take one session the person chose to start and never touch the rest of the world.</p>
+<p style="margin: 0; font-size: 17px; line-height: 1.55; color: #DCE5D6;">What the best do instead: earned things are permanent, a reversible mood shows recent days, one small action restores it, rest leaves the world alone, and reminders invite rather than warn.</p>
+</div>
+<div style="display: flex; gap: 6px; flex: 1 1 300px; justify-content: center; min-width: 0;">
+<dc-import name="Planet" level="24" medals="8" pearls="3" thirst="2" size="170" frame="bubble" hint-size="170px,189px"></dc-import>
+<dc-import name="Planet" level="24" medals="8" pearls="3" watering="true" size="170" frame="bubble" hint-size="170px,189px"></dc-import>
+</div>
+</section>
+
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6B7A6F; max-width: 980px;">Gaps: no published A/B test compares decay with no decay for a companion world. Finch’s retention figures are third-party estimates. There is no peer-reviewed data on streaks in Muslim apps. Habitica’s punishment complaints are reviews, not measurements.</p>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":4700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      apps: [
+        { name: 'Finch', score: '4.9 · 759K ratings', what: 'Self-care goals give a pet bird energy. It goes on adventures and grows; earned currency buys outfits and room decor.', miss: 'Never dies, no penalty. It stays home instead of going out. App Pause freezes everything for 3 days to 3 weeks; the streak can be switched off.', love: 'A bird people name and care for. Not being made to feel bad about a missed goal. People with anxiety or ADHD keep habits for months.', hate: 'Losing a bird or progress to a bug, called heartbreaking. Surprise trial charges.', take: 'a face people care about, no penalty, pause built in.', src: 'App Store; Appbot (40,294 reviews, 82.1% positive); r/finch App Pause post' },
+        { name: 'Plant Nanny', score: '4.7 · 106K ratings', what: 'Drinking water waters a plant that grows.', miss: 'Version 1: the plant browned and died, and a past day could not be logged, so forgetting to log killed it. Version 2: it never dies; it wilts and perks up after one glass.', love: 'Cute, and real gains in how much people drink.', hate: 'A heavy subscription paywall and features lost from version 1.', take: 'wilt, then perk up after one action. Let a late day still count, as the app’s 10:00 cutoff already does.', src: 'App Store reviews; KATC; MacSales' },
+        { name: 'Forest (its withering only)', score: 'Common Sense 4/5', what: 'A tree grows during a session and withers if you leave the app. Dead trees stay in your forest as stumps.', miss: 'That one tree dies. The rest of the forest is never touched.', love: 'For some, the guilt of a stump is an effective deterrent.', hate: 'Thin rewards unless you buy extras.', take: 'if loss ever exists, it is never the world. Not its timer: that is not part of this app.', src: 'Wikipedia; Bustle; sister app SleepTown (TapSmart)' },
+        { name: 'Habitica', score: '4.0 iOS · 4.8 Play', what: 'An RPG: habits fight monsters with your party.', miss: 'Health drops. At zero you lose a level, all gold and a piece of gear. Your misses hurt teammates on quests.', love: 'Watching the avatar take damage motivates more than expected.', hate: 'A drain too steep to recover from, a “death cycle”. The wiki says players tick off undone tasks to avoid dying.', take: 'punishment teaches people to lie to the app. Nothing is ever lost.', src: 'Habitica Wiki; App Store reviews; ChoosingTherapy' },
+        { name: 'Duolingo', score: '600+ streak experiments', what: 'Duo the owl and the streak.', miss: 'The streak breaks unless a freeze covers it. Users who held 30+ days can win it back with three lessons.', love: 'Streaks work: a 7-day streak makes finishing a course 3.6x likelier. One lesson keeping the streak raised day-14 retention 3.3%. Two freezes instead of one: +0.38% daily learners.', hate: 'Paying to repair a streak, listed as a deceptive pattern. Crying-owl images tested to pull people back. Children upset by reminders.', take: 'a small bar keeps it alive, rest counts as rest, few pushes, and never sell a repair.', src: 'Duolingo blog; Lenny’s Newsletter; Deceptive Design' },
+        { name: 'Pikmin Bloom', score: '$100M lifetime', what: 'Walking plants a trail of flowers and grows seedlings, without opening the app.', miss: 'Nothing happens; there is nothing to lose.', love: 'Passive and gentle. It grew every year and hit its most players more than three years after launch.', hate: 'Shallow for critics (5/10 at Destructoid); coins come slowly.', take: 'something that blooms from what you already do.', src: 'PocketGamer.biz; Destructoid; Pikmin Wiki' },
+        { name: 'Tamagotchi', score: 'the “Tamagotchi effect”', what: 'A pocket pet you feed and clean.', miss: 'The originals died, which upset children enough that schools banned them. Since 2009 a neglected pet leaves a letter instead; since 2016 Bandai’s pets do not die.', love: 'Real attachment to a small creature.', hate: 'The death itself. Bandai’s own staff were split on whether it was too much.', take: 'even the company that invented the dying pet stopped.', src: 'Wikipedia; Otaku Mode' },
+        { name: 'Animal Crossing', score: 'gentle neglect', what: 'An island or town that lives without you.', miss: 'After a long absence: weeds and the odd cockroach, but villagers are glad to see you. New Horizons keeps weeds out of developed areas.', love: 'Coming back reveals forgiveness, and clearing the weeds is rewarded.', hate: 'Little; some find the cockroaches gross.', take: 'a quiet sign of time away, and a welcome back.', src: 'Kotaku; Kill Screen' },
+        { name: 'Planet and island apps', score: 'Tiny Habits · IsleGrow · Fortune City · Habit Rabbit', what: 'A planet grows from Health data (steps raise mountains, sleep brings meadows); an island gets a house a day; a city grows from logging spending; a rabbit’s home gets decorated.', miss: 'That part of the world waits, or that day’s house stays unfinished. Earned growth stays.', love: 'Growth you can see that never goes away. Habit Rabbit: 4.7 from 8.7K ratings.', hate: 'Habit Rabbit: pushy subscription prompts and too many notifications.', take: 'unfinished, never destroyed.', src: 'App Store pages (Tiny Habits and IsleGrow have only a few ratings)' },
+        { name: 'Muslim apps', score: 'Al Quran · Quran.com · Ghiras', what: 'Quran streaks and goals (Quran.com: 59,000+ goals since May 2023). Ghiras plants a tree for each dhikr, after the hadith on the plantings of Jannah, free and with no decay.', miss: 'Streaks reset. Ghiras has no decay.', love: 'Gentle goals that support consistency, close to “the most beloved deeds are regular, even if small”.', hate: 'Al Quran users ask to switch the streak off: they open the app only to keep it and worry it hurts sincerity. Ads and paywalls on sacred content.', take: 'private by default, a way to hide it, no reward claims about worship, and decay never tied to a prayer.', src: 'GTAF feedback board; Quran.com updates; DEV (Ghiras); Bukhari 6464' }
+      ],
+      studies: [
+        { n: '7 studies', t: 'Broken records make people quit', d: 'People engage more when their log shows an intact streak. A break hurts more when people blame themselves, less when it can be repaired, and often ends the activity.', so: 'no blame in any copy, and every thirsty state is one habit from fixed.', src: 'CU Boulder, Silverman and Barasch 2023' },
+        { n: '+40%', t: 'Spare days help goals', d: 'Goals with emergency reserves were met up to 40% more often; 55% bounced back after a miss against 37% on rigid goals.', so: 'rest days, pause and streak freezes never make the planet thirsty.', src: 'UCLA Anderson Review' },
+        { n: '34% vs 19%', t: 'Start with progress', d: 'Car wash cards that came with 2 of 10 stamps filled were finished far more often than blank 8-stamp cards.', so: 'the planet starts with sprouts and grass, and level 2 arrives on day one.', src: 'Nunes and Drèze, endowed progress' },
+        { n: '+3.3%', t: 'A small bar keeps people', d: 'When one lesson was enough to keep the streak, Duolingo’s day-14 retention rose 3.3%.', so: 'one square, any habit, waters the whole planet.', src: 'Duolingo blog, “Improving the streak”' },
+        { n: 'sets', t: 'People finish sets', d: 'Grouping items into a set makes people work to complete it, and being one away is itself motivating.', so: 'five flower kinds, one per medal family, four of each.', src: 'HBS, Barasz et al.; JCR 2024' },
+        { n: 'calm', t: 'Quiet beats loud', d: 'Calm technology informs from the edge of attention instead of demanding focus.', so: 'the planet waits on Profile and, if you choose, a widget. No push of its own.', src: 'Amber Case, principles of calm technology' },
+        { n: 'joy', t: 'Counting can cost enjoyment', d: 'Tracking makes people do more but enjoy it less, and continue less.', so: 'the planet shows things, not numbers: no counts of flowers or pearls.', src: 'Duke Fuqua, Etkin 2016' }
+      ],
+      round2: [
+        { t: 'Every big farm game took death out', d: 'Hay Day’s crops never die. In Stardew Valley an unwatered crop just skips a day of growth. Animal Crossing’s flowers stopped wilting in New Horizons. The one that kept withering, FarmVille, sold an “Unwither” item for premium currency and became the textbook Skinner box.', so: 'quiet days pause or soften, never kill, and nothing is ever sold to fix them.', src: 'App Store (Hay Day); Stardew wiki; Nookipedia; GamePressure; Ian Bogost' },
+        { t: 'Cozy means safe, abundant, soft', d: 'Project Horseshoe defines cozy as low risk, needs already met and gentle stimuli: voluntary play at your own pace, no scarcity, no comparison, no coercive notifications.', so: 'the world adds no tasks, timers or currencies of its own. It mirrors your habits.', src: 'Project Horseshoe 2017; Daneels and Maes 2025 (277 players)' },
+        { t: 'A garden that stays healthy works', d: 'UbiFit Garden grew a flower per workout and a butterfly for a weekly goal. Inactivity left it sparse under a blue sky, never wilted. People with it kept active over the holidays; the control group dropped. In Fish’n’Steps, a sad fish made some people stop opening the app.', so: 'the “quiet, not dry” drawing of quiet days, switchable on the admin page.', src: 'Consolvo et al., CHI 2008; Fish’n’Steps review (arXiv)' },
+        { t: 'Watching him work makes it matter', d: 'People value a result more when they see effort spent for them (the labour illusion), and value what they helped build (the IKEA effect), unless it is destroyed.', so: 'Doum plants each new thing and waters with your habits; nothing he builds is ever undone.', src: 'Buell and Norton 2011; Norton, Mochon and Ariely' },
+        { t: 'A life of his own, and kind surprises', d: 'Tsuki’s day follows yours: tea in the morning, asleep at night. Neko Atsume’s cats visit while you are away and leave gifts. Pikmin Bloom ends the day with a look-back; Bird Buddy turns visits into postcards.', so: 'Doum’s day on the world, visitors, and an optional one-line diary.', src: 'App Store (Tsuki); Wikipedia (Neko Atsume); Pikmin wiki; Bird Buddy coverage' },
+        { t: 'Tiny worlds read by silhouette', d: 'Mario Galaxy chose spheres because nothing gets lost on them. Readability comes from big silhouettes and contrast before detail; Apple asks widgets to be glanceable, neither empty nor dense.', so: 'the card and widget draw only Doum, the newest thing and the biggest shapes; the page holds the detail.', src: 'Iwata Asks; Bugnet; Apple HIG, widgets' },
+        { t: 'A direct competitor exists', d: 'Tiny Habits: Shape Your World (April 2026) turns habits into a planet’s shape, colour and atmosphere, keeps a monthly planet history and has Home and Lock Screen widgets since June 2026.', so: 'Doum is the difference: a character working his farm, in the Gulf, with faith-safe rules.', src: 'AppsHunter listing' },
+        { t: 'The details, checked', d: 'Date palm knowledge is UNESCO-listed across 14 Arab states. Dates ripen hababou, khalal, rutab, tamr, late June to mid-September. Barjeel wind towers, the sweet-water springs of Dilmun, the pearling homecoming (quffal), the dallah.', so: 'in the palm, a medal family’s four tiers ripen its dates through the four stages. Celebrate the pearl and the homecoming, never the hard life of the dive.', src: 'UNESCO; UN Bahrain; News of Bahrain; Pearling Path' },
+        { t: 'No reward claims for worship', d: 'IslamWeb (fatwa 254356): a reminder app is fine, but points for worship need a text, and private counting is closer to sincerity. The “plants of Paradise are tasbih” report is graded weak by Darussalam.', so: 'the world pictures consistency, never reward. No Jannah lines, no worship points, nothing public.', src: 'IslamWeb 254356; Tirmidhi 3462 with grading' }
+      ],
+      rules10: [
+        'A mirror, not a new to-do list: no tasks, timers or currencies of its own.',
+        'Quiet days pause, never punish; one habit brings everything back.',
+        'Nothing Doum builds is ever undone, by a miss, an undo or a lapse.',
+        'Show Doum working with your water: a tiny input, a generous answer.',
+        'It pictures consistency, never reward: no worship claims, nothing public.',
+        'Growth worth waiting for, and everyone starts with a sprout already planted.',
+        'Doum has his own day, and coming back brings a kind surprise.',
+        'Readable at thumbnail size: big shapes on the card and widget, detail on the page.',
+        'A motion budget: short for frequent, rare celebrations under 1.5 s and skippable, Reduce Motion on both platforms.',
+        'Our own world, with care: palms, rutab, springs, barjeel and pearls, each checked against a real source, for users everywhere.'
+      ],
+      love: [
+        'A companion you name and feel cared for by (Finch, Habit Rabbit).',
+        'Growth you can see that never goes away (Tiny Habits, Fortune City, Pikmin Bloom).',
+        'Coming back to a surprise: something new, something that visited.',
+        'Low pressure, with pause and rest built in (Finch App Pause, Duolingo freezes).',
+        'A free core, with cosmetics as the only paid extras.'
+      ],
+      hate: [
+        'Losing earned progress, to a bug or to a penalty (Finch bugs, Habitica, Plant Nanny 1).',
+        'Paying to undo a failure (Duolingo streak repair).',
+        'Guilt notifications and sad mascots.',
+        'Streaks that crowd out sincerity, loudest in Quran apps.',
+        'Paywalls on the core or on sacred content.',
+        'Surprise charges.'
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

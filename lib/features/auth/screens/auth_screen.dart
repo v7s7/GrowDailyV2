@@ -13,7 +13,6 @@ import '../../mascot/doum_language_look.dart';
 import '../notifiers/auth_notifier.dart';
 import '../notifiers/guest_reconnect_provider.dart';
 import '../services/social_auth_service.dart';
-import '../widgets/language_toggle.dart';
 import '../widgets/sign_in_doum.dart';
 import '../widgets/social_sign_in_buttons.dart';
 
@@ -100,8 +99,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   /// nothing can create or destroy guest data while this screen is up.
   bool _hasGuestProgress = false;
 
-  /// Doum at the head of the screen, who changes the language for the pill
-  /// (see SignInDoum).
+  /// The language squares at the head of the screen (see SignInDoum): their
+  /// change of language fades this screen's words out and back in.
   final _doum = DoumLookController();
 
   /// Whether the screen under the launch curtain has been shown: its
@@ -575,56 +574,31 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // The head: Doum where the app icon was, with the language
-              // switch in the corner above him (Aziz, 2026-10-01, the canvas
-              // "Doum picks the language"). One box as tall as the gap and
-              // the icon were together, so this screen's measured budget
-              // (see the tallPhone comment above) is the same on every
-              // phone: the switch keeps the gap's corner it always had, and
-              // Doum stands on the box's floor under it. A row added to this
-              // column would push the guest button toward the fold, which is
-              // the exact regression the collapsed email form exists to
-              // prevent.
+              // The head: the language squares where the app icon was, Doum
+              // in the suit for English on the left and in the thobe for
+              // العربية on the right (Aziz, 2026-10-02; see SignInDoum and
+              // DoumLanguageSquares). One box as tall as the gap and the icon
+              // were together, so this screen's measured budget (see the
+              // tallPhone comment above) is the same on every phone. A row
+              // added to this column would push the guest button toward the
+              // fold, which is the exact regression the collapsed email form
+              // exists to prevent.
               //
-              // He wears the look of the app's language and the switch hands
-              // its tap to him: he turns round into the other look and the
-              // language changes while his back is turned, the words fading
-              // out and in around it (see SignInDoum, DoumLanguageLook).
+              // A square picks its language: the words fade out and back in
+              // around the change, and its Doum greets.
               //
-              // The switch is hidden while a sign-in is running, for the same
-              // reason every other control here goes flat: changing the
+              // The squares take no tap while a sign-in is running, for the
+              // same reason every other control here goes flat: changing the
               // language mid flight rebuilds the screen under the request.
               SizedBox(
                 height: topGap + logoSize,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Center(
-                        child: SignInDoum(
-                          height: tallPhone ? 150 : 100,
-                          controller: _doum,
-                        ),
-                      ),
-                    ),
-                    if (!busy)
-                      PositionedDirectional(
-                        top: 0,
-                        end: 0,
-                        child: ListenableBuilder(
-                          listenable: _doum,
-                          builder: (_, __) => _words(
-                            LanguageToggle(
-                              onPick: _doum.switchTo,
-                              pending: _doum.pendingLanguage,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
+                child: Center(
+                  child: SignInDoum(
+                    height: topGap + logoSize,
+                    doumHeight: tallPhone ? 118 : 66,
+                    controller: _doum,
+                    enabled: !busy,
+                  ),
                 ),
               ),
               const SizedBox(height: 18),

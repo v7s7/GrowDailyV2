@@ -55,19 +55,39 @@
 /// vanished (his 19th and 20th, worth nothing in both rooms), while the same
 /// half late in the week sat on an owed day and counted (his 17th, worth 0.5).
 ///
-/// "Overwritten" is the other half of the ruling: whole sessions take the
-/// places first, and a half keeps a place only while there is one left
-/// over. Two halves and four whole sessions on a 4x week is 4 of 4, not 3;
-/// two of each is 3 of 4. The halves that keep a place are the earliest ones,
-/// so a later whole session pushes out the LATEST half, and the older a day
-/// is, the less anything after it can change it. See [quotaWeekPlaces].
+/// Halves ADD UP (Aziz, 2026-10-03, on the week of 26 September: three whole
+/// sessions and two halves on a 4x week, "make halves add up, 3 + 0.5 + 0.5
+/// = 4, but still the context should match the rest days"). The week's
+/// places go to whole sessions first, then each half takes a place of its
+/// own while there are places left, and once there are more halves than
+/// places, two halves share one: each asks half a day and gives half a day.
+/// So that week is 4 of 4, both half days count, and neither is a rest.
+///
+/// It read 3.5 before. "Unless it's overwritten with a full day" was taken to
+/// mean a whole session on ANOTHER day pushes the latest half out of the
+/// week, so the 30th, a day he trained, was graded as a rest in every room
+/// whose week also held the 26th, and counted in the one room that started
+/// on the 27th. Overwritten now means what it says: the same day marked
+/// whole, which is simply a whole session (a day in both sets is whole). A
+/// half drops out of the week only when the week is already full without
+/// it: four whole sessions on a 4x week leave no half anything to give.
+///
+/// The arithmetic every reader leans on, proved over every week in
+/// test/features/habits/weekly_quota_plan_test.dart: across a week, what the
+/// places ask (a whole or a lone half one day each, a shared half half a
+/// day) plus its owed empty days is exactly the target, and what they give
+/// ([quotaWeekCredit]) is whole sessions plus half for every half, capped at
+/// the target. So a week's share of any percentage is its worth over its
+/// target, with nothing lost to where in the week a half fell.
 ///
 /// What stays day-local is every EMPTY day's verdict: it still depends only
-/// on the sessions before it, whole or half, and on how many days follow.
-/// Only a half day's own verdict reads the rest of its week, and only in the
-/// direction of doing better: a whole session later in the week can move it
-/// from [DayDemand.half] to [DayDemand.earned], which takes a half-credit day
-/// out of the count for a whole-credit one.
+/// on the sessions before it, whole or half, and on how many days follow,
+/// which is why two halves alone still leave three rest days and two misses
+/// (the 19th). Only a half day's own standing reads the rest of its week, and
+/// only in the direction of doing better: a later session can turn a lone
+/// half into a shared one (asked half a day instead of a whole one), and a
+/// week filled by whole sessions alone retires its halves to
+/// [DayDemand.earned].
 ///
 /// Ints only — no habit, no room, no clock — so the Grid's live habit and a
 /// room's frozen RoomHabitRule can both call it and cannot drift apart.
@@ -97,9 +117,10 @@ enum DayDemand {
   /// tappable and still rewarded: doing a 5th session on a 4x week is not an
   /// error, it is someone doing more than they promised.
   ///
-  /// Also a half session left without a place: the week's places are all
-  /// held by whole sessions or by earlier halves (see [quotaWeekPlaces]), so
-  /// this day asks nothing, and a half here can only have pulled it down.
+  /// Also a half session the week had no room for: its places are all full
+  /// without it (see [quotaWeekPlaces]), so this day asks nothing, and a half
+  /// here can only have pulled it down. Never a half the week still needed:
+  /// halves add up, two to a place.
   earned;
 
   /// Nothing was owed on this day, so an empty square is not a miss.
@@ -171,16 +192,18 @@ List<DayDemand> weeklyQuotaDemand({
   return out;
 }
 
-/// Which of one quota week's sessions hold its [target] places, as indices
+/// Which of one quota week's sessions count toward its [target], as indices
 /// into the week's [dayCount] days.
 ///
 /// Whole sessions ([doneDays]) first, the earliest of them when there are
-/// more than the target; then half sessions ([halfDays], a day in both being
-/// whole), earliest first, into whatever places are left. So a whole session
-/// always outranks a half ("unless it's overwritten with a full day", Aziz,
-/// 2026-09-26), and among halves the older one keeps its place.
+/// more than the target. Then half sessions ([halfDays], a day in both being
+/// whole), earliest first: one to a place while places are left, and two to
+/// a place once the halves outnumber them ([quotaWeekSharedHalves] names the
+/// ones sharing). So three whole sessions and two halves on a 4x week all
+/// count, 4 of 4, and a half is left out only when the week is full without
+/// it. Halves add up (Aziz, 2026-10-03; see the library doc).
 ///
-/// Every session when the week holds fewer sessions than its target: then
+/// Every session when the week holds no more sessions than its target: then
 /// nothing competes for a place, and the days still missing are the owed
 /// ones [weeklyQuotaDemand] names.
 ///
@@ -199,19 +222,64 @@ Set<int> quotaWeekPlaces({
   for (var i = 0; i < dayCount && out.length < effectiveTarget; i++) {
     if (doneDays.contains(i)) out.add(i);
   }
-  for (var i = 0; i < dayCount && out.length < effectiveTarget; i++) {
-    if (!doneDays.contains(i) && halfDays.contains(i)) out.add(i);
-  }
+  // Places a whole session left over: each holds one half, or two.
+  final open = effectiveTarget - out.length;
+  out.addAll(_halvesInOrder(dayCount, doneDays, halfDays).take(2 * open));
   return out;
 }
 
-/// What one quota week's places are worth, in days: one for each whole session
-/// holding a place, a half for each half session holding one (see
-/// [quotaWeekPlaces]). Between 0 and the clamped target.
+/// The halves among [quotaWeekPlaces] that share a place with another half,
+/// so each asks HALF a day of the week where a lone half asks a whole one.
+///
+/// Empty while every placed half has a place of its own. Once the halves
+/// outnumber the places left over, the LATEST of them pair up, as many as it
+/// takes to fit: so a later half can only move an earlier one from asking a
+/// whole day to asking half of one (the same half, worth more of its day),
+/// never out of the week.
+///
+/// The grader reads this to ask 0.5 of a shared half's day instead of 1, and
+/// that is what keeps the week exact: places plus owed days ask the target,
+/// whole sessions plus the halves give the worth, nothing in between.
+Set<int> quotaWeekSharedHalves({
+  required int dayCount,
+  required Set<int> doneDays,
+  required int target,
+  Set<int> halfDays = const {},
+}) {
+  if (dayCount <= 0) return const {};
+  final effectiveTarget = target.clamp(1, dayCount);
+  var wholes = 0;
+  for (var i = 0; i < dayCount; i++) {
+    if (doneDays.contains(i)) wholes++;
+  }
+  final open = effectiveTarget - wholes;
+  if (open <= 0) return const {};
+  final placed =
+      _halvesInOrder(dayCount, doneDays, halfDays).take(2 * open).toList();
+  final shared = 2 * (placed.length - open);
+  if (shared <= 0) return const {};
+  return placed.sublist(placed.length - shared).toSet();
+}
+
+/// The week's halves, earliest first, a day also marked whole left out.
+Iterable<int> _halvesInOrder(
+  int dayCount,
+  Set<int> doneDays,
+  Set<int> halfDays,
+) sync* {
+  for (var i = 0; i < dayCount; i++) {
+    if (!doneDays.contains(i) && halfDays.contains(i)) yield i;
+  }
+}
+
+/// What one quota week's sessions are worth, in days: one for each whole
+/// session that counts, a half for each half (see [quotaWeekPlaces]). Whole
+/// sessions plus half of every half, capped at the clamped target.
 ///
 /// The number a week's quota is graded on wherever a WEEK is summed rather
 /// than walked day by day: 2 whole and 2 halves of 4 is 3, 2 halves and 4
-/// whole is 4, 3 whole and 2 halves is 3.5 (one half has no place left).
+/// whole is 4, 3 whole and 2 halves is 4 (the halves add up), 2 halves
+/// alone is 1.
 double quotaWeekCredit({
   required int dayCount,
   required Set<int> doneDays,
@@ -229,3 +297,9 @@ double quotaWeekCredit({
   }
   return credit;
 }
+
+/// A count of sessions as it is shown: «4» for a whole number, «3.5» once a
+/// half is in it. Latin digits, as the app writes every number.
+String sessionsText(double sessions) => sessions == sessions.roundToDouble()
+    ? sessions.toInt().toString()
+    : sessions.toStringAsFixed(1);

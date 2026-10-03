@@ -183,7 +183,34 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
     Map<String, int>? newHabitStreakCounts;
     Map<String, int>? newHabitLongestStreaks;
     Map<String, String>? newHabitLastCompletedDate;
+    // This habit's held run (see [HeldHabitStreak]), as the undo leaves it.
+    final heldBefore = state.heldHabitStreaks[habitId];
+    var heldAfter = heldBefore;
+    // Without a snapshot the streak fields are normally left alone (see the
+    // doc comment), but a held run cut off by the very tap being taken back
+    // IS the record of what that tap replaced: the run it restarted, and the
+    // day that run ended. So that one undo can still be exact after a
+    // restart, and has to be, or yesterday marked afterwards would join the
+    // held run to a today that is no longer done.
+    final heldRunComesBack = snapshot == null &&
+        emptiesDay &&
+        heldBefore != null &&
+        heldBefore.cutOnKey == markDay.toDateKey() &&
+        state.habitLastCompletedDate[habitId] == heldBefore.cutOnKey;
+    if (heldRunComesBack) {
+      newHabitStreakCounts = {
+        ...state.habitStreakCounts,
+        habitId: heldBefore.streak,
+      };
+      newHabitLongestStreaks = {...state.habitLongestStreaks};
+      newHabitLastCompletedDate = {
+        ...state.habitLastCompletedDate,
+        habitId: heldBefore.lastKey,
+      };
+      heldAfter = null;
+    }
     if (snapshot != null) {
+      heldAfter = snapshot.prevHeld;
       newHabitStreakCounts = {...state.habitStreakCounts};
       newHabitLongestStreaks = {...state.habitLongestStreaks};
       newHabitLastCompletedDate = {...state.habitLastCompletedDate};
@@ -202,6 +229,11 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
         newHabitLastCompletedDate.remove(habitId);
       }
     }
+    final newHeldHabitStreaks = heldAfter == heldBefore
+        ? null
+        : heldAfter == null
+            ? ({...state.heldHabitStreaks}..remove(habitId))
+            : {...state.heldHabitStreaks, habitId: heldAfter};
 
     // completeHabit bumps this lifetime counter once per day, on the first tap
     // (`current == 0`), so it may only be decremented when the day is emptied —
@@ -458,6 +490,7 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
       habitLongestStreaks: newHabitLongestStreaks,
       habitTotalCompletions: newHabitTotalCompletions,
       habitLastCompletedDate: newHabitLastCompletedDate,
+      heldHabitStreaks: newHeldHabitStreaks,
       dayCountedHabitIds: isGraceDay ? null : newDayCounted,
       undoneCompletions: newUndoneCompletions,
     );
@@ -596,11 +629,19 @@ extension DashboardNotifierUncompleteHabit on DashboardNotifier {
           // this write is a delta rather than the whole map.
           if (receipt != null)
             'undoneCompletions': {receipt.key: receipt.toJson()},
-          if (snapshot != null) ...{
+          if (snapshot != null || heldRunComesBack) ...{
             'habitStreakCounts': habitCompletionDelta(habitId, newHabitStreakCounts),
             'habitLongestStreaks': habitCompletionDelta(habitId, newHabitLongestStreaks),
             'habitLastCompletedDate': habitCompletionDelta(habitId, newHabitLastCompletedDate),
           },
+          if (newHeldHabitStreaks != null)
+            'heldHabitStreaks': habitCompletionDelta(
+              habitId,
+              {
+                for (final entry in newHeldHabitStreaks.entries)
+                  entry.key: entry.value.toJson(),
+              },
+            ),
         },
         SetOptions(merge: true),
       );

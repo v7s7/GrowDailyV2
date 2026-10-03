@@ -17,6 +17,7 @@ import '../notifiers/rooms_notifier.dart';
 import '../widgets/create_room_sheet.dart';
 import '../widgets/join_room_sheet.dart';
 import '../../mascot/sprout.dart';
+import '../../mascot/sprout_ground.dart';
 import 'room_detail_screen.dart';
 
 /// Entry point pushed from Profile's "Rooms" row - lists every room this
@@ -46,6 +47,10 @@ class RoomsHubScreen extends ConsumerStatefulWidget {
 class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
   /// The push animation an invite's sheet is waiting on (see initState).
   Animation<double>? _routeAnimation;
+
+  /// True from a tap on «إنشاء غرفة» until its sheet, and the room it made,
+  /// are done with. See the button.
+  bool _openingCreate = false;
 
   @override
   void initState() {
@@ -139,7 +144,17 @@ class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => clearRoomsLesson());
     }
 
-    return Stack(
+    // Backing out of this page ends the lesson too. With the coach-mark up
+    // the back arrow sits in the dim, so a tap there is already a Skip, but
+    // the edge swipe goes straight past it: the lesson stayed armed, and
+    // Profile, now showing again, dimmed itself around the Rooms row it had
+    // just been through. Only on a real pop: as a page in the bar this never
+    // pops, and HomeShell ends the lesson when that page is left.
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) clearRoomsLesson();
+      },
+      child: Stack(
       children: [
         Scaffold(
           backgroundColor: gp.bg,
@@ -187,6 +202,13 @@ class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
                       foregroundColor: Theme.of(context).colorScheme.onPrimary,
                       onPressed: () async {
                         clearRoomsLesson();
+                        // One Create at a time. canTakeAnotherRoom waits on
+                        // the room list, which on a first visit is still on
+                        // its way from the server, and a second tap in that
+                        // wait opened a second Create sheet over the first.
+                        if (_openingCreate) return;
+                        _openingCreate = true;
+                        try {
                         // The free room limit, asked before the form rather
                         // than after it: two steps filled in and then
                         // refused is the worst place to learn it. Join is
@@ -203,6 +225,9 @@ class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
                         if (code != null && context.mounted) {
                           Navigator.push(context,
                               MaterialPageRoute(builder: (_) => RoomDetailScreen(code: code)));
+                        }
+                        } finally {
+                          _openingCreate = false;
                         }
                       },
                       icon: const Icon(Icons.add_rounded),
@@ -221,6 +246,7 @@ class _RoomsHubScreenState extends ConsumerState<RoomsHubScreen> {
             onDismiss: () => ref.read(activeAppGuideLessonProvider.notifier).state = null,
           ),
       ],
+      ),
     );
   }
 }
@@ -340,7 +366,10 @@ class _EmptyRooms extends StatelessWidget {
           children: [
             // The sprout waving, where a grey people icon used to sit: an
             // empty list of rooms is an invitation, and a wave says so.
-            const Sprout(pose: SproutPose.frontWave, height: 120),
+            // Standing on a line with a shadow at his feet (GroundedSprout):
+            // he floated mid-screen with nothing under him (Aziz,
+            // 2026-10-03).
+            const GroundedSprout(pose: SproutPose.frontWave, height: 120),
             const SizedBox(height: 14),
             Text(
               s.roomsEmptyTitle,

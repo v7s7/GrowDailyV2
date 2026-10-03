@@ -217,7 +217,7 @@ class _AppUpdateDialogState extends State<_AppUpdateDialog> {
         // No entrance of its own, the dialog already arrives with one.
         icon: const Sprout(
           pose: kUpdatePose,
-          height: 110,
+          height: kSproutQuestionHeight,
           entrance: SproutEntrance.none,
         ),
         title: Text(

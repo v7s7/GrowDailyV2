@@ -28,6 +28,7 @@ import '../../habits/models/habit_cue.dart';
 ///    الأذان» / «مضى على الأذان», «الشروق» with its own pair) and the same
 ///    minutes after each moment ([PrayerWidgetFeed.elapsedWindowFor]). So
 ///    the page a widget tap opens starts with the face that was tapped.
+///    After Isha it counts to tomorrow's Fajr, and its time says «باجر».
 ///  - The list: all six moments of today, sunrise included and quieter
 ///    (no adhan is called for it), with the one the sky is counting to or
 ///    from marked, and the ones already behind read in a lighter ink.
@@ -351,6 +352,17 @@ String prayerCounterText(Duration d, {required bool up}) {
   return h > 0 ? '$h:${two(m)}:${two(sec)}' : '$m:${two(sec)}';
 }
 
+/// Each moment's mark in the list, and on its adhan alarm switch
+/// (PrayerAlarmCard), so the two cards draw a prayer the same way.
+IconData prayerMomentIcon(String key) => switch (key) {
+      'fajr' => Icons.nights_stay_rounded,
+      'sunrise' => Icons.wb_twilight_rounded,
+      'dhuhr' => Icons.wb_sunny_rounded,
+      'asr' => Icons.wb_sunny_outlined,
+      'maghrib' => Icons.wb_twilight_rounded,
+      _ => Icons.dark_mode_rounded, // isha
+    };
+
 /// «الفجر» … «العشاء» as every other screen names them (HabitCue's preset
 /// labels), and «الشروق».
 String _nameOf(String key, S s) =>
@@ -450,7 +462,11 @@ class _SkyPanel extends StatelessWidget {
     final sky = _Sky.forPeriod(view.periodKey);
     final focus = view.focus;
     final name = _nameOf(focus.key, s);
-    final clock = _clockOf(focus.at, s);
+    // Tomorrow's Fajr says it is tomorrow's: the list under the sky is
+    // still today's, and its Fajr can be a minute off this one.
+    final clock = view.focusIndex < 0
+        ? s.prayerTomorrowAt(_clockOf(focus.at, s))
+        : _clockOf(focus.at, s);
     final label = focus.hasAdhan
         ? (view.elapsed ? s.prayerSinceAdhan : s.prayerUntilAdhan)
         : (view.elapsed ? s.prayerSinceSunrise : s.prayerUntilSunrise);
@@ -568,15 +584,6 @@ class _MomentRow extends StatelessWidget {
   /// Already behind, and not the one inside its minutes after.
   final bool passed;
 
-  static IconData _iconOf(String key) => switch (key) {
-        'fajr' => Icons.nights_stay_rounded,
-        'sunrise' => Icons.wb_twilight_rounded,
-        'dhuhr' => Icons.wb_sunny_rounded,
-        'asr' => Icons.wb_sunny_outlined,
-        'maghrib' => Icons.wb_twilight_rounded,
-        _ => Icons.dark_mode_rounded, // isha
-      };
-
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
@@ -606,7 +613,7 @@ class _MomentRow extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              _iconOf(moment.key),
+              prayerMomentIcon(moment.key),
               size: 18,
               color: focused ? gp.goldInk : (passed ? gp.textTert : gp.textSec),
             ),

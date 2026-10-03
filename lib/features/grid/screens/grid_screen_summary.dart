@@ -686,6 +686,10 @@ class _SummaryCard extends StatelessWidget {
   /// until they can be seen instead of playing behind the curtain.
   final bool onScreen;
 
+  /// Doum walks in rather than popping up: the page is welcoming someone
+  /// back, and ComebackCard leaves the welcome's Doum to him.
+  final bool walkIn;
+
   const _SummaryCard({
     required this.habits,
     required this.state,
@@ -694,6 +698,7 @@ class _SummaryCard extends StatelessWidget {
     this.boardHasSections = false,
     this.sproutStage,
     this.onScreen = true,
+    this.walkIn = false,
   });
 
   /// Part-done credit for walking habits linked to the step count: the real
@@ -821,6 +826,21 @@ class _SummaryCard extends StatelessWidget {
         : scheduledTodayIds
             .where((id) => (todayRow[id] ?? SquareState.none).isGreen)
             .length;
+    // The big number: what today's owed habits are worth so far, a جزئي at
+    // half, and a counted habit part of the way there at half too (Aziz,
+    // 2026-10-03: "make all 0.5 counts"). It counted only finished habits,
+    // so a half moved the ring beside it and left «N من M» where it was.
+    // perfectDay below still asks for every one finished.
+    final countedPartWay = _countedHabitPartials().keys.toSet();
+    final doneToday = todayRow == null
+        ? 0.0
+        : greensToday +
+            0.5 *
+                scheduledTodayIds.where((id) {
+                  final sq = todayRow[id] ?? SquareState.none;
+                  return sq == SquareState.partial ||
+                      (sq == SquareState.none && countedPartWay.contains(id));
+                }).length;
     // What today still ASKS for. A راحة square leaves the day entirely,
     // exactly as it leaves todayCompletionRatio's denominator: without this
     // the ring could read 100% (the rest excluded) while the line beside it
@@ -906,11 +926,13 @@ class _SummaryCard extends StatelessWidget {
                   children: [
                     // Counts up so finishing a habit visibly ticks it over.
                     TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: greensToday.toDouble()),
+                      tween: Tween(begin: 0, end: doneToday),
                       duration: const Duration(milliseconds: 600),
                       curve: Curves.easeOutCubic,
+                      // In halves on the way up, so «3.5» never passes
+                      // through «3.47».
                       builder: (_, v, __) => Text(
-                        '${v.round()}',
+                        sessionsText((v * 2).round() / 2),
                         style: TextStyle(
                           fontSize: 34,
                           fontWeight: FontWeight.w900,
@@ -1032,6 +1054,8 @@ class _SummaryCard extends StatelessWidget {
           card,
           SproutLedge(
             greens: greensToday,
+            done: doneToday,
+            walkIn: walkIn,
             owed: owedTodayCount,
             ratio: ratio,
             perfectDay: perfectDay,

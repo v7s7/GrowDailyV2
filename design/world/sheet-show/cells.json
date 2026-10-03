@@ -1,0 +1,122 @@
+[
+ {
+  "name": "coral_house",
+  "cell": 1,
+  "size": [
+   331,
+   321
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "fountain",
+  "cell": 2,
+  "size": [
+   318,
+   307
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "golden_palm",
+  "cell": 3,
+  "size": [
+   329,
+   309
+  ],
+  "pieces": 4,
+  "dropped": 0
+ },
+ {
+  "name": "lantern_arch",
+  "cell": 4,
+  "size": [
+   348,
+   312
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "pearl_chest",
+  "cell": 5,
+  "size": [
+   320,
+   277
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "big_dhow",
+  "cell": 6,
+  "size": [
+   354,
+   315
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "majlis",
+  "cell": 7,
+  "size": [
+   373,
+   283
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "frond_hut",
+  "cell": 8,
+  "size": [
+   347,
+   297
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "lighthouse",
+  "cell": 9,
+  "size": [
+   333,
+   337
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "lamp_posts",
+  "cell": 10,
+  "size": [
+   307,
+   300
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "lily_pool",
+  "cell": 11,
+  "size": [
+   397,
+   246
+  ],
+  "pieces": 4,
+  "dropped": 0
+ },
+ {
+  "name": "jasmine_pergola",
+  "cell": 12,
+  "size": [
+   344,
+   296
+  ],
+  "pieces": 1,
+  "dropped": 0
+ }
+]

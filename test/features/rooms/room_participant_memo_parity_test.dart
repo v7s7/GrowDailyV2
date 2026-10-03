@@ -879,6 +879,17 @@ RoomParticipant _fresh(RoomParticipant p) => p.copyWith();
 
 /// Frozen from the code before the memo (see the file comment). Each entry
 /// is the digest of every answer and how many questions it covers.
+///
+/// Fifteen moved on purpose on 2026-10-03, not by the memo: random-4, 7,
+/// 12, 13, 16, 17, 20, 21, 22, 25, 29, 31, 34, 37 and 39. Their members have
+/// quota weeks whose recorded sessions already hold every place, which the
+/// record, the board's rest for an edited plan and the strip now read as
+/// the member's own phone grades them (RoomParticipant._quotaWeekPlacesHeld,
+/// unsyncedQuotaRestInference, roomStripQuotaDemandOn): blank days a sync
+/// never observed rest, and blank days left due are no longer crossed out.
+/// Every changed answer was diffed against the code before: each is one of
+/// those days turning from due to rest or from crossed to plain, or a total
+/// that follows, and no day turned the other way.
 const _goldens = <String, String>{
   'plan': '67e04dea900c8f9d/9495',
   'removed-daily': '12317cb3049ec215/3422',
@@ -887,42 +898,42 @@ const _goldens = <String, String>{
   'random-1': '841f6fa2a4239d27/2423',
   'random-2': '1bb8b586cae797b8/2423',
   'random-3': 'ed0a4cef3dc75a4d/2423',
-  'random-4': 'c4bf2f4cc58cea11/3230',
+  'random-4': 'e539d704005bb8de/3230',
   'random-5': '36493cd5c5348823/2423',
   'random-6': 'dab2690700f7bae8/2423',
-  'random-7': 'a81b7f0aca7417eb/3230',
+  'random-7': 'b0c6006e7ba3ff44/3230',
   'random-8': '7fe287f893862073/4037',
   'random-9': '627d6a8adb1ec79a/2423',
   'random-10': '76a0431052cacd96/2423',
   'random-11': 'd391adac8e07744a/2423',
-  'random-12': 'a194c21ab5458009/2423',
-  'random-13': '2aff794d0e253506/2423',
+  'random-12': '8b81f370daf8025b/2423',
+  'random-13': 'b210498a5e585efe/2423',
   'random-14': '9120db006f7c0d71/2423',
   'random-15': 'b77d5758570fede1/2423',
-  'random-16': 'fc8d9be90449c732/2423',
-  'random-17': 'bf99db937ff6762b/4037',
+  'random-16': '518e2b3dda57f117/2423',
+  'random-17': '43827eba91623197/4037',
   'random-18': 'e6cf2bbfd80c6acc/2423',
   'random-19': 'eb521cec9b6df14b/2423',
-  'random-20': '41b0c0193b2d502f/2423',
-  'random-21': 'dba9bd51a1819884/2423',
-  'random-22': '23146dc3f2018b99/2423',
+  'random-20': '41057dd40e629ddc/2423',
+  'random-21': '288452e190bfc693/2423',
+  'random-22': 'e01212513fb64bb0/2423',
   'random-23': '76c75b560080e80c/2423',
   'random-24': '8d0e552572e363eb/2423',
-  'random-25': '871d128568713dcf/2423',
+  'random-25': 'cfad105db17fdd80/2423',
   'random-26': 'b12fa2863c27a62f/2423',
   'random-27': '49d3a25ae25cb2e8/2423',
   'random-28': '12b09be89fd9f1b7/3230',
-  'random-29': 'bf527a8f634a8b4c/2423',
+  'random-29': 'd1d7404a79f515c9/2423',
   'random-30': 'a73c48737b6c6291/3230',
-  'random-31': 'd070c667321556f1/2423',
+  'random-31': '283d8832b8727cd9/2423',
   'random-32': '42118e4e27969136/3230',
   'random-33': 'f137165c22dd4d9e/2423',
-  'random-34': '4a729c80281e257d/3230',
+  'random-34': '2fda51f8d5abdc03/3230',
   'random-35': 'fa525d7adb573b23/2423',
   'random-36': '7c3af0d05f381a38/4844',
-  'random-37': '77f3ffe978686754/2423',
+  'random-37': 'b4659ba5abb284b4/2423',
   'random-38': '8516b44b72eb07e2/4037',
-  'random-39': '343062a78867439e/2423',
+  'random-39': '32952b70157f889e/2423',
 };
 
 void main() {

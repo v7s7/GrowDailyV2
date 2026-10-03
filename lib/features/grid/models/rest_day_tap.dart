@@ -3,7 +3,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/models/habit_day_demand.dart' show movedDemandForRow;
 import '../../habits/models/weekly_quota_plan.dart'
-    show DayDemand, quotaWeekPlaces;
+    show DayDemand, quotaWeekCredit, quotaWeekPlaces;
 
 /// Why a covered square (see isCoveredDay) asks nothing of its habit.
 enum RestDayReason {
@@ -15,9 +15,8 @@ enum RestDayReason {
   /// the same week (see moved_day_plan.dart).
   coveredBySession,
 
-  /// A flexible quota's day once whole sessions have met the week's target.
-  /// Halves filling the week's places short of that are not a met target: a
-  /// whole session here would still take one's place.
+  /// A flexible quota's day once the week's target is met: whole sessions
+  /// and halves adding up (Aziz, 2026-10-03, "3 + 0.5 + 0.5 = 4").
   quotaMet,
 
   /// A flexible quota's day that was never load-bearing, now past.
@@ -34,19 +33,21 @@ enum RestDayReason {
 /// [covers] is the day the session would stand in for, or null when it
 /// would be an extra: for a specific-days habit, the plan's own day it makes
 /// up (every planned day of the week may already have a session or a mark of
-/// its own); for a flexible quota, the جزئي whose place in the week it would
-/// take (Aziz, 2026-09-26: "unless it's overwritten with a full day", see
-/// weekly_quota_plan.dart). [weekAfter] and [weekTarget] are a flexible
-/// quota's sessions this week once this one lands, a جزئي counting as one,
-/// and its target; null for every other cadence. Once whole sessions alone
-/// meet the target they are the only ones counted, since a half then has no
-/// place. [pays] is whether the day is still open (see
+/// its own); for a flexible quota, the جزئي a whole session here would push
+/// out of the week, which happens only once whole sessions leave no room for
+/// it (see weekly_quota_plan.dart), and only when the session adds to the
+/// week. [weekNow] and [weekAfter] are a flexible quota's week as it stands
+/// and once this session lands, in what it is WORTH: whole sessions and half
+/// of every half, capped at the target, the number the rooms and the reports
+/// read («3.5 من 4»). [weekTarget] is its target; all three null for every
+/// other cadence. [pays] is whether the day is still open (see
 /// DateTimeGameExt.isOpenDay), and so earns like any completion; a closed
 /// day records without points.
 typedef RestDayTap = ({
   RestDayReason reason,
   DateTime? covers,
-  int? weekAfter,
+  double? weekNow,
+  double? weekAfter,
   int? weekTarget,
   bool pays,
 });
@@ -83,32 +84,50 @@ RestDayTap restDayTapFor({
       for (var i = 0; i < days.length; i++)
         if (!whole.contains(i) && (isHalfAt?.call(i) ?? false)) i,
     };
-    // The half this session would push out of the week's places, if any:
-    // the rule the Grid and the rooms place the week by, asked before and
-    // after, so the pop-up names the very day the week then stops counting.
-    DateTime? covers;
-    final placedBefore = quotaWeekPlaces(
+    // What the week is worth now and with this session: the rule the Grid
+    // and the rooms grade the week by, so the pop-up can never promise a
+    // different number from the one the room then shows.
+    final weekNow = quotaWeekCredit(
       dayCount: days.length,
       doneDays: whole,
       halfDays: half,
       target: target,
     );
-    final placedAfter = quotaWeekPlaces(
+    final weekAfter = quotaWeekCredit(
       dayCount: days.length,
       doneDays: {...whole, index},
       halfDays: half,
       target: target,
     );
-    for (final i in placedBefore) {
-      if (half.contains(i) && !placedAfter.contains(i)) covers = days[i];
+    // The half this session would push out of the week, if any: asked before
+    // and after, so the pop-up names the very day the week then stops
+    // counting. Only for a session that adds to the week. Halves add up, so
+    // a whole session only ever pushes one out once wholes fill the week,
+    // and a session on a week already met adds nothing and covers nothing.
+    DateTime? covers;
+    if (weekAfter > weekNow) {
+      final placedBefore = quotaWeekPlaces(
+        dayCount: days.length,
+        doneDays: whole,
+        halfDays: half,
+        target: target,
+      );
+      final placedAfter = quotaWeekPlaces(
+        dayCount: days.length,
+        doneDays: {...whole, index},
+        halfDays: half,
+        target: target,
+      );
+      for (final i in placedBefore) {
+        if (half.contains(i) && !placedAfter.contains(i)) covers = days[i];
+      }
     }
-    final met = whole.length >= target;
+    final met = weekNow >= target.clamp(1, days.length);
     return (
       reason: met ? RestDayReason.quotaMet : RestDayReason.notNeeded,
       covers: covers,
-      // Sessions, a جزئي included (the days trained), until whole ones meet
-      // the target and no half has a place left.
-      weekAfter: (met ? whole.length : whole.length + half.length) + 1,
+      weekNow: weekNow,
+      weekAfter: weekAfter,
       weekTarget: target,
       pays: pays,
     );
@@ -142,6 +161,7 @@ RestDayTap restDayTapFor({
         ? RestDayReason.coveredBySession
         : RestDayReason.offPlan,
     covers: covers,
+    weekNow: null,
     weekAfter: null,
     weekTarget: null,
     pays: pays,

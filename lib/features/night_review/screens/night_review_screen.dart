@@ -11,6 +11,7 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/models/habit_day_demand.dart';
+import '../../habits/models/weekly_quota_plan.dart' show sessionsText;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../matrix/notifiers/matrix_notifier.dart';
 import '../models/mood.dart';
@@ -100,9 +101,16 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
       isGreen: ref.watch(weeklyGridProvider).currentWeekGreen,
       markOn: ref.watch(weeklyGridProvider).currentWeekMark,
     );
-    final habitsDoneToday = todayHabits
-        .where((h) => dash.isCompleted(h.id, h.effectiveDailyTarget))
-        .length;
+    // A جزئي, or a counted habit part of the way there, is half (Aziz,
+    // 2026-10-03: "make all 0.5 counts"), as on the Habits page's own count.
+    final halvesToday = ref.watch(weeklyGridProvider).partialTodayIds();
+    final habitsDoneToday = todayHabits.fold<double>(0, (sum, h) {
+      if (dash.isCompleted(h.id, h.effectiveDailyTarget)) return sum + 1;
+      if (halvesToday.contains(h.id) || (dash.completions[h.id] ?? 0) > 0) {
+        return sum + 0.5;
+      }
+      return sum;
+    });
     // Goals Matrix tasks checked off today — completedAt is day-cutoff
     // aligned via effectiveDay, same grouping MatrixHistoryScreen uses,
     // so both screens always agree on which day a task belongs to.
@@ -279,7 +287,7 @@ class _NightReviewScreenState extends ConsumerState<NightReviewScreen> {
                                 icon: Icons.check_circle_rounded,
                                 color: GameColors.emerald,
                                 value:
-                                    '$habitsDoneToday/${todayHabits.length}',
+                                    '${sessionsText(habitsDoneToday)}/${todayHabits.length}',
                                 label: s.nightReviewHabitsDoneLabel,
                               ),
                               _SummaryDivider(),

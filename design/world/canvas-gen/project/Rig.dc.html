@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Doum from parts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+
+.rg{position:absolute;left:0;top:0;width:324px;height:314px;transform-origin:50% 100%}
+.rg-open{opacity:0}
+@keyframes rg-breathe{0%,100%{transform:none}50%{transform:scale(1.015,1.025)}}
+@keyframes rg-leafl{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(4deg)}}
+@keyframes rg-leafr{0%,100%{transform:rotate(3deg)}50%{transform:rotate(-4deg)}}
+@keyframes rg-blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
+@keyframes rg-bob{0%,50%,100%{transform:translateY(0)}25%,75%{transform:translateY(-10px)}}
+@keyframes rg-stepl{0%,100%{transform:translateY(0)}25%{transform:translateY(-16px) rotate(-8deg)}50%{transform:translateY(0)}}
+@keyframes rg-stepr{0%,50%,100%{transform:translateY(0)}75%{transform:translateY(-16px) rotate(8deg)}}
+@keyframes rg-swingl{0%,100%{transform:rotate(14deg)}50%{transform:rotate(-14deg)}}
+@keyframes rg-swingr{0%,100%{transform:rotate(14deg)}50%{transform:rotate(-14deg)}}
+@keyframes rg-leafwalkl{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(2deg)}}
+@keyframes rg-leafwalkr{0%,100%{transform:rotate(7deg)}50%{transform:rotate(-2deg)}}
+@keyframes rg-jump{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(1.08,.9)}40%{transform:translateY(-70px) scale(.95,1.07)}62%{transform:translateY(0) scale(1.06,.93)}75%{transform:translateY(0) scale(1,1)}}
+@keyframes rg-flapl{0%,100%{transform:rotate(0)}40%{transform:rotate(-18deg)}}
+@keyframes rg-flapr{0%,100%{transform:rotate(0)}40%{transform:rotate(18deg)}}
+@keyframes rg-wave{0%,100%{transform:rotate(-70deg)}50%{transform:rotate(-100deg)}}
+.m-idle .rg{animation:rg-breathe 3.4s ease-in-out infinite}
+.m-idle .rg-leaf-l{animation:rg-leafl 2.9s ease-in-out infinite}
+.m-idle .rg-leaf-r{animation:rg-leafr 3.3s ease-in-out infinite}
+.rg-eyes{animation:rg-blink 4.8s linear infinite}
+.m-walk .rg{animation:rg-bob .44s ease-in-out infinite}
+.m-walk .rg-foot-l{animation:rg-stepl .44s ease-in-out infinite}
+.m-walk .rg-foot-r{animation:rg-stepr .44s ease-in-out infinite}
+.m-walk .rg-arm-l{animation:rg-swingl .44s ease-in-out infinite}
+.m-walk .rg-arm-r{animation:rg-swingr .44s ease-in-out infinite reverse}
+.m-walk .rg-leaf-l{animation:rg-leafwalkl .44s ease-in-out infinite}
+.m-walk .rg-leaf-r{animation:rg-leafwalkr .44s ease-in-out infinite}
+.m-happy .rg{animation:rg-jump 1.1s ease-in-out infinite}
+.m-happy .rg-leaf-l{animation:rg-flapl 1.1s ease-in-out infinite}
+.m-happy .rg-leaf-r{animation:rg-flapr 1.1s ease-in-out infinite}
+.m-happy .rg-open,.m-wave .rg-open{opacity:1}.m-happy .rg-smile,.m-wave .rg-smile{opacity:0}
+.m-wave .rg{animation:rg-breathe 3.4s ease-in-out infinite}
+.m-wave .rg-arm-r{animation:rg-wave .7s ease-in-out infinite}
+.m-wave .rg-leaf-l{animation:rg-leafl 1.4s ease-in-out infinite}
+.m-wave .rg-leaf-r{animation:rg-leafr 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.rg,.rg-leaf-l,.rg-leaf-r,.rg-eyes,.rg-foot-l,.rg-foot-r,.rg-arm-l,.rg-arm-r{animation:none !important}}
+@keyframes isl-twinkle{0%,100%{transform:scale(.82) rotate(-6deg);opacity:.75}50%{transform:scale(1.08) rotate(6deg);opacity:1}}.isl-twinkle{animation:isl-twinkle 1.6s ease-in-out infinite}@keyframes isl-hop-a{0%{transform:none}25%{transform:translateY(-9%) scale(1.04,.97)}45%{transform:none}60%{transform:rotate(-3deg)}75%{transform:rotate(3deg)}100%{transform:none}}@keyframes isl-hop-b{0%{transform:none}25%{transform:translateY(-9%) scale(1.04,.97)}45%{transform:none}60%{transform:rotate(-3deg)}75%{transform:rotate(3deg)}100%{transform:none}}.isl-hop-a{animation:isl-hop-a .9s ease-out}.isl-hop-b{animation:isl-hop-b .9s ease-out}@keyframes isl-rise-a{0%{transform:translateY(10px) scale(.5);opacity:0}30%{opacity:1}100%{transform:translateY(-34px) scale(1);opacity:0}}@keyframes isl-rise-b{0%{transform:translateY(10px) scale(.5);opacity:0}30%{opacity:1}100%{transform:translateY(-34px) scale(1);opacity:0}}.isl-rise-a{animation:isl-rise-a 1.3s ease-out forwards;opacity:0}.isl-rise-b{animation:isl-rise-b 1.3s ease-out forwards;opacity:0}@keyframes isl-pop{0%{transform:translate(-50%,-90%) scale(.8);opacity:0}100%{transform:translate(-50%,-100%) scale(1);opacity:1}}.isl-pop{animation:isl-pop .25s ease-out}@keyframes isl-flag{0%,100%{transform:skewY(0)}50%{transform:skewY(-4deg)}}.isl-flag{animation:isl-flag 2.4s ease-in-out infinite}@keyframes isl-walk{0%{transform:translateY(0) rotate(-3.5deg)}25%{transform:translateY(-5%) rotate(0deg) scale(.98,1.03)}50%{transform:translateY(0) rotate(3.5deg)}75%{transform:translateY(-5%) rotate(0deg) scale(.98,1.03)}100%{transform:translateY(0) rotate(-3.5deg)}}.isl-walk{animation:isl-walk .46s ease-in-out infinite}@keyframes isl-land{0%{transform:scale(1.07,.9)}60%{transform:scale(.98,1.03)}100%{transform:none}}.isl-land{animation:isl-land .32s ease-out}@keyframes isl-breathe{0%,100%{transform:none}50%{transform:scale(1.012,1.022)}}.isl-breathe{animation:isl-breathe 3.4s ease-in-out infinite}@keyframes isl-fr{0%{opacity:1}25%{opacity:0}100%{opacity:0}}.isl-fr{opacity:0;animation:isl-fr .44s step-end infinite}.isl-fr0{animation-delay:0s}.isl-fr1{animation-delay:-.33s}.isl-fr2{animation-delay:-.22s}.isl-fr3{animation-delay:-.11s}@keyframes isl-sway-s{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg)}}.isl-sway-s{animation:isl-sway-s .44s ease-in-out infinite}@keyframes isl-sway{0%,100%{transform:translateY(0) rotate(-2.5deg)}25%,75%{transform:translateY(-4px)}50%{transform:rotate(2.5deg)}}.isl-sway{animation:isl-sway .44s ease-in-out infinite}@keyframes isl-blink{0%,93%{opacity:0}94%,97%{opacity:1}98%,100%{opacity:0}}.isl-blink{opacity:0;animation:isl-blink 5.3s linear infinite 1.2s}@keyframes isl-lookl{0%,58%{opacity:0}60%,72%{opacity:1}74%,100%{opacity:0}}.isl-lookl{opacity:0;animation:isl-lookl 12s linear infinite 3s}@keyframes isl-lookr{0%,80%{opacity:0}82%,92%{opacity:1}94%,100%{opacity:0}}.isl-lookr{opacity:0;animation:isl-lookr 12s linear infinite 3s}@keyframes isl-act1{0%,99%{opacity:1}100%{opacity:0}}.isl-act1{animation:isl-act1 .5s linear forwards}@keyframes isl-act2{0%,99%{opacity:0}100%{opacity:1}}.isl-act2{opacity:0;animation:isl-act2 .5s linear forwards}@keyframes isl-grow{0%{transform:scale(.15);opacity:0}55%{transform:scale(1.12);opacity:1}75%{transform:scale(.95)}100%{transform:none}}.isl-grow{animation:isl-grow .9s cubic-bezier(.3,.7,.4,1) both}@keyframes isl-act1b{0%,99%{opacity:1}100%{opacity:0}}.isl-act1b{animation:isl-act1b .5s linear forwards}@keyframes isl-act2b{0%,99%{opacity:0}100%{opacity:1}}.isl-act2b{opacity:0;animation:isl-act2b .5s linear forwards}@keyframes isl-hopup{0%{transform:none}45%{transform:translateY(calc(var(--hop) * -1)) scale(.95,1.06)}78%{transform:scale(1.07,.92)}100%{transform:none}}@keyframes isl-hopupb{0%{transform:none}45%{transform:translateY(calc(var(--hop) * -1)) scale(.95,1.06)}78%{transform:scale(1.07,.92)}100%{transform:none}}.isl-hopup{animation:isl-hopup .42s ease-out}.isl-hopupb{animation:isl-hopupb .42s ease-out}@keyframes isl-hopdn{0%{transform:none}40%{transform:translateY(calc(var(--hop) * -0.8)) scale(.96,1.04)}80%{transform:scale(1.08,.9)}100%{transform:none}}@keyframes isl-hopdnb{0%{transform:none}40%{transform:translateY(calc(var(--hop) * -0.8)) scale(.96,1.04)}80%{transform:scale(1.08,.9)}100%{transform:none}}.isl-hopdn{animation:isl-hopdn .38s ease-in}.isl-hopdnb{animation:isl-hopdnb .38s ease-in}@keyframes isl-swo{0%,44%{opacity:1}45%,100%{opacity:0}}@keyframes isl-swob{0%,44%{opacity:1}45%,100%{opacity:0}}@keyframes isl-swi{0%,44%{opacity:0}45%,100%{opacity:1}}@keyframes isl-swib{0%,44%{opacity:0}45%,100%{opacity:1}}.isl-swo{animation:isl-swo .42s linear forwards}.isl-swob{animation:isl-swob .42s linear forwards}.isl-swi{opacity:0;animation:isl-swi .42s linear forwards}.isl-swib{opacity:0;animation:isl-swib .42s linear forwards}@keyframes isl-sit{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg) scale(1.012,1.025)}}.isl-sit{animation:isl-sit 4.2s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.isl-grow,.isl-twinkle,.isl-hop-a,.isl-hop-b,.isl-pop,.isl-flag,.isl-walk,.isl-land,.isl-breathe,.isl-sway,.isl-sway-s{animation:none}.isl-rise-a,.isl-rise-b,.isl-blink,.isl-lookl,.isl-lookr{animation:none;opacity:0}.isl-fr{animation:none}.isl-fr0{opacity:1}.isl-act1,.isl-act1b{animation:none;opacity:0}.isl-act2,.isl-act2b{animation:none;opacity:1}.isl-hopup,.isl-hopupb,.isl-hopdn,.isl-hopdnb,.isl-sit{animation:none}.isl-swo,.isl-swob,.isl-swi,.isl-swib{animation:none}.isl-swo,.isl-swob{opacity:0}.isl-swi,.isl-swib{opacity:1}}
+</style>
+</helmet>
+<div style="width: 860px; height: 620px; box-sizing: border-box; background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; padding: 28px 32px; display: flex; flex-direction: column; gap: 16px;">
+<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;">
+<div style="display: flex; flex-direction: column; gap: 4px;">
+<div style="font-size: 26px; font-weight: 700;">Doum from parts, moved in code</div>
+<div style="font-size: 15px; color: #45574B;">Left: eight pieces from Sheet 11 and a face drawn in code. Right: the drawn frames from Sheets 8 and 9.</div>
+</div>
+<div dir="rtl" style="display: flex; gap: 8px;"><button type="button" onClick="{{b.idle}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: {{b.idleFg}}; background: {{b.idleBg}}; border: 0; border-radius: 999px; min-height: 44px; padding: 0 18px; cursor: pointer; box-shadow: 0 0 0 1px #E1D9C4;">واقف</button><button type="button" onClick="{{b.walk}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: {{b.walkFg}}; background: {{b.walkBg}}; border: 0; border-radius: 999px; min-height: 44px; padding: 0 18px; cursor: pointer; box-shadow: 0 0 0 1px #E1D9C4;">يمشي</button><button type="button" onClick="{{b.happy}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: {{b.happyFg}}; background: {{b.happyBg}}; border: 0; border-radius: 999px; min-height: 44px; padding: 0 18px; cursor: pointer; box-shadow: 0 0 0 1px #E1D9C4;">فرحان</button><button type="button" onClick="{{b.wave}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: {{b.waveFg}}; background: {{b.waveBg}}; border: 0; border-radius: 999px; min-height: 44px; padding: 0 18px; cursor: pointer; box-shadow: 0 0 0 1px #E1D9C4;">يسلّم</button></div>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; flex: 1;">
+<div style="background: #DDF0F1; border-radius: 24px; position: relative; overflow: hidden;">
+<div style="position: absolute; left: 50%; bottom: 40px; width: 0; height: 0;">
+<div style="position: absolute; left: -62px; top: -12px; width: 124px; height: 23px; border-radius: 50%; background: radial-gradient(closest-side, rgba(30,43,26,0.3), rgba(30,43,26,0));"></div>
+<div class="{{mcls}}" style="position: absolute; left: -63px; top: -133px; width: 324px; height: 314px; scale: 0.39; transform-origin: 0 0;">
+<div class="rg"><img src="/_blob/225c1decc72d015de59f0208a64f3bf0" alt="" class="rg-arm-l" style="position: absolute; left: -44px; top: 132px; width: 102px; height: 98px; transform-origin: 80% 22%;"><img src="/_blob/7656234e348b338078e829568ea761ae" alt="" class="rg-arm-r" style="position: absolute; left: 270px; top: 132px; width: 90px; height: 98px; transform-origin: 20% 22%;"><img src="/_blob/e00f449c1a600982fbb0c6742bb67b41" alt="" class="rg-foot-l" style="position: absolute; left: 60px; top: 280px; width: 96px; height: 60px; transform-origin: 50% 30%;"><img src="/_blob/13a12ab0558c671293586d7bbe726544" alt="" class="rg-foot-r" style="position: absolute; left: 166px; top: 281px; width: 99px; height: 58px; transform-origin: 50% 30%;"><img src="/_blob/1de902305f51d67fbed11888c238d9bd" alt="" class="rg-body" style="position: absolute; left: 0px; top: 0px; width: 324px; height: 314px; transform-origin: 50% 100%;"><img src="/_blob/aa7003477dbb3100909fe375fe8942f2" alt="" class="rg-belly" style="position: absolute; left: 64px; top: 180px; width: 196px; height: 98px; transform-origin: 50% 50%;"><img src="/_blob/cfa933cff2a392ab4d8b60e89e8466d0" alt="" class="rg-leaf-l" style="position: absolute; left: -29px; top: -146px; width: 199px; height: 176px; transform-origin: 91% 97%;"><img src="/_blob/ae958ea20a7351ffe72438f11cba0fc8" alt="" class="rg-leaf-r" style="position: absolute; left: 149px; top: -149px; width: 208px; height: 179px; transform-origin: 11% 97%;"><svg viewBox="0 0 324 314" width="324" height="314" style="position: absolute; left: 0; top: 0; overflow: visible;" aria-hidden="true"><ellipse cx="84" cy="142" rx="23" ry="13" fill="#F4A0A8" opacity="0.9"></ellipse><ellipse cx="240" cy="142" rx="23" ry="13" fill="#F4A0A8" opacity="0.9"></ellipse><g class="rg-eyes" style="transform-origin: 162px 106px;"><ellipse cx="116" cy="106" rx="17" ry="22" fill="#1E2B1A"></ellipse><circle cx="111" cy="97" r="6.5" fill="#FFFFFF"></circle><ellipse cx="208" cy="106" rx="17" ry="22" fill="#1E2B1A"></ellipse><circle cx="203" cy="97" r="6.5" fill="#FFFFFF"></circle></g><path class="rg-smile" d="M138 138 Q162 166 186 138" fill="none" stroke="#1E2B1A" stroke-width="6" stroke-linecap="round"></path><path class="rg-open" d="M136 134 Q162 182 188 134 Z" fill="#C8394A" stroke="#1E2B1A" stroke-width="5" stroke-linejoin="round"></path></svg></div>
+</div>
+</div>
+<div style="position: absolute; left: 16px; top: 14px; font-size: 14px; font-weight: 700; background: rgba(255,255,255,0.85); border-radius: 999px; padding: 4px 12px;">Parts · smooth at any speed</div>
+</div>
+<div style="background: #DDF0F1; border-radius: 24px; position: relative; overflow: hidden;">
+<div style="position: absolute; left: 50%; top: 170px; width: 0; height: 0; scale: 0.62; transform-origin: 0 0;">
+<div style="position: absolute; left: -160px; top: 0;">
+<sc-if value="{{framesIdle}}" hint-placeholder-val="{{true}}"><div style="position: absolute; left: 0; top: 0;" class="isl-breathe"><img src="/_blob/5f7f6244cc63296201f60df636f0f3a2" alt="" class="" style="position: absolute; left: 17px; top: 23px; width: 288px; height: 311px;"><img src="/_blob/e7a3dc902876b185e8c472ea96cb60ea" alt="" class="isl-blink" style="position: absolute; left: 17px; top: 23px; width: 288px; height: 311px;"><img src="/_blob/993846997d837a650512e8383341941d" alt="" class="isl-lookl" style="position: absolute; left: 17px; top: 23px; width: 288px; height: 311px;"><img src="/_blob/8e5806c21e0161b0908600107a8fdc46" alt="" class="isl-lookr" style="position: absolute; left: 17px; top: 23px; width: 288px; height: 311px;"></div></sc-if>
+<sc-if value="{{framesWalk}}" hint-placeholder-val="{{false}}"><div style="position: absolute; left: 0; top: 0;"><img src="/_blob/6a81737518535072b5cd2cfd6f28bd09" alt="" class="isl-fr isl-fr0" style="position: absolute; left: 17px; top: 26px; width: 295px; height: 308px;"><img src="/_blob/f998321fa272a6021d14e2a2a399925a" alt="" class="isl-fr isl-fr1" style="position: absolute; left: 17px; top: 26px; width: 295px; height: 308px;"><img src="/_blob/090e7f73c2bd2a8093e1829172385b13" alt="" class="isl-fr isl-fr2" style="position: absolute; left: 17px; top: 26px; width: 295px; height: 308px;"><img src="/_blob/a6fa586438ee44cb2eef669597614e12" alt="" class="isl-fr isl-fr3" style="position: absolute; left: 17px; top: 26px; width: 295px; height: 308px;"></div></sc-if>
+</div>
+</div>
+<div style="position: absolute; left: 16px; top: 14px; font-size: 14px; font-weight: 700; background: rgba(255,255,255,0.85); border-radius: 999px; padding: 4px 12px;">Frames · richer drawing</div>
+</div>
+</div>
+<div style="font-size: 14px; line-height: 1.5; color: #45574B;">Recommended for the app: the drawn frames for walking and actions (they look best), and the parts for everything that loops all day (breathing, leaves, blinking), so the idle Doum never repeats a stiff picture.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":860,"height":620}}'>
+
+class Component extends DCLogic {
+  renderVals() {
+    const st = Object.assign({ mode: 'idle' }, this.state || {});
+    const b = {};
+    ['idle', 'walk', 'happy', 'wave'].forEach((m) => {
+      b[m] = () => this.setState({ mode: m });
+      b[m + 'Bg'] = st.mode === m ? '#2F7A3A' : '#FFFFFF';
+      b[m + 'Fg'] = st.mode === m ? '#FFFFFF' : '#23352A';
+    });
+    return { b, mcls: 'm-' + st.mode, framesWalk: st.mode === 'walk', framesIdle: st.mode !== 'walk' };
+  }
+}
+
+</script>
+</body>
+</html>

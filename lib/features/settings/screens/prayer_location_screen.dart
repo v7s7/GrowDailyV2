@@ -16,6 +16,7 @@ import '../../../shared/widgets/app_snackbar.dart';
 import '../models/notification_settings.dart';
 import '../notifiers/notification_settings_notifier.dart';
 import '../widgets/city_search_sheet.dart';
+import '../widgets/prayer_alarm_card.dart';
 import '../widgets/prayer_today_card.dart';
 
 /// Settings › موقع الصلاة: the place prayer times are worked out from, and
@@ -42,6 +43,10 @@ import '../widgets/prayer_today_card.dart';
 /// 2026-10-01): the widget's sky with the next prayer counting down, then
 /// all six of today's moments. A tap on the prayer widget lands here, and a
 /// newly chosen place brings the page back up to show its day.
+///
+/// Under the two ways, «منبّه الأذان» (PrayerAlarmCard, 2026-10-03): a
+/// switch per prayer that rings a real alarm at its adhan, all off until
+/// turned on, and only where the phone can ring one.
 class PrayerLocationScreen extends ConsumerStatefulWidget {
   const PrayerLocationScreen({super.key});
 
@@ -282,6 +287,9 @@ class _PrayerLocationScreenState extends ConsumerState<PrayerLocationScreen> {
               ),
             ],
           ),
+          // The adhan alarms ring at this place's times, so only once there
+          // is one. The card brings its own space above it.
+          if (place != null) const PrayerAlarmCard(),
           const SizedBox(height: 22),
           _Card(
             children: [

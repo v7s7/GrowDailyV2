@@ -1,14 +1,15 @@
 // Doum's hand-off from the launch curtain to the sign-in screen (Aziz,
 // 2026-10-01, the canvas "Doum picks the language"): on the very first open
 // he does not fade with the curtain, he flies into the sign-in screen's head
-// and that screen's Doum carries on from the same spot, then turns round
-// into his language's look.
+// and lands in the square of the app's language (the language squares,
+// 2026-10-02), where that square's Doum carries on from the same spot and
+// turns round into its look, while the other square's Doum pops up.
 //
-// What has to hold: he lands exactly where the sign-in Doum stands (no jump
-// between the two drawings), the sign-in Doum never shows twice or early,
-// and every way the flight cannot happen (a tap that skips the curtain,
-// Reduce Motion, nothing to land on, any other scene) falls back to the
-// curtain as it always was, with the sign-in Doum popping in after it.
+// What has to hold: he lands exactly where that square's Doum stands (no
+// jump between the two drawings), the sign-in Doums never show twice or
+// early, and every way the flight cannot happen (a tap that skips the
+// curtain, Reduce Motion, nothing to land on, any other scene) falls back to
+// the curtain as it always was, with both Doums popping in after it.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -70,7 +71,11 @@ void main() {
                       left: 0,
                       right: 0,
                       child: Center(
-                        child: SignInDoum(height: 150, controller: doum),
+                        child: SignInDoum(
+                          height: 176,
+                          doumHeight: 118,
+                          controller: doum,
+                        ),
                       ),
                     ),
                   Positioned.fill(
@@ -94,9 +99,10 @@ void main() {
   DoumHandoffPhase phase() => container.read(launchDoumHandoffProvider).phase;
   bool curtainUp() => find.byType(LaunchSceneView).evaluate().isNotEmpty;
 
-  /// The sign-in screen's Doum, once he is on screen.
+  /// The sign-in screen's Doum in the square of the app's language (English
+  /// here), the one the flight lands in, once he is on screen.
   Finder signInDoum() => find.descendant(
-        of: find.byType(DoumLanguageLook),
+        of: find.byKey(const ValueKey('doum-square-en')),
         matching: find.byType(Sprout),
       );
 
@@ -141,11 +147,14 @@ void main() {
     );
     expect(find.byType(DoumLanguageLook), findsNothing);
 
-    // Nearly there: the flying Doum is almost on the stand.
-    final stand = tester.getRect(find.byType(SignInDoum));
+    // Nearly there: the flying Doum is almost on the stand, Doum's box in
+    // the English square.
+    final stand = tester.getRect(
+      find.byKey(container.read(launchDoumHandoffProvider).stand!),
+    );
     await tester.pump(const Duration(milliseconds: 440));
     final late = tester.getRect(flying());
-    final box = Sprout.sizeOf(SproutPose.frontWave, 150);
+    final box = Sprout.sizeOf(SproutPose.frontWave, 118);
     final landLeft =
         stand.center.dx - kDoumFeetCentre[SproutPose.frontWave]! * box.width;
     expect(late.left, moreOrLessEquals(landLeft, epsilon: 3));
@@ -164,11 +173,26 @@ void main() {
     expect(landed.bottom, moreOrLessEquals(stand.bottom, epsilon: 0.01));
     expect(tester.widget<Sprout>(signInDoum()).pose, SproutPose.frontWave);
 
-    // A breath, then he turns round into his look (English here).
+    // And the other square's Doum popped up beside him in the thobe.
+    expect(
+      tester
+          .widget<Sprout>(
+            find.descendant(
+              of: find.byKey(const ValueKey('doum-square-ar')),
+              matching: find.byType(Sprout),
+            ),
+          )
+          .pose,
+      SproutPose.langThobeFront,
+    );
+
+    // A breath, then he turns round into his look (English here), landing
+    // on his wave: the suit greets that way, never with the bow.
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump();
-    expect(tester.widget<Sprout>(signInDoum()).pose, SproutPose.langSuitGreet);
+    expect(find.byKey(kDoumTurnKey), findsNothing, reason: 'the turn is over');
+    expect(tester.widget<Sprout>(signInDoum()).pose, SproutPose.langSuitFront);
     await tester.pump(const Duration(seconds: 12));
   });
 
@@ -226,7 +250,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump();
-    expect(find.byType(DoumLanguageLook), findsOneWidget);
+    expect(find.byType(DoumLanguageLook), findsNWidgets(2));
     expect(flying(), findsNothing);
     await tester.pump(const Duration(seconds: 12));
   });

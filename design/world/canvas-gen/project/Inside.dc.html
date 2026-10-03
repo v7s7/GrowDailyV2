@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<title>Inside the house</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+@keyframes isl-twinkle{0%,100%{transform:scale(.82) rotate(-6deg);opacity:.75}50%{transform:scale(1.08) rotate(6deg);opacity:1}}.isl-twinkle{animation:isl-twinkle 1.6s ease-in-out infinite}@keyframes isl-hop-a{0%{transform:none}25%{transform:translateY(-9%) scale(1.04,.97)}45%{transform:none}60%{transform:rotate(-3deg)}75%{transform:rotate(3deg)}100%{transform:none}}@keyframes isl-hop-b{0%{transform:none}25%{transform:translateY(-9%) scale(1.04,.97)}45%{transform:none}60%{transform:rotate(-3deg)}75%{transform:rotate(3deg)}100%{transform:none}}.isl-hop-a{animation:isl-hop-a .9s ease-out}.isl-hop-b{animation:isl-hop-b .9s ease-out}@keyframes isl-rise-a{0%{transform:translateY(10px) scale(.5);opacity:0}30%{opacity:1}100%{transform:translateY(-34px) scale(1);opacity:0}}@keyframes isl-rise-b{0%{transform:translateY(10px) scale(.5);opacity:0}30%{opacity:1}100%{transform:translateY(-34px) scale(1);opacity:0}}.isl-rise-a{animation:isl-rise-a 1.3s ease-out forwards;opacity:0}.isl-rise-b{animation:isl-rise-b 1.3s ease-out forwards;opacity:0}@keyframes isl-pop{0%{transform:translate(-50%,-90%) scale(.8);opacity:0}100%{transform:translate(-50%,-100%) scale(1);opacity:1}}.isl-pop{animation:isl-pop .25s ease-out}@keyframes isl-flag{0%,100%{transform:skewY(0)}50%{transform:skewY(-4deg)}}.isl-flag{animation:isl-flag 2.4s ease-in-out infinite}@keyframes isl-walk{0%{transform:translateY(0) rotate(-3.5deg)}25%{transform:translateY(-5%) rotate(0deg) scale(.98,1.03)}50%{transform:translateY(0) rotate(3.5deg)}75%{transform:translateY(-5%) rotate(0deg) scale(.98,1.03)}100%{transform:translateY(0) rotate(-3.5deg)}}.isl-walk{animation:isl-walk .46s ease-in-out infinite}@keyframes isl-land{0%{transform:scale(1.07,.9)}60%{transform:scale(.98,1.03)}100%{transform:none}}.isl-land{animation:isl-land .32s ease-out}@keyframes isl-breathe{0%,100%{transform:none}50%{transform:scale(1.012,1.022)}}.isl-breathe{animation:isl-breathe 3.4s ease-in-out infinite}@keyframes isl-fr{0%{opacity:1}25%{opacity:0}100%{opacity:0}}.isl-fr{opacity:0;animation:isl-fr .44s step-end infinite}.isl-fr0{animation-delay:0s}.isl-fr1{animation-delay:-.33s}.isl-fr2{animation-delay:-.22s}.isl-fr3{animation-delay:-.11s}@keyframes isl-sway-s{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg)}}.isl-sway-s{animation:isl-sway-s .44s ease-in-out infinite}@keyframes isl-sway{0%,100%{transform:translateY(0) rotate(-2.5deg)}25%,75%{transform:translateY(-4px)}50%{transform:rotate(2.5deg)}}.isl-sway{animation:isl-sway .44s ease-in-out infinite}@keyframes isl-blink{0%,93%{opacity:0}94%,97%{opacity:1}98%,100%{opacity:0}}.isl-blink{opacity:0;animation:isl-blink 5.3s linear infinite 1.2s}@keyframes isl-lookl{0%,58%{opacity:0}60%,72%{opacity:1}74%,100%{opacity:0}}.isl-lookl{opacity:0;animation:isl-lookl 12s linear infinite 3s}@keyframes isl-lookr{0%,80%{opacity:0}82%,92%{opacity:1}94%,100%{opacity:0}}.isl-lookr{opacity:0;animation:isl-lookr 12s linear infinite 3s}@keyframes isl-act1{0%,99%{opacity:1}100%{opacity:0}}.isl-act1{animation:isl-act1 .5s linear forwards}@keyframes isl-act2{0%,99%{opacity:0}100%{opacity:1}}.isl-act2{opacity:0;animation:isl-act2 .5s linear forwards}@keyframes isl-grow{0%{transform:scale(.15);opacity:0}55%{transform:scale(1.12);opacity:1}75%{transform:scale(.95)}100%{transform:none}}.isl-grow{animation:isl-grow .9s cubic-bezier(.3,.7,.4,1) both}@keyframes isl-act1b{0%,99%{opacity:1}100%{opacity:0}}.isl-act1b{animation:isl-act1b .5s linear forwards}@keyframes isl-act2b{0%,99%{opacity:0}100%{opacity:1}}.isl-act2b{opacity:0;animation:isl-act2b .5s linear forwards}@keyframes isl-hopup{0%{transform:none}45%{transform:translateY(calc(var(--hop) * -1)) scale(.95,1.06)}78%{transform:scale(1.07,.92)}100%{transform:none}}@keyframes isl-hopupb{0%{transform:none}45%{transform:translateY(calc(var(--hop) * -1)) scale(.95,1.06)}78%{transform:scale(1.07,.92)}100%{transform:none}}.isl-hopup{animation:isl-hopup .42s ease-out}.isl-hopupb{animation:isl-hopupb .42s ease-out}@keyframes isl-hopdn{0%{transform:none}40%{transform:translateY(calc(var(--hop) * -0.8)) scale(.96,1.04)}80%{transform:scale(1.08,.9)}100%{transform:none}}@keyframes isl-hopdnb{0%{transform:none}40%{transform:translateY(calc(var(--hop) * -0.8)) scale(.96,1.04)}80%{transform:scale(1.08,.9)}100%{transform:none}}.isl-hopdn{animation:isl-hopdn .38s ease-in}.isl-hopdnb{animation:isl-hopdnb .38s ease-in}@keyframes isl-swo{0%,44%{opacity:1}45%,100%{opacity:0}}@keyframes isl-swob{0%,44%{opacity:1}45%,100%{opacity:0}}@keyframes isl-swi{0%,44%{opacity:0}45%,100%{opacity:1}}@keyframes isl-swib{0%,44%{opacity:0}45%,100%{opacity:1}}.isl-swo{animation:isl-swo .42s linear forwards}.isl-swob{animation:isl-swob .42s linear forwards}.isl-swi{opacity:0;animation:isl-swi .42s linear forwards}.isl-swib{opacity:0;animation:isl-swib .42s linear forwards}@keyframes isl-sit{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg) scale(1.012,1.025)}}.isl-sit{animation:isl-sit 4.2s ease-in-out infinite}@media (prefers-reduced-motion: reduce){.isl-grow,.isl-twinkle,.isl-hop-a,.isl-hop-b,.isl-pop,.isl-flag,.isl-walk,.isl-land,.isl-breathe,.isl-sway,.isl-sway-s{animation:none}.isl-rise-a,.isl-rise-b,.isl-blink,.isl-lookl,.isl-lookr{animation:none;opacity:0}.isl-fr{animation:none}.isl-fr0{opacity:1}.isl-act1,.isl-act1b{animation:none;opacity:0}.isl-act2,.isl-act2b{animation:none;opacity:1}.isl-hopup,.isl-hopupb,.isl-hopdn,.isl-hopdnb,.isl-sit{animation:none}.isl-swo,.isl-swob,.isl-swi,.isl-swib{animation:none}.isl-swo,.isl-swob{opacity:0}.isl-swi,.isl-swib{opacity:1}}
+</style>
+</helmet>
+<div dir="rtl" style="width: 390px; height: 844px; box-sizing: border-box; background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans Arabic', sans-serif; overflow: hidden; position: relative;">
+<div dir="ltr" style="position: absolute; left: 0; top: 0; width: 390px; height: 480px; overflow: hidden; isolation: isolate;">
+<svg viewBox="0 0 390 480" width="390" height="480" style="position: absolute; left: 0; top: 0;" aria-hidden="true"><rect x="0" y="0" width="390" height="332" fill="#F3E7D3"></rect><rect x="0" y="0" width="390" height="54" fill="#C9A27A"></rect><line x1="0" y1="8" x2="390" y2="8" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="15" x2="390" y2="15" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="22" x2="390" y2="22" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="29" x2="390" y2="29" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="36" x2="390" y2="36" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="43" x2="390" y2="43" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><line x1="0" y1="50" x2="390" y2="50" stroke="#8B5E3C" stroke-width="3" stroke-linecap="round"></line><rect x="0" y="52" width="390" height="9" fill="#6B4426"></rect><path d="M4 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="25" cy="100" r="2.6" fill="#E9B949"></circle><path d="M32 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="53" cy="100" r="2.6" fill="#E9B949"></circle><path d="M60 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="81" cy="100" r="2.6" fill="#E9B949"></circle><path d="M88 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="109" cy="100" r="2.6" fill="#E9B949"></circle><path d="M116 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="137" cy="100" r="2.6" fill="#E9B949"></circle><path d="M144 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="165" cy="100" r="2.6" fill="#E9B949"></circle><path d="M172 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="193" cy="100" r="2.6" fill="#E9B949"></circle><path d="M200 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="221" cy="100" r="2.6" fill="#E9B949"></circle><path d="M228 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="249" cy="100" r="2.6" fill="#E9B949"></circle><path d="M256 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="277" cy="100" r="2.6" fill="#E9B949"></circle><path d="M284 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="305" cy="100" r="2.6" fill="#E9B949"></circle><path d="M312 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="333" cy="100" r="2.6" fill="#E9B949"></circle><path d="M340 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="361" cy="100" r="2.6" fill="#E9B949"></circle><path d="M368 100 l7 -7 l7 7 l-7 7 Z" fill="#3F86A8"></path><circle cx="389" cy="100" r="2.6" fill="#E9B949"></circle><path d="M112 250 V182 a32 32 0 0 1 64 0 V250 Z" stroke="#6B4426" stroke-width="6" style="fill: {{win}}; transition: fill .6s ease"></path><g style="opacity: {{stars}}; transition: opacity .6s ease" fill="#F6E7A8"><circle cx="130" cy="180" r="2"></circle><circle cx="158" cy="196" r="1.6"></circle><circle cx="140" cy="222" r="1.8"></circle></g><path d="M144 150 V250 M112 206 H176" stroke="#6B4426" stroke-width="3"></path><path d="M0 332 H390 V480 H0 Z" fill="#D9B58A"></path><path d="M0 332 H390" stroke="#B48A5E" stroke-width="4"></path></svg>
+<sc-for list="{{items}}" as="it" hint-placeholder-count="12"><img src="{{it.src}}" alt="" class="{{it.cls}}" style="position: absolute; left: {{it.x}}px; top: {{it.y}}px; width: {{it.w}}px; height: {{it.h}}px; z-index: {{it.zi}}; pointer-events: none;"></sc-for>
+<div style="position: absolute; left: {{dm.x}}px; top: {{dm.y}}px; width: 0; height: 0; z-index: {{dm.zi}}; pointer-events: none; transition: left {{dm.dur}}s cubic-bezier(.4,.1,.4,1), top {{dm.dur}}s cubic-bezier(.4,.1,.4,1);">
+<div style="position: absolute; left: {{dm.shl}}px; top: {{dm.sht}}px; width: {{dm.shw}}px; height: {{dm.shh}}px; border-radius: 50%; background: radial-gradient(closest-side, rgba(60,40,20,0.30), rgba(60,40,20,0));"></div>
+<div class="{{dm.inner}}" style="position: absolute; left: 0; top: 0; width: 0; height: 0; scale: {{dm.sc}}; transform-origin: 0 0; --hop: {{dm.hop}}px;">
+<sc-for list="{{dm.imgs}}" as="im" hint-placeholder-count="4"><img src="{{im.src}}" alt="" class="{{im.cls}}" style="position: absolute; left: {{im.x}}px; top: {{im.y}}px; width: {{im.w}}px; height: {{im.h}}px; max-width: none;"></sc-for>
+</div></div>
+<div style="position: absolute; inset: 0; z-index: 3000; background: #14203A; opacity: {{shade}}; pointer-events: none; transition: opacity .6s ease;"></div>
+<sc-for list="{{glows}}" as="g" hint-placeholder-count="0"><div style="position: absolute; z-index: 3001; left: {{g.x}}px; top: {{g.y}}px; width: {{g.d}}px; height: {{g.d}}px; border-radius: 999px; background: radial-gradient(circle, rgba(255,214,110,0.8) 0%, rgba(255,214,110,0.3) 40%, rgba(255,214,110,0) 70%); pointer-events: none;"></div></sc-for>
+<button type="button" onClick="{{sl.t0}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 190px; top: 452px; transform: translate(-50%, -50%); width: {{sl.w0}}px; height: {{sl.h0}}px; border-radius: 999px; border: {{sl.b0}}; background: {{sl.bg0}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p0}}</button><button type="button" onClick="{{sl.t1}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 50px; top: 302px; transform: translate(-50%, -50%); width: {{sl.w1}}px; height: {{sl.h1}}px; border-radius: 999px; border: {{sl.b1}}; background: {{sl.bg1}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p1}}</button><button type="button" onClick="{{sl.t2}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 236px; top: 160px; transform: translate(-50%, -50%); width: {{sl.w2}}px; height: {{sl.h2}}px; border-radius: 999px; border: {{sl.b2}}; background: {{sl.bg2}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p2}}</button><button type="button" onClick="{{sl.t3}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 330px; top: 190px; transform: translate(-50%, -50%); width: {{sl.w3}}px; height: {{sl.h3}}px; border-radius: 999px; border: {{sl.b3}}; background: {{sl.bg3}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p3}}</button><button type="button" onClick="{{sl.t4}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 150px; top: 101px; transform: translate(-50%, -50%); width: {{sl.w4}}px; height: {{sl.h4}}px; border-radius: 999px; border: {{sl.b4}}; background: {{sl.bg4}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p4}}</button><button type="button" onClick="{{sl.t5}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 290px; top: 101px; transform: translate(-50%, -50%); width: {{sl.w5}}px; height: {{sl.h5}}px; border-radius: 999px; border: {{sl.b5}}; background: {{sl.bg5}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p5}}</button><button type="button" onClick="{{sl.t6}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 118px; top: 322px; transform: translate(-50%, -50%); width: {{sl.w6}}px; height: {{sl.h6}}px; border-radius: 999px; border: {{sl.b6}}; background: {{sl.bg6}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p6}}</button><button type="button" onClick="{{sl.t7}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 216px; top: 322px; transform: translate(-50%, -50%); width: {{sl.w7}}px; height: {{sl.h7}}px; border-radius: 999px; border: {{sl.b7}}; background: {{sl.bg7}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p7}}</button><button type="button" onClick="{{sl.t8}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 340px; top: 324px; transform: translate(-50%, -50%); width: {{sl.w8}}px; height: {{sl.h8}}px; border-radius: 999px; border: {{sl.b8}}; background: {{sl.bg8}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p8}}</button><button type="button" onClick="{{sl.t9}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 54px; top: 446px; transform: translate(-50%, -50%); width: {{sl.w9}}px; height: {{sl.h9}}px; border-radius: 999px; border: {{sl.b9}}; background: {{sl.bg9}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p9}}</button><button type="button" onClick="{{sl.t10}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 304px; top: 438px; transform: translate(-50%, -50%); width: {{sl.w10}}px; height: {{sl.h10}}px; border-radius: 999px; border: {{sl.b10}}; background: {{sl.bg10}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p10}}</button><button type="button" onClick="{{sl.t11}}" aria-label="مكان" style="position: absolute; z-index: 3002; left: 304px; top: 396px; transform: translate(-50%, -50%); width: {{sl.w11}}px; height: {{sl.h11}}px; border-radius: 999px; border: {{sl.b11}}; background: {{sl.bg11}}; color: #2F7A3A; font-family: inherit; font-size: 20px; font-weight: 700; padding: 0; cursor: pointer;">{{sl.p11}}</button>
+</div>
+<div style="position: absolute; top: 48px; left: 8px; right: 8px; display: flex; align-items: center; justify-content: space-between;">
+<a href="Walk.dc.html" aria-label="اطلع" style="width: 44px; height: 44px; border-radius: 999px; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#23352A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg></a>
+<div style="font-size: 17px; font-weight: 700; background: rgba(255,255,255,0.9); padding: 8px 16px; border-radius: 999px;">داخل بيت المرجان</div>
+<div style="width: 44px;"></div>
+</div>
+<div style="position: absolute; left: 0; right: 0; top: 470px; bottom: 0; background: #F5F0E1; border-radius: 22px 22px 0 0; padding: 14px 16px 0; display: flex; flex-direction: column; gap: 10px;">
+<sc-if value="{{notPicking}}" hint-placeholder-val="{{true}}">
+<div style="display: flex; flex-direction: column; gap: 2px;">
+<div style="font-size: 18px; font-weight: 700;">مجلس دوم</div>
+<div style="font-size: 14px; color: #45574B; line-height: 1.5;">اضغط أي شي تغيّره، أو + تحط شي جديد. الضيوف يدخلون ويشوفونه بس.</div>
+</div>
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+<button type="button" onClick="{{sit}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: #6B4E00; background: #FFF3C4; border: 0; border-radius: 14px; min-height: 46px; cursor: pointer;">{{sitLabel}}</button>
+<button type="button" onClick="{{toggle}}" style="font-family: inherit; font-size: 15px; font-weight: 700; color: #23352A; background: #F3EEDF; border: 0; border-radius: 14px; min-height: 46px; cursor: pointer;">{{dayLabel}}</button>
+<a href="Edit.dc.html" style="font-size: 15px; font-weight: 700; color: #FFFFFF; background: #2F7A3A; border-radius: 14px; min-height: 46px; display: flex; align-items: center; justify-content: center; text-decoration: none;">عدّل برّا</a>
+</div>
+</sc-if>
+<sc-if value="{{picking}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; align-items: center; justify-content: space-between;">
+<div style="font-size: 16px; font-weight: 700;">وش تحط هنا؟</div>
+<button type="button" onClick="{{cancel}}" style="font-family: inherit; font-size: 14px; font-weight: 600; color: #45574B; background: transparent; border: 0; min-height: 40px; cursor: pointer;">إلغاء</button>
+</div>
+<div style="display: flex; gap: 6px; flex-wrap: wrap;"><sc-if value="{{pk.show_carved_door}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.carved_door}}" aria-label="باب" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/3567dacea781f1a1eab80251936fe5f6" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">باب</span></button></sc-if><sc-if value="{{pk.show_cushions}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.cushions}}" aria-label="مساند" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/a7090a03f1447c4dce022d9af76927c2" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">مساند</span></button></sc-if><sc-if value="{{pk.show_dallah_set}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.dallah_set}}" aria-label="دلّة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/890855ec8a80f97fc2d4777581b6ef25" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">دلّة</span></button></sc-if><sc-if value="{{pk.show_frond_mat}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.frond_mat}}" aria-label="سجادة خوص" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/5e71438b280a771b0c18ec0d5169e775" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">سجادة خوص</span></button></sc-if><sc-if value="{{pk.show_hanging_lantern}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.hanging_lantern}}" aria-label="فانوس" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/286895fd1b71980bdc8453533160af18" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">فانوس</span></button></sc-if><sc-if value="{{pk.show_harvest_basket}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.harvest_basket}}" aria-label="سلة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/2557a407d95e0e763235579d01395cde" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">سلة</span></button></sc-if><sc-if value="{{pk.show_lattice_window}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.lattice_window}}" aria-label="شبّاك" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/430e34ad9a859f5d9ea6e24501472693" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">شبّاك</span></button></sc-if><sc-if value="{{pk.show_low_table}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.low_table}}" aria-label="طاولة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/8f6d4b889d36a597d8ee1924ea5fb92c" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">طاولة</span></button></sc-if><sc-if value="{{pk.show_mabkhara}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.mabkhara}}" aria-label="مبخرة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/74686b7e5a2133e8cd57dbd577ffe254" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">مبخرة</span></button></sc-if><sc-if value="{{pk.show_mandoos}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.mandoos}}" aria-label="مندوس" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/fe07d9d089d54a2f0023ed6be01bc0f6" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">مندوس</span></button></sc-if><sc-if value="{{pk.show_pattern_frame}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.pattern_frame}}" aria-label="لوحة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/22865baec9cb49353adcfeb21d69e991" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">لوحة</span></button></sc-if><sc-if value="{{pk.show_pearl_chest}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.pearl_chest}}" aria-label="صندوق لؤلؤ" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/6cb587359dcf29b486be1f5355517d5e" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">صندوق لؤلؤ</span></button></sc-if><sc-if value="{{pk.show_potted_palm}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.potted_palm}}" aria-label="نخلة صغيرة" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/ce0bba5dca827712dbec0d4c9912a97c" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">نخلة صغيرة</span></button></sc-if><sc-if value="{{pk.show_shelf}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.shelf}}" aria-label="رف" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/83620128be446127a5eecffffd9c3904" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">رف</span></button></sc-if><sc-if value="{{pk.show_telescope}}" hint-placeholder-val="{{false}}"><button type="button" onClick="{{pk.telescope}}" aria-label="منظار" style="font-family: inherit; flex-shrink: 0; width: 66px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; border-radius: 14px; border: 2px solid #E6DFCC; background: #FFFFFF; cursor: pointer;"><img src="/_blob/0efc035035311e7f4f7efcd97c17d58e" alt="" style="width: 42px; height: 38px; object-fit: contain;"><span style="font-size: 11px; font-weight: 600; color: #23352A; white-space: nowrap;">منظار</span></button></sc-if>
+<button type="button" onClick="{{clear}}" style="font-family: inherit; flex-shrink: 0; width: 66px; min-height: 68px; border-radius: 14px; border: 2px dashed #C9B9A0; background: #FBF8F1; color: #6B5320; font-size: 12px; font-weight: 700; cursor: pointer;">فاضي</button></div>
+</sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+
+class Component extends DCLogic {
+
+  heading(from, to) {
+    const dx = to[0] - from[0], dy = to[1] - from[1];
+    const deg = Math.atan2(dy * 2.6, dx) * 180 / Math.PI;
+    if (deg > 67.5 && deg < 112.5) return { dir: 'front', flip: false };
+    if (deg >= 22.5 && deg <= 157.5) return { dir: 'three', flip: dx < 0 };
+    if (deg < -67.5 && deg > -112.5) return { dir: 'back', flip: false };
+    if (deg <= -22.5 && deg >= -157.5) return { dir: 'back34', flip: dx > 0 };
+    return { dir: 'side', flip: dx < 0 };
+  }
+  go(st, to, extra, then, carry) {
+    if (this._w) clearTimeout(this._w);
+    if (this._a) clearTimeout(this._a);
+    if (this._s) clearTimeout(this._s);
+    if (st.sit) {
+      // hop down in front of the seat first, then go on
+      const front = st.seatFront || [st.walk[0], st.walk[1] + 22];
+      this.setState(Object.assign({}, st, extra, { sit: 'down', walk: front, dur: 0.38, n: (st.n || 0) + 1, action: '', say: '' }));
+      this._s = setTimeout(() => {
+        this.setState({ sit: '', seatZ: 0, seatFront: null, landing: true });
+        this.go(Object.assign({}, st, extra, this.state, { sit: '', walk: front }), to, {}, then, carry);
+      }, 380);
+      return;
+    }
+    const from = st.walk;
+    const dist = Math.hypot(to[0] - from[0], (to[1] - from[1]) * 1.6);
+    if (dist < 3) {
+      this.setState(Object.assign({}, st, extra, { walking: false, carry: false }));
+      if (then) then();
+      return;
+    }
+    const h = this.heading(from, to);
+    const dur = Math.max(0.45, Math.min(2.6, dist / (this._speed || 70)));
+    this.setState(Object.assign({}, st, extra, { walk: to, dir: h.dir, flip: h.flip, dur, walking: true, landing: false, carry: !!carry, action: '', say: '' }));
+    this._w = setTimeout(() => {
+      this.setState({ walking: false, carry: false, landing: true, flip: carry ? h.flip : false });
+      this._w = setTimeout(() => this.setState({ landing: false }), 340);
+      if (then) then();
+    }, dur * 1000);
+  }
+  sitOn(st, seat, extra, say) {
+    // seat: [x, y, scale] of the bench's ground point; the seat itself is 15 units up
+    const front = [seat[0], seat[1] + 7], top = [seat[0], seat[1] - 15 * seat[2]];
+    this.go(st, front, extra, () => {
+      // a short beat facing you, then the hop
+      this.setState({ dir: 'front', flip: false });
+      this._s = setTimeout(() => {
+        const n = ((this.state && this.state.n) || 0) + 1;
+        this.setState({ landing: false, sit: 'up', seatZ: seat[1], seatFront: front, walk: top, dur: 0.42, n, say: '' });
+        this._s = setTimeout(() => this.setState({ sit: 'on', say: say || '' }), 430);
+      }, 180);
+    });
+  }
+  doAct(action, say, ms, after, faceX) {
+    // faceX: the thing he acts on; the action pictures face right, so he turns to it
+    if (this._a) clearTimeout(this._a);
+    const p = { action, say, landing: false };
+    if (faceX != null) p.flip = faceX < ((this.state && this.state.walk) || [0])[0];
+    this.setState(p);
+    this._a = setTimeout(() => { this.setState(after || { action: '', say: '' }); }, ms || 3200);
+  }
+  plantStand(i) {
+    // the patted sprout is drawn about 30 units to his side: stand there, facing the place
+    return [[144, 236], [234, 236], [50, 262], [308, 262], [134, 296], [224, 296]][i];
+  }
+  standAt(i) {
+    return ({"0": [160, 238], "1": [220, 238], "2": [52, 266], "3": [308, 266], "4": [140, 300], "5": [218, 300], "palm": [172, 256]})[i];
+  }
+  doumState(st) {
+    return { walking: st.walking, carry: st.carry, dir: st.dir, flip: st.flip, landing: st.landing, action: st.action,
+      parity: (st.n || 0) % 2, sit: st.sit || '', seatZ: st.seatZ || 0 };
+  }
+  calm() {
+    try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) { return false; }
+  }
+
+  renderVals() {
+    const SLOTS = [["rug", "rug", 190, 482, 244, "bottom"], ["door", "wallfloor", 50, 332, 74, "bottom"], ["frame", "wall", 236, 160, 60, "center"], ["win", "wall", 330, 190, 78, "center"], ["hangL", "hang", 150, 61, 28, "top"], ["hangR", "hang", 290, 61, 28, "top"], ["incense", "back", 118, 352, 40, "bottom"], ["seat", "back", 216, 352, 168, "bottom"], ["chest", "back", 340, 354, 84, "bottom"], ["plant", "front", 54, 476, 84, "bottom"], ["table", "table", 304, 468, 116, "bottom"], ["top", "top", 304, 426, 72, "bottom"]];
+    const ART = {"carved_door": ["/_blob/3567dacea781f1a1eab80251936fe5f6", 224, 326, 0.5], "cushions": ["/_blob/a7090a03f1447c4dce022d9af76927c2", 330, 175, 0.5], "dallah_set": ["/_blob/890855ec8a80f97fc2d4777581b6ef25", 317, 300, 0.5], "frond_mat": ["/_blob/5e71438b280a771b0c18ec0d5169e775", 330, 188, 0.5], "hanging_lantern": ["/_blob/286895fd1b71980bdc8453533160af18", 133, 330, 0.5], "harvest_basket": ["/_blob/2557a407d95e0e763235579d01395cde", 327, 294, 0.486], "lattice_window": ["/_blob/430e34ad9a859f5d9ea6e24501472693", 257, 284, 0.5], "low_table": ["/_blob/8f6d4b889d36a597d8ee1924ea5fb92c", 330, 195, 0.5], "mabkhara": ["/_blob/74686b7e5a2133e8cd57dbd577ffe254", 186, 302, 0.5], "mandoos": ["/_blob/fe07d9d089d54a2f0023ed6be01bc0f6", 330, 224, 0.5], "pattern_frame": ["/_blob/22865baec9cb49353adcfeb21d69e991", 257, 264, 0.5], "pearl_chest": ["/_blob/6cb587359dcf29b486be1f5355517d5e", 320, 277, 0.5], "potted_palm": ["/_blob/ce0bba5dca827712dbec0d4c9912a97c", 300, 302, 0.5], "shelf": ["/_blob/83620128be446127a5eecffffd9c3904", 262, 330, 0.5], "telescope": ["/_blob/0efc035035311e7f4f7efcd97c17d58e", 235, 291, 0.457]};
+    const OPTS = {"rug": ["frond_mat"], "wallfloor": ["carved_door", "shelf"], "wall": ["pattern_frame", "lattice_window"], "hang": ["hanging_lantern"], "back": ["cushions", "mandoos", "mabkhara", "shelf", "potted_palm", "pearl_chest"], "front": ["potted_palm", "mabkhara", "harvest_basket", "telescope", "mandoos"], "table": ["low_table"], "top": ["dallah_set", "harvest_basket", "mabkhara"]};
+    this._speed = 119;   // 70 island units a second, in room pixels (Doum is 112 here, 66 on the island)
+    const base = { fill: {"rug": "frond_mat", "door": "carved_door", "frame": "pattern_frame", "win": "lattice_window", "hangL": "hanging_lantern", "hangR": "hanging_lantern", "incense": "mabkhara", "seat": "cushions", "chest": "mandoos", "plant": "potted_palm", "table": "low_table", "top": "dallah_set"}, sel: -1, night: false, walk: [186, 466], dir: 'front', flip: false, walking: false, landing: false,
+      action: '', say: '', n: 0, dur: 0.9, sit: '', seatZ: 0, seatFront: null };
+    const st = Object.assign({}, base, this.state || {});
+    const set = (p) => this.setState(Object.assign({}, st, p));
+    const items = [], glows = [];
+    SLOTS.forEach((s, i) => {
+      const n = st.fill[s[0]]; if (!n || !ART[n]) return;
+      // the coffee set only sits on a table
+      if (s[0] === 'top' && st.fill.table !== 'low_table') return;
+      const a = ART[n], w = s[4], h = w * a[2] / a[1];
+      const y = s[5] === 'bottom' ? s[3] - h : s[5] === 'top' ? s[3] : s[3] - h / 2;
+      const z = s[1] === 'rug' ? -2 : s[1] === 'wall' || s[1] === 'wallfloor' ? -1 : s[1] === 'hang' ? 0 : s[0] === 'top' ? s[3] + 50 : s[3];
+      items.push({ src: a[0], x: s[2] - w / 2, y, w, h, z, cls: '', zi: Math.round((z + 50) * 4) });
+      if (st.night && n === 'hanging_lantern') glows.push({ x: s[2] - 34, y: y + h * 0.72 - 34, d: 68 });
+    });
+    // Doum, with the island's engine: walks, a beat, hops onto the room's own cushions, sits, hops down
+    const FR = {"idle_calm": ["/_blob/5f7f6244cc63296201f60df636f0f3a2", 278, 300, 138.0, 296.2, 289.5, 0.9584664536741214], "idle_blink": ["/_blob/e7a3dc902876b185e8c472ea96cb60ea", 278, 300, 138.0, 296.2, 291.4, 0.9584664536741214], "idle_look_l": ["/_blob/993846997d837a650512e8383341941d", 278, 300, 138.0, 296.2, 292.3, 0.9584664536741214], "idle_look_r": ["/_blob/8e5806c21e0161b0908600107a8fdc46", 278, 300, 138.0, 296.2, 293.3, 0.9584664536741214], "sit_front": ["/_blob/eb4db781b923b149d72d02b903e608f0", 234, 246, 112.0, 226.0, 246.0, 1.0], "walk_side_1": ["/_blob/a3fbd25877123d09a805b25ca01211fc", 225, 300, 121.5, 296.2, 292.4, 0.9493670886075949], "walk_side_2": ["/_blob/05011aa0f3198eebd2413bb1eed26dda", 225, 300, 121.5, 296.2, 292.4, 0.9493670886075949], "walk_side_3": ["/_blob/a019b4c5785bc22dda739928fb077a4c", 225, 300, 121.5, 296.2, 291.5, 0.9493670886075949], "walk_side_4": ["/_blob/cd51f92d2fdb3b03b6b561ba1a9f5497", 225, 300, 121.5, 296.2, 293.4, 0.9493670886075949], "walk_front_1": ["/_blob/6a81737518535072b5cd2cfd6f28bd09", 287, 300, 139.6, 296.0, 292.1, 0.9900990099009901], "walk_front_2": ["/_blob/f998321fa272a6021d14e2a2a399925a", 287, 300, 139.6, 296.0, 291.1, 0.9900990099009901], "walk_front_3": ["/_blob/090e7f73c2bd2a8093e1829172385b13", 287, 300, 139.6, 296.0, 292.1, 0.9900990099009901], "walk_front_4": ["/_blob/a6fa586438ee44cb2eef669597614e12", 287, 300, 139.6, 296.0, 293.1, 0.9900990099009901], "walk_back_1": ["/_blob/d4e0ceef5dea33dc6a4d8c9f4b8eb3d4", 278, 300, 137.8, 296.1, 288.3, 0.9771986970684039], "walk_back_2": ["/_blob/2f3fc0ce1b393b9ccc7a36752cbf0aa2", 278, 300, 137.8, 296.1, 288.3, 0.9771986970684039], "walk_back_3": ["/_blob/5d63e62aac0dd24bc3887d654db43ca2", 278, 300, 137.8, 296.1, 293.2, 0.9771986970684039], "walk_back_4": ["/_blob/e0093eebad386c82b1725df4b2a7daef", 278, 300, 137.8, 296.1, 283.4, 0.9771986970684039], "walk_three_1": ["/_blob/fc0f93535b25424840cc57f78c5712f2", 242, 300, 120.6, 296.3, 290.8, 0.9202453987730062], "walk_three_2": ["/_blob/4b5d0fa225b93cb6f55abdf39190f1d3", 242, 300, 120.6, 296.3, 289.0, 0.9202453987730062], "walk_three_3": ["/_blob/21ea7dc9fdf393364b56ed11713b2230", 242, 300, 120.6, 296.3, 293.6, 0.9202453987730062], "walk_three_4": ["/_blob/82703127ddf4cc111f291e849b9d0357", 242, 300, 120.6, 296.3, 287.1, 0.9202453987730062], "walk_back34_1": ["/_blob/b1d35f9aee6f68bd2640cf6331143af4", 285, 300, 127.6, 296.2, 293.3, 0.9523809523809523], "walk_back34_2": ["/_blob/d3860aac599e87cdabbd40cafd56e57e", 285, 300, 127.6, 296.2, 293.3, 0.9523809523809523], "walk_back34_3": ["/_blob/05aaf4f6b794bcf48a36b5edf04962bc", 285, 300, 127.6, 296.2, 288.6, 0.9523809523809523], "walk_back34_4": ["/_blob/08302951af7c2e33af6fae2e96d9cf25", 285, 300, 127.6, 296.2, 292.4, 0.9523809523809523]};
+    const DH = 112;
+    const DIRH = { side: 0.98, front: 1, back: 0.97, three: 0.98, back34: 0.98 };
+    const img = (n, cls, sc) => { const f = FR[n]; return { src: f[0], cls, x: -f[3] * sc, y: -f[4] * sc, w: f[1] * sc, h: f[2] * sc }; };
+    const sprite = (ds) => {
+      if (ds.sit) {
+        const ss = DH / (302 * FR.sit_front[6]), si = DH / FR.idle_calm[5], par = ds.parity ? 'b' : '';
+        if (ds.sit === 'on') return { imgs: [img('sit_front', '', ss)], inner: 'isl-sit' };
+        const up = ds.sit === 'up';
+        return { imgs: [img('idle_calm', (up ? 'isl-swo' : 'isl-swi') + par, si), img('sit_front', (up ? 'isl-swi' : 'isl-swo') + par, ss)], inner: (up ? 'isl-hopup' : 'isl-hopdn') + par };
+      }
+      if (ds.walking) {
+        const d = DIRH[ds.dir] ? ds.dir : 'front', sc = (DH * DIRH[d]) / FR['walk_' + d + '_1'][5];
+        return { imgs: [1, 2, 3, 4].map((k, i) => img('walk_' + d + '_' + k, 'isl-fr isl-fr' + i, sc)), inner: 'isl-sway-s' };
+      }
+      const sc = DH / FR.idle_calm[5];
+      return { imgs: [img('idle_calm', '', sc), img('idle_blink', 'isl-blink', sc), img('idle_look_l', 'isl-lookl', sc), img('idle_look_r', 'isl-lookr', sc)],
+        inner: ds.landing ? 'isl-land' : 'isl-breathe' };
+    };
+    const ds = this.doumState(st);
+    const sw = ds.sit ? 0 : 60;
+    const dm = Object.assign({ x: st.walk[0], y: st.walk[1], dur: st.dur || 0.9, sc: st.flip ? '-1 1' : '1 1', hop: 15,
+      zi: ds.sit && ds.seatZ ? Math.round((ds.seatZ + 50) * 4) + 2 : Math.round((st.walk[1] + 50) * 4) + 1,
+      shw: sw, shh: sw * 0.3, shl: -sw / 2, sht: -sw * 0.3 * 0.55 }, sprite(ds));
+    const SEAT = [216, 352, 2.033333333333333], HOME = [186, 466];
+    const sitting = !!st.sit;
+    const sit = () => {
+      if (sitting) this.go(st, HOME, { sel: -1 });
+      else if (st.fill.seat === 'cushions') this.sitOn(st, SEAT, { sel: -1 });
+    };
+    items.sort((a, b) => a.z - b.z);
+    const sl = {};
+    SLOTS.forEach((s, i) => {
+      const full = !!st.fill[s[0]];
+      const on = st.sel === i;
+      sl['t' + i] = () => set({ sel: on ? -1 : i });
+      sl['w' + i] = full ? Math.min(90, Math.max(48, s[4] * 0.8)) : 38;
+      sl['h' + i] = full ? Math.min(90, Math.max(48, s[4] * 0.8)) : 38;
+      sl['b' + i] = on ? '3px solid #2F7A3A' : full ? '0' : '2.5px dashed #2F7A3A';
+      sl['bg' + i] = on && full ? 'rgba(255,243,176,0.35)' : full ? 'transparent' : 'rgba(255,255,255,0.85)';
+      sl['p' + i] = full ? '' : '+';
+    });
+    const pk = {};
+    const kind = st.sel >= 0 ? SLOTS[st.sel][1] : '';
+    Object.keys(ART).forEach((n) => {
+      pk['show_' + n] = st.sel >= 0 && OPTS[kind].includes(n);
+      pk[n] = () => {
+        const fill = Object.assign({}, st.fill); fill[SLOTS[st.sel][0]] = n;
+        // swapping the cushions away while he sits: he stands where he was
+        const off = SLOTS[st.sel][0] === 'seat' && sitting && n !== 'cushions' ? { sit: '', seatZ: 0, walk: st.seatFront || HOME } : {};
+        set(Object.assign({ fill, sel: -1 }, off));
+      };
+    });
+    return { items, glows, sl, pk, dm, picking: st.sel >= 0, notPicking: st.sel < 0,
+      sitLabel: sitting ? 'قوم' : 'اجلس', sit, canSit: st.fill.seat === 'cushions',
+      clear: () => {
+        const fill = Object.assign({}, st.fill); fill[SLOTS[st.sel][0]] = '';
+        const off = SLOTS[st.sel][0] === 'seat' && sitting ? { sit: '', seatZ: 0, walk: st.seatFront || HOME } : {};
+        set(Object.assign({ fill, sel: -1 }, off));
+      },
+      cancel: () => set({ sel: -1 }),
+      win: st.night ? '#22304A' : '#CFEAF2', stars: st.night ? 1 : 0, shade: st.night ? 0.24 : 0,
+      toggle: () => set({ night: !st.night }), dayLabel: st.night ? 'نهار' : 'ليل' };
+  }
+}
+
+</script>
+</body>
+</html>

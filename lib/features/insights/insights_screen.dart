@@ -14,6 +14,7 @@ import '../../core/theme/game_theme.dart';
 import '../../core/utils/western_digits.dart';
 import '../auth/notifiers/auth_notifier.dart';
 import '../grid/models/square_state.dart';
+import '../habits/models/weekly_quota_plan.dart' show sessionsText;
 import '../habits/catalog/islamic_habit_catalog.dart';
 import '../premium/notifiers/premium_notifier.dart';
 import '../milestones/reports/record_lifetime.dart'
@@ -515,7 +516,7 @@ class InsightHeadlineCard extends StatelessWidget {
 /// screen didn't back up the claim next to them.
 class _HabitRateRow extends StatelessWidget {
   final String name;
-  final int completed;
+  final double completed;
   final int scheduled;
   final double rate;
   final bool showPercent;
@@ -556,8 +557,8 @@ class _HabitRateRow extends StatelessWidget {
               ),
               Text(
                 showPercent
-                    ? '${(rate * 100).round()}%  ·  $completed/$scheduled'
-                    : '$completed/$scheduled',
+                    ? '${(rate * 100).round()}%  ·  ${sessionsText(completed)}/$scheduled'
+                    : '${sessionsText(completed)}/$scheduled',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -686,7 +687,8 @@ class _InsightDetailSheet extends StatelessWidget {
     final totalScheduled = pattern?.scheduled ??
         result.overallScheduledByWeekday.values.fold<int>(0, (a, b) => a + b);
     final totalCompleted = pattern?.completed ??
-        result.overallCompletedByWeekday.values.fold<int>(0, (a, b) => a + b);
+        result.overallCompletedByWeekday.values
+            .fold<double>(0, (a, b) => a + b);
     final rate = totalScheduled == 0 ? 0.0 : totalCompleted / totalScheduled;
 
     // The concrete window behind "last 8 weeks" — see
@@ -859,7 +861,10 @@ class _InsightDetailSheet extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    s.insightDetailRate(totalCompleted, totalScheduled),
+                    s.insightDetailRate(
+                      sessionsText(totalCompleted),
+                      totalScheduled,
+                    ),
                     style: TextStyle(fontSize: 12.5, color: gp.textSec),
                   ),
                 ],
@@ -1036,7 +1041,7 @@ class _InsightDetailSheet extends StatelessWidget {
 /// Pure; see test/features/insights/insights_open_day_test.dart.
 List<double?> weekdayWaveRates({
   required Map<int, int> scheduledByWeekday,
-  required Map<int, int> completedByWeekday,
+  required Map<int, double> completedByWeekday,
 }) =>
     [
       for (var day = DateTime.monday; day <= DateTime.sunday; day++)
@@ -1063,7 +1068,7 @@ List<double?> weekdayWaveRates({
 /// only ever takes raw weekday maps, never a [HabitPattern] directly.
 class _WeekdayWaveChart extends StatelessWidget {
   final Map<int, int> scheduledByWeekday;
-  final Map<int, int> completedByWeekday;
+  final Map<int, double> completedByWeekday;
   final int? highlightWeekday;
   final Color highlightColor;
   final String locale;
@@ -1523,7 +1528,7 @@ class _OwnDaysRecordState extends State<_OwnDaysRecord> {
         Padding(
           padding: const EdgeInsetsDirectional.fromSTEB(10, 6, 8, 6),
           child: Text(
-            counted == 0 ? '–' : s.insightCountOf(done, counted),
+            counted == 0 ? '–' : s.insightCountOf(sessionsText(done), counted),
             maxLines: 1,
             textAlign: TextAlign.end,
             style: TextStyle(
@@ -1762,12 +1767,14 @@ class _QuotaWeeksChart extends StatelessWidget {
     final weekEnd =
         DateTime(week.start.year, week.start.month, week.start.day + 7);
     final current = !day.isBefore(week.start) && day.isBefore(weekEnd);
-    final filled = week.done < week.target ? week.done : week.target;
+    // Halves fill half a segment: a week worth 3.5 of 4 draws three full and
+    // one half, the worth the label prints.
+    final filled = week.done < week.target ? week.done : week.target.toDouble();
     final shortfall = week.scored && !week.met;
     final faint = (gp.dark ? Colors.white : Colors.black).withOpacity(0.05);
     return Semantics(
       label: '${westernDate(week.start, s.isAr ? 'd MMMM' : 'MMM d', locale)}'
-          ' · ${s.insightCountOf(week.done, week.target)}',
+          ' · ${s.insightCountOf(sessionsText(week.done), week.target)}',
       excludeSemantics: true,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1784,24 +1791,40 @@ class _QuotaWeeksChart extends StatelessWidget {
                     height: segment,
                     margin:
                         EdgeInsets.only(top: i == week.target - 1 ? 0 : gap),
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
-                      color: i < filled
+                      color: i + 1 <= filled
                           ? (week.whole ? color : color.withOpacity(0.55))
                           : shortfall
                               ? Colors.transparent
                               : faint,
                       borderRadius: BorderRadius.circular(4),
-                      border: i >= filled && shortfall
+                      border: i + 1 > filled && shortfall
                           ? Border.all(color: color.withOpacity(0.35))
                           : null,
                     ),
+                    // The half a segment a جزئي fills, from the bottom.
+                    child: i < filled && i + 1 > filled
+                        ? Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                              heightFactor: filled - i,
+                              widthFactor: 1,
+                              child: ColoredBox(
+                                color: week.whole
+                                    ? color
+                                    : color.withOpacity(0.55),
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
               ],
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            '${week.done}',
+            sessionsText(week.done),
             style: TextStyle(
               fontSize: 11,
               fontWeight:

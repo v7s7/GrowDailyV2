@@ -1,0 +1,6 @@
+check/*.html
+check/*.png
+check/_grid.html
+__pycache__/
+proposal/src/
+proposal/to_upload.json

@@ -7,8 +7,11 @@
 // times a week: two halves and nothing else is 1 of 4, two halves and four
 // whole sessions is 4 of 4, two whole and two halves is 3 of 4. The first
 // and last already read that way before this rule; the second read 5 of 4
-// in the header, and three whole and two halves read a PERFECT 4 of 4 where
-// the rooms score 3.5.
+// in the header.
+//
+// Since 2026-10-03 halves add up ("3 + 0.5 + 0.5 = 4"): three whole and two
+// halves is a PERFECT 4 of 4 here and in the rooms alike, where for a week
+// the rooms scored 3.5 and this read 3.5 with them.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/extensions/datetime_ext.dart';
 import 'package:grow_daily_v2/features/grid/models/square_state.dart';
@@ -85,12 +88,14 @@ void main() {
     );
   });
 
-  test('three whole and two halves: 3.5 of 4, not PERFECT', () {
+  test('three whole and two halves add up: 4 of 4, PERFECT', () {
+    // Aziz, 2026-10-03: "make halves add up, 3 + 0.5 + 0.5 = 4". It read 3.5
+    // and was refused the ribbon for a week that met its four.
     final s = statOf({19: half, 20: half, 21: whole, 22: whole, 23: whole});
-    expect(read(s), (4, 3.5, false));
+    expect(read(s), (4, 4.0, true));
   });
 
-  test('two whole and four halves: only two halves have a place, 3 of 4', () {
+  test('two whole and four halves add up: two to each place left, 4 of 4', () {
     final s = statOf({
       19: whole,
       20: whole,
@@ -99,7 +104,7 @@ void main() {
       23: half,
       24: half,
     });
-    expect(read(s), (4, 3.0, false));
+    expect(read(s), (4, 4.0, true));
   });
 
   test('whole sessions past the target count as they always did', () {
@@ -130,10 +135,11 @@ void main() {
   });
 
   test('finishing the week with a whole session never reads worse', () {
-    // Two halves on a 2x week, Monday open. The halves hold both places, so
-    // Monday's whole session takes the later half's: 1.5 of 2. Had the
-    // halves sat on top of what the week owed, the week would have read 1.0
-    // of 1 before Monday and 1.5 of 2 after it, lower for doing more.
+    // Two halves on a 2x week, Monday open. The halves hold both places;
+    // Monday's whole session takes one, and the two halves share the other:
+    // 2 of 2, halves adding up. Had the halves sat on top of what the week
+    // owed, the week would have read 1.0 of 1 before Monday and less after
+    // it, lower for doing more.
     final twoAWeek = IslamicHabitTemplate(
       id: 'two',
       name: 'two',
@@ -162,7 +168,7 @@ void main() {
     final before = two({19: half, 20: half});
     final after = two({19: half, 20: half, 21: whole});
     expect((before.expected, before.creditedUnits), (2, 1.0));
-    expect((after.expected, after.creditedUnits), (2, 1.5));
+    expect((after.expected, after.creditedUnits), (2, 2.0));
     expect(after.rate, greaterThanOrEqualTo(before.rate));
   });
 }

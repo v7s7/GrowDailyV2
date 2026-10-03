@@ -1,0 +1,122 @@
+[
+ {
+  "name": "stones",
+  "cell": 1,
+  "size": [
+   302,
+   172
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "kite",
+  "cell": 2,
+  "size": [
+   248,
+   314
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "lanterns",
+  "cell": 3,
+  "size": [
+   210,
+   264
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "dhow",
+  "cell": 4,
+  "size": [
+   307,
+   269
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "swing",
+  "cell": 5,
+  "size": [
+   244,
+   252
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "vine",
+  "cell": 6,
+  "size": [
+   307,
+   254
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "bench",
+  "cell": 7,
+  "size": [
+   329,
+   193
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "falaj",
+  "cell": 8,
+  "size": [
+   333,
+   235
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "rose_arch",
+  "cell": 9,
+  "size": [
+   325,
+   297
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "rain_cloud",
+  "cell": 10,
+  "size": [
+   286,
+   271
+  ],
+  "pieces": 4,
+  "dropped": 0
+ },
+ {
+  "name": "rainbow",
+  "cell": 11,
+  "size": [
+   332,
+   191
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "telescope",
+  "cell": 12,
+  "size": [
+   236,
+   291
+  ],
+  "pieces": 1,
+  "dropped": 0
+ }
+]

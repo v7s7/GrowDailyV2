@@ -271,6 +271,10 @@ class WeeklyGridState {
   /// note's counts (main.dart). Read exactly as [halfDoneTodayIds] is.
   Set<String> skippedTodayIds() => _todayIdsMarked(SquareState.skipped);
 
+  /// The habits marked جزئي today, through [knownTodayRow] like
+  /// [skippedTodayIds]: the widget counts each as half.
+  Set<String> partialTodayIds() => _todayIdsMarked(SquareState.partial);
+
   Set<String> _todayIdsMarked(SquareState mark) {
     final row = knownTodayRow;
     if (row == null) return const {};

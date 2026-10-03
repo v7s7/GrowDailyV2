@@ -105,6 +105,12 @@ typedef PrayerSlotOption = ({String key, String label, TimeOfDay? at});
 /// Returns null when the sheet is dismissed, `(slot: null)` when the row's
 /// reminder is taken off (offered only when [clearable]), else the prayer
 /// and the signed shift.
+///
+/// [refuse] says why a pair cannot be used, or null when it can. A task's
+/// reminder passes one (Aziz, 2026-10-03, "same as habit reminder"): a
+/// task fires once, so «قبل العصر» on today after Asr has gone would be a
+/// time that has passed. The reason shows where the preview would be and
+/// the sheet stays open; a habit, which repeats, passes none.
 Future<({PrayerSlot? slot})?> showPrayerSlotSheet(
   BuildContext context, {
   required String title,
@@ -113,6 +119,7 @@ Future<({PrayerSlot? slot})?> showPrayerSlotSheet(
   required int? current,
   bool leanAfter = true,
   bool clearable = false,
+  String? Function(String prayer, int offset)? refuse,
 }) {
   HapticFeedback.selectionClick();
   return showModalBottomSheet<({PrayerSlot? slot})>(
@@ -132,6 +139,7 @@ Future<({PrayerSlot? slot})?> showPrayerSlotSheet(
         prayers: prayers,
         prayer: prayer,
         clearable: clearable,
+        refuse: refuse,
       ),
     ),
   );
@@ -143,6 +151,7 @@ typedef _SlotChoice = ({
   List<PrayerSlotOption> prayers,
   String prayer,
   bool clearable,
+  String? Function(String prayer, int offset)? refuse,
 });
 
 /// One habit reminder as the sentence its row in Add Habit shows.
@@ -311,13 +320,32 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
     return _isAfter ? minutes : -minutes;
   }
 
-  /// Why the current entry cannot be used, or null when it can.
+  /// Why the current entry cannot be used, or null when it can: too large,
+  /// or refused by the slot's [_SlotChoice.refuse] (a task's time that has
+  /// gone), for what is entered now or for the amount just tapped.
   String? _blocked(S s) {
     final minutes = typedOffsetMinutes(_ctrl.text, _unit);
     if (minutes != null && minutes > kMaxHabitOffsetMinutes) {
       return s.habitOffsetTooLarge;
     }
-    return null;
+    return _refusal ?? _refused(_pending);
+  }
+
+  /// The slot's refusal of [signed] on the lit prayer, or null.
+  String? _refused(int? signed) {
+    final refuse = widget.slot?.refuse;
+    final prayer = _prayer;
+    if (refuse == null || prayer == null || signed == null) return null;
+    return refuse(prayer, signed);
+  }
+
+  /// Why the last amount tapped was not taken; cleared by the next change.
+  String? _refusal;
+
+  @override
+  void setState(VoidCallback fn) {
+    _refusal = null;
+    super.setState(fn);
   }
 
   /// The anchor as a clock label, «4:03 ص», or null with no anchor. Built
@@ -583,7 +611,7 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
               ],
               const SizedBox(height: 14),
               FilledButton(
-                onPressed: _pending == null ? null : _confirm,
+                onPressed: _pending == null || blocked != null ? null : _confirm,
                 style: FilledButton.styleFrom(
                   backgroundColor: accent,
                   foregroundColor: GameColors.onGold,
@@ -639,6 +667,13 @@ class _HabitOffsetSheetState extends State<_HabitOffsetSheet> {
   int _signed(int magnitude) => _isAfter ? magnitude : -magnitude;
 
   void _pick(int signed) {
+    final refusal = _refused(signed);
+    if (refusal != null) {
+      HapticFeedback.lightImpact();
+      // super: this class's setState clears the refusal it is setting.
+      super.setState(() => _refusal = refusal);
+      return;
+    }
     HapticFeedback.selectionClick();
     final prayer = _prayer;
     if (widget.slot == null || prayer == null) {

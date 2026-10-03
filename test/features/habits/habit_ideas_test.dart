@@ -88,6 +88,16 @@ void main() {
       }
     });
 
+    // Aziz, 2026-10-02: a hadith has to read as one ("its clear that its
+    // hadeeth, prophet said"). A source line alone said where it was
+    // narrated, not who said it.
+    test('every hadith says the Prophet ﷺ said it, in both languages', () {
+      for (final i in ideas.where((i) => i.sourceAr != null)) {
+        expect(i.benefitAr, contains('النبي ﷺ'), reason: i.id);
+        expect(i.benefitEn, contains('The Prophet ﷺ'), reason: i.id);
+      }
+    });
+
     test('lines fit their places', () {
       for (final i in ideas) {
         expect(i.nameAr.length, lessThanOrEqualTo(32), reason: i.id);

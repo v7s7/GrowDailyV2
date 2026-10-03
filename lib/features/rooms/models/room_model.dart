@@ -1140,6 +1140,25 @@ class RoomParticipant {
   /// Sparse and remove-when-zero, exactly like its siblings.
   final Map<String, int> dailyPartialCount;
 
+  /// Of [dailyPartialCount], the flexible-quota halves that SHARE their
+  /// week's last place with another half, so each asked half a habit of its
+  /// day and gave all of it (weeklyQuotaSharedHalfDays).
+  ///
+  /// Halves add up (Aziz, 2026-10-03): three whole sessions and two halves of
+  /// a 4x week are 4 of 4. The half days are still answerable and still
+  /// drawn as halves, but each one is finished for its share, so
+  /// [isFullyDone] counts it as done: a day with every other habit done and a
+  /// shared half keeps the streak, where a lone half (half of a whole day
+  /// asked) still does not. The percentage reads the half-day demand from
+  /// [dailyScheduledWeight], written beside this on the same days.
+  ///
+  /// A separate count rather than a changed meaning of the partial one, so a
+  /// build that predates it reads these days exactly as it always did: half
+  /// of a whole habit, never more than it was.
+  ///
+  /// Sparse and remove-when-zero, like its siblings.
+  final Map<String, int> dailySharedHalfCount;
+
   /// What a day DEMANDED and what it EARNED, in fractions of a habit, for the
   /// days whole-habit counts cannot describe.
   ///
@@ -1595,6 +1614,7 @@ class RoomParticipant {
     this.dailyScheduledCount = const {},
     this.dailyRestedCount = const {},
     this.dailyPartialCount = const {},
+    this.dailySharedHalfCount = const {},
     this.dailyScheduledWeight = const {},
     this.dailyDoneWeight = const {},
     this.dailyHabitMarks = const {},
@@ -2167,6 +2187,17 @@ class RoomParticipant {
   /// points from back-painting two squares. Days a sync already watched keep
   /// their observed value instead, so back-dating still cannot buy credit
   /// here, exactly as setSquare's past-day branch refuses to pay XP for it.
+  ///
+  /// A week can also be OVER without being met: once halves hold places
+  /// (2026-09-26), two whole sessions and two halves of a 4x week hold all
+  /// four, and the phone rests the rest of the week right then
+  /// (weeklyQuotaScheduledDays), though the week is worth 3 and never
+  /// reaches [quotaOkWeeks]. Its days after the last sync used to fall back
+  /// to due here, and the strip crossed them out on every other board
+  /// (roomStripQuotaDemandOn stands aside once the record rests a day). So
+  /// the same unrecorded blank day is excused when the record itself shows
+  /// every place held ([_quotaWeekPlacesHeld]): sessions a phone already
+  /// wrote, never a square.
   int recordedScheduledCountFor(String dateKey) =>
       _memo.recorded[dateKey] ??= _recordedScheduledCountForUncached(dateKey);
 
@@ -2178,7 +2209,7 @@ class RoomParticipant {
         (dailyDoneCount[dateKey] ?? 0) == 0 &&
         (dailyPartialCount[dateKey] ?? 0) == 0 &&
         _everyCountedHabitIsWeeklyOn(dateKey) &&
-        quotaWeekWasMet(dateKey)) {
+        (quotaWeekWasMet(dateKey) || _quotaWeekPlacesHeld(dateKey))) {
       return 0;
     }
     // The plan AS IT STOOD on this day, not as it stands now. A slot the
@@ -2234,6 +2265,52 @@ class RoomParticipant {
       }
     }
     return sawOne;
+  }
+
+  /// Whether the record shows every place of [dateKey]'s quota week already
+  /// held: the plan that day is one weekly habit, and the days of its
+  /// Saturday week under that same rule that recorded a session, whole
+  /// ([dailyDoneCount]) or half ([dailyPartialCount]), number its whole
+  /// target. From then on the phone answers only the days holding a place
+  /// and rests every other (weeklyQuotaScheduledDays), met or not.
+  ///
+  /// One habit only, because [dailyDoneCount] counts habits, not sessions of
+  /// one of them. The habit's whole target, never a short week's share
+  /// (quotaWeekTargetFor needs the room): it is never below the share, so
+  /// this holds only where the phone's own test holds too. And only what a
+  /// phone wrote: a session it never recorded, a square painted after its
+  /// day was observed included, does not count.
+  ///
+  /// The plan through the member's own links, as [recordedScheduledCountFor]
+  /// asks it; with [room], the plan the room had each day
+  /// ([habitsInPlanOn]), as [unsyncedQuotaRestInference] asks it.
+  bool _quotaWeekPlacesHeld(String dateKey, {RoomModel? room}) {
+    final day = DateTime.tryParse(dateKey);
+    if (day == null) return false;
+    List<String> planOn(String k) =>
+        room == null ? habitsInSlotsOn(k) : habitsInPlanOn(room, k);
+    final habits = planOn(dateKey);
+    if (habits.length != 1) return false;
+    final id = habits.single;
+    final rule = ruleFor(id, dateKey);
+    if (rule == null ||
+        rule.frequencyType != HabitFrequencyType.weekly ||
+        rule.frequencyTarget < 1) {
+      return false;
+    }
+    final start = day.startOfDisplayWeek;
+    var sessions = 0;
+    for (var i = 0; i < 7; i++) {
+      final k = DateTime(start.year, start.month, start.day + i).toDateKey();
+      if (isStoodDownOn(k)) continue;
+      final held = planOn(k);
+      if (held.length != 1 || held.single != id) continue;
+      if (!identical(ruleFor(id, k), rule)) continue;
+      if ((dailyDoneCount[k] ?? 0) > 0 || (dailyPartialCount[k] ?? 0) > 0) {
+        sessions++;
+      }
+    }
+    return sessions >= rule.frequencyTarget;
   }
 
   /// Whether [dateKey] falls in a week this participant's stored
@@ -2433,12 +2510,14 @@ class RoomParticipant {
   ///    the same on any day in front of them that a phone can count first,
   ///    because a phone grades the whole week by the rule on its own first
   ///    counted day in it (see "Which clock");
-  ///  * no day carries a partial or a rest mark, no stood-down day carries a
-  ///    done, every other day records exactly what an open week records
+  ///  * no day carries a rest mark, no stood-down day carries a done or a
+  ///    half, every other day records exactly what an open week records
   ///    (each weekly habit plus the regular habits due that weekday), and
-  ///    each day has either nothing or everything done, so every weekly
-  ///    habit's done days are known;
-  ///  * those done days do not already meet the target.
+  ///    each day has nothing, everything done or everything half done, so
+  ///    every weekly habit's sessions are known. A half is a session holding
+  ///    one of the week's places (weekly_quota_plan.dart), and the empty
+  ///    days are judged with it in hand, as the phone judges them;
+  ///  * those sessions, whole and half, do not already hold every place.
   /// A day with anything done on it is never lowered.
   ///
   /// What it cannot see is squares. A square painted after its day closed,
@@ -2663,14 +2742,16 @@ class RoomParticipant {
       final present = <String>[];
       final recorded = <String, int>{};
       final allDone = <String>{};
+      final allHalf = <String>{};
       for (final k in keys) {
         final done = dailyDoneCount[k] ?? 0;
-        if ((dailyPartialCount[k] ?? 0) > 0 || (dailyRestedCount[k] ?? 0) > 0) {
+        final partial = dailyPartialCount[k] ?? 0;
+        if ((dailyRestedCount[k] ?? 0) > 0) {
           provable = false;
           break;
         }
         if (isStoodDownOn(k)) {
-          if (done > 0) {
+          if (done > 0 || partial > 0) {
             provable = false;
             break;
           }
@@ -2690,9 +2771,13 @@ class RoomParticipant {
           provable = false;
           break;
         }
-        if (done == count) {
+        // Every habit whole, every habit half, or nothing: a day of one
+        // whole and one half cannot say which habit held which.
+        if (done == count && partial == 0) {
           allDone.add(k);
-        } else if (done != 0) {
+        } else if (partial == count && done == 0) {
+          allHalf.add(k);
+        } else if (done != 0 || partial != 0) {
           provable = false;
           break;
         }
@@ -2713,7 +2798,11 @@ class RoomParticipant {
         // week a member joined: a week a room's end cuts short is never read
         // here, since an ended room is left as recorded.
         final effective = target.clamp(1, present.length);
-        if (allDone.length >= effective) {
+        // Places all held: the phone rests the rest of the week the moment
+        // that happens, open or not, so a week recorded fully due never got
+        // there. A جزئي holds a place like a whole session
+        // (weekly_quota_plan.dart).
+        if (allDone.length + allHalf.length >= effective) {
           provable = false;
           break;
         }
@@ -2722,6 +2811,15 @@ class RoomParticipant {
           doneDays: {
             for (var i = 0; i < present.length; i++)
               if (allDone.contains(present[i])) i,
+          },
+          // A stored half is a session the week has had, so the empty days
+          // before it are judged with it in hand, as the phone judges them
+          // (weeklyQuotaScheduledDays). Left out, two halves on Saturday and
+          // Sunday kept the week fully due on every other board until the
+          // member's own phone came back.
+          halfDays: {
+            for (var i = 0; i < present.length; i++)
+              if (allHalf.contains(present[i])) i,
           },
           target: effective,
         );
@@ -2735,7 +2833,10 @@ class RoomParticipant {
       for (final e in rest.entries) {
         // Guaranteed by the gates above; stated so it cannot quietly stop
         // being true.
-        if ((dailyDoneCount[e.key] ?? 0) != 0) return const {};
+        if ((dailyDoneCount[e.key] ?? 0) != 0 ||
+            (dailyPartialCount[e.key] ?? 0) != 0) {
+          return const {};
+        }
         out[e.key] = recorded[e.key]! - e.value;
       }
     }
@@ -2876,10 +2977,11 @@ class RoomParticipant {
   ///
   /// The arm's own conditions, one for one, asked of the plan [room] had
   /// that day ([habitsInPlanOn]): nothing stored for the day, nothing done
-  /// or half done, the week in [quotaOkWeeks], every habit in that plan
-  /// weekly, and a day no sync observed ([wasObservedOn]; unobserved days
-  /// are the newest, so the walk stops at the first observed one). Only a
-  /// day the record does not already rest. [quotaOkWeeks] is written from
+  /// or half done, the week in [quotaOkWeeks] or its places all held
+  /// ([_quotaWeekPlacesHeld], over the plan the room had), every habit in
+  /// that plan weekly, and a day no sync observed ([wasObservedOn];
+  /// unobserved days are the newest, so the walk stops at the first
+  /// observed one). Only a day the record does not already rest. [quotaOkWeeks] is written from
   /// the quota habits alone, which is exactly the plan left here, so the
   /// excuse speaks for everything it excuses, as the arm's gate requires.
   ///
@@ -2912,12 +3014,12 @@ class RoomParticipant {
       if (dailyScheduledCount.containsKey(key) ||
           (dailyDoneCount[key] ?? 0) != 0 ||
           (dailyPartialCount[key] ?? 0) != 0 ||
-          !quotaWeekWasMet(key) ||
+          !(quotaWeekWasMet(key) || _quotaWeekPlacesHeld(key, room: room)) ||
           !_everyCountedHabitIsWeeklyOn(key, room: room)) {
         continue;
       }
       // The record rests it already.
-      if (_everyCountedHabitIsWeeklyOn(key)) continue;
+      if (recordedScheduledCountFor(key) == 0) continue;
       out.add(key);
     }
     return out;
@@ -2944,6 +3046,10 @@ class RoomParticipant {
   /// How many habits were half done on [dateKey]. Scores, see
   /// [dailyPartialCount].
   int partialCountFor(String dateKey) => dailyPartialCount[dateKey] ?? 0;
+
+  /// How many of [dateKey]'s halves were shared quota halves, each finished
+  /// for its share. See [dailySharedHalfCount].
+  int sharedHalfCountFor(String dateKey) => dailySharedHalfCount[dateKey] ?? 0;
 
   /// The demand [dateKey] carried, in fractions of a habit, falling back to
   /// the whole-habit count when the grader recorded no weight for that day.
@@ -3075,7 +3181,10 @@ class RoomParticipant {
     if (isStoodDownOn(dateKey)) return false;
     final scheduled = scheduledCountFor(dateKey);
     if (scheduled == 0) return true;
-    return (dailyDoneCount[dateKey] ?? 0) >= scheduled;
+    // A shared quota half is finished for its share (see
+    // dailySharedHalfCount); any other half is not.
+    return (dailyDoneCount[dateKey] ?? 0) + sharedHalfCountFor(dateKey) >=
+        scheduled;
   }
 
   /// Whether this participant actually *did* something on [dateKey] — at
@@ -3848,6 +3957,10 @@ class RoomParticipant {
             (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
           ) ??
           const <String, int>{},
+      dailySharedHalfCount: (d['dailySharedHalfCount'] as Map?)?.map(
+            (k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0),
+          ) ??
+          const <String, int>{},
       // toDouble, not a cast: Firestore hands a whole number back as an int,
       // and a weight of exactly 1 or 2 is the commonest value there is, so
       // `as double` would throw on the ordinary case rather than the rare one.
@@ -3991,6 +4104,8 @@ class RoomParticipant {
         'dailyDoneCount': dailyDoneCount,
         'dailyRestedCount': dailyRestedCount,
         'dailyPartialCount': dailyPartialCount,
+        if (dailySharedHalfCount.isNotEmpty)
+          'dailySharedHalfCount': dailySharedHalfCount,
         // Sparse like the marks beside them: a plan with no flexible quota
         // never needs a weight, and writing empty maps onto every document in
         // every room would be a schema change for nothing.
@@ -4060,6 +4175,7 @@ class RoomParticipant {
     Map<String, int>? dailyDoneCount,
     Map<String, int>? dailyRestedCount,
     Map<String, int>? dailyPartialCount,
+    Map<String, int>? dailySharedHalfCount,
     Map<String, double>? dailyScheduledWeight,
     Map<String, double>? dailyDoneWeight,
     Map<String, Map<String, RoomHabitMark>>? dailyHabitMarks,
@@ -4102,6 +4218,7 @@ class RoomParticipant {
         dailyScheduledCount: dailyScheduledCount ?? this.dailyScheduledCount,
         dailyRestedCount: dailyRestedCount ?? this.dailyRestedCount,
         dailyPartialCount: dailyPartialCount ?? this.dailyPartialCount,
+        dailySharedHalfCount: dailySharedHalfCount ?? this.dailySharedHalfCount,
         dailyScheduledWeight: dailyScheduledWeight ?? this.dailyScheduledWeight,
         dailyDoneWeight: dailyDoneWeight ?? this.dailyDoneWeight,
         dailyHabitMarks: dailyHabitMarks ?? this.dailyHabitMarks,

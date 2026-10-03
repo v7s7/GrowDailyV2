@@ -1,0 +1,122 @@
+[
+ {
+  "name": "palm",
+  "cell": 1,
+  "size": [
+   310,
+   291
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "lemon",
+  "cell": 2,
+  "size": [
+   296,
+   276
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "pomegranate",
+  "cell": 3,
+  "size": [
+   301,
+   280
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "sidr",
+  "cell": 4,
+  "size": [
+   381,
+   276
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "rose",
+  "cell": 5,
+  "size": [
+   300,
+   237
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "jasmine",
+  "cell": 6,
+  "size": [
+   289,
+   240
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "flowers",
+  "cell": 7,
+  "size": [
+   290,
+   229
+  ],
+  "pieces": 1,
+  "dropped": 0
+ },
+ {
+  "name": "well",
+  "cell": 8,
+  "size": [
+   286,
+   289
+  ],
+  "pieces": 2,
+  "dropped": 0
+ },
+ {
+  "name": "house",
+  "cell": 9,
+  "size": [
+   350,
+   260
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "hive",
+  "cell": 10,
+  "size": [
+   214,
+   216
+  ],
+  "pieces": 1,
+  "dropped": 3
+ },
+ {
+  "name": "vegetables",
+  "cell": 11,
+  "size": [
+   342,
+   235
+  ],
+  "pieces": 3,
+  "dropped": 0
+ },
+ {
+  "name": "spring",
+  "cell": 12,
+  "size": [
+   346,
+   201
+  ],
+  "pieces": 2,
+  "dropped": 0
+ }
+]

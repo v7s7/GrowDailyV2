@@ -5,7 +5,7 @@ import 'package:grow_daily_v2/features/insights/insight_engine.dart';
 HabitPattern pattern(String id, {required int scheduled, required int done}) =>
     HabitPattern(id)
       ..scheduled = scheduled
-      ..completed = done;
+      ..completed = done.toDouble();
 
 /// The per-habit list on InsightsScreen is the app's only "which of your
 /// habits is working" ranking, so what sits at the top of it is a claim.

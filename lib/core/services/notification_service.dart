@@ -10,6 +10,7 @@ import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../features/grid/models/square_state.dart';
+import '../../features/habits/models/habit_cue.dart';
 import '../../features/habits/models/habit_schedule.dart';
 import '../../features/settings/models/notification_settings.dart';
 import '../extensions/datetime_ext.dart';
@@ -848,7 +849,9 @@ class NotificationService {
       known.kind == 'habit'
           ? _habitReminderDetails(isAr, timeSensitive: true, alarmStyle: true)
           : _taskReminderDetails(alarmStyle: true),
-      payload: known.targetId,
+      // An adhan alarm's target is a prayer («fajr»), not a habit or a
+      // task, so its tap only opens the app.
+      payload: known.kind == 'prayer' ? null : known.targetId,
     );
   }
 
@@ -963,6 +966,25 @@ class NotificationService {
       return reminders.first.importance != Importance.none;
     }
     return null;
+  }
+
+  /// Whether Android will ring this app's alarms on the minute: false only
+  /// on Android 12, where «المنبّهات والتذكيرات» can be switched off for an
+  /// app (see [_zonedSchedule]'s catch), and then an alarm may come up to an
+  /// hour late. True below 12 and from 13 on (USE_EXACT_ALARM, granted at
+  /// install); null on iOS, or when it could not be asked. Read by the
+  /// adhan alarm switches, which stay grey while it is false.
+  Future<bool?> canScheduleExactAlarms() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+    try {
+      await init();
+      return await _plugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.canScheduleExactNotifications();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Sends the person to this app's own notification settings in the OS.
@@ -2675,6 +2697,9 @@ class NotificationService {
             isAr: isAr,
             gaveWay: gaveWay,
           );
+          // The adhan alarms ride the same pass and the same lane, after the
+          // habits, whatever the habit switches say: see _syncPrayerAlarms.
+          if (!gaveWay()) await _syncPrayerAlarms(settings, isAr: isAr);
         } finally {
           // What the pass read the systems as holding describes the moment
           // it began, and is kept current only by its own arming. Dropped on
@@ -3751,6 +3776,170 @@ class NotificationService {
           final byDepth = a.depth.compareTo(b.depth);
           return byDepth != 0 ? byDepth : a.fireTime.compareTo(b.fireTime);
         });
+
+  /// How many days of adhan alarms stay armed ahead, today included
+  /// ([NotificationSettings.prayerAlarms], Settings › موقع الصلاة).
+  ///
+  /// A prayer moves every day, so like a prayer habit's alarm each day is
+  /// its own alarm, set in advance and topped up on every open. Two weeks
+  /// rather than the habit alarm's month ([kAlarmWindowDays]) because there
+  /// are five a day: 70 at most. AlarmKit has no fixed cap, but the phone
+  /// refuses past a limit it does not publish (Apple's AlarmKit FAQ), and
+  /// these share it with every habit alarm.
+  static const int kPrayerAlarmDays = 14;
+
+  /// Where adhan alarms live: 700000 to 700999, clear of every other band.
+  /// Keyed by calendar day like [windowAlarmId], ten ids to a day, so the
+  /// next open finds each day's alarms under the ids they already have and
+  /// arms only the day that came into range. See [prayerAlarmId].
+  static const int _prayerAlarmBase = 700000;
+  static const int _prayerAlarmBands = 100;
+  static const int _prayerAlarmLowId = _prayerAlarmBase;
+  static const int _prayerAlarmHighId =
+      _prayerAlarmBase + _prayerAlarmBands * 10 - 1;
+
+  /// The id of [prayerKey]'s adhan alarm on the calendar day of [at]: the
+  /// day's band, then the prayer's place in [kPrayerAlarmKeys].
+  @visibleForTesting
+  static int prayerAlarmId(DateTime at, String prayerKey) {
+    final day = DateTime.utc(at.year, at.month, at.day).millisecondsSinceEpoch ~/
+        Duration.millisecondsPerDay;
+    return _prayerAlarmBase +
+        (day % _prayerAlarmBands) * 10 +
+        kPrayerAlarmKeys.indexOf(prayerKey);
+  }
+
+  /// Every adhan alarm [settings] asks for after [now]: each chosen prayer
+  /// on each of the next [kPrayerAlarmDays] days, at that day's own time
+  /// for the saved place (PrayerTimesService.calculateDays, the source the
+  /// prayer habits and the widget read, Bahrain's official table inside
+  /// Bahrain), soonest first. None with no place saved.
+  @visibleForTesting
+  static Future<List<({int id, tz.TZDateTime at, String key})>>
+      prayerAlarmMoments(
+    NotificationSettings settings,
+    tz.TZDateTime now,
+  ) async {
+    final location = settings.location;
+    if (location == null || settings.prayerAlarms.isEmpty) return const [];
+    final days = await PrayerTimesService.calculateDays(
+      latitude: location.lat,
+      longitude: location.lng,
+      from: now,
+      days: kPrayerAlarmDays,
+      countryCode: settings.resolvedCountryCode,
+    );
+    return [
+      for (final day in days)
+        for (final key in kPrayerAlarmKeys)
+          if (settings.prayerAlarms.contains(key))
+            if (day.forKey(key) case final at? when at.isAfter(now))
+              (id: prayerAlarmId(at, key), at: at, key: key),
+    ];
+  }
+
+  /// Whether adhan alarms may be armed from this launch: set once a sync
+  /// has armed any, cleared once one has cleared them. With none asked for
+  /// and this still false, a pass makes no call for them at all, so the
+  /// many who never turn one on pay nothing on every resume.
+  bool _prayerAlarmsMayBeArmed = false;
+
+  /// Makes the phone hold exactly the adhan alarms [settings] asks for
+  /// ([prayerAlarmMoments]), and none once they are switched off or the
+  /// place is cleared. Run at the end of every [scheduleSmartReminders]
+  /// pass, in its lane: a switch flipped, a new place, a new day and every
+  /// resume all reach it the way they reach the habit reminders.
+  ///
+  /// iOS: real AlarmKit alarms, one reconciling call over the band
+  /// ([AlarmService.syncWindow]) that leaves an alarm already armed at the
+  /// same moment with the same words alone. Only with the permission
+  /// granted: the bridge refuses without it, and the moment to ask is the
+  /// switch being turned on (PrayerAlarmCard), never a pass in the
+  /// background. Stop is their only button, as on every habit alarm.
+  ///
+  /// Android: no AlarmKit, so an alarm here is what a habit's منبّه is, a
+  /// notification on the alarm channel armed with
+  /// [AndroidScheduleMode.alarmClock]. Each carries its moment and language
+  /// in its payload, so a pass re-arms only what changed instead of all 70.
+  Future<void> _syncPrayerAlarms(
+    NotificationSettings settings, {
+    required bool isAr,
+  }) async {
+    final ios = defaultTargetPlatform == TargetPlatform.iOS;
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    if (!ios && !android) return;
+    final wanted =
+        settings.location != null && settings.prayerAlarms.isNotEmpty;
+    final canRing =
+        wanted && (android || await AlarmService.instance.isAuthorized());
+    if (!canRing && !_prayerAlarmsMayBeArmed) return;
+    final moments = canRing
+        ? await prayerAlarmMoments(settings, tz.TZDateTime.now(tz.local))
+        : const <({int id, tz.TZDateTime at, String key})>[];
+    String titleOf(String key) =>
+        prayerAlarmTitle(HabitCue.preset(key).labelForLocale(isAr), isAr);
+
+    if (ios) {
+      final result = await AlarmService.instance.syncWindow(
+        lowId: _prayerAlarmLowId,
+        highId: _prayerAlarmHighId,
+        alarms: [
+          for (final m in moments)
+            (
+              id: m.id,
+              fireAt: m.at,
+              title: titleOf(m.key),
+              subtitle: null,
+              kind: 'prayer',
+              targetId: m.key,
+              stopLabel: alarmStopAction(isAr),
+            ),
+        ],
+      );
+      // Not synced (no AlarmKit, or the call failed): whatever is armed
+      // stays as it was, and the next pass tries again.
+      if (result == null) return;
+      _prayerAlarmsMayBeArmed = moments.isNotEmpty;
+      debugPrint('[NotificationService] adhan alarms: ${moments.length} '
+          'wanted $result');
+      return;
+    }
+
+    final pending = await _plugin.pendingNotificationRequests();
+    final held = {
+      for (final request in pending)
+        if (request.id >= _prayerAlarmLowId && request.id <= _prayerAlarmHighId)
+          request.id: request.payload,
+    };
+    final ids = {for (final m in moments) m.id};
+    for (final id in held.keys) {
+      if (!ids.contains(id)) await _plugin.cancel(id);
+    }
+    var armed = 0;
+    for (final m in moments) {
+      final payload = '$_prayerAlarmPayload${isAr ? 'ar' : 'en'}:'
+          '${m.at.millisecondsSinceEpoch}';
+      if (held[m.id] == payload) continue;
+      await _zonedSchedule(
+        m.id,
+        titleOf(m.key),
+        null,
+        m.at,
+        _taskReminderDetails(alarmStyle: true),
+        alarm: true,
+        payload: payload,
+      );
+      armed++;
+    }
+    _prayerAlarmsMayBeArmed = moments.isNotEmpty;
+    debugPrint('[NotificationService] adhan alarms: ${moments.length} '
+        'wanted, $armed armed now');
+  }
+
+  /// The start of an Android adhan alarm's payload; see [_syncPrayerAlarms].
+  /// Colon-prefixed like [openTodayPayload], so no habit or task is ever
+  /// found by it: a tap opens the app and nothing more.
+  static const _prayerAlarmPayload = 'alarm:prayer:';
 
   /// Hands what this pass armed to the App Group (ArmedReminderRecord), for
   /// the two Done paths that run outside the app: the Home Screen widget's

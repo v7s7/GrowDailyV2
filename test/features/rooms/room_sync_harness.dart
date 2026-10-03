@@ -86,8 +86,49 @@ class _ReplacingFirestore implements FirebaseFirestore {
         maxAttempts: maxAttempts,
       );
 
+  /// addSharedHabit writes the new slot and the leader's link to it in one
+  /// batch. The fake's batch commits each write through the reference it was
+  /// handed, so the wrapped ones (and their replacing update()) just work.
+  /// Each commit's document paths are kept in [commits], for a test that
+  /// asks what was written together.
+  @override
+  WriteBatch batch() => _Batch(_fake.batch(), commits);
+
+  final List<List<String>> commits = [];
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Batch implements WriteBatch {
+  _Batch(this._inner, this._commits);
+  final WriteBatch _inner;
+  final List<List<String>> _commits;
+  final _paths = <String>[];
+
+  @override
+  void set<T>(DocumentReference<T> document, T data, [SetOptions? options]) {
+    _paths.add(document.path);
+    _inner.set(document, data, options);
+  }
+
+  @override
+  void update(DocumentReference document, Map<String, dynamic> data) {
+    _paths.add(document.path);
+    _inner.update(document, data);
+  }
+
+  @override
+  void delete(DocumentReference document) {
+    _paths.add(document.path);
+    _inner.delete(document);
+  }
+
+  @override
+  Future<void> commit() async {
+    _commits.add([..._paths]);
+    await _inner.commit();
+  }
 }
 
 class _Txn implements Transaction {
@@ -274,6 +315,8 @@ class RoomSyncHarness {
     bool countDayReads = false,
   })  : db = db ?? FakeFirebaseFirestore(),
         dayDocReads = countDayReads ? DayDocReads() : null {
+    final firestore = _ReplacingFirestore(this.db, dayDocReads);
+    batchCommits = firestore.commits;
     container = ProviderContainer(
       overrides: [
         authStateProvider.overrideWith((ref) => Stream<User?>.value(_Member(uid))),
@@ -287,13 +330,16 @@ class RoomSyncHarness {
         roomsControllerProvider.overrideWith(
           (ref) => RoomsController(
             ref,
-            firestore: _ReplacingFirestore(this.db, dayDocReads),
+            firestore: firestore,
             clock: () => _now,
           ),
         ),
       ],
     );
   }
+
+  /// The document paths of each batch the controller committed, in order.
+  late final List<List<String>> batchCommits;
 
   /// The room as this member's phone last saw it. A plan edit is only graded
   /// once the phone has the edited room, so a scenario swaps it in with

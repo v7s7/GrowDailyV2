@@ -1,5 +1,6 @@
 import 'dart:async' show unawaited;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +29,8 @@ import '../../features/premium/notifiers/premium_notifier.dart'
     show premiumAccessProvider;
 import '../../features/habits/step_auto_complete.dart';
 import '../../features/launch/launch_curtain_up.dart';
+import '../../features/onboarding/notifiers/guide_steps_provider.dart'
+    show guideLessonLivesOn;
 import '../../features/rooms/models/room_model.dart'
     show RoomModel, RoomParticipant;
 import '../../features/rooms/notifiers/rooms_notifier.dart'
@@ -283,7 +286,40 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
     _pushed = route;
     _pushedTab = tab;
-    Navigator.of(context).push<void>(route);
+    Navigator.of(context).push<void>(route).then((_) {
+      // Closing an off-bar page is leaving it, the same as a tab tap away
+      // from a page in the bar (see [_endLessonLeftBehind]). Only while this
+      // is still the page on record: the guide pops back to the shell before
+      // it asks for a lesson's page, so an older pushed page can close just
+      // after a newer one opened, and the newer one's lesson is not its to
+      // end.
+      if (!mounted || !identical(_pushed, route)) return;
+      final lesson = ref.read(activeAppGuideLessonProvider);
+      if (lesson != null && guideLessonLivesOn(lesson, tab)) {
+        ref.read(activeAppGuideLessonProvider.notifier).state = null;
+      }
+    });
+  }
+
+  /// Ends an App Guide lesson whose page is no longer the one showing.
+  ///
+  /// A lesson is one guided moment on one page. Its dim lives inside that
+  /// page and the bar stays live under it, so a tab tap was always a way
+  /// out, but it was not an end: the lesson stayed armed, and the next visit
+  /// to that page, a minute or an hour later, dimmed it again with a card
+  /// nobody had asked for that time. Until it ended, the bar's hint and the
+  /// icon card also stayed quiet, since both wait for no lesson to be
+  /// running. Leaving the page is a Skip, and is treated as one.
+  ///
+  /// Never the other way round: this only ever clears, so it cannot start
+  /// anything (see guide_chain.dart). A lesson is asked for with an instant
+  /// jump to its own page, so the page change that comes with the ask is to
+  /// the lesson's page and leaves it alone.
+  void _endLessonLeftBehind(NavTab showing) {
+    final lesson = ref.read(activeAppGuideLessonProvider);
+    if (lesson != null && !guideLessonLivesOn(lesson, showing)) {
+      ref.read(activeAppGuideLessonProvider.notifier).state = null;
+    }
   }
 
   @override
@@ -358,7 +394,15 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // page NUMBER it was on and show a different screen there. The jump
     // waits a frame so the PageView has already rebuilt with the new
     // children, and lands on the start page if the showing tab was removed.
+    //
+    // The same bar again is no change: the account's copy of it, pulled on
+    // every cold start (navLayoutProvider.pullFromAccount), is a new list
+    // with the same tabs. Its jump, a frame later, landed on the page this
+    // shell showed when it fired, so a Lock Screen control that had turned
+    // to Tasks in between was turned back to Habits under its add sheet
+    // (Aziz, 2026-10-03; see MatrixScreen._openQuickAdd).
     ref.listen<List<NavTab>>(navLayoutProvider, (previous, next) {
+      if (previous != null && listEquals(previous, next)) return;
       final showing = previous != null && _index < previous.length
           ? previous[_index]
           : null;
@@ -458,7 +502,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
         ),
         body: PageView(
           controller: _controller,
-          onPageChanged: (i) => setState(() => _index = i),
+          onPageChanged: (i) {
+            setState(() => _index = i);
+            _endLessonLeftBehind(tabs[i]);
+          },
           // Keyed by tab, not by position, so rearranging the bar moves a
           // page's state (the Grid's week, the Matrix's lens) with it
           // instead of rebuilding whichever screen now sits at that index

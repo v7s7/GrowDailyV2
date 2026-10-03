@@ -25,6 +25,12 @@ the language", memory note doum-language-canvas):
   thobe    "ملصقات mascot خليجي لطيف pose poses.png"  6 poses in a 3 x 2 grid:
            the Arabic look redrawn (leaves hidden, long thobe and sleeves)
 
+and one more on 2026-10-03, for the "Doum's Planet" canvas (direction G,
+Doum's oasis: Doum farming his world), RGBA with a real transparent ground:
+
+  work     "ملصقات شتلة نخيل لطيفة للبستنة.png"      12 poses: Doum at work
+           (digging, planting a palm shoot, dates, wheelbarrow, pearl, ...)
+
 THE GROUND
 moments, suit and thobe are RGBA with a real transparent ground: the green seen in a viewer
 that ignores alpha is colour stored under alpha 0, plus a soft halo of alpha
@@ -86,7 +92,7 @@ ROOT = HERE.parents[1]
 SHEETS = {name: dict(src=ROOT / f"design/mascot/sheet-{name}/sheet-{name}-original.png",
                      out=ROOT / f"design/mascot/sheet-{name}/sheet-{name}-final.png",
                      checker=name in ("habits", "ramadan"), glow=name == "ramadan")
-          for name in ("moments", "habits", "ramadan", "suit", "thobe")}
+          for name in ("moments", "habits", "ramadan", "suit", "thobe", "work")}
 
 BODY = from_lch(np.array(0.76), np.array(0.14), np.array(145.0))
 CREAM = from_lch(np.array(0.955), np.array(0.02), np.array(90.0))

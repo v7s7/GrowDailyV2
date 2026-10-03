@@ -608,7 +608,14 @@ class _DashboardSection extends ConsumerWidget {
         if (showReconnect) const _GuestReconnectBanner(),
         if (showStreak) const _StreakAtRiskBanner(),
         if (showNightReview) const _NightReviewPromptCard(),
-        if (showRecap) const WeeklyRecapCard(),
+        // One Doum per screen (Aziz, 2026-10-03): on a Saturday evening
+        // the streak warning above, with its own Doum, can be up at the same
+        // time as the recap. The higher card keeps him; the recap shows its
+        // icon only until the warning goes.
+        if (showRecap)
+          WeeklyRecapCard(
+            withDoum: !(showStreak && _streakAtRiskBannerUp(ref)),
+          ),
       ],
     );
   }

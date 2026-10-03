@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
+import 'package:grow_daily_v2/features/mascot/sprout.dart';
 import 'package:grow_daily_v2/shared/widgets/comeback_card.dart';
 
 const _base = DashboardState(
@@ -68,5 +69,14 @@ void main() {
     await pumpCard(tester, _base);
 
     expect(find.text('مرحبًا بعودتك'), findsOneWidget);
+  });
+
+  testWidgets('no Doum of its own: the board\'s Doum walks in instead',
+      (tester) async {
+    // Aziz, 2026-10-03: one Doum per screen. This card's Doum walked in
+    // right above the one standing on the Habits page's board.
+    await pumpCard(tester, _base.copyWith(displayName: 'عزيز'));
+    expect(find.text('مرحبًا بعودتك، عزيز'), findsOneWidget);
+    expect(find.byType(Sprout), findsNothing);
   });
 }

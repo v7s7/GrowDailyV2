@@ -17,11 +17,14 @@ import '../../../core/theme/game_theme.dart';
 import '../../../shared/widgets/reminder_limit_gate.dart';
 import '../../../shared/widgets/voice_note_gate.dart';
 import '../../auth/notifiers/auth_notifier.dart';
+import '../../settings/notifiers/notification_settings_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
+import '../task_prayer.dart';
 import '../../../shared/widgets/overlay_notice.dart';
 import 'reminder_picker.dart'
     show ReminderPicker, pickReminderTimeOnDay, remindersFor;
+import 'task_prayer_picker.dart';
 import 'task_month_sheet.dart'
     show TaskSheetRowButton, showTaskMonthSheet, taskDayTitle;
 import 'voice_note_player.dart'
@@ -123,6 +126,8 @@ typedef AddTaskOnDay = void Function(
   List<VoiceNote>? voiceNotes,
   List<DateTime>? reminderAts,
   DateTime? reminderAnchorAt,
+  // The prayer the anchor was picked from, see MatrixTask.reminderPrayer.
+  PrayerSlot? reminderPrayer,
   bool? alarm,
   required DateTime day,
 });
@@ -135,6 +140,11 @@ typedef AddTaskOnDay = void Function(
 /// [anchor] comes back null and [cleared] true, and the sheet says why.
 /// With no reminder set, nothing changes.
 ///
+/// [at] is where the reminder lands on [day] when that is not simply the
+/// same clock time: a reminder set by a prayer goes to [day]'s own prayer
+/// time («بعد العصر» on Thursday is Thursday's Asr), which the caller works
+/// out (taskPrayerMoment). Everything else is the same rule.
+///
 /// Pure, with the clock passed in, so the rule is testable on its own.
 @visibleForTesting
 ({DateTime? anchor, Set<int> offsets, bool cleared}) carryReminderToDay({
@@ -142,10 +152,11 @@ typedef AddTaskOnDay = void Function(
   required Set<int> offsets,
   required DateTime day,
   required DateTime now,
+  DateTime? at,
 }) {
   if (anchor == null) return (anchor: null, offsets: offsets, cleared: false);
   final moved =
-      DateTime(day.year, day.month, day.day, anchor.hour, anchor.minute);
+      at ?? DateTime(day.year, day.month, day.day, anchor.hour, anchor.minute);
   if (!moved.isAfter(now)) {
     return (anchor: null, offsets: <int>{}, cleared: true);
   }
@@ -176,6 +187,27 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   bool _hasText = false;
   bool _detailsExpanded = false;
 
+  /// True while [_submit] is between its first line and the add, which for
+  /// a task with a reminder spans the permission ask.
+  ///
+  /// The ask is a platform round trip, near instant once decided but never
+  /// zero, and for that whole time the field still held the text and the
+  /// button was live. Every extra tap on «أضف مهمة», and the keyboard's Done,
+  /// started its own submit, waited on its own ask, and added its own copy:
+  /// two or three identical tasks, each with the same reminder, sharing the
+  /// same voice-note files (so deleting one copy's note deleted the others').
+  /// A tap in this window is the same tap again, so it is dropped.
+  bool _submitting = false;
+
+  /// True for a moment after a task is added, when a submit on an empty
+  /// field (which closes the sheet) is ignored.
+  ///
+  /// The add clears the field, and the same button in the same place turns
+  /// into «تم». So the second tap of a double tap on «أضف مهمة» closed the
+  /// sheet the person was still adding to.
+  bool _justAdded = false;
+  Timer? _justAddedTimer;
+
   bool _recording = false;
   // Every note recorded on this sheet before the task exists yet — each
   // already a full, named-or-not VoiceNote (same client-generates-the-id
@@ -198,6 +230,11 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   // disagree. Only _submit flattens them, on the way to MatrixNotifier.
   DateTime? _anchorAt;
   Set<int> _offsets = {};
+
+  /// The prayer [_anchorAt] was picked from («بعد العصر بـ15 دقيقة»), or
+  /// null for a time picked on the wheel; see MatrixTask.reminderPrayer.
+  /// Same per-item life as the anchor: set with it, cleared with it.
+  PrayerSlot? _prayer;
 
   /// The reminder style, see MatrixTask.alarm. Off until the person picks
   /// alarm AND the platform grants it; see [_setAlarm].
@@ -233,6 +270,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     _descCtrl.dispose();
     _focus.dispose();
     _timer?.cancel();
+    _justAddedTimer?.cancel();
     if (_recording) {
       // Sheet dismissed mid-recording — stop and discard rather than
       // leaving the recorder running against a screen that's gone.
@@ -260,9 +298,19 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
   /// recording — stop the recording first, so a stray Enter can't submit a
   /// text-only task and orphan the in-progress note.
   Future<void> _submit() async {
-    if (_recording) return;
+    if (_recording || _submitting) return;
+    _submitting = true;
+    try {
+      await _submitOnce();
+    } finally {
+      _submitting = false;
+    }
+  }
+
+  Future<void> _submitOnce() async {
     final text = _ctrl.text.trim();
     if (text.isEmpty) {
+      if (_justAdded) return;
       Navigator.pop(context);
       return;
     }
@@ -278,6 +326,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     if (anchor != null && !anchor.isAfter(now)) {
       setState(() {
         _anchorAt = null;
+        _prayer = null;
         _offsets = {};
       });
       showOverlayNotice(
@@ -321,6 +370,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
         voiceNotes: _pendingNotes,
         reminderAts: reminderAts,
         reminderAnchorAt: anchor,
+        reminderPrayer: _prayer,
         alarm: _alarm,
         day: day,
       );
@@ -349,11 +399,18 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       // The time resets for the next item; the day does not (see the
       // class comment).
       _anchorAt = null;
+      _prayer = null;
       _offsets = {};
       // Back to the fast title-only default for the next item — adding
       // details is a deliberate, per-item choice, not a sticky mode.
       _detailsExpanded = false;
     });
+    _justAdded = true;
+    _justAddedTimer?.cancel();
+    _justAddedTimer = Timer(
+      const Duration(milliseconds: 400),
+      () => _justAdded = false,
+    );
     _focus.requestFocus();
     if (reminderAts.isNotEmpty && !granted && mounted) {
       // Overlay, not SnackBar: this sheet is a modal, and a SnackBar
@@ -368,7 +425,28 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     }
   }
 
+  /// True while [_toggleRecording] is starting or stopping a take.
+  ///
+  /// Both directions wait on the recorder (the mic permission and the start
+  /// on the way in, the stop and the sync encode on the way out) before
+  /// `_recording` flips, and the mic stayed live the whole time. A double tap
+  /// to start passed the `!_recording` check twice and armed two second
+  /// timers: the clock ran at double speed, and the one never cancelled kept
+  /// calling this every second once it passed the cap. A double tap to stop
+  /// could start a new take behind the name prompt. One toggle at a time.
+  bool _togglingRecording = false;
+
   Future<void> _toggleRecording() async {
+    if (_togglingRecording) return;
+    _togglingRecording = true;
+    try {
+      await _toggleRecordingOnce();
+    } finally {
+      _togglingRecording = false;
+    }
+  }
+
+  Future<void> _toggleRecordingOnce() async {
     // Only STARTING a take is Premium; see TaskDetailSheet._toggleRecording
     // for the paywall-every-second this used to cause.
     if (!_recording && !hasVoiceNoteAccess(ref)) {
@@ -531,7 +609,27 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
       initial: _anchorAt,
     );
     if (picked == null || !mounted) return;
-    setState(() => _anchorAt = picked);
+    setState(() {
+      _anchorAt = picked;
+      _prayer = null;
+    });
+  }
+
+  /// The anchor by a prayer: the prayer sheet Add Habit uses, on [_day]
+  /// (pickTaskPrayerReminder). Opens on the prayer already set, if any.
+  Future<void> _pickPrayer() async {
+    _rollPastDay(DateTime.now());
+    final picked = await pickTaskPrayerReminder(
+      context,
+      ref,
+      day: _day,
+      current: _prayer,
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _anchorAt = picked.at;
+      _prayer = picked.prayer;
+    });
   }
 
   /// A sheet left open past midnight holds a day that has gone; it becomes
@@ -554,15 +652,24 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     );
     if (picked == null || !mounted) return;
     if (picked.isSameDayAs(_day)) return;
+    final prayer = _prayer;
     final carried = carryReminderToDay(
       anchor: _anchorAt,
       offsets: _offsets,
       day: picked,
       now: DateTime.now(),
+      at: prayer == null
+          ? null
+          : taskPrayerMoment(
+              prayer,
+              picked,
+              ref.read(notificationSettingsProvider),
+            ),
     );
     setState(() {
       _day = picked;
       _anchorAt = carried.anchor;
+      if (carried.anchor == null) _prayer = null;
       _offsets = carried.offsets;
     });
     if (carried.cleared) {
@@ -578,6 +685,7 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
     HapticFeedback.lightImpact();
     setState(() {
       _anchorAt = null;
+      _prayer = null;
       _offsets = {};
     });
   }
@@ -794,6 +902,10 @@ class _AddTaskSheetState extends ConsumerState<AddTaskSheet> {
                         canStack:
                             canAddAnotherReminder(ref, _reminderAts.length),
                         onPickAnchor: _pickAnchor,
+                        onPickPrayer: _pickPrayer,
+                        prayerLabel: _prayer == null
+                            ? null
+                            : taskPrayerSentence(_prayer!, S.of(context)),
                         onClear: _clearReminders,
                         onToggleOffset: _toggleOffset,
                         onLocked: () => showReminderLimitGate(context, ref),

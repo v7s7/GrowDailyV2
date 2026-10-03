@@ -1793,8 +1793,9 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         // uses (grid_screen_table's isFlexibleQuota): "Specific Days" is
         // also stored as weekly, told apart only by scheduledWeekdays.
         weekTarget: isFlexibleQuota ? habit.frequencyTarget : null,
-        // A جزئي is a day trained, and «هدف الأسبوع تم» is said of whole
-        // sessions only: see quotaReminderWeekDays.
+        // A جزئي is a day trained, and «هدف الأسبوع تم» is said once the
+        // week's worth meets its target, halves adding up: see
+        // quotaReminderWeekDays.
         weekDoneDays:
             !isFlexibleQuota || !grid.isCurrentWeek || grid.isLoading
                 ? null
@@ -2957,6 +2958,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
     // Read through knownTodayRow, so a board parked on another week still
     // knows it (see WeeklyGridState.heldToday).
     final skipped = ref.read(weeklyGridProvider).skippedTodayIds();
+    final halves = ref.read(weeklyGridProvider).partialTodayIds();
     final owedIds = boardHabitsOn(
       habits: scheduled,
       day: today,
@@ -2982,6 +2984,8 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
         notDue: !owedIds.contains(h.id),
         // A «راحة» the widget draws as the Grid does, not as «مو مطلوبة».
         rest: !done && skipped.contains(h.id),
+        // A جزئي the widget counts as half (TodayHabit.worth).
+        half: !done && halves.contains(h.id),
         // The Grid row's icon tile, drawn by the widget's habit rows.
         category: h.category.name,
         color: h.iconColorHex,
@@ -3051,6 +3055,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
             perDay: h.effectiveDailyTarget,
             notDue: !owedIds.contains(h.id),
             rest: false,
+            half: false,
             category: h.category.name,
             color: h.iconColorHex,
           ),
@@ -3599,7 +3604,7 @@ class _GrowDailyAppState extends ConsumerState<GrowDailyApp>
 // (see resolveInitialLocale) and restores the account's at sign-in (see
 // _hydrateLocaleFromAccount), so for almost everyone the question the screen
 // asked is already answered before it could have been shown. The minority it
-// gets wrong correct it with the LanguageToggle on the auth screen, from
+// gets wrong correct it with the language squares on the auth screen, from
 // Profile once signed in, or from the per-app Language row iOS offers.
 //
 // languageChosenProvider outlived it and still matters: it is now only the

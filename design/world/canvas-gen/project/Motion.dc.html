@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Every animation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+@keyframes dm-sway{0%,100%{transform:rotate(-2.5deg)}50%{transform:rotate(2.5deg)}}
+@keyframes dm-grow{0%,12%{transform:scale(0.02,0)}55%{transform:scale(1.08,1.1)}70%{transform:scale(0.97,0.95)}82%,100%{transform:scale(1,1)}}
+@keyframes dm-drop{0%{transform:translateY(-34px);opacity:0}15%{opacity:1}70%{transform:translateY(0);opacity:1}80%,100%{transform:translateY(0);opacity:0}}
+@keyframes dm-ripple{0%,62%{transform:scale(0.2);opacity:0}70%{opacity:.9}100%{transform:scale(1.6);opacity:0}}
+@keyframes dm-petal{0%,20%{transform:scale(0)}45%{transform:scale(1.15)}55%,100%{transform:scale(1)}}
+@keyframes dm-twinkle{0%,100%{opacity:.25;transform:scale(.7)}50%{opacity:1;transform:scale(1.1)}}
+@keyframes dm-pour{0%,100%{opacity:0;transform:translate(0,0)}10%{opacity:1}60%{opacity:1;transform:translate(14px,26px)}70%{opacity:0;transform:translate(16px,30px)}}
+@keyframes dm-thirst{0%,30%{fill:#D2C28A}55%,85%{fill:#A3D46F}100%{fill:#D2C28A}}
+@keyframes dm-hop{0%,40%,100%{transform:translateY(0)}55%{transform:translateY(-10px)}70%{transform:translateY(0)}78%{transform:translateY(-3px)}}
+.dm-sway{transform-box:fill-box;transform-origin:50% 100%;animation:dm-sway 4s ease-in-out infinite}
+.dm-grow{transform-box:fill-box;transform-origin:50% 100%;animation:dm-grow 2.4s cubic-bezier(.34,1.56,.64,1) infinite}
+.dm-drop{animation:dm-drop 1.6s cubic-bezier(.55,0,1,.45) infinite}
+.dm-ripple{transform-box:fill-box;transform-origin:50% 50%;animation:dm-ripple 1.6s ease-out infinite}
+.dm-petal{transform-box:fill-box;transform-origin:50% 50%;animation:dm-petal 2.6s cubic-bezier(.34,1.56,.64,1) infinite}
+.dm-twinkle{transform-box:fill-box;transform-origin:50% 50%;animation:dm-twinkle 2.2s ease-in-out infinite}
+.dm-pour{animation:dm-pour 1.4s ease-in infinite}
+.dm-thirst{animation:dm-thirst 5s ease-in-out infinite}
+.dm-hop{animation:dm-hop 2.2s ease-out infinite}
+@media (prefers-reduced-motion: reduce){.dm-sway,.dm-grow,.dm-drop,.dm-ripple,.dm-petal,.dm-twinkle,.dm-pour,.dm-thirst,.dm-hop{animation:none}}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 48px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 1040px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Motion</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">Every animation, timed</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">The world is calm. It moves when you did something, says so once, and goes still. These are the moments, in the order people meet them, with timings in milliseconds, the haptic that goes with each, and what Reduce Motion shows instead.</p>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;"><div style="font-size: 19px; font-weight: 700;">Only recovery is animated</div><div style="font-size: 15px; line-height: 1.5; color: #45574B;">The world never wilts in front of anyone. A thirsty world is simply already thirsty when you arrive; only watering, growing and blooming move.</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;"><div style="font-size: 19px; font-weight: 700;">React, then rest</div><div style="font-size: 15px; line-height: 1.5; color: #45574B;">Rule 1 for Doum holds for the world: one moment at a time, never stacked. Ambient motion runs only on the world’s own page and stops after 20 s without a touch.</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;"><div style="font-size: 19px; font-weight: 700;">Three speeds</div><div style="font-size: 15px; line-height: 1.5; color: #45574B;">Touch feedback 150 to 250 ms. A moment 600 to 1,800 ms. Colour and light 1,200 ms for thirst, 2,000 ms for day to night. Pops overshoot (ease out back), colour eases in and out.</div></div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 8px;"><div style="font-size: 19px; font-weight: 700;">Reduce Motion</div><div style="font-size: 15px; line-height: 1.5; color: #45574B;">No movement at all: every moment becomes a 200 ms crossfade to its end state, ambient motion is off, the spin keeps working under the finger but without inertia.</div></div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 18px;">
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">Live previews</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 16px;">
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -70 80 70" aria-hidden="true" stroke="#1E3A24" stroke-width="1.6" stroke-linejoin="round">
+<ellipse cx="0" cy="0" rx="16" ry="4" fill="#9C6B43"></ellipse>
+<g class="dm-grow"><path d="M0 -1 V-26" fill="none" stroke-width="2"></path><path d="M0 -20 C-10 -20 -14 -28 -11 -33 C-4 -32 0 -27 0 -20 Z" fill="#5DAE5F"></path><path d="M0 -26 C10 -26 14 -34 11 -39 C4 -38 0 -33 0 -26 Z" fill="#5DAE5F"></path></g>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>A new thing grows</b><br><span style="color: #6B7A6F;">from its base, 600 ms, overshoot then settle</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -70 80 70" aria-hidden="true" stroke="#1E3A24" stroke-width="1.4" stroke-linejoin="round">
+<rect x="-40" y="-8" width="80" height="8" class="dm-thirst" fill="#D2C28A" stroke="none"></rect>
+<g class="dm-pour"><path d="M-14 -50 c2 4 3 6 0 8 c-3 -2 -2 -4 0 -8 Z" fill="#6FB7DB"></path></g>
+<g class="dm-pour" style="animation-delay: .25s"><path d="M-6 -54 c2 4 3 6 0 8 c-3 -2 -2 -4 0 -8 Z" fill="#6FB7DB"></path></g>
+<g class="dm-pour" style="animation-delay: .5s"><path d="M-20 -46 c2 4 3 6 0 8 c-3 -2 -2 -4 0 -8 Z" fill="#6FB7DB"></path></g>
+<path d="M-34 -58 L-18 -52 L-22 -44 L-36 -50 Z" fill="#F2C14E"></path>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>Watering</b><br><span style="color: #6B7A6F;">drops staggered 60 ms, ground recolours over 1,200 ms</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -40 80 70" aria-hidden="true" stroke="#1E3A24" stroke-width="1.2">
+<path d="M0 26 V6" fill="none" stroke-width="1.6"></path>
+<circle class="dm-petal" cx="0" cy="-8" r="7" fill="#F49AB0" style="animation-delay: 0s"></circle>
+<circle class="dm-petal" cx="9" cy="-1" r="7" fill="#F49AB0" style="animation-delay: .07s"></circle>
+<circle class="dm-petal" cx="6" cy="9" r="7" fill="#F49AB0" style="animation-delay: .14s"></circle>
+<circle class="dm-petal" cx="-6" cy="9" r="7" fill="#F49AB0" style="animation-delay: .21s"></circle>
+<circle class="dm-petal" cx="-9" cy="-1" r="7" fill="#F49AB0" style="animation-delay: .28s"></circle>
+<circle cx="0" cy="1" r="5" fill="#F2C14E"></circle>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>A medal blooms</b><br><span style="color: #6B7A6F;">petals one by one, 70 ms apart</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -50 80 70" aria-hidden="true" stroke="#1E3A24" stroke-width="1.4">
+<rect x="-40" y="2" width="80" height="18" fill="#7FC4E2" stroke="none"></rect>
+<ellipse class="dm-ripple" cx="0" cy="4" rx="12" ry="3.4" fill="none" stroke="#FFFFFF" stroke-width="1.6"></ellipse>
+<g class="dm-drop"><circle cx="0" cy="2" r="4.4" fill="#FBF6EC"></circle><circle cx="-1.4" cy="0.6" r="1.2" fill="#FFFFFF" stroke="none"></circle></g>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>A week in a row</b><br><span style="color: #6B7A6F;">a pearl falls 700 ms, two ripples</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -80 80 82" aria-hidden="true" stroke="#1E3A24" stroke-width="1.4" stroke-linejoin="round">
+<path d="M-3 0 C-2 -16 0 -30 2 -44 L6 -44 C4 -30 3 -16 4 0 Z" fill="#B07A4A"></path>
+<g class="dm-sway" fill="#62B261"><path d="M4 -44 C-6 -50 -16 -46 -20 -36 C-12 -42 -4 -43 4 -42 Z"></path><path d="M4 -44 C-4 -56 -14 -58 -21 -53 C-11 -52 -3 -49 4 -44 Z"></path><path d="M4 -44 C3 -56 8 -63 14 -65 C9 -58 6 -51 5 -44 Z"></path><path d="M4 -44 C12 -56 23 -58 29 -52 C19 -52 11 -49 4 -44 Z"></path><path d="M4 -44 C14 -50 24 -46 28 -36 C20 -42 12 -43 4 -42 Z"></path></g>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>Ambient sway</b><br><span style="color: #6B7A6F;">±2.5°, 4 s, page only, stops after 20 s</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #22304A; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<svg width="160" height="140" viewBox="-40 -35 80 70" aria-hidden="true" fill="#F6E7A8">
+<path class="dm-twinkle" d="M-20 -14 L-18.8 -11.2 L-16 -10 L-18.8 -8.8 L-20 -6 L-21.2 -8.8 L-24 -10 L-21.2 -11.2 Z"></path>
+<path class="dm-twinkle" style="animation-delay: .5s" d="M10 -20 L11.2 -17.2 L14 -16 L11.2 -14.8 L10 -12 L8.8 -14.8 L6 -16 L8.8 -17.2 Z"></path>
+<path class="dm-twinkle" style="animation-delay: 1s" d="M22 6 L23 8.4 L25.4 9.4 L23 10.4 L22 12.8 L21 10.4 L18.6 9.4 L21 8.4 Z"></path>
+<path class="dm-twinkle" style="animation-delay: 1.4s" d="M-6 12 L-5 14.4 L-2.6 15.4 L-5 16.4 L-6 18.8 L-7 16.4 L-9.4 15.4 L-7 14.4 Z"></path>
+</svg>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4; color: #F5F0E1;"><b>Night falls</b><br><span style="color: #C9D6C3;">sky 2,000 ms, stars in one by one</span></figcaption>
+</figure>
+
+<figure style="margin: 0; background: #FFFFFF; border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+<div style="height: 140px; display: flex; align-items: flex-end;"><img class="dm-hop" src="/_blob/ff0714f75ca540d6b9e854eb7ec643f0" alt="Doum hopping with his can" style="width: 112px; height: 112px;"></div>
+<figcaption style="font-size: 14px; text-align: center; line-height: 1.4;"><b>Doum hops once</b><br><span style="color: #6B7A6F;">the hop he already has, 28 pt on the ledge</span></figcaption>
+</figure>
+
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 18px;">
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">The moments</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{moments}}" as="m" hint-placeholder-count="10">
+<article style="background: #FFFFFF; border-radius: 20px; padding: 22px 24px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+<h3 style="margin: 0; font-size: 20px; font-weight: 700;">{{m.n}}. {{m.t}}</h3>
+<span style="font-size: 13px; font-weight: 700; color: #3F7A4A;">{{m.total}}</span>
+</div>
+<div style="font-size: 14px; color: #6B7A6F;">When: {{m.when}}</div>
+<div style="display: flex; flex-direction: column; gap: 4px;">
+<sc-for list="{{m.steps}}" as="s" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 10px; font-size: 15px; line-height: 1.4;">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #2F6B3A; padding-top: 2px;">{{s.at}}</span>
+<span style="color: #45574B;">{{s.d}}</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px;">
+<span style="background: #EEF6EC; color: #23352A; border-radius: 999px; padding: 4px 10px;">Haptic: {{m.haptic}}</span>
+<span style="background: #F3EEDF; color: #23352A; border-radius: 999px; padding: 4px 10px;">Reduce Motion: {{m.rm}}</span>
+</div>
+</article>
+</sc-for>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">How it moves in Flutter</h2>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">Flutter’s own tools first: the world as layers (sky, ground, items, Doum, glow), each item a widget at its slot, a single <code>AnimationController</code> per moment, colours through <code>Color.lerp</code>, pops with <code>Curves.easeOutBack</code>. Doum keeps his existing <code>Sprout</code> widget, hop and celebrate. Static layers sit in a <code>RepaintBoundary</code> so only what moves repaints.</div>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">Rive is the upgrade path for Doum alone: its meshes can bend the existing ChatGPT poses (a blink, the can tilting, a breath) and its state machines are why Duolingo can animate characters at scale. The world stays Flutter-native; Lottie, already in the app, stays for rare celebrations. iOS Reduce Motion must be read through the app’s own <code>prefersReducedMotion</code>, not <code>MediaQuery.disableAnimations</code> alone.</div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">The widget, and the Profile card</h2>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">The Home Screen widget cannot run free animation: the app renders a picture per state, and since iOS 17 a change between timeline entries can transition for up to 2 seconds. The Profile card stays still too: it shows the world as it is, and only the world’s page moves.</div>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">Sounds: none. The app has none today, and the moments are built to work silent.</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":3600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = (at, d) => ({ at, d });
+    return {
+      moments: [
+        { n: 1, t: 'Watering', total: '1,800 ms', when: 'the first square of a day, any habit, while the world is thirsty (a fresh world gets only the hop)',
+          steps: [st('0', 'Doum is already holding his can; he hops 6 pt and tilts the can 18°'), st('200 to 900', 'six drops arc down, 60 ms apart; a splash dot where each lands'),
+            st('600 to 1,800', 'soil, grass and leaves lerp to fresh, ease in and out'), st('900 to 1,500', 'closed flowers reopen, 80 ms apart, overshoot'), st('1,500', 'the kite rises again; bubble «ارتوى الكوكب» for 3 s')],
+          haptic: 'light, at 300 ms', rm: 'crossfade to the fresh world, 200 ms' },
+        { n: 2, t: 'Level up: Doum plants it', total: '2,700 ms', when: 'on the world’s page, the first time it opens after a level-up (the snackbar links there)',
+          steps: [st('0 to 500', 'the world turns so the new slot faces up, and zooms 1.25x'), st('500 to 900', 'Doum swaps to planting, hops beside the slot'),
+            st('900 to 1,100', 'a puff of five soil specks'), st('1,100 to 1,700', 'the thing grows from its base: scale 0 to 1.08 to 1'),
+            st('1,700 to 2,200', 'three leaf sparkles; the name rises «نبتت شجيرة ورد»'), st('2,200 to 2,700', 'zoom back out')],
+          haptic: 'medium, at 1,100 ms', rm: 'the new thing fades in where it stands' },
+        { n: 3, t: 'Level-up snackbar', total: '250 ms in, 4 s', when: 'on the Grid, the moment a square crosses a level',
+          steps: [st('0 to 250', 'slides up with its mini world, the new slot glowing'), st('250 to 4,000', 'stays; «شوف» opens the world and plays moment 2'), st('4,000', 'slides away')],
+          haptic: 'the level-up one the app already has', rm: 'fades in and out' },
+        { n: 4, t: 'A medal blooms', total: '900 ms', when: 'after the medal sheet closes, on the world’s next open',
+          steps: [st('0 to 300', 'a bud rises from the grass'), st('300 to 650', 'five petals unfold, 70 ms apart; for fruit, it swells with a bounce'), st('650 to 900', 'one soft ring pulse')],
+          haptic: 'success', rm: 'the flower is simply there' },
+        { n: 5, t: 'A week in a row: a pearl', total: '1,300 ms', when: 'the day the streak reaches 7, 14, 21 and on, on the world’s next open',
+          steps: [st('0 to 700', 'a pearl falls in an arc into the sea, ease in'), st('700 to 1,300', 'two ripples, then a single shimmer')],
+          haptic: 'light, at 700 ms', rm: 'the pearl is simply there' },
+        { n: 6, t: 'Day to night', total: '2,000 ms', when: 'at Doum’s bedtime, if the page is open; otherwise the world is just in its night state',
+          steps: [st('0 to 2,000', 'sky lerps; the veil comes down'), st('600 to 1,400', 'stars in one by one'), st('1,000 to 1,450', 'lanterns light, 150 ms apart'), st('1,500', 'Doum crossfades to asleep')],
+          haptic: 'none', rm: 'crossfade, 200 ms' },
+        { n: 7, t: 'Spin and tap', total: 'under the finger', when: 'on the world’s page',
+          steps: [st('drag', 'the world turns, things stay upright to its surface'), st('release', 'inertia with friction, like a scroll'), st('double tap', 'turns back to Doum on top, 400 ms'),
+            st('tap a thing', 'it squashes 0.9 then 1.05 then 1, 240 ms; its label fades in: «شجرة ليمون · المستوى 10 · 14 سبتمبر»')],
+          haptic: 'selection on tap', rm: 'no inertia, no squash' },
+        { n: 8, t: 'Ambient life', total: 'page only', when: 'while the world’s page is open and being looked at',
+          steps: [st('clouds', 'drift 40 pt per minute'), st('palms, trees', 'sway ±2.5°, 4 s, out of step with each other'), st('the kite', 'sways on its string, 6 s'),
+            st('sea', 'waves shift 2 pt, 3 s; a pearl glints every 6 s'), st('after 20 s', 'everything settles still until the next touch')],
+          haptic: 'none', rm: 'off' },
+        { n: 9, t: 'First open: Doum built it', total: 'up to 2,200 ms', when: 'once, the first time someone already past level 1 opens the update',
+          steps: [st('0', 'the bare world with Doum'), st('200 to 1,800', 'everything already earned pops in, level by level, 40 ms apart'), st('1,800 to 2,200', 'medal flowers and pearls together; Doum waves')],
+          haptic: 'light at the end', rm: 'the world appears complete' },
+        { n: 10, t: 'A new chapter', total: '1,600 ms', when: 'a rank-up: levels 5, 10, 15, 20, 35, 50, 75, 100',
+          steps: [st('0 to 600', 'the world zooms out to show itself whole'), st('600 to 1,400', 'a ring of light sweeps round it once'), st('1,400 to 1,600', 'the chapter line fades in under it')],
+          haptic: 'the rank-up one the app already has', rm: 'crossfade' },
+        { n: 11, t: 'Ledge Doum on a thirsty morning', total: '200 ms in', when: 'the Grid, first open of a thirsty day',
+          steps: [st('0 to 200', 'his can pose crossfades in; the bubble shows a tiny picture of the thirsty world and «نسقي الكوكب؟»'), st('first square', 'his usual hop; the tiny world crossfades to fresh over 900 ms; the bubble reads «ارتوى الكوكب»'), st('3 s later', 'back to his day pose')],
+          haptic: 'the square’s own', rm: 'no hop, crossfades only' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

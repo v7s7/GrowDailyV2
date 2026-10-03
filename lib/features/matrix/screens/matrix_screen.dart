@@ -12,6 +12,7 @@ import '../../../core/providers/day_clock_provider.dart'
     show dayClockSourceProvider;
 import '../../../core/utils/western_digits.dart';
 import '../../onboarding/notifiers/guide_chain.dart';
+import '../../launch/launch_curtain_up.dart' show afterLaunchCurtain;
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../../core/theme/game_theme.dart';
@@ -117,12 +118,58 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen>
     // route AFTER the deep link set the flag, so the ref.listen in build
     // (which only fires on changes) never sees it. One post-frame check
     // covers that case; the listener still covers a link that lands while
-    // this screen is already up. Both reset the flag, so the sheet opens
-    // once either way.
+    // this screen is already up. Both go through [_openQuickAdd], which
+    // resets the flag as the sheet opens, so it opens once either way.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !ref.read(requestedMatrixQuickAddProvider)) return;
+      _openQuickAdd();
+    });
+  }
+
+  /// Set while [_openQuickAdd] waits for the launch curtain, so a second
+  /// link in that wait does not queue a second sheet.
+  bool _quickAddWaiting = false;
+
+  /// The quick add asked for from outside the app (the Lock Screen's Add
+  /// Task control, the Matrix widget's «+»): the add sheet on today, opened
+  /// once the launch curtain is down. Aziz, 2026-10-03, from the control on
+  /// his phone: "the keyboard open before the app loads, and also it didnt
+  /// accept the task and when i click the x mark, it was in habit page".
+  ///
+  ///  * The keyboard: the sheet opened the moment this page was built,
+  ///    which on a cold start (and a return after half an hour) is under
+  ///    Doum's curtain, and focused its field there. The keyboard is the
+  ///    phone's own, drawn above everything the app draws, so it came up
+  ///    over the curtain with the field it types into hidden. Now it waits
+  ///    for the curtain (afterLaunchCurtain), like every other pop-up.
+  ///  * The flag is reset only as the sheet opens: a page that goes before
+  ///    the curtain lifts leaves the request for the next one.
+  ///  * The task and the page: see [_showAdd] and the close below.
+  void _openQuickAdd() {
+    if (_quickAddWaiting) return;
+    _quickAddWaiting = true;
+    afterLaunchCurtain(ref, () {
+      _quickAddWaiting = false;
+      if (!mounted || !ref.read(requestedMatrixQuickAddProvider)) return;
       ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
-      _showAdd(context, ref, MatrixQuadrant.doFirst, day: _today);
+      final container = ProviderScope.containerOf(context, listen: false);
+      unawaited(
+        _showAdd(context, ref, MatrixQuadrant.doFirst, day: _today)
+            .then((_) {
+          // Somebody who came to add a task closes the sheet onto Tasks.
+          // The sheet lives above the bar's pages, and when the page under
+          // it moved (HomeShell turning back to the page it was on) this
+          // screen went with it, so the close showed Habits. Asked for
+          // again, the shell turns to Tasks; when this screen is still up
+          // it is already there and nothing moves.
+          if (mounted) return;
+          container.read(requestedHomeTabInstantProvider.notifier).state =
+              true;
+          container.read(requestedHomeTabProvider.notifier).state = null;
+          container.read(requestedHomeTabProvider.notifier).state =
+              NavTab.matrix;
+        }),
+      );
     });
   }
 
@@ -514,19 +561,24 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen>
     // a quick add from outside the app has no board day behind it.
     ref.listen<bool>(requestedMatrixQuickAddProvider, (previous, next) {
       if (!next) return;
-      ref.read(requestedMatrixQuickAddProvider.notifier).state = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        _showAdd(context, ref, MatrixQuadrant.doFirst, day: _today);
+        if (!mounted) return;
+        _openQuickAdd();
       });
     });
 
     // Auto-dismiss App Guide's "Add a task" coach-mark the instant a task
     // actually exists, however it got added — same reasoning as Grid's own
     // habitListProvider/dashboardProvider listeners (see grid_screen.dart).
+    //
+    // "A task appeared", not "the board stopped being empty", for the same
+    // reason as the Grid's: a replay from Settings comes from somebody who
+    // already has tasks. A load is not an add, so neither end may be loading.
     ref.listen<MatrixState>(matrixProvider, (previous, next) {
-      if ((previous?.tasks.isEmpty ?? true) &&
-          next.tasks.isNotEmpty &&
+      if (previous != null &&
+          !previous.isLoading &&
+          !next.isLoading &&
+          addedOne(previous.tasks, next.tasks, (t) => t.id) &&
           ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addTask) {
         // The next step (Rooms) lives on the Profile tab, so this stops the
         // dim rather than moving anyone. See guide_chain.dart.
@@ -1161,6 +1213,12 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen>
     unawaited(HapticFeedback.lightImpact());
     final addDay = day ?? _addDay();
     final added = <String>[];
+    // The app's own container, not this screen's ref, for the add: the
+    // sheet is on the root Navigator and outlives this page when the bar's
+    // page moves under it, and a disposed ref threw on «أضف مهمة» before
+    // the field was cleared, so the task was silently not added (Aziz,
+    // 2026-10-03, from the Lock Screen control; see [_openQuickAdd]).
+    final container = ProviderScope.containerOf(context, listen: false);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1178,17 +1236,19 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen>
           voiceNotes,
           reminderAts,
           reminderAnchorAt,
+          reminderPrayer,
           alarm,
           required day,
         }) {
           HapticFeedback.mediumImpact();
-          final task = ref.read(matrixProvider.notifier).add(
+          final task = container.read(matrixProvider.notifier).add(
                 title,
                 quadrant,
                 description: description,
                 voiceNotes: voiceNotes ?? const [],
                 reminderAts: reminderAts ?? const [],
                 reminderAnchorAt: reminderAnchorAt,
+                reminderPrayer: reminderPrayer,
                 alarm: alarm ?? false,
                 day: day,
               );
@@ -1283,11 +1343,18 @@ class _MatrixScreenState extends ConsumerState<MatrixScreen>
             ref.read(matrixProvider.notifier).renameVoiceNote(id, noteId, name),
         onRemoveVoiceNote: (id, noteId) =>
             ref.read(matrixProvider.notifier).removeVoiceNote(id, noteId),
-        onSetReminders: (id, reminderAts, {reminderAnchorAt, alarm}) =>
+        onSetReminders: (
+          id,
+          reminderAts, {
+          reminderAnchorAt,
+          reminderPrayer,
+          alarm,
+        }) =>
             ref.read(matrixProvider.notifier).setReminders(
                   id,
                   reminderAts,
                   reminderAnchorAt: reminderAnchorAt,
+                  reminderPrayer: reminderPrayer,
                   alarm: alarm,
                 ),
         onDelete: () => _deleteTask(task.id),

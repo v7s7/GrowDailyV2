@@ -34,6 +34,8 @@ import '../../../core/providers/app_guide_provider.dart';
 import '../../../core/providers/day_clock_provider.dart'
     show dayClockProvider, dayClockSourceProvider;
 import '../../onboarding/notifiers/guide_chain.dart';
+import '../../onboarding/notifiers/guide_steps_provider.dart'
+    show habitMarkCount;
 import '../../../core/providers/home_tab_provider.dart';
 import '../../../core/providers/nav_bar_hint_provider.dart';
 import '../../../core/providers/nav_layout_provider.dart'
@@ -50,6 +52,7 @@ import '../../dashboard/widgets/reaction_overlays.dart';
 import '../../mascot/pet_settings.dart';
 import '../../mascot/sprout_ledge.dart';
 import '../../mascot/sprout.dart';
+import '../../mascot/sprout_ground.dart';
 import '../../habits/catalog/habit_plans.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
 import '../../habits/widgets/habit_actions_sheet.dart';
@@ -824,10 +827,13 @@ class _GridScreenState extends ConsumerState<GridScreen> {
     // adding a habit some other way (Today's own Add Habit, say) while
     // this lesson happens to still be active. Without this, the circle
     // would keep pointing at a FAB that already did its job.
+    //
+    // "A habit appeared", not "the list stopped being empty": the second is
+    // true once per account, so a lesson replayed from Settings by somebody
+    // who already has habits never saw its own action. See addedOne.
     ref.listen<List<IslamicHabitTemplate>>(habitListProvider, (previous, next) {
-      if ((previous?.isEmpty ?? true) &&
-          next.isNotEmpty &&
-          ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit) {
+      if (ref.read(activeAppGuideLessonProvider) == AppGuideLesson.addHabit &&
+          addedOne(previous, next, (h) => h.id)) {
         // advanceGuideAfter, not `= null`. Clearing was the whole reason the
         // guide stopped after one step: the circle vanished and nothing said
         // there were three more. This hands over to "colour today's square",
@@ -837,9 +843,16 @@ class _GridScreenState extends ConsumerState<GridScreen> {
         advanceGuideAfter(ref, AppGuideLesson.addHabit);
       }
     });
+    // A habit mark going UP, while the account is loaded at both ends. It
+    // used to be XP leaving zero, which a replay never sees (XP is not zero
+    // twice) and which a finished task could trip on its own. Loading is
+    // excluded because a load is not a tap: the numbers arrive from nothing.
     ref.listen<DashboardState>(dashboardProvider, (previous, next) {
-      if ((previous?.cumulativeXp ?? 0) <= 0 &&
-          next.cumulativeXp > 0 &&
+      if (previous != null &&
+          !previous.isLoading &&
+          !next.isLoading &&
+          habitMarkCount(next, withYesterday: false) >
+              habitMarkCount(previous, withYesterday: false) &&
           ref.read(activeAppGuideLessonProvider) == AppGuideLesson.colorSquare) {
         // Stops here rather than jumping to the Tasks tab: the next step
         // lives on another screen, and moving somebody there because they
@@ -913,6 +926,16 @@ class _GridScreenState extends ConsumerState<GridScreen> {
             SliverToBoxAdapter(
               child: ComebackCard(state: ref.watch(dashboardProvider)),
             ),
+            // Not on an empty board. The card's four rows stood above the
+            // empty state and pushed its «إضافة عادة» under the bottom bar
+            // and «استعرض الخطط» off the screen on an iPhone 17 Pro (measured
+            // 2026-10-02: the button at 828pt, the bar from 814pt), while the
+            // line above them said «اضغط "إضافة عادة" تحت». A new account's
+            // first screen pointed at a button it did not show. The empty
+            // state already teaches step one, with both ways in on screen;
+            // the card arrives with the first habit, step one ticked. The
+            // Tasks page keeps it from the start: nothing is hidden there.
+            if (habits.isNotEmpty)
             SliverToBoxAdapter(
               child: GetStartedChecklistCard(
                 onAddHabit: () =>
@@ -989,6 +1012,9 @@ class _GridScreenState extends ConsumerState<GridScreen> {
                     // launch curtain to lift, so they happen where they can
                     // be seen rather than behind it (see LaunchCurtain).
                     onScreen: !ref.watch(launchCurtainUpProvider),
+                    // The welcome-back card above has no Doum of its own:
+                    // one Doum per screen, and this one comes back walking.
+                    walkIn: ref.watch(dashboardProvider).showComebackBonus,
                     todayCounts: ref.watch(dashboardProvider).completions,
                     // A walk in progress: the card turns this into part-done
                     // credit for any habit linked to the step count, so the

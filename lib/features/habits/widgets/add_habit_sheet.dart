@@ -265,6 +265,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _editOverview = false;
     });
     _toTop();
+    _settleAfterStepChange();
     widget.onStepChanged?.call(step);
   }
 
@@ -275,7 +276,40 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
       _editOverview = true;
     });
     _toTop();
+    _settleAfterStepChange();
   }
+
+  /// True while a new step is still sliding in, when the footer button
+  /// ignores taps.
+  ///
+  /// That button keeps its place from one step to the next and changes what
+  /// it does: «متابعة» on step 2 becomes «أضف العادة» on step 3, and «تم» on
+  /// an edit's step page becomes «احفظ التغييرات». So the second tap of a
+  /// double tap on «متابعة» landed on «أضف العادة» and saved the habit before
+  /// its reminder step had ever been seen. A tap during the slide was never
+  /// meant for the page that is still arriving.
+  bool _stepSettling = false;
+  Timer? _settleTimer;
+
+  void _settleAfterStepChange() {
+    _stepSettling = true;
+    _settleTimer?.cancel();
+    // The step switcher's own length (GameMotion.relaxed), and a little
+    // over, so the page is in place before it takes a tap.
+    _settleTimer = Timer(
+      GameMotion.relaxed + const Duration(milliseconds: 80),
+      () => _stepSettling = false,
+    );
+  }
+
+  /// True while [_submit] runs. It can wait on the step-count permission
+  /// (a platform call, every time for a walking habit) and on the
+  /// quiet-hours question before it saves, and nothing stopped a second tap
+  /// in that wait: it ran the whole submit again, saved a second copy of the
+  /// habit (both passing the free habit limit, so an account could go one
+  /// over), and its own Navigator.pop then closed whatever sat under the
+  /// sheet. One submit at a time.
+  bool _submitting = false;
 
   /// Each step opens at its top, not at the scroll offset the last one was
   /// left at.
@@ -800,6 +834,7 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
     _focus.dispose();
     _scroll.dispose();
     _offsetNoticeTimer?.cancel();
+    _settleTimer?.cancel();
     super.dispose();
   }
 
@@ -1038,6 +1073,16 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return;
+    _submitting = true;
+    try {
+      await _submitOnce();
+    } finally {
+      _submitting = false;
+    }
+  }
+
+  Future<void> _submitOnce() async {
     if (!_hasName) return;
     // Read once into a local so the three writes below take a non-nullable
     // value: there is no "no cadence" to store (IslamicHabitTemplate's
@@ -1735,7 +1780,14 @@ class _AddHabitSheetState extends ConsumerState<AddHabitSheet> {
         Expanded(
           child: FilledButton(
             key: creates ? _createButtonKey : null,
-            onPressed: _canProceed ? onPressed : null,
+            // See [_stepSettling]: a tap while the next step slides in is the
+            // second tap of the one that moved it.
+            onPressed: _canProceed
+                ? () {
+                    if (_stepSettling) return;
+                    onPressed();
+                  }
+                : null,
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 50),
               shape: RoundedRectangleBorder(

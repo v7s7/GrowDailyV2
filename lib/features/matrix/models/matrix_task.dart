@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/extensions/datetime_ext.dart';
 import '../../../core/theme/game_theme.dart';
+import '../../habits/models/habit_cue.dart' show PrayerSlot;
 
 /// One recorded voice note attached to a task. A task can carry any number
 /// of these — record a "step1", "step2", etc. for a multi-part task — each
@@ -253,6 +254,23 @@ class MatrixTask {
   // showing a bold time that never fires.
   final DateTime? reminderAnchorAt;
 
+  /// The prayer [reminderAnchorAt] was picked from, and the signed minutes
+  /// from it: «بعد العصر بـ15 دقيقة» is (prayer: 'asr', offset: 15). Null for
+  /// a time picked on the clock, and always null without an anchor.
+  ///
+  /// It describes the anchor, it never replaces it: [reminderAts] and the
+  /// anchor stay the moments that are scheduled, as for every task. What it
+  /// adds is the words (the reminder row says the prayer, not only the
+  /// time) and the day moves: a task moved to another day lands on THAT
+  /// day's Asr, not on the clock time Asr had on the old one (taskMovedToDay).
+  /// Aziz, 2026-10-03: "a reminder in tasks that is about prayer time ...
+  /// same as habit reminder", and the task should remember it.
+  ///
+  /// Stored as one short string, 'asr+15' / 'fajr-30' (see
+  /// [encodeTaskPrayer]), not a map: a merge-set merges a nested map key by
+  /// key, and one string has no keys to leave behind.
+  final PrayerSlot? reminderPrayer;
+
   /// Whether this task's reminders ring as a real alarm instead of arriving
   /// as a notification. Same per-item choice, same default and same
   /// platform meaning as IslamicHabitTemplate.alarm; see that field.
@@ -296,6 +314,7 @@ class MatrixTask {
     this.voiceNotes = const [],
     this.reminderAts = const [],
     this.reminderAnchorAt,
+    this.reminderPrayer,
     this.alarm = false,
     this.plannedDay,
     required this.order,
@@ -389,11 +408,13 @@ class MatrixTask {
     List<VoiceNote> voiceNotes = const [],
     List<DateTime> reminderAts = const [],
     DateTime? reminderAnchorAt,
+    PrayerSlot? reminderPrayer,
     bool alarm = false,
     String? plannedDay,
   }) {
     final now = DateTime.now();
     final reminders = normalizeReminders(reminderAts);
+    final anchor = resolveAnchor(reminderAnchorAt, reminders);
     return MatrixTask(
       id: const Uuid().v4(),
       title: title.trim(),
@@ -403,7 +424,8 @@ class MatrixTask {
       description: description,
       voiceNotes: voiceNotes,
       reminderAts: reminders,
-      reminderAnchorAt: resolveAnchor(reminderAnchorAt, reminders),
+      reminderAnchorAt: anchor,
+      reminderPrayer: anchor == null ? null : reminderPrayer,
       alarm: alarm,
       plannedDay: plannedDay,
       order: now.millisecondsSinceEpoch.toDouble(),
@@ -429,6 +451,7 @@ class MatrixTask {
         };
     final createdAt = parse(d['createdAt']) ?? DateTime.now();
     final reminders = _remindersFrom(d, parse: parse);
+    final anchor = resolveAnchor(parse(d['reminderAnchorAt']), reminders);
     return MatrixTask(
       id: doc.id,
       title: d['title'] as String,
@@ -447,7 +470,8 @@ class MatrixTask {
       description: d['description'] as String?,
       voiceNotes: _voiceNotesFromMap(d, createdAt),
       reminderAts: reminders,
-      reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
+      reminderAnchorAt: anchor,
+      reminderPrayer: anchor == null ? null : decodeTaskPrayer(d['reminderPrayer']),
       alarm: d['alarm'] as bool? ?? false,
       plannedDay: _plannedDayFrom(d['plannedDay'], parse: parse),
       // A task written before `order` existed falls back to its creation
@@ -487,6 +511,7 @@ class MatrixTask {
         DateTime.tryParse(d['createdAt'] as String? ?? '') ?? DateTime.now();
     DateTime? parse(Object? v) => v is String ? DateTime.tryParse(v) : null;
     final reminders = _remindersFrom(d, parse: parse);
+    final anchor = resolveAnchor(parse(d['reminderAnchorAt']), reminders);
     return MatrixTask(
       id: d['id'] as String? ?? const Uuid().v4(),
       title: d['title'] as String? ?? '',
@@ -504,7 +529,8 @@ class MatrixTask {
       description: d['description'] as String?,
       voiceNotes: _voiceNotesFromMap(d, createdAt),
       reminderAts: reminders,
-      reminderAnchorAt: resolveAnchor(parse(d['reminderAnchorAt']), reminders),
+      reminderAnchorAt: anchor,
+      reminderPrayer: anchor == null ? null : decodeTaskPrayer(d['reminderPrayer']),
       alarm: d['alarm'] as bool? ?? false,
       plannedDay: _plannedDayFrom(d['plannedDay'], parse: parse),
       order: (d['order'] as num?)?.toDouble() ??
@@ -605,6 +631,9 @@ class MatrixTask {
         // absent key genuinely means absent. toFirestore below can't do this.
         if (reminderAnchorAt != null)
           'reminderAnchorAt': reminderAnchorAt!.toIso8601String(),
+        // Same plain omit, same reason.
+        if (reminderPrayer != null)
+          'reminderPrayer': encodeTaskPrayer(reminderPrayer!),
         'alarm': alarm,
         // Same plain omit as reminderAnchorAt above, for the same reason.
         if (plannedDay != null) 'plannedDay': plannedDay,
@@ -654,6 +683,11 @@ class MatrixTask {
         'reminderAnchorAt': reminderAnchorAt != null
             ? Timestamp.fromDate(reminderAnchorAt!)
             : FieldValue.delete(),
+        // The delete sentinel for the same reason: a reminder changed from
+        // «بعد العصر» to a clock time must not keep the prayer behind.
+        'reminderPrayer': reminderPrayer != null
+            ? encodeTaskPrayer(reminderPrayer!)
+            : FieldValue.delete(),
         'alarm': alarm,
         // The key itself, a String, never a Timestamp (see the field doc),
         // and the delete sentinel when unset for the reason above: a task
@@ -683,6 +717,10 @@ class MatrixTask {
     // the same problem clearCompletedAt and clearDescription exist for.
     DateTime? reminderAnchorAt,
     bool clearReminderAnchorAt = false,
+    // Same sentinel pair. Whoever picks a new time on the clock passes
+    // clearReminderPrayer; and with no anchor left the prayer goes anyway.
+    PrayerSlot? reminderPrayer,
+    bool clearReminderPrayer = false,
     bool? alarm,
     // Nullable String, so the same sentinel as the anchor: null here means
     // "leave it", clearPlannedDay means "back to the created day".
@@ -693,9 +731,10 @@ class MatrixTask {
     final nextReminders = reminderAts != null
         ? normalizeReminders(reminderAts)
         : this.reminderAts;
-    final nextAnchor = clearReminderAnchorAt
-        ? null
-        : reminderAnchorAt ?? this.reminderAnchorAt;
+    final nextAnchor = resolveAnchor(
+      clearReminderAnchorAt ? null : reminderAnchorAt ?? this.reminderAnchorAt,
+      nextReminders,
+    );
     return MatrixTask(
       id: id,
       title: title ?? this.title,
@@ -714,7 +753,10 @@ class MatrixTask {
       // all: clearing reminders drops it, and replacing them with a set the
       // old anchor isn't in re-guesses rather than pointing at a moment the
       // task no longer fires at.
-      reminderAnchorAt: resolveAnchor(nextAnchor, nextReminders),
+      reminderAnchorAt: nextAnchor,
+      reminderPrayer: nextAnchor == null || clearReminderPrayer
+          ? null
+          : reminderPrayer ?? this.reminderPrayer,
       alarm: alarm ?? this.alarm,
       plannedDay: clearPlannedDay ? null : plannedDay ?? this.plannedDay,
       order: order ?? this.order,
@@ -728,3 +770,23 @@ class MatrixTask {
   @override
   int get hashCode => id.hashCode;
 }
+
+/// [prayer] as [MatrixTask.reminderPrayer] stores it: the prayer's key and
+/// the signed minutes, 'asr+15', 'fajr-30', 'isha+0'.
+String encodeTaskPrayer(PrayerSlot prayer) =>
+    '${prayer.prayer}${prayer.offset < 0 ? '' : '+'}${prayer.offset}';
+
+/// The prayer stored by [encodeTaskPrayer], or null for anything else: an
+/// unknown prayer, no sign, more than twelve hours either side (the habit
+/// sheet's own ceiling). Read leniently, like every field here, so one odd
+/// value costs only the words on the row, never the task.
+PrayerSlot? decodeTaskPrayer(Object? raw) {
+  if (raw is! String) return null;
+  final m = _taskPrayerShape.firstMatch(raw.trim());
+  if (m == null) return null;
+  final offset = int.parse(m.group(2)!);
+  if (offset.abs() > 12 * 60) return null;
+  return (prayer: m.group(1)!, offset: offset);
+}
+
+final _taskPrayerShape = RegExp(r'^(fajr|dhuhr|asr|maghrib|isha)([+-]\d{1,3})$');

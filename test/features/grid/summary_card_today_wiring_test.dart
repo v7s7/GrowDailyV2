@@ -109,7 +109,7 @@ void main() {
   });
 
   testWidgets(
-      'a half-done (جزئي) habit counts half toward the ring, zero toward the count',
+      'a half-done (جزئي) habit counts half toward the ring and the count',
       (tester) async {
     await h.pumpApp(tester);
     await restQuotaToday(tester);
@@ -118,8 +118,10 @@ void main() {
     grid.setSquareStateOnly(daily, today, SquareState.partial);
     await h.settle(tester);
 
-    expect(bigNumber('0'), findsOneWidget,
-        reason: 'a جزئي is not a finished habit');
+    // Aziz, 2026-10-03: "make all 0.5 counts". It read 0 of 1 beside a ring
+    // at 50%.
+    expect(bigNumber('0.5'), findsOneWidget,
+        reason: 'a جزئي is half a habit, here as in the ring');
     expect(find.text(s.gridOfHabitsToday(1)), findsOneWidget);
     expect(ringPercent('50'), findsOneWidget,
         reason: 'the ring reads the flat half a hand-marked جزئي gets');
@@ -172,7 +174,8 @@ void main() {
       expect(ringPercent('25'), findsOneWidget,
           reason: 'the resting جزئي raised the ring from 0% to 25%');
       expect(bigNumber('0'), findsOneWidget,
-          reason: 'greensToday still only counts finished, required habits');
+          reason: 'the count is what the REQUIRED habits are worth; a half '
+              'nobody asked for today moves only the ring');
       expect(find.text(s.gridOfHabitsToday(1)), findsOneWidget,
           reason: 'the resting habit still does not inflate what was owed');
     });

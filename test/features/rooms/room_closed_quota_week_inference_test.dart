@@ -375,10 +375,47 @@ void main() {
     Map<String, int> infer(RoomParticipant p, {RoomModel? room, DateTime? now}) =>
         p.closedQuotaWeekInference(room ?? _perlaRoom, now: now ?? _now);
 
-    test('a partial mark anywhere in the week leaves the week alone', () {
+    test('a stored half is a session: the days before it are judged with it',
+        () {
+      // Since 2026-09-26 a جزئي holds one of the week's places, and the
+      // phone judges the empty days with it in hand. A half on Tuesday the
+      // 25th, nothing else: Saturday to Monday rest, Wednesday to Friday
+      // owed, the half itself never lowered.
       final got = infer(_perla(partial: const {'2026-08-25': 1}));
-      expect(got.keys.where((k) => k.compareTo('2026-08-29') < 0), isEmpty);
+      expect(
+        {
+          for (final e in got.entries)
+            if (e.key.compareTo('2026-08-29') < 0) e.key: e.value,
+        },
+        const {'2026-08-22': 0, '2026-08-23': 0, '2026-08-24': 0},
+      );
+      expect(got.containsKey('2026-08-25'), isFalse);
       expect(got['2026-08-29'], 0, reason: 'the next week is still provable');
+    });
+
+    test('a day of one whole and one half leaves the week alone', () {
+      // Two weekly habits: which of them held the half cannot be told.
+      final room = _room(
+        start: _bh(2026, 7, 28),
+        end: _bh(2026, 10, 25),
+        slots: [
+          _slot(HabitFrequencyType.weekly, target: 4),
+          _slot(HabitFrequencyType.weekly, target: 3),
+        ],
+      );
+      final got = infer(
+        _perla(
+          linked: const [_w, _d1],
+          rules: {
+            _w: [_weekly('2026-07-28')],
+            _d1: [_weekly('2026-07-28', 3)],
+          },
+          done: const {'2026-08-25': 1},
+          partial: const {'2026-08-25': 1},
+        ),
+        room: room,
+      );
+      expect(got.keys.where((k) => k.compareTo('2026-08-29') < 0), isEmpty);
     });
 
     test('a rest mark anywhere in the week leaves the week alone', () {

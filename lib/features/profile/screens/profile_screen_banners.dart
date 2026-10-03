@@ -225,6 +225,33 @@ bool streakAtRiskBannerShows({
   return !earned && dayAsksForHabits(day);
 }
 
+/// Whether [_StreakAtRiskBanner] draws itself right now: its one gate, so
+/// the section around it can know too (the recap's Doum steps aside while
+/// this banner's Doum is up, see _DashboardSection).
+bool _streakAtRiskBannerUp(WidgetRef ref) {
+  final dash = ref.watch(dashboardProvider);
+  final grid = ref.watch(weeklyGridProvider);
+  final habits = ref.watch(habitListProvider);
+  // The streak itself is still savable through the 10 AM cutoff (see
+  // isDayClosing) - only this BANNER's own window is narrower, so the
+  // warning stops competing for morning attention well before the actual
+  // deadline. See isEveningNudgeHour's own doc comment.
+  return habits.isNotEmpty &&
+      !grid.isLoading &&
+      streakAtRiskBannerShows(
+        dash: dash,
+        now: DateTime.now(),
+        // The day's own board, the roster its streak point is judged on
+        // (see boardHabitsOn): a quota's rest day is not on it.
+        dayAsksForHabits: (day) => boardHabitsOn(
+          habits: habits,
+          day: day,
+          isGreen: grid.greenForWeekOf(day),
+          markOn: grid.markForWeekOf(day),
+        ).isNotEmpty,
+      );
+}
+
 /// The retention loop's most important message: from 6pm, while a live
 /// streak's point for the closing day is not earned yet (80% of that day's
 /// habits, see kStreakDayCompletionThreshold), warn warmly. Disappears the
@@ -234,30 +261,8 @@ class _StreakAtRiskBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!_streakAtRiskBannerUp(ref)) return const SizedBox.shrink();
     final dash = ref.watch(dashboardProvider);
-    final grid = ref.watch(weeklyGridProvider);
-    final habits = ref.watch(habitListProvider);
-
-    // The streak itself is still savable through the 10 AM cutoff (see
-    // isDayClosing) - only this BANNER's own window is narrower, so the
-    // warning stops competing for morning attention well before the actual
-    // deadline. See isEveningNudgeHour's own doc comment.
-    if (habits.isEmpty ||
-        grid.isLoading ||
-        !streakAtRiskBannerShows(
-          dash: dash,
-          now: DateTime.now(),
-          // The day's own board, the roster its streak point is judged on
-          // (see boardHabitsOn): a quota's rest day is not on it.
-          dayAsksForHabits: (day) => boardHabitsOn(
-            habits: habits,
-            day: day,
-            isGreen: grid.greenForWeekOf(day),
-            markOn: grid.markForWeekOf(day),
-          ).isNotEmpty,
-        )) {
-      return const SizedBox.shrink();
-    }
 
     final gp = context.gp;
     final s = S.of(context);
@@ -646,9 +651,8 @@ Widget languageSheetForTest() => const _LanguageSheet();
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-/// Opens the language picker sheet from Settings — same [LanguageOptionCard]
-/// rows as the first-launch picker, just presented as a sheet since the
-/// locale is already known here.
+/// Opens the language picker sheet from Settings: the same two language
+/// squares as the sign-in screen (DoumLanguageSquares).
 void _showLanguageSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
@@ -659,8 +663,8 @@ void _showLanguageSheet(BuildContext context) {
     // outer margin adds MediaQuery padding.bottom, which is what keeps
     // content near the bottom in the same spot device to device.
     useSafeArea: true,
-    // Doum stands over the two cards (see _LanguageSheet), which takes the
-    // sheet past the default half-screen cap on a small phone.
+    // The two squares and their Doums (see _LanguageSheet) take the sheet
+    // past the default half-screen cap on a small phone.
     isScrollControlled: true,
     builder: (ctx) => const _LanguageSheet(),
   );

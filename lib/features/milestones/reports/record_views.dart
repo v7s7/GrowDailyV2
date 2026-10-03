@@ -26,7 +26,7 @@ import '../../../shared/widgets/milestone_tally_chip.dart';
 import '../../grid/models/square_state.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../grid/screens/monthly_heatmap_screen.dart'
-    show heatColor, heatLevel, heatmapScheduledOn;
+    show heatColor, heatLevel, heatmapDayScore;
 import '../../habits/catalog/islamic_habit_catalog.dart'
     show IslamicHabitTemplate;
 import '../../habits/models/habit_day_demand.dart' show GreenOnDay, MarkOnDay;
@@ -34,7 +34,8 @@ import 'year_strip.dart'
     show yearStripColumnCount, yearStripDay, yearStripOrigin;
 
 /// A lived day's colour on every small picture of the record, by the map's
-/// rule: how many of the habits that day owed went green, as a heat level.
+/// rule: how much of what that day owed was done, a جزئي at half
+/// (heatmapDayScore), as a heat level. [count] is its green squares.
 Color recordDayColor({
   required int count,
   required DateTime day,
@@ -42,11 +43,11 @@ Color recordDayColor({
   required GreenOnDay isGreen,
   MarkOnDay? markOn,
   required bool dark,
-}) =>
-    heatColor(
-      heatLevel(count, heatmapScheduledOn(habits, day, isGreen, markOn: markOn)),
-      dark,
-    );
+}) {
+  final score =
+      heatmapDayScore(habits, day, isGreen, markOn: markOn, greens: count);
+  return heatColor(heatLevel(score.credit, score.owed), dark);
+}
 
 Color _wash(bool dark, double opacity) =>
     (dark ? Colors.white : Colors.black).withOpacity(opacity);

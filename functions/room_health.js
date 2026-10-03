@@ -33,6 +33,8 @@ const GREEN = new Set(["complete", "bonus"]); // SquareState.isGreen
 // RoomHabitMark.rest.code: the habit was in the plan that day but its own
 // schedule asked nothing of it (room_model.dart, enum RoomHabitMark).
 const REST_MARK = "r";
+// SquareState.partial, a جزئي: half a habit (creditFor).
+const PARTIAL = "partial";
 const DECLINED = "__declined__";
 
 // lib/core/extensions/datetime_ext.dart's kDayCutoffHour: a day stays open
@@ -337,9 +339,17 @@ function closedDaysToCheck(r, lastClosedKey, lookback) {
  * east of UTC. Defaults to Asia/Bahrain.
  * @param {object} [args.room] The room doc's data. When given, each day is
  * checked against the habits in the plan that day (slotLiveOn).
+ * A جزئي counts too (Aziz, 2026-10-03: "make all 0.5 counts"): a day whose
+ * whole squares match the record but whose half squares outnumber its stored
+ * dailyPartialCount is reported with `half: true`, the two half counts in
+ * `realHalves` / `storedHalves`. set_room_day.js writes whole counts only, so
+ * such a day gets no repair command: the member's own phone writes halves,
+ * and opening the room there regrades it.
+ *
  * @return {Array<{day: string, real: number, stored: number, held: boolean,
- * why: string}>} `held` days are reported for information and must never be
- * handed a set_room_day.js command.
+ * why: string, half: (boolean|undefined), realHalves: (number|undefined),
+ * storedHalves: (number|undefined)}>} `held` and `half` days are reported for
+ * information and must never be handed a set_room_day.js command.
  */
 function undercountedDays({days, countingIds, squaresByDay, part,
   lastUpdatedByDay, createdByDay, offsetMinutes, room}) {
@@ -388,7 +398,7 @@ function undercountedDays({days, countingIds, squaresByDay, part,
     const dayIds = room ?
       countingHabitIds(room, part, day).filter((id) => countingIds.includes(id)) :
       countingIds;
-    const real = dayIds.filter((id) => {
+    const owedIds = dayIds.filter((id) => {
       const floor = floors.get(id);
       if (floor !== null && floor !== undefined && day < floor) return false;
       // The whole-day rest test above only catches a day where EVERY habit
@@ -396,11 +406,17 @@ function undercountedDays({days, countingIds, squaresByDay, part,
       // case for a weekly quota, and counting its green square as owed was
       // reporting a shortfall that does not exist and printing a repair
       // command that would have paid for a day the room never asked for.
-      if (restedOn(day, id)) return false;
-      return GREEN.has(String(squares[id]));
-    }).length;
+      return !restedOn(day, id);
+    });
+    const real = owedIds.filter((id) => GREEN.has(String(squares[id]))).length;
+    const realHalves =
+      owedIds.filter((id) => String(squares[id]) === PARTIAL).length;
     const stored = done[day] || 0;
-    if (real <= stored) continue;
+    const storedHalves = (part.dailyPartialCount || {})[day] || 0;
+    const halfOnly = real <= stored && realHalves > storedHalves &&
+      real + realHalves / 2 > stored + storedHalves / 2;
+    if (real <= stored && !halfOnly) continue;
+    const halfFields = halfOnly ? {half: true, realHalves, storedHalves} : {};
 
     // The two pieces of evidence the clamp itself turns on. `syncedMs` is
     // read the same way RoomParticipant.wasObservedOn reads it, falling back
@@ -419,7 +435,7 @@ function undercountedDays({days, countingIds, squaresByDay, part,
         " The day document was first written while the day was still open, " +
         "so the room graded what was there at the time." : "";
       out.push({
-        day, real, stored, held: true,
+        day, real, stored, held: true, ...halfFields,
         why: "the room is holding this day on purpose: its record was last " +
             `written ${new Date(writtenMs).toISOString()}, after the day ` +
             `closed ${new Date(closes).toISOString()}, and the room had ` +
@@ -428,7 +444,7 @@ function undercountedDays({days, countingIds, squaresByDay, part,
       });
       continue;
     }
-    out.push({day, real, stored, held: false, why: ""});
+    out.push({day, real, stored, held: false, why: "", ...halfFields});
   }
   return out;
 }

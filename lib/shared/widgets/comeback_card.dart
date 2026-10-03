@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/game_theme.dart';
 import '../../features/dashboard/notifiers/dashboard_notifier.dart';
-import '../../features/mascot/sprout.dart';
 
 /// The "you're back" moment: shown once after a gap, offering either a
 /// streak restore (if a freeze is banked) or a clean restart, and making the
@@ -153,19 +152,14 @@ class _Header extends StatelessWidget {
     final s = S.of(context);
     // Local copy: a public final field is not promoted by a null check.
     final who = name;
+    // No Doum of its own (Aziz, 2026-10-03: one Doum per screen). It had
+    // one, walking in with a backpack, right above the Doum standing on the
+    // Habits page's board: two of him at once. That Doum walks in instead
+    // on a day this card shows (DayCardSprout.walkIn), and on an empty board
+    // the empty state's own Doum is there. Someone who hid Doum from the
+    // Habits page gets none here either.
     return Row(
       children: [
-        // The sprout coming back with its backpack, where a twilight icon in
-        // a halo used to breathe forever. It walks in from its own side of
-        // the card toward the words, facing the way the reading goes, then
-        // breathes a few times and stands still: a welcome, not a spinner.
-        Sprout(
-          pose: SproutPose.walkBackpack,
-          height: 72,
-          entrance: SproutEntrance.walkIn,
-          mirror: Directionality.of(context) == TextDirection.rtl,
-        ),
-        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

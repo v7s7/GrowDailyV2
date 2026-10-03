@@ -1,0 +1,14 @@
+[
+  {"name": "work_digging", "row": 1, "sheet_row": 1, "shows": "digging with a small spade, soil flying, happy", "app": true, "scale": 2.3},
+  {"name": "work_planting_shoot", "row": 1, "sheet_row": 1, "shows": "planting a date palm shoot into the soil with both hands, smiling", "app": true, "scale": 2.28},
+  {"name": "work_dates_basket", "row": 1, "sheet_row": 1, "shows": "carrying a woven basket of dates with a palm frond, eyes shut happy", "app": true, "caution": "rule 4: dates are food, never on a fasting habit, a planned fast day or Ramadan daytime", "scale": 2.26},
+  {"name": "work_wheelbarrow", "row": 1, "sheet_row": 1, "shows": "pushing a wooden wheelbarrow of soil", "app": true, "caution": "rule 6: the dark wheel fades on a dark card", "scale": 2.36},
+  {"name": "work_date_bunch", "row": 1, "sheet_row": 2, "shows": "holding up a bunch of ripe dates on a frond, winking", "app": true, "caution": "rule 4: dates are food (see work_dates_basket)", "scale": 2.32},
+  {"name": "work_pearl", "row": 1, "sheet_row": 2, "shows": "holding a pearl up, gold sparkles, delighted", "app": true, "scale": 2.28},
+  {"name": "work_sitting_ledge", "row": 1, "sheet_row": 2, "shows": "sitting behind a cream stone block, hands and feet over its edge, eyes shut happy", "app": true, "caution": "the block is drawn: place it ON an edge or the ground, never floating", "scale": 2.38},
+  {"name": "work_lantern", "row": 1, "sheet_row": 2, "shows": "lighting a glowing hanging lantern with a long stick", "app": true, "scale": 2.31},
+  {"name": "work_patting_sprout", "row": 1, "sheet_row": 3, "shows": "kneeling, patting the soil round a small sprout, eyes shut happy", "app": true, "scale": 2.24},
+  {"name": "work_big_seed", "row": 1, "sheet_row": 3, "shows": "holding a big brown seed in both hands, sparkling eyes", "app": true, "scale": 2.24},
+  {"name": "work_scatter_seeds", "row": 1, "sheet_row": 3, "shows": "holding a small bowl and scattering seeds, waving", "app": true, "caution": "the bowl holds dates: rule 4", "scale": 2.33},
+  {"name": "work_asleep_palm", "row": 1, "sheet_row": 3, "shows": "asleep, sitting against a palm trunk with fronds and grass", "app": true, "scale": 2.31}
+]

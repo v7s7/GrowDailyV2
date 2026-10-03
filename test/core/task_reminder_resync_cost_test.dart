@@ -384,8 +384,8 @@ void main() {
   });
 
   test(
-      'a resync before the load lands reaps nothing, and neither does one '
-      'whose load an early edit superseded', () async {
+      'a resync before the load lands reaps nothing, and a load that merged '
+      'an early add reaps once, keeping the loaded task\'s alarm', () async {
     final open = task(
       'open',
       reminders: [now.add(const Duration(hours: 1))],
@@ -421,9 +421,11 @@ void main() {
         reason: 'the whole list\'s reap took the alarm no task wants');
     container.dispose();
 
-    // An edit made before the load lands supersedes it, and the list then
-    // holds only what was added: a reap would take every loaded task's
-    // alarm. That notifier never reaps.
+    // An edit made before the load lands used to supersede it, leaving a
+    // list of only what was added, so that notifier could never reap: a reap
+    // would have taken every loaded task's alarm. The load merges now
+    // (mergeLoadedTasks), the list is whole again, and its own resync reaps
+    // once, keeping the loaded task's alarm and taking the stray.
     alarms[straySlot] = 'not-loaded';
     resetCounts();
     container = await guest();
@@ -431,15 +433,22 @@ void main() {
         .read(matrixProvider.notifier)
         .add('Added before the load', MatrixQuadrant.doFirst);
     await waitUntil(
-      () => !container.read(matrixProvider).isLoading,
-      describe: 'the superseded load to settle',
+      () => container.read(matrixProvider).tasks.length == 2,
+      describe: 'the load to merge with the early add',
     );
-    container.read(matrixProvider.notifier).resyncReminders();
     await quiesce();
     expect(container.read(matrixProvider).tasks.map((t) => t.title),
-        ['Added before the load']);
-    expect(reaps, isEmpty);
-    expect(alarms[straySlot], 'not-loaded');
+        containsAll(['open', 'Added before the load']));
+    expect(reaps, hasLength(1));
+    expect(
+      (reaps.single['keepIds'] as List).cast<int>(),
+      alarms.entries
+          .where((e) => e.value == 'open')
+          .map((e) => e.key)
+          .toList(),
+      reason: 'the loaded task\'s alarm is kept',
+    );
+    expect(alarms.containsKey(straySlot), isFalse);
     container.dispose();
   });
 

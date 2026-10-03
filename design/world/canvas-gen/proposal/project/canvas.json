@@ -1,0 +1,129 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-03T15:39:05Z"
+  },
+  "title": "Doum’s Oasis: should we build it?",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 2720,
+      "expand": "fill",
+      "title": "Start here: Doum’s oasis, the proposal"
+    },
+    "ProfileBefore.dc.html": {
+      "x": 1560,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "title": "Today: Profile, for comparison"
+    },
+    "Profile.dc.html": {
+      "x": 2030,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "is_interactive": true,
+      "title": "1. Profile with the oasis card (press Play, start here)"
+    },
+    "Oasis.dc.html": {
+      "x": 2500,
+      "y": 0,
+      "w": 390,
+      "h": 954,
+      "is_interactive": true,
+      "title": "2. Your oasis (test buttons under the phone)"
+    },
+    "Arrange.dc.html": {
+      "x": 2970,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "is_interactive": true,
+      "title": "3. Arrange"
+    },
+    "Friends.dc.html": {
+      "x": 3440,
+      "y": 0,
+      "w": 390,
+      "h": 844,
+      "is_interactive": true,
+      "title": "4. Friends"
+    },
+    "Island.dc.html": {
+      "x": 3910,
+      "y": 0,
+      "w": 360,
+      "h": 400,
+      "is_interactive": true,
+      "title": "The island drawing every screen uses (Tweaks: level, sky, colours)"
+    },
+    "Changes.dc.html": {
+      "x": 1560,
+      "y": 1500,
+      "w": 1440,
+      "h": 2450,
+      "expand": "fill",
+      "title": "What changes in the app"
+    },
+    "Wiring.dc.html": {
+      "x": 3120,
+      "y": 1500,
+      "w": 1440,
+      "h": 1040,
+      "title": "How it’s wired"
+    },
+    "Build.dc.html": {
+      "x": 4680,
+      "y": 1500,
+      "w": 1440,
+      "h": 2080,
+      "expand": "fill",
+      "title": "What it takes"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "ProfileBefore.dc.html",
+    "Profile.dc.html",
+    "Oasis.dc.html",
+    "Arrange.dc.html",
+    "Friends.dc.html",
+    "Island.dc.html",
+    "Changes.dc.html",
+    "Wiring.dc.html",
+    "Build.dc.html"
+  ],
+  "notes": {
+    "rowTry": {
+      "kind": "title1",
+      "text": "Try it: tap through like the app",
+      "x": 1560,
+      "y": -300,
+      "maxW": 3210
+    },
+    "rowBuild": {
+      "kind": "title1",
+      "text": "For whoever builds it",
+      "x": 1560,
+      "y": 1200,
+      "maxW": 4560
+    },
+    "nTest": {
+      "fill": "green",
+      "size": "m",
+      "w": 420,
+      "x": 4350,
+      "y": 0,
+      "text": "How to test\n\n1. Press Play on «1. Profile», or open it full-window.\n2. Tap the oasis card. Wait two seconds: Doum walks to the bench and sits.\n3. Tap the palm, a plant, the bench. Under the phone (testing only): «مستوى جديد» and «ليالي رمضان».\n4. «رتّب»: tap the + place and pick ورد (houses and trees only fit further back). Tap the pomegranate: «نسخة ذهبية من هذا».\n5. «أصحابك»: «شغّلها», Yousef, the sidr, «خذ شتلة».\n\nLeave a comment on anything."
+    }
+  },
+  "designSystems": []
+}

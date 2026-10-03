@@ -5,6 +5,7 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/game_theme.dart';
 import '../../../core/utils/western_digits.dart';
 import '../../grid/models/square_state.dart';
+import '../../habits/models/weekly_quota_plan.dart' show sessionsText;
 import '../../milestones/reports/day_score.dart';
 
 /// How much of the recent past the chart covers.
@@ -277,13 +278,15 @@ class _DayScoreChartState extends State<DayScoreChart> {
                             // digits directly above the ASCII day numbers on
                             // the same columns, two numeral systems in one
                             // column. Verified on device in Arabic.
-                            isLoading ? '' : '${scores[i].done}',
+                            // What the day earned, a جزئي at half, as
+                            // the line below it is drawn.
+                            isLoading ? '' : sessionsText(scores[i].credit),
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               color: i == todayIndex
                                   ? context.gp.goldInk
-                                  : scores[i].done > 0
+                                  : scores[i].credit > 0
                                       ? gp.textPrimary
                                       : gp.textTert,
                             ),
@@ -405,7 +408,9 @@ class _ScrubReadout extends StatelessWidget {
     // Three sentences, because a day that owed nothing and a day that owed
     // something and got none of it are different facts. Never "0 من 0".
     final value = score.owed > 0
-        ? s.progressScoreFraction(score.done, score.owed)
+        // What the day earned, a جزئي at half, against what it owed: the
+        // same two numbers the bar is drawn from.
+        ? s.progressScoreFraction(sessionsText(score.credit), score.owed)
         : score.rested > 0
             ? s.progressRestedShort
             : s.progressNothingDueShort;

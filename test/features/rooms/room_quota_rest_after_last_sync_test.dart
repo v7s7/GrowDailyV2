@@ -157,9 +157,35 @@ void main() {
       // The quota grader only ever records a week when it saw a weekly habit,
       // so a purely daily room can never take the new branch and every
       // unrecorded day stays a miss exactly as before.
-      final p = _perla(quotaOkWeeks: const [], dailyScheduledCount: const {});
+      final p = _perla(
+        quotaOkWeeks: const [],
+        dailyScheduledCount: const {},
+        habitRules: const {
+          _kHabit: [_dailyRule],
+        },
+      );
       expect(p.scheduledCountFor('2026-08-20'), 1);
       expect(p.isRestDay('2026-08-20'), isFalse);
+    });
+
+    test('a week whose recorded sessions hold every place rests too', () {
+      // Four sessions recorded in the week, the phone's own test for resting
+      // the rest of it (weeklyQuotaScheduledDays), whether or not the week
+      // reached quotaOkWeeks: a week held partly by halves never does.
+      final p = _perla(
+        quotaOkWeeks: const [],
+        dailyDoneCount: const {'2026-08-15': 1, '2026-08-17': 1},
+        dailyPartialCount: const {'2026-08-18': 1, '2026-08-19': 1},
+      );
+      expect(p.scheduledCountFor('2026-08-20'), 0);
+      expect(p.isRestDay('2026-08-20'), isTrue);
+      // Three are not every place: still due.
+      final short = _perla(
+        quotaOkWeeks: const [],
+        dailyDoneCount: const {'2026-08-15': 1, '2026-08-17': 1},
+        dailyPartialCount: const {'2026-08-18': 1},
+      );
+      expect(short.scheduledCountFor('2026-08-20'), 1);
     });
 
     test('an unparseable dateKey falls back rather than throwing', () {

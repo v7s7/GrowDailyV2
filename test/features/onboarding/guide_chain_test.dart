@@ -20,6 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/providers/app_guide_provider.dart';
+import 'package:grow_daily_v2/core/providers/nav_layout_provider.dart' show NavTab;
 import 'package:grow_daily_v2/features/onboarding/notifiers/guide_chain.dart';
 import 'package:grow_daily_v2/features/onboarding/notifiers/guide_steps_provider.dart';
 
@@ -170,10 +171,41 @@ void main() {
     });
   });
 
+  group('addedOne: did the lesson\'s action just happen', () {
+    String id(String s) => s;
+
+    test('the first item ever', () {
+      expect(addedOne<String>(const [], const ['a'], id), isTrue);
+      expect(addedOne<String>(null, const ['a'], id), isTrue);
+    });
+
+    test('one more on a list that already had some: a replay', () {
+      // The case "empty, then not" could never see.
+      expect(addedOne<String>(const ['a', 'b'], const ['a', 'b', 'c'], id),
+          isTrue);
+    });
+
+    test('the same list again, a removal, or a reorder is not an add', () {
+      expect(addedOne<String>(const ['a', 'b'], const ['a', 'b'], id), isFalse);
+      expect(addedOne<String>(const ['a', 'b'], const ['a'], id), isFalse);
+      expect(addedOne<String>(const ['a', 'b'], const ['b', 'a'], id), isFalse);
+    });
+  });
+
   test('every lesson maps to the tab that actually hosts it', () {
-    expect(guideLessonTab(AppGuideLesson.addHabit), 0);
-    expect(guideLessonTab(AppGuideLesson.colorSquare), 0);
-    expect(guideLessonTab(AppGuideLesson.discoverRooms), 1);
-    expect(guideLessonTab(AppGuideLesson.addTask), 2);
+    expect(guideLessonTab(AppGuideLesson.addHabit), NavTab.grid);
+    expect(guideLessonTab(AppGuideLesson.colorSquare), NavTab.grid);
+    expect(guideLessonTab(AppGuideLesson.discoverRooms), NavTab.profile);
+    expect(guideLessonTab(AppGuideLesson.addTask), NavTab.matrix);
+  });
+
+  test('the Rooms lesson also lives on the Rooms page, and only it does', () {
+    // It starts on Profile's Rooms row and finishes on the Rooms page's
+    // Create and Join, so a bar that holds Rooms must not end it there.
+    expect(guideLessonLivesOn(AppGuideLesson.discoverRooms, NavTab.rooms),
+        isTrue);
+    expect(guideLessonLivesOn(AppGuideLesson.addTask, NavTab.rooms), isFalse);
+    expect(guideLessonLivesOn(AppGuideLesson.addHabit, NavTab.profile),
+        isFalse);
   });
 }

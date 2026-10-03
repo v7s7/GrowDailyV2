@@ -63,7 +63,22 @@ struct TodayHabit: Codable, Identifiable {
     /// (it read «مو مطلوبة» until 2026-09-29).
     var rest: Bool? = nil
 
+    /// Marked جزئي today and not done since. A counted habit part of the way
+    /// there is a half too, read off [count] (see [worth]). nil reads as not
+    /// half, the way every row read before 2026-10-03.
+    var half: Bool? = nil
+
     var isDue: Bool { notDue != true }
+
+    /// What the row is worth toward «4 من 9»: 1 done, 0.5 half, 0 otherwise.
+    /// A half counts half everywhere in the app (Aziz, 2026-10-03: "make all
+    /// 0.5 counts"), a counted habit part of the way there included.
+    var worth: Double {
+        if done { return 1 }
+        if half == true { return 0.5 }
+        if let count, count > 0, count < target { return 0.5 }
+        return 0
+    }
     var isResting: Bool { rest == true && !done }
 
     /// Completions the day wants, never below one.
@@ -112,8 +127,20 @@ struct TodayHabit: Codable, Identifiable {
 /// the square. Until 2026-09-29 the faces read the app's two stored numbers
 /// and a widget tap left them behind: the last habit ticked, and the face
 /// still said «4 من 5».
-func habitDayCounts(_ habits: [TodayHabit]) -> (done: Int, total: Int) {
-    (habits.filter(\.done).count, habits.filter { $0.done || $0.isDue }.count)
+///
+/// What the finished and half-done rows are worth, a half at 0.5, against
+/// every row the day owes. A half on a row the day did not owe stays out,
+/// as it stays off the app's count (boardHabitsOn).
+func habitDayCounts(_ habits: [TodayHabit]) -> (done: Double, total: Int) {
+    let owed = habits.filter { $0.done || $0.isDue }
+    return (owed.reduce(0) { $0 + $1.worth }, owed.count)
+}
+
+/// [value] written for a face: whole numbers as they are, a half as «3.5».
+/// Western digits, as every number the faces draw.
+func halfCountText(_ value: Double) -> String {
+    let halves = Int((value * 2).rounded())
+    return halves % 2 == 0 ? "\(halves / 2)" : "\(halves / 2).5"
 }
 
 /// Which of the two lists the app leaves in the store speaks for a day.

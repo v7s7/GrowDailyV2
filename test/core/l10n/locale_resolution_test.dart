@@ -5,7 +5,7 @@
 // defaulted to Locale('en') and MaterialApp took its locale from the app's own
 // provider, so the first-launch LanguagePickerScreen was the only code path in
 // the entire app that could produce Arabic. That screen is gone now, replaced
-// by detection plus the LanguageToggle on the auth screen, which is only safe
+// by detection plus the language squares on the auth screen, which is only safe
 // because of what these lock.
 //
 // The precedence these lock, strongest first:

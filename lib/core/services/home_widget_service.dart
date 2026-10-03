@@ -42,6 +42,7 @@ typedef WidgetHabitRow = ({
   int perDay,
   bool notDue,
   bool rest,
+  bool half,
   String category,
   String? color,
 });
@@ -73,6 +74,12 @@ String encodeWidgetHabitRows(List<WidgetHabitRow> rows) => jsonEncode([
           // widget said «مو مطلوبة» over it until 2026-09-29. Written only
           // when true, so the list stays the size it was.
           if (h.rest) 'rest': true,
+          // Marked جزئي and not done since: worth half toward «4 من 9»
+          // (TodayHabit.worth), as a half is everywhere in the app (Aziz,
+          // 2026-10-03: "make all 0.5 counts"). A counted habit part of the
+          // way there needs no flag, the widget reads it off count. Written
+          // only when true, like rest.
+          if (h.half) 'half': true,
           // How the Grid draws the habit: its category glyph, in its own
           // colour when one was picked (IslamicHabitTemplate.iconColorHex,
           // six hex digits) and the category's otherwise. The widget rows

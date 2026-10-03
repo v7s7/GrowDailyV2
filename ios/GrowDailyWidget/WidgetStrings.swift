@@ -66,8 +66,9 @@ struct WidgetCopy {
         default: return "\(daysWord(n)) متتابع"
         }
     }
-    func doneToday(_ done: Int, _ total: Int) -> String {
-        pick("\(done) من \(total) اليوم", "\(done)/\(total) done today")
+    func doneToday(_ done: Double, _ total: Int) -> String {
+        let n = halfCountText(done)
+        return pick("\(n) من \(total) اليوم", "\(n)/\(total) done today")
     }
     /// The seven weekday initials for the month grid, Saturday first,
     /// because that is the column order every calendar in this app uses.
@@ -103,8 +104,9 @@ struct WidgetCopy {
     /// through the day («باقي 5، الوقت يمشي» after six, «خلّصها اليوم» after
     /// eight); Aziz, 2026-09-24: "no need for the time is running sentence,
     /// make it 4 of 5 ... make it clean".
-    func todayCount(_ done: Int, _ total: Int) -> String {
-        pick("\(done) من \(total)", "\(done)/\(total)")
+    func todayCount(_ done: Double, _ total: Int) -> String {
+        let n = halfCountText(done)
+        return pick("\(n) من \(total)", "\(n)/\(total)")
     }
     /// The medium face's words once nothing is left.
     var allDoneToday: String { pick("خلّصت اليوم كله", "All done today") }

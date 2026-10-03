@@ -1,7 +1,8 @@
 // Doum turning round into a language's look (Aziz, 2026-10-01, the canvas
-// "Doum picks the language"): the sign-in screen's pill and the Settings
-// sheet's cards hand him the tap, and the language changes while his back
-// is turned. What has to hold:
+// "Doum picks the language"). Since 2026-10-02 the sign-in screen and the
+// Settings sheet pick the language with two squares, one Doum in each look
+// (doum_language_squares_test.dart), and the turn is what the first open's
+// landed Doum does to dress; the turn's own rules still hold:
 //
 //   1. The language changes at the swap, not at the tap, and the screen's
 //      words are out for exactly that moment (DoumLookController.wordsVisible).
@@ -182,7 +183,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400)); // 1080: landed
     await tester.pump();
     expect(frame(tester), isNull);
-    expect(restPose(tester), SproutPose.langSuitGreet);
+    // The suit greets with his wave, never the bow (Aziz, 2026-10-02).
+    expect(restPose(tester), SproutPose.langSuitFront);
     expect(turned, 1);
     expect(find.text('Hi'), findsOneWidget);
 
@@ -240,7 +242,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump();
     expect(language(tester), 'en');
-    expect(restPose(tester), SproutPose.langSuitGreet);
+    expect(restPose(tester), SproutPose.langSuitFront);
     await tester.pump(const Duration(seconds: 12));
   });
 

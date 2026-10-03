@@ -1360,11 +1360,16 @@ class _MyPlanCard extends ConsumerWidget {
     final s = S.of(context);
     final today = DateTime.now().effectiveDay.toDateKey();
     final collapsed = ref.watch(roomPlanCollapsedProvider);
-    final todayCount = mine.dailyDoneCount[today] ?? 0;
+    // What today is worth so far and what it asks, a جزئي at half and a
+    // shared quota half asking half a habit (doneWeightFor,
+    // scheduledWeightFor): the room's own score for the day. It counted
+    // finished habits only, so a day holding only a half read «لم يُنجز بعد
+    // اليوم» (Aziz, 2026-10-03: "make all 0.5 counts").
+    final todayWorth = mine.doneWeightFor(today);
     // Not linkedHabitIds.length - a habit with its own weekday schedule
     // that isn't scheduled today shouldn't inflate "how many were due"
     // (see RoomParticipant.scheduledCountFor's doc comment).
-    final totalCount = mine.scheduledCountFor(today);
+    final totalWorth = mine.scheduledWeightFor(today);
     // Every counted habit paused, so the room is not asking for anything
     // today (see RoomParticipant.standDownDays). Taken before done/partial
     // because both of those are computed from counts a stand-down day
@@ -1380,7 +1385,7 @@ class _MyPlanCard extends ConsumerWidget {
     final stoodDownToday = !ended && mine.isStoodDownOn(today);
     final doneToday = !ended && mine.isFullyDone(today);
     final partialToday =
-        !ended && todayCount > 0 && !doneToday && !stoodDownToday;
+        !ended && todayWorth > 0 && !doneToday && !stoodDownToday;
     final names =
         mine.linkedHabitNames.where((n) => n.trim().isNotEmpty).toList();
     // A linked habit id that's no longer on this account's own board means
@@ -1481,7 +1486,10 @@ class _MyPlanCard extends ConsumerWidget {
                           : doneToday
                               ? s.roomMarkedToday
                               : partialToday
-                                  ? s.roomPartialToday(todayCount, totalCount)
+                                  ? s.roomPartialToday(
+                                      roomScoreText(todayWorth),
+                                      roomScoreText(totalWorth),
+                                    )
                                   : s.roomNotDoneToday,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

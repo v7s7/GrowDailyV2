@@ -130,6 +130,30 @@ void main() {
     return (provider.imageProvider as AssetImage).assetName;
   }
 
+  testWidgets(
+      'on a welcome-back day he walks in instead of popping up '
+      '(the welcome card has no Doum of its own)', (tester) async {
+    await tester.pumpWidget(app(DayCardSprout(
+      greens: 0,
+      owed: 5,
+      ratio: 0,
+      perfectDay: false,
+      height: 90,
+      walkIn: true,
+      clock: () => clockAt,
+    )));
+    expect(tester.widget<Sprout>(find.byType(Sprout)).entrance,
+        SproutEntrance.walkIn);
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(app(card(greens: 0)));
+    expect(tester.widget<Sprout>(find.byType(Sprout)).entrance,
+        SproutEntrance.pop,
+        reason: 'every other day, as before');
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('greets once per app launch, then the bubble goes',
       (tester) async {
     DayCardSprout.greetedThisLaunch = false;
@@ -168,7 +192,7 @@ void main() {
 
     await tester.pumpWidget(app(card(greens: 3, hour: 8)));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(find.text(ar.sproutProgress(3, 5)), findsOneWidget);
+    expect(find.text(ar.sproutProgress('3', 5)), findsOneWidget);
     expect(find.text(ar.sproutMorning), findsNothing);
   });
 
@@ -255,7 +279,7 @@ void main() {
     DayCardSprout.greetedThisLaunch = false;
     await tester.pumpWidget(app(card(greens: 3)));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(said(tester), ar.sproutProgressWe(3, 5));
+    expect(said(tester), ar.sproutProgressWe('3', 5));
     await tester.pump(const Duration(seconds: 4));
 
     for (var greens = 4; greens <= 4; greens++) {
@@ -285,7 +309,7 @@ void main() {
 
   testWidgets('the numbers can never swap places: «خلصت 5 من 10» lays out '
       'right to left in the order it is written', (tester) async {
-    final text = ar.sproutProgress(5, 10);
+    final text = ar.sproutProgress('5', 10);
     await tester.pumpWidget(MaterialApp(
       locale: const Locale('ar'),
       supportedLocales: const [Locale('en'), Locale('ar')],

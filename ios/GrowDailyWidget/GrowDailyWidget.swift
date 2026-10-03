@@ -98,7 +98,8 @@ struct GrowDailyEntry: TimelineEntry {
     /// WidgetStrings.swift for why it is carried rather than read per view.
     var copy: WidgetCopy = WidgetCopy(isAr: false)
     let streak: Int
-    let completedToday: Int
+    /// What today's rows are worth, a half at 0.5 (habitDayCounts).
+    let completedToday: Double
     let totalToday: Int
     let habits: [TodayHabit]
     /// False when no list in the store is this entry's day's (see
@@ -532,16 +533,16 @@ struct FlameIcon: View {
 /// wrong place on the other — cut rather than fixed with a GeometryReader
 /// this file has no way to check on-device before shipping.
 struct ProgressRing: View {
-    let completed: Int
+    let completed: Double
     let total: Int
     /// The count at the centre. 11pt suits the small face's 34pt ring; the
     /// medium's 54pt ring reads better with a larger figure.
     var fontSize: CGFloat = 11
     var lineWidth: CGFloat = 4
-    var progress: Double { total <= 0 ? 0 : min(1, Double(completed) / Double(total)) }
+    var progress: Double { total <= 0 ? 0 : min(1, completed / Double(total)) }
     private var isUrgent: Bool {
         let hour = Calendar.current.component(.hour, from: Date())
-        return hour >= 18 && total > 0 && completed < total
+        return hour >= 18 && total > 0 && completed < Double(total)
     }
     private var ringColor: Color { isUrgent ? .parchmentWarn : .themeGreen }
 
@@ -555,7 +556,7 @@ struct ProgressRing: View {
                 .stroke(ringColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeOut(duration: 0.6), value: progress)
-            Text(verbatim: "\(completed)/\(total)")
+            Text(verbatim: "\(halfCountText(completed))/\(total)")
                 .font(.system(size: fontSize, weight: .bold))
                 .foregroundColor(.parchmentInk)
                 .minimumScaleFactor(0.7)
@@ -789,14 +790,14 @@ struct StreakBadge: View {
 /// fraction without the ring's space. Green, and amber in the evening while
 /// something is still open, the same rule ProgressRing follows.
 struct DayProgressBar: View {
-    let completed: Int
+    let completed: Double
     let total: Int
     var height: CGFloat = 6
 
-    private var progress: Double { total <= 0 ? 0 : min(1, Double(completed) / Double(total)) }
+    private var progress: Double { total <= 0 ? 0 : min(1, completed / Double(total)) }
     private var isUrgent: Bool {
         let hour = Calendar.current.component(.hour, from: Date())
-        return hour >= 18 && total > 0 && completed < total
+        return hour >= 18 && total > 0 && completed < Double(total)
     }
 
     var body: some View {
@@ -831,7 +832,7 @@ struct HabitStatusLine: View {
                      : entry.copy.noHabitsToday)
                     .font(.system(size: size, weight: .heavy))
                     .foregroundColor(entry.totalToday <= 0 ? .parchmentSecondary
-                                     : entry.completedToday >= entry.totalToday
+                                     : entry.completedToday >= Double(entry.totalToday)
                                      ? .themeGreen : .parchmentInk)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)

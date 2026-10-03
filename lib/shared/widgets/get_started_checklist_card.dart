@@ -8,6 +8,7 @@ import '../../core/providers/app_guide_provider.dart';
 import '../../core/providers/first_run_offer_provider.dart';
 import '../../core/providers/get_started_checklist_provider.dart';
 import '../../core/theme/game_theme.dart';
+import '../../core/utils/reduced_motion.dart';
 import '../../features/habits/notifiers/custom_habits_notifier.dart'
     show habitListProvider, habitsStillLoadingProvider;
 import '../../features/matrix/notifiers/matrix_notifier.dart';
@@ -111,8 +112,17 @@ class GetStartedChecklistCard extends ConsumerWidget {
                     ),
                     // Quiet, tabular, and honest about how much is left —
                     // an unbounded checklist reads as a chore.
+                    //
+                    // The highlighted row's own number, not done + 1. Steps
+                    // can be done out of order (a task before a habit, Rooms
+                    // visited first), and done + 1 then read «الخطوة 2 من 4»
+                    // beside step 1 picked out as next. The bar below still
+                    // shows how much is done.
                     Text(
-                      s.guideStepCount(progress.done + 1, progress.total),
+                      s.guideStepCount(
+                        steps.indexWhere((st) => st.lesson == next.lesson) + 1,
+                        progress.total,
+                      ),
                       style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
@@ -170,6 +180,10 @@ class GetStartedChecklistCard extends ConsumerWidget {
                   // between two frames, which is the same as not moving it:
                   // the one moment the bar exists for is the moment it grows,
                   // and it was the only moment it never showed.
+                  //
+                  // Reduce Motion sets it outright. [prefersReducedMotion]
+                  // and not MediaQuery, which carries only Android's flag,
+                  // so iOS's switch went unheard and the bar still grew.
                   child: TweenAnimationBuilder<double>(
                     tween: Tween<double>(
                       begin: 0,
@@ -177,7 +191,7 @@ class GetStartedChecklistCard extends ConsumerWidget {
                           ? 0
                           : progress.done / progress.total,
                     ),
-                    duration: MediaQuery.disableAnimationsOf(context)
+                    duration: prefersReducedMotion(context)
                         ? Duration.zero
                         : GameMotion.slow,
                     curve: Curves.easeOutCubic,
@@ -240,6 +254,11 @@ class GetStartedChecklistCard extends ConsumerWidget {
     // and the thing on screen that answers it. Three breaths draw that line
     // and then get out of the way; a permanent pulse would be trained away
     // inside two sessions and take the offer with it.
+    //
+    // Since 2026-10-02 the Grid leaves this card out while the board is empty
+    // (see grid_screen.dart), so on the Grid the breaths come when the card
+    // first arrives, with the first habit, still in the same launch. That is
+    // the moment it has something new to say, so the line still holds.
     return _DeferredOfferPulse(child: card);
   }
 }
@@ -413,9 +432,11 @@ class _DeferredOfferPulseState extends ConsumerState<_DeferredOfferPulse>
     // Read once, here, rather than in build: the controller's whole existence
     // is decided at this point, so a mid-flight toggle cannot leave a half
     // configured animation. Reduce Motion means no breathing at all, not a
-    // faster one: the whole point of the effect is movement.
+    // faster one: the whole point of the effect is movement. Asked through
+    // [prefersReducedMotion], since MediaQuery.disableAnimationsOf is only
+    // Android's animator flag and stays false under iOS's Reduce Motion.
     if (_c != null && !_c!.isAnimating && _c!.value == 0) {
-      if (MediaQuery.disableAnimationsOf(context)) {
+      if (prefersReducedMotion(context)) {
         _c!.dispose();
         _c = null;
         _scale = null;

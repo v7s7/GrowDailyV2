@@ -18,6 +18,7 @@ import '../../habits/catalog/islamic_habit_catalog.dart'
 import '../../habits/models/habit_day_demand.dart'
     show DayDemand, movedDemandOn;
 import '../../habits/models/habit_model.dart' show GoalType;
+import '../../habits/models/weekly_quota_plan.dart' show sessionsText;
 import '../../grid/notifiers/weekly_grid_notifier.dart' show startOfGridWeek;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
@@ -29,7 +30,7 @@ import '../../grid/screens/monthly_heatmap_screen.dart'
         HeatmapInputs,
         HeatmapMonthSection,
         heatLevel,
-        heatmapScheduledOn,
+        heatmapDayScore,
         showHeatmapDayDetail,
         watchHeatmapInputs;
 import '../../premium/screens/premium_screen.dart'
@@ -710,11 +711,14 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
         !d.isAfter(window.end) && !d.isAfter(lastDay);
         d = DateTime(d.year, d.month, d.day + 1)) {
       final key = d.toDateKey();
-      levels[key] = heatLevel(
-        inputs.counts[key] ?? 0,
-        heatmapScheduledOn(inputs.habits, d, inputs.isGreen,
-            markOn: inputs.markOn),
+      final score = heatmapDayScore(
+        inputs.habits,
+        d,
+        inputs.isGreen,
+        markOn: inputs.markOn,
+        greens: inputs.counts[key] ?? 0,
       );
+      levels[key] = heatLevel(score.credit, score.owed);
     }
     return ShareCardData(
       scope: scope,
@@ -915,13 +919,8 @@ class _PeriodReportSectionState extends ConsumerState<PeriodReportSection> {
     // header shows the first of a tie; the month calendar marks them all.
     final extremes = dayExtremes(
       days: visibleDays,
-      doneOn: (day) => inputs.counts[day.toDateKey()] ?? 0,
-      owedOn: (day) => heatmapScheduledOn(
-        inputs.habits,
-        day,
-        inputs.isGreen,
-        markOn: inputs.markOn,
-      ),
+      doneOn: (day) => _dayScore(inputs, day).credit,
+      owedOn: (day) => _dayScore(inputs, day).owed,
       settledOn: (day) => day.isSettledAt(
         now,
         answered: inputs.failedOpenDays.contains(day.toDateKey()),
@@ -1225,13 +1224,8 @@ void tapDay(DateTime day) => _showDay(
               : _MonthExtremes(
                   best: extremes.best,
                   weakest: extremes.weakest,
-                  doneOn: (day) => inputs.counts[day.toDateKey()] ?? 0,
-                  owedOn: (day) => heatmapScheduledOn(
-                    inputs.habits,
-                    day,
-                    inputs.isGreen,
-                    markOn: inputs.markOn,
-                  ),
+                  doneOn: (day) => _dayScore(inputs, day).credit,
+                  owedOn: (day) => _dayScore(inputs, day).owed,
                   locale: locale,
                   onTap: (day) => showHeatmapDayDetail(context, day),
                 ),
@@ -1452,13 +1446,24 @@ void tapDay(DateTime day) => _showDay(
   }
 }
 
+/// A day of [inputs] graded the map's way: what it earned, a جزئي at half,
+/// and what it owed (heatmapDayScore).
+({double credit, int owed}) _dayScore(HeatmapInputs inputs, DateTime day) =>
+    heatmapDayScore(
+      inputs.habits,
+      day,
+      inputs.isGreen,
+      markOn: inputs.markOn,
+      greens: inputs.counts[day.toDateKey()] ?? 0,
+    );
+
 /// The two lines under the «شهر» calendar naming the days its star and ring
 /// mark (see dayExtremes), each with how full that day was, «8 من 8». A tap
 /// opens the day, as tapping its square does; a tie opens the first of it.
 class _MonthExtremes extends StatelessWidget {
   final List<DateTime> best;
   final List<DateTime> weakest;
-  final int Function(DateTime day) doneOn;
+  final double Function(DateTime day) doneOn;
   final int Function(DateTime day) owedOn;
   final String locale;
   final void Function(DateTime day) onTap;
@@ -1540,7 +1545,10 @@ class _MonthExtremes extends StatelessWidget {
               ),
             ),
             Text(
-              s.progressScoreFraction(doneOn(first), owedOn(first)),
+              s.progressScoreFraction(
+                sessionsText(doneOn(first)),
+                owedOn(first),
+              ),
               style: TextStyle(fontSize: 12, color: gp.textSec),
             ),
             // Mirrors itself in Arabic (matchTextDirection), like the

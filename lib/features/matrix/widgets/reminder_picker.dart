@@ -477,6 +477,61 @@ class _ReminderTimeSheetState extends State<_ReminderTimeSheet> {
   }
 }
 
+/// «مع وقت صلاة», the prayer half of an unset reminder ([ReminderPicker.
+/// onPickPrayer]): the same box as the clock half beside it (a
+/// [ReminderRow] with no value), with a mosque where the bell is.
+class _ReminderWayButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ReminderWayButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final gp = context.gp;
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        HapticFeedback.selectionClick();
+        onTap();
+      },
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: gp.surfaceHL,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: gp.border, width: 0.5),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: gp.textTert),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: gp.textTert,
+                ),
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, size: 18, color: gp.textTert),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Display + tap target for a task's reminder — "Set a reminder" when
 /// unset, or the formatted moment plus a clear (×) button once one's
 /// picked. Purely a dumb display widget driven by callbacks, same shape as
@@ -493,6 +548,12 @@ class ReminderRow extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onClear;
 
+  /// The prayer the time was picked from, in words («بعد العصر بـ15
+  /// دقيقة»), or null for a time picked on the clock. With it the row leads
+  /// with the prayer, under a mosque, and the moment drops to a second line:
+  /// the prayer is what was chosen, the clock time is where it lands.
+  final String? prayerLabel;
+
   const ReminderRow({
     super.key,
     required this.value,
@@ -500,6 +561,7 @@ class ReminderRow extends StatelessWidget {
     required this.isAr,
     required this.onTap,
     required this.onClear,
+    this.prayerLabel,
   });
 
   @override
@@ -507,6 +569,7 @@ class ReminderRow extends StatelessWidget {
     final gp = context.gp;
     final s = S.of(context);
     final set = value != null;
+    final prayer = set ? prayerLabel : null;
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: () {
@@ -524,22 +587,48 @@ class ReminderRow extends StatelessWidget {
         child: Row(
           children: [
             Icon(
-              Icons.notifications_outlined,
+              prayer != null
+                  ? Icons.mosque_rounded
+                  : Icons.notifications_outlined,
               size: 18,
               color: set ? color : gp.textTert,
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                set
-                    ? formatReminderMoment(value!, isAr)
-                    : s.matrixReminderLabel,
-                style: TextStyle(
-                  fontSize: 13.5,
-                  fontWeight: set ? FontWeight.w700 : FontWeight.w600,
-                  color: set ? gp.textPrimary : gp.textTert,
-                ),
-              ),
+              child: prayer != null
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          prayer,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: gp.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          formatReminderMoment(value!, isAr),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: gp.textSec,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      set
+                          ? formatReminderMoment(value!, isAr)
+                          : s.matrixReminderLabel,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: set ? FontWeight.w700 : FontWeight.w600,
+                        color: set ? gp.textPrimary : gp.textTert,
+                      ),
+                    ),
             ),
             if (set)
               GestureDetector(
@@ -610,6 +699,18 @@ class ReminderPicker extends StatefulWidget {
   final void Function(int signedMinutes) onToggleOffset;
   final VoidCallback onLocked;
 
+  /// The prayer way in, beside the clock one (Aziz, 2026-10-03: a task
+  /// reminder by prayer time, "same as habit reminder"). With it the unset
+  /// row is two: «تعيين تذكير» for a time on the clock, «مع وقت صلاة» for a
+  /// prayer and an amount before or after it, the two ways Add Habit's
+  /// reminder step offers. Null keeps the one row.
+  final VoidCallback? onPickPrayer;
+
+  /// The set reminder's prayer in words, when it was picked from one; see
+  /// [ReminderRow.prayerLabel]. A tap on the row then reopens the prayer
+  /// sheet, not the wheel.
+  final String? prayerLabel;
+
   /// Whether this task's reminders ring as an alarm (MatrixTask.alarm), and
   /// what the device can offer (alarmChoiceProvider, read by the sheet). On
   /// an iPhone older than iOS 26 the choice is drawn, with the alarm cell
@@ -637,6 +738,8 @@ class ReminderPicker extends StatefulWidget {
     this.alarm = false,
     this.alarmChoice = AlarmChoice.hidden,
     this.onAlarmChanged = _ignoreAlarmChange,
+    this.onPickPrayer,
+    this.prayerLabel,
   });
 
   static void _ignoreAlarmChange(bool _) {}
@@ -838,15 +941,33 @@ class _ReminderPickerState extends State<ReminderPicker> {
     final s = S.of(context);
     final gp = context.gp;
     final anchor = widget.anchorAt;
+    final onPickPrayer = widget.onPickPrayer;
     if (anchor == null) {
-      return ReminderRow(
+      final clock = ReminderRow(
         value: null,
         color: widget.color,
         isAr: widget.isAr,
         onTap: widget.onPickAnchor,
         onClear: () {},
       );
+      if (onPickPrayer == null) return clock;
+      // Two halves of one row, the clock first (the reading start), so the
+      // common case keeps its place and the prayer sits right beside it.
+      return Row(
+        children: [
+          Expanded(child: clock),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _ReminderWayButton(
+              icon: Icons.mosque_rounded,
+              label: s.reminderWithPrayer,
+              onTap: onPickPrayer,
+            ),
+          ),
+        ],
+      );
     }
+    final prayerLabel = widget.prayerLabel;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -855,7 +976,10 @@ class _ReminderPickerState extends State<ReminderPicker> {
           value: anchor,
           color: widget.color,
           isAr: widget.isAr,
-          onTap: widget.onPickAnchor,
+          prayerLabel: prayerLabel,
+          onTap: prayerLabel != null && onPickPrayer != null
+              ? onPickPrayer
+              : widget.onPickAnchor,
           onClear: widget.onClear,
         ),
         const SizedBox(height: 14),

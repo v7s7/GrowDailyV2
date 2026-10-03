@@ -217,13 +217,17 @@ void main() {
               reason: 'target $target, $week, day $i',
             );
           }
-          // The places are exactly min(target, sessions), wholes first.
-          final sessions = week.whole.length + week.half.length;
-          expect(places.length, target < sessions ? target : sessions);
+          // Wholes first, up to the target; then halves, one or two to each
+          // place the wholes left.
           final wholePlaces = places.where(week.whole.contains).length;
           expect(wholePlaces,
               target < week.whole.length ? target : week.whole.length);
-          // A half keeps a place only when the wholes leave one over.
+          final open = target - wholePlaces;
+          final halfPlaces = places.where(week.half.contains).length;
+          expect(halfPlaces,
+              week.half.length < 2 * open ? week.half.length : 2 * open,
+              reason: 'target $target, $week');
+          // A half drops out only when the wholes fill the week.
           if (week.whole.length >= target) {
             expect(places.where(week.half.contains), isEmpty);
           }
@@ -442,24 +446,183 @@ void main() {
       );
     });
 
-    test('three whole and two halves: one half keeps the last place, 3.5', () {
+    test(
+        "Aziz's 26 September: three whole and two halves add up to 4 of 4, "
+        'and neither half day is a rest', () {
+      // Sat W, Sun W, Mon -, Tue ½, Wed ½, Thu W, Fri -. It read 3.5, with
+      // Wednesday graded as a rest in every room whose week held the
+      // Saturday: "make halves add up, 3 + 0.5 + 0.5 = 4" (2026-10-03).
+      const whole = {0, 1, 5};
+      const half = {3, 4};
       final demand = weeklyQuotaDemand(
         dayCount: 7,
-        doneDays: const {2, 3, 4},
-        halfDays: const {0, 1},
+        doneDays: whole,
+        halfDays: half,
         target: 4,
       );
-      expect(demand[0], DayDemand.half, reason: 'the earlier half stays');
-      expect(demand[1], DayDemand.earned, reason: 'no place left for it');
+      expect(demand, [
+        DayDemand.done,
+        DayDemand.done,
+        DayDemand.spare,
+        DayDemand.half,
+        DayDemand.half,
+        DayDemand.done,
+        DayDemand.earned,
+      ]);
       expect(
         quotaWeekCredit(
+            dayCount: 7, doneDays: whole, halfDays: half, target: 4),
+        4.0,
+      );
+      // The two halves share the place the wholes left, half a day each.
+      expect(
+        quotaWeekSharedHalves(
+            dayCount: 7, doneDays: whole, halfDays: half, target: 4),
+        {3, 4},
+      );
+    });
+
+    test('a half drops out only once whole sessions fill the week', () {
+      // Four whole sessions on a 4x week: the halves have nothing to give.
+      expect(
+        quotaWeekPlaces(
           dayCount: 7,
-          doneDays: const {2, 3, 4},
+          doneDays: const {2, 3, 4, 5},
           halfDays: const {0, 1},
           target: 4,
         ),
-        3.5,
+        {2, 3, 4, 5},
       );
+      // Three whole and three halves: two halves fill the last place, the
+      // third has no room left.
+      expect(
+        quotaWeekPlaces(
+          dayCount: 7,
+          doneDays: const {0, 1, 2},
+          halfDays: const {3, 4, 5},
+          target: 4,
+        ),
+        {0, 1, 2, 3, 4},
+      );
+      expect(
+        quotaWeekCredit(
+          dayCount: 7,
+          doneDays: const {0, 1, 2},
+          halfDays: const {3, 4, 5},
+          target: 4,
+        ),
+        4.0,
+      );
+    });
+
+    test(
+        'every week is exact: what it asks is the target, what it gives is '
+        'its worth', () {
+      // The property "perfect" means. For every week of empty, whole and half
+      // days and every target: the places ask a day each (half a day for a
+      // shared half), the owed empty days ask a day each, and together that
+      // is the target; the places give a day per whole and half a day per
+      // half, which is whole sessions plus the halves, capped at the target.
+      // So a week's share of any rate is its worth over its target.
+      for (var target = 1; target <= 7; target++) {
+        for (final week in _allMixedWeeks(7)) {
+          final args = (whole: week.whole, half: week.half);
+          final demand = weeklyQuotaDemand(
+            dayCount: 7,
+            doneDays: args.whole,
+            halfDays: args.half,
+            target: target,
+          );
+          final places = quotaWeekPlaces(
+            dayCount: 7,
+            doneDays: args.whole,
+            halfDays: args.half,
+            target: target,
+          );
+          final shared = quotaWeekSharedHalves(
+            dayCount: 7,
+            doneDays: args.whole,
+            halfDays: args.half,
+            target: target,
+          );
+          expect(places.containsAll(shared), isTrue);
+          expect(shared.every(args.half.contains), isTrue);
+          final owed =
+              [for (var i = 0; i < 7; i++) if (demand[i] == DayDemand.owed) i];
+          final asked = places.fold<double>(
+                0,
+                (sum, i) => sum + (shared.contains(i) ? 0.5 : 1.0),
+              ) +
+              owed.length;
+          final reason = 'target $target, $week';
+          expect(asked, target.toDouble(), reason: reason);
+          final worth = (args.whole.length < target
+                  ? args.whole.length
+                  : target) +
+              0.5 * args.half.length;
+          final capped = worth < target ? worth : target.toDouble();
+          expect(
+            quotaWeekCredit(
+              dayCount: 7,
+              doneDays: args.whole,
+              halfDays: args.half,
+              target: target,
+            ),
+            capped,
+            reason: reason,
+          );
+          // No half day reads as a rest while the week still needs it.
+          for (final i in args.half) {
+            if (demand[i] == DayDemand.earned) {
+              final wholes = args.whole.length;
+              final earlier = args.half.where((h) => h < i).length;
+              expect(
+                wholes >= target || wholes + 0.5 * earlier >= target,
+                isTrue,
+                reason: '$reason: half on $i retired while the week was short',
+              );
+            }
+          }
+        }
+      }
+    });
+
+    test('a later session only ever makes an earlier half ask less of its day',
+        () {
+      // Lone (asks a whole day) -> shared (asks half) -> retired (the week
+      // was full without it). Never the other way, so the older a day is,
+      // the less anything after it can take from it.
+      int standing(Set<int> whole, Set<int> half, int day, int target) {
+        final places = quotaWeekPlaces(
+            dayCount: 7, doneDays: whole, halfDays: half, target: target);
+        if (!places.contains(day)) return 2;
+        final shared = quotaWeekSharedHalves(
+            dayCount: 7, doneDays: whole, halfDays: half, target: target);
+        return shared.contains(day) ? 1 : 0;
+      }
+
+      for (var target = 1; target <= 7; target++) {
+        for (final week in _allMixedWeeks(7)) {
+          for (final h in week.half) {
+            final before = standing(week.whole, week.half, h, target);
+            for (var later = h + 1; later < 7; later++) {
+              if (week.whole.contains(later) || week.half.contains(later)) {
+                continue;
+              }
+              expect(
+                standing(week.whole, {...week.half, later}, h, target),
+                greaterThanOrEqualTo(before),
+                reason: 'target $target, $week: half on $later moved $h back',
+              );
+              expect(
+                standing({...week.whole, later}, week.half, h, target),
+                greaterThanOrEqualTo(before),
+                reason: 'target $target, $week: whole on $later moved $h back',
+              );
+            }
+          }
+        }
+      }
     });
   });
 }

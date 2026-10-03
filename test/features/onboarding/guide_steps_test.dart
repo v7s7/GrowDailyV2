@@ -13,6 +13,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:grow_daily_v2/core/providers/app_guide_provider.dart';
+import 'package:grow_daily_v2/features/dashboard/notifiers/dashboard_notifier.dart';
+import 'package:grow_daily_v2/features/onboarding/notifiers/guide_steps_provider.dart';
 
 void main() {
   group('the guide covers the app in the order someone meets it', () {
@@ -72,6 +74,46 @@ void main() {
             isNot(appGuideLessonTitle(lesson, false)),
             reason: '$lesson has the same title in both languages');
       }
+    });
+  });
+
+  group('«لوّن مربّع اليوم» is done by a habit mark, never by XP alone', () {
+    final loaded = DashboardState.initial().copyWith(isLoading: false);
+
+    test('a fresh account has no mark', () {
+      expect(habitMarkCount(loaded), 0);
+    });
+
+    test('XP from a task, the tasbih or a room is not a mark', () {
+      // The old test was cumulativeXp > 0, and all three of these pay XP
+      // without a square ever being touched.
+      expect(habitMarkCount(loaded.copyWith(cumulativeXp: 40, gold: 8)), 0);
+    });
+
+    test('every way a square can be coloured counts', () {
+      // A finished habit-day.
+      expect(habitMarkCount(loaded.copyWith(totalCompletions: 1)), 1);
+      // A past day's square, which only moves the green-square total.
+      expect(habitMarkCount(loaded.copyWith(totalGreenSquares: 1)), 1);
+      // The first tap on a habit counted several times a day: today's count
+      // moves, the finished-day totals do not until the last tap.
+      expect(habitMarkCount(loaded.copyWith(completions: {'h': 1})), 1);
+      // Yesterday's square while it is still open.
+      expect(habitMarkCount(loaded.copyWith(graceCompletions: {'h': 2})), 2);
+    });
+
+    test('the lesson\'s own listener leaves yesterday out', () {
+      // Yesterday's counts arrive after a load reports it has finished, so
+      // counting them would let a reload before 10:00 pass for a tap.
+      final withYesterday = loaded.copyWith(graceCompletions: {'h': 2});
+      expect(habitMarkCount(withYesterday, withYesterday: false), 0);
+      expect(
+        habitMarkCount(
+          withYesterday.copyWith(completions: {'h': 1}),
+          withYesterday: false,
+        ),
+        1,
+      );
     });
   });
 }

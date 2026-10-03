@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -46,7 +48,34 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
   @override
   void dispose() {
     widget.focusPlan?.removeListener(_focusPlan);
+    _planActionTimer?.cancel();
     super.dispose();
+  }
+
+  /// True from a tap on a plan's «ابدأ الخطة» / «إيقاف الخطة» until a moment
+  /// after it has done its work, when the button ignores taps.
+  ///
+  /// It is one button that turns into the opposite action in the same frame
+  /// the first one lands. So a double tap on «ابدأ الخطة» started the plan
+  /// and then stopped it, and stopping it removes every habit of the plan
+  /// that was never once completed, which for a plan started a moment ago is
+  /// all of them. A double tap on «إيقاف الخطة» stopped it and started it
+  /// again. A deliberate change of mind takes longer than the hold.
+  bool _planActionHeld = false;
+  Timer? _planActionTimer;
+
+  Future<void> _heldPlanAction(Future<void> Function() action) async {
+    if (_planActionHeld) return;
+    _planActionHeld = true;
+    _planActionTimer?.cancel();
+    try {
+      await action();
+    } finally {
+      _planActionTimer = Timer(
+        const Duration(milliseconds: 600),
+        () => _planActionHeld = false,
+      );
+    }
   }
 
   /// Opens the plan [PlanPickerSheet.focusPlan] names, fully checked like
@@ -299,7 +328,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
               }
             });
           },
-          onActivate: () async {
+          onActivate: () => _heldPlanAction(() async {
             if (isActive) {
               // Every id this plan currently has active - all of them are
               // about to be deactivated (see ActiveCatalogNotifier.
@@ -344,7 +373,7 @@ class _PlanPickerSheetState extends ConsumerState<PlanPickerSheet> {
                   _stagedHabitIds,
                   everCompleted: _everCompletedMap(toDeactivate),
                 );
-          },
+          }),
           // Lets someone cherry-pick just some of a plan's habits instead of
           // committing the whole thing - purely local until Start/"Add
           // Selected" is actually pressed (see onActivate above), so there's

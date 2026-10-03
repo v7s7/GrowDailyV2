@@ -20,6 +20,7 @@ import 'package:grow_daily_v2/features/grid/models/square_state.dart';
 import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/features/mascot/sprout.dart';
 
 import '../../helpers/landing_harness.dart';
 
@@ -135,12 +136,14 @@ void main() {
             isUnmarkedAt: (i) => !done.contains(i),
             now: thursdayMorning,
           );
+      // In what the week is WORTH, capped at its target: met, a session here
+      // adds nothing; short, it adds one.
       final met = quota({0, 2, 3});
-      expect((met.reason, met.weekAfter, met.weekTarget),
-          (RestDayReason.quotaMet, 4, 3));
+      expect((met.reason, met.weekNow, met.weekAfter, met.weekTarget),
+          (RestDayReason.quotaMet, 3.0, 3.0, 3));
       final short = quota({2});
-      expect((short.reason, short.weekAfter, short.weekTarget),
-          (RestDayReason.notNeeded, 2, 3));
+      expect((short.reason, short.weekNow, short.weekAfter, short.weekTarget),
+          (RestDayReason.notNeeded, 1.0, 2.0, 3));
       expect(short.covers, isNull);
 
       // A جزئي is one of the week's sessions (Aziz, 2026-09-26: "0.5 is a
@@ -155,13 +158,14 @@ void main() {
         isHalfAt: {2}.contains,
         now: thursdayMorning,
       );
-      expect((withHalf.reason, withHalf.weekAfter, withHalf.weekTarget),
-          (RestDayReason.notNeeded, 3, 3));
+      expect((withHalf.reason, withHalf.weekNow, withHalf.weekAfter),
+          (RestDayReason.notNeeded, 1.5, 2.5));
       expect(withHalf.covers, isNull, reason: 'a place was still free');
 
-      // Its places full, one of them a half: a whole session here takes the
-      // latest half's place ("unless it's overwritten with a full day"), so
-      // the pop-up names that day, and the target is not called met.
+      // Its places full, two of them halves: halves add up (Aziz,
+      // 2026-10-03), so a whole session here takes a place and the two
+      // halves share the last one. Nothing is pushed out, and the week
+      // becomes 3 of 3.
       final fullOfHalves = restDayTapFor(
         habit: threeTimes,
         days: week,
@@ -172,7 +176,37 @@ void main() {
         now: thursdayMorning,
       );
       expect(fullOfHalves.reason, RestDayReason.notNeeded);
-      expect(fullOfHalves.covers, week[3]);
+      expect(fullOfHalves.covers, isNull);
+      expect((fullOfHalves.weekNow, fullOfHalves.weekAfter), (2.0, 3.0));
+
+      // Halves filling it to its target already: the week is met, and a
+      // session here is an extra that covers nothing.
+      final metByHalves = restDayTapFor(
+        habit: threeTimes,
+        days: week,
+        index: 1,
+        isGreenAt: {0}.contains,
+        isUnmarkedAt: (i) => !{0, 2, 3, 4, 5}.contains(i),
+        isHalfAt: {2, 3, 4, 5}.contains,
+        now: thursdayMorning,
+      );
+      expect((metByHalves.reason, metByHalves.covers),
+          (RestDayReason.quotaMet, null));
+      expect((metByHalves.weekNow, metByHalves.weekAfter), (3.0, 3.0));
+
+      // Wholes about to fill the week: a whole session here leaves the
+      // halves no room, so the pop-up names the half it takes the place of.
+      final pushesOut = restDayTapFor(
+        habit: threeTimes,
+        days: week,
+        index: 1,
+        isGreenAt: {0, 2}.contains,
+        isUnmarkedAt: (i) => !{0, 2, 3}.contains(i),
+        isHalfAt: {3}.contains,
+        now: thursdayMorning,
+      );
+      expect(pushesOut.covers, week[3]);
+      expect((pushesOut.weekNow, pushesOut.weekAfter), (2.5, 3.0));
 
       // Met in whole sessions: the halves have no place, and are not counted.
       final metInWhole = restDayTapFor(
@@ -185,7 +219,7 @@ void main() {
         now: thursdayMorning,
       );
       expect((metInWhole.reason, metInWhole.weekAfter, metInWhole.covers),
-          (RestDayReason.quotaMet, 4, null));
+          (RestDayReason.quotaMet, 3.0, null));
     });
   });
 
@@ -246,6 +280,13 @@ void main() {
       await tapSquare(sunday);
       expect(find.text(ar.restDayTitle), findsOneWidget,
           reason: 'the pop-up did not open');
+      // The size every question pop-up draws him at.
+      expect(
+          tester
+              .widget<Sprout>(find.descendant(
+                  of: find.byType(AlertDialog), matching: find.byType(Sprout)))
+              .height,
+          kSproutQuestionHeight);
       expect(find.text(ar.restDayOffPlan(weekday(sunday), name)),
           findsOneWidget);
       expect(find.text(ar.restDayCovers(weekday(thursday))), findsOneWidget);

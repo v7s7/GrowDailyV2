@@ -18,8 +18,9 @@ import '../../dashboard/notifiers/dashboard_notifier.dart';
 import '../../mascot/sprout.dart';
 import '../models/covered_day.dart';
 import '../../habits/catalog/islamic_habit_catalog.dart';
-import '../../habits/models/habit_day_demand.dart'
-    show DayDemand, movedDemandForRow;
+import '../../habits/models/habit_day_demand.dart' show quotaDemandForRow;
+import '../../habits/models/weekly_quota_plan.dart'
+    show DayDemand, quotaWeekSharedHalves, sessionsText;
 import '../../habits/notifiers/custom_habits_notifier.dart';
 import '../../premium/notifiers/premium_notifier.dart';
 import '../../settings/models/notification_settings.dart';
@@ -129,7 +130,12 @@ List<int> weeklyTotals({
 ///
 /// Counted day by day, for every habit shape, as the card always counted:
 /// a scheduled day that is neither green nor skipped is a miss, and a future
-/// day never counts. The one change is that a day counts only once it is
+/// day never counts. A flexible quota's day is scheduled only when its week
+/// asked for it (weekly_quota_plan.dart), the day the Grid paints red: a
+/// four-times-a-week habit done four times has no misses, and a جزئي holding
+/// one of its places is a session, not a miss. Until 2026-10-03 such a habit
+/// was owed all seven days, and a week of تمرين done in full was named the
+/// habit that needed attention. The one change is that a day counts only once it is
 /// SETTLED at [now] (DateTimeGameExt.isSettledAt): an explicit فشل at once,
 /// a blank or جزئي day once it closes. When the card showed on Friday, a
 /// Friday morning counted both Thursday (open until kDayCutoffHour) and
@@ -151,18 +157,25 @@ IslamicHabitTemplate? mostMissedHabitThisWeek({
   for (final h in habits) {
     var misses = 0;
     // A day stood in for by a session on another day of the week owes
-    // nothing (see moved_day_plan.dart), so it cannot be a miss.
-    final moved = movedDemandForRow(
+    // nothing (see moved_day_plan.dart), so it cannot be a miss; nor does a
+    // quota's day its week did not need.
+    final demand = quotaDemandForRow(
       habit: h,
       days: days,
       isGreenAt: (i) => squareFor(h.id, days[i]).isGreen,
       isUnmarkedAt: (i) => squareFor(h.id, days[i]) == SquareState.none,
+      isHalfAt: (i) => squareFor(h.id, days[i]) == SquareState.partial,
       now: now,
     );
     for (var i = 0; i < days.length; i++) {
       final day = days[i];
       if (!h.isScheduledFor(day)) continue;
-      if (moved?[i] == DayDemand.earned) continue;
+      final d = demand?[i];
+      if (d == DayDemand.earned) continue;
+      if (h.cadenceOn(day).isFlexibleQuota &&
+          (d == null || d.isRest || d == DayDemand.half)) {
+        continue;
+      }
       if (day.startOfDay.isAfter(today)) continue;
       final sq = squareFor(h.id, day);
       if (sq.isGreen || sq == SquareState.skipped) continue;
@@ -197,47 +210,76 @@ enum RecapDot {
 /// One habit's week in the Premium recap at [now]: its seven dots and its
 /// done/scheduled count.
 ///
-/// The arithmetic the card always used, for every habit shape: each
-/// scheduled day that is not in the future counts, a تخطّي included, each
-/// green one is done, and a flexible quota habit counts every day it was
-/// alive. The one change is that a day enters the count only once it is
-/// settled, the rule every report percentage follows (Aziz, 2026-09-11). On
-/// Friday morning a blank Friday, and a blank Thursday still inside its
-/// grace, are quiet dots outside the count rather than hollow misses inside
-/// it. A day that has closed reads exactly as it did before that rule.
+/// The arithmetic the card always used, for every habit shape but one: each
+/// scheduled day that is not in the future counts, a تخطّي included, and
+/// each green one is done. A day enters the count only once it is settled,
+/// the rule every report percentage follows (Aziz, 2026-09-11). On Friday
+/// morning a blank Friday, and a blank Thursday still inside its grace, are
+/// quiet dots outside the count rather than hollow misses inside it.
+///
+/// A جزئي is worth half a day on every habit (2026-10-03); it counted
+/// nothing here before.
+///
+/// The one is a flexible quota, which counted every day it was alive until
+/// 2026-10-03: a four-times-a-week تمرين done four times read 4/7, and its
+/// three rest days were hollow misses. Its week now counts the way the rooms
+/// and the Grid count it (weekly_quota_plan.dart): the sessions and the days
+/// the target broke on are asked, its rest days are not, and a جزئي is worth
+/// half a session. Two halves sharing the week's last place ask half a day
+/// each, so three whole sessions and two halves read 4/4, and a week of two
+/// halves and nothing else 1/4. A half or a mark on a rest day is still drawn.
 ///
 /// Pure, over [squareOn]; see test/features/grid/weekly_recap_test.dart.
-({int done, int scheduled, List<RecapDot> dots}) habitWeekRow({
+({double done, double scheduled, List<RecapDot> dots}) habitWeekRow({
   required IslamicHabitTemplate habit,
   required List<DateTime> days,
   required SquareState Function(DateTime day) squareOn,
   required DateTime now,
 }) {
   final today = now.effectiveDay;
-  var done = 0;
-  var scheduled = 0;
+  var done = 0.0;
+  var scheduled = 0.0;
   final dots = <RecapDot>[];
   // A specific-days week holding a session off its plan: the session counts
   // on its own day, and the planned day it stands in for is covered (see
-  // moved_day_plan.dart). Null for every other week, which reads as before.
-  final moved = movedDemandForRow(
+  // moved_day_plan.dart). A flexible quota's week: which days it asked.
+  // Null for every other week, which reads as before.
+  final marks = [for (final d in days) squareOn(d)];
+  final demands = quotaDemandForRow(
     habit: habit,
     days: days,
-    isGreenAt: (i) => squareOn(days[i]).isGreen,
-    isUnmarkedAt: (i) => squareOn(days[i]) == SquareState.none,
+    isGreenAt: (i) => marks[i].isGreen,
+    isUnmarkedAt: (i) => marks[i] == SquareState.none,
+    isHalfAt: (i) => marks[i] == SquareState.partial,
     now: now,
   );
+  final shared = _sharedHalvesOf(habit, days, marks);
   for (var i = 0; i < days.length; i++) {
     final day = days[i];
-    final sq = squareOn(day);
+    final sq = marks[i];
     final isFuture = day.startOfDay.isAfter(today);
-    final demand = moved?[i];
-    final isScheduled =
-        demand == null ? habit.isScheduledFor(day) : !demand.isRest;
+    final demand = demands?[i];
+    final isQuota = habit.cadenceOn(day).isFlexibleQuota;
+    final isScheduled = isQuota
+        ? habit.isScheduledFor(day) && demand != null && !demand.isRest
+        : demand == null
+            ? habit.isScheduledFor(day)
+            : !demand.isRest;
     final settled = day.isSettledAt(now, answered: sq.answersDay);
     if (isScheduled && !isFuture && settled) {
-      scheduled++;
-      if (sq.isGreen) done++;
+      if (isQuota && demand == DayDemand.half) {
+        scheduled += shared.contains(i) ? 0.5 : 1;
+        done += 0.5;
+      } else {
+        scheduled++;
+        // A جزئي is half a day on every habit, a counted one part of the way
+        // there included (Aziz, 2026-10-03: "make all 0.5 counts").
+        if (sq.isGreen) {
+          done++;
+        } else if (sq == SquareState.partial) {
+          done += 0.5;
+        }
+      }
     }
     // An off-day the schedule never asked for is a soft green dot, not a
     // dim one: the same covered state the Grid's squares paint, so the
@@ -253,7 +295,7 @@ enum RecapDot {
     dots.add(
       covered
           ? RecapDot.covered
-          : !isScheduled || isFuture
+          : isFuture || (!isScheduled && !(isQuota && sq != SquareState.none))
               ? RecapDot.quiet
               : sq.isGreen
                   ? RecapDot.done
@@ -271,14 +313,52 @@ enum RecapDot {
   return (done: done, scheduled: scheduled, dots: dots);
 }
 
+/// The days of [days] holding a جزئي that shares its quota week's last place
+/// with another half (quotaWeekSharedHalves), each asking half a day. Empty
+/// for every week that is not a flexible quota.
+Set<int> _sharedHalvesOf(
+  IslamicHabitTemplate habit,
+  List<DateTime> days,
+  List<SquareState> marks,
+) {
+  final out = <int>{};
+  Set<int>? whole;
+  Set<int>? half;
+  final byTarget = <int, Set<int>>{};
+  for (var i = 0; i < days.length; i++) {
+    final cadence = habit.cadenceOn(days[i]);
+    if (!cadence.isFlexibleQuota) continue;
+    whole ??= {
+      for (var j = 0; j < days.length; j++)
+        if (marks[j].isGreen) j,
+    };
+    half ??= {
+      for (var j = 0; j < days.length; j++)
+        if (!whole.contains(j) && marks[j] == SquareState.partial) j,
+    };
+    final shared = byTarget.putIfAbsent(
+      cadence.frequencyTarget,
+      () => quotaWeekSharedHalves(
+        dayCount: days.length,
+        doneDays: whole!,
+        halfDays: half!,
+        target: cadence.frequencyTarget,
+      ),
+    );
+    if (shared.contains(i)) out.add(i);
+  }
+  return out;
+}
+
 /// The count at the end of a recap row, from [habitWeekRow]'s numbers.
 ///
 /// A placeholder while the row counts nothing yet, never «0/0»: a habit
 /// created on Thursday, or one whose only day this week is a Friday still
 /// open, has nothing to count, and the report's own cards print the same '–'
-/// for it (HabitMonthCard, the habit detail sheet).
-String recapRowCount({required int done, required int scheduled}) =>
-    scheduled <= 0 ? '–' : '$done/$scheduled';
+/// for it (HabitMonthCard, the habit detail sheet). A quota week's halves
+/// print as halves: «3.5/4».
+String recapRowCount({required double done, required double scheduled}) =>
+    scheduled <= 0 ? '–' : '${sessionsText(done)}/${sessionsText(scheduled)}';
 
 /// The first day of the week the recap card shows at [now], or null while
 /// it is not showing.
@@ -418,7 +498,12 @@ final recapWeekProvider =
 /// dailyGreenCounts, already in memory; the per-habit rows and the
 /// needs-attention line read the sealed week's squares ([recapWeekProvider]).
 class WeeklyRecapCard extends ConsumerWidget {
-  const WeeklyRecapCard({super.key});
+  const WeeklyRecapCard({super.key, this.withDoum = true});
+
+  /// Whether Doum rises from behind the card. False while another card on
+  /// the same screen has its own Doum (Profile's streak warning on a
+  /// Saturday evening): one Doum per screen (Aziz, 2026-10-03).
+  final bool withDoum;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -489,8 +574,9 @@ class WeeklyRecapCard extends ConsumerWidget {
     );
 
     final card = Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, _kRecapCardTopInset, 16, 0),
       child: Container(
+        key: weeklyRecapCardKey,
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: gp.surface,
@@ -589,21 +675,24 @@ class WeeklyRecapCard extends ConsumerWidget {
         ),
       ),
     );
-    // The sprout with its checklist peeks over the card's top edge, as if it
-    // had just brought the week in (the recap artboard of the design canvas
-    // Aziz approved). It stands in from the end corner, clear of the fold
-    // arrow and the folded card's number, and IgnorePointer hands a tap on
-    // its feet to the header row under them, which is the fold control. The
-    // card moves down by exactly the part of it that shows above the edge.
+    // The sprout with its checklist rises from BEHIND the card, as if it had
+    // just brought the week in: his face and the top of the clipboard over
+    // the card's top edge, his feet and the rest hidden by it (Aziz,
+    // 2026-10-03, option B of the "Doum on the weekly recap" canvas, after
+    // "is it like hanging"). He used to be drawn in FRONT of the card with
+    // his feet past its edge and nothing under them, so he hung off the
+    // border. Now the card is painted after him, its opaque fill and its
+    // border over his lower part, the way Doum stands behind the Habits
+    // page's board (SproutLedge). His pop and his breaths scale from his
+    // feet (Sprout), so he rises out from behind the edge.
+    //
+    // IgnorePointer: what shows of him sits above the card, over nothing a
+    // tap could mean, and the header row under the card's edge stays the
+    // fold control. The card moves down by exactly the part of him that
+    // shows above its edge.
     final sprout = Sprout.sizeOf(SproutPose.checklist, _kRecapSproutHeight);
-    final withSprout = Stack(
+    final withSprout = !withDoum ? card : Stack(
       children: [
-        Padding(
-          padding: EdgeInsets.only(
-            top: _kRecapSproutGap + sprout.height - _kRecapSproutFeetIn - 14,
-          ),
-          child: card,
-        ),
         const PositionedDirectional(
           top: _kRecapSproutGap,
           end: 16 + _kRecapSproutInset,
@@ -614,6 +703,15 @@ class WeeklyRecapCard extends ConsumerWidget {
               idleBreaths: 2,
             ),
           ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(
+            top: _kRecapSproutGap +
+                sprout.height -
+                _kRecapSproutHidden -
+                _kRecapCardTopInset,
+          ),
+          child: card,
         ),
       ],
     );
@@ -626,13 +724,23 @@ class WeeklyRecapCard extends ConsumerWidget {
   }
 }
 
-/// The recap sprout's size (see Sprout.sizeOf: the front pose's height, so
-/// the character matches every other sprout at this height).
-const double _kRecapSproutHeight = 72;
+/// The recap card's own box, for tests that measure the sprout against it.
+const weeklyRecapCardKey = ValueKey('weekly-recap-card');
 
-/// How far the sprout's feet reach into the card, over the header row's
-/// empty middle. The rest of it stands above the card's top edge.
-const double _kRecapSproutFeetIn = 16;
+/// The recap sprout's size (see Sprout.sizeOf: the front pose's height, so
+/// the character matches every other sprout at this height). Larger than the
+/// 72 it stood at in front of the card, since a quarter of him is now
+/// behind it.
+const double _kRecapSproutHeight = 88;
+
+/// How much of the sprout, from his feet up, stands behind the card: his
+/// feet and the bottom of the clipboard, so his face and its first checks
+/// show over the edge. Well inside the folded card's height (its 14pt
+/// padding on either side of the header row), so he never shows under it.
+const double _kRecapSproutHidden = 22;
+
+/// The space the card's own Padding leaves above its box.
+const double _kRecapCardTopInset = 14;
 
 /// Between the sprout's leaves and whatever sits above the card on Profile
 /// (the evening card, the night review prompt).
@@ -640,7 +748,7 @@ const double _kRecapSproutGap = 8;
 
 /// From the card's end edge to the sprout: clear of the fold arrow (22) and,
 /// folded, the week's number beside it, inside the card's 14pt padding.
-const double _kRecapSproutInset = 76;
+const double _kRecapSproutInset = 88;
 
 /// Whether the recap card carries [WeeklyNoteOffer] under it: only while the
 /// Saturday note is off and the question unanswered, and never with every
@@ -1025,7 +1133,7 @@ class _RecapDepth extends ConsumerWidget {
 /// archived habit is worth a row at all (see the filter above), and read
 /// off the same [habitWeekRow] the row itself draws, so the filter and the
 /// row's own count cannot disagree.
-int _weekDoneCount(
+double _weekDoneCount(
   IslamicHabitTemplate habit,
   RecapWeek week,
   DateTime now,

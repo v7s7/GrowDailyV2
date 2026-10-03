@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home Screen widget</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 760px; height: 844px; box-sizing: border-box; background: #34444F; color: #F5F0E1; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; padding: 40px 36px; display: flex; flex-direction: column; gap: 26px;">
+<div style="display: flex; flex-direction: column; gap: 8px;">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700;">The world on the Home Screen</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #D5DDD8;">Without Doum (you took him off the widgets on 09-29), so this is your call. It changes by itself through the day and never makes a sound: the calmest reminder there is. Tapping it opens the world’s page.</p>
+</div>
+
+<div style="display: flex; gap: 22px; justify-content: center;">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+<div style="width: 170px; height: 170px; border-radius: 26px; overflow: hidden; position: relative; background: #F4E5CB;">
+<div style="position: absolute; left: 0; top: -14px;"><dc-import name="Island" level="24" medals="9" pearls="3" thirst="2" pose="none" size="170" frame="rect" hint-size="170px,189px"></dc-import></div>
+</div>
+<div style="font-size: 14px; color: #D5DDD8;">Morning after quiet days</div>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+<div style="width: 170px; height: 170px; border-radius: 26px; overflow: hidden; position: relative; background: #DDF0F1;">
+<div style="position: absolute; left: 0; top: -14px;"><dc-import name="Island" level="24" medals="9" pearls="3" pose="none" size="170" frame="rect" hint-size="170px,189px"></dc-import></div>
+</div>
+<div style="font-size: 14px; color: #D5DDD8;">After the first habit</div>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+<div style="width: 170px; height: 170px; border-radius: 26px; overflow: hidden; position: relative; background: #22304A;">
+<div style="position: absolute; left: 0; top: -14px;"><dc-import name="Island" level="24" medals="9" pearls="3" sky="night" pose="none" size="170" frame="rect" hint-size="170px,189px"></dc-import></div>
+</div>
+<div style="font-size: 14px; color: #D5DDD8;">Night</div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+<div dir="rtl" style="width: 364px; height: 170px; border-radius: 26px; overflow: hidden; background: #F5F0E1; color: #23352A; display: flex; align-items: center; font-family: 'IBM Plex Sans Arabic', sans-serif;">
+<div style="width: 170px; height: 170px; position: relative; overflow: hidden; flex-shrink: 0; background: #DDF0F1;">
+<div style="position: absolute; left: 0; top: -14px;"><dc-import name="Tree" kind="tree" level="24" medals="9" pearls="3" pose="none" size="170" frame="rect" hint-size="170px,189px"></dc-import></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 0 18px;">
+<div style="font-size: 15px; color: #45574B;">واحة دوم</div>
+<div style="font-size: 26px; font-weight: 700;">3 من 6 خلصت</div>
+<div style="font-size: 15px; color: #2F6B3A; font-weight: 600;">والواحة مرتوية</div>
+</div>
+</div>
+<div style="font-size: 14px; color: #D5DDD8;">Medium, with the tree direction</div>
+</div>
+
+<div style="background: rgba(255,255,255,0.08); border-radius: 18px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.5; color: #E4EAE6;">
+<div style="font-weight: 700; color: #F5F0E1;">What iOS allows</div>
+<div>A widget cannot run free animation. The app renders the world to a picture whenever its state changes (a habit, a level, night falls) and hands WidgetKit a timeline: morning, noon, evening, night. iOS 17+ crossfades between pictures, so thirsty to fresh still looks like a change, not a jump.</div>
+<div>Simple shapes read best at this size: the tree and the palm hold up better than the busy planet. That is one more reason to weigh direction against the widget.</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

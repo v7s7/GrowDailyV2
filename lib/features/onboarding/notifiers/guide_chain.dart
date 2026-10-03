@@ -64,3 +64,22 @@ void advanceGuideAfter(WidgetRef ref, AppGuideLesson completed) {
     ref.read(activeAppGuideLessonProvider.notifier).state = next;
   });
 }
+
+/// Whether [after] holds an item [before] did not, by [idOf].
+///
+/// How a host screen tells that its lesson's action just happened: a habit
+/// or a task that was not there a moment ago. It used to ask "was the list
+/// empty and is it not now", which is only ever true ONCE per account. The
+/// guide is replayable from Settings, every row, done or not, so the person
+/// most likely to open a lesson is somebody who already has habits and
+/// tasks, and for them the lesson never noticed it had been done: they added
+/// the task, the sheet closed, and the dim was still there pointing at the
+/// button they had just used, until they found تخطّي.
+bool addedOne<T>(
+  Iterable<T>? before,
+  Iterable<T> after,
+  Object Function(T) idOf,
+) {
+  final had = {for (final item in before ?? Iterable<T>.empty()) idOf(item)};
+  return after.any((item) => !had.contains(idOf(item)));
+}

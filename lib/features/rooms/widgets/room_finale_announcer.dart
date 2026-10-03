@@ -185,13 +185,15 @@ Future<bool?> _showFinaleDialog(BuildContext context, RoomModel room) {
     context: context,
     builder: (ctx) => AlertDialog(
       backgroundColor: gp.surfaceHigh,
-      // The sprout hugging a heart, where a small gold cup used to sit. A
-      // room that finished is something done together, whatever the
-      // standing, and a cup reads as first place to everyone who was not.
-      // It pops in and celebrates, the confetti from its own centre.
+      // The sprout planting his flag on a hill, where a small gold cup used
+      // to sit. A room that finished is something done together, whatever
+      // the standing, and a cup reads as first place to everyone who was
+      // not; the flag says the end was reached. It was the heart until
+      // Aziz, 2026-10-03 (the canvas "Doum review"): the heart is Premium's
+      // thanks. It pops in and celebrates, the confetti from its own centre.
       icon: const VictoryBurstOnMount(
         child: Sprout(
-          pose: SproutPose.loveHeart,
+          pose: SproutPose.flagHill,
           height: 120,
           entrance: SproutEntrance.popAndCelebrate,
           idleBreaths: 2,

@@ -307,6 +307,15 @@ void main() {
       );
     });
 
+    test('met by halves adding up: the week is met, every day counted', () {
+      // Aziz, 2026-10-03: three whole and two halves of a 4x week are 4 of 4,
+      // so the reminder may say the week's target is done.
+      final days =
+          quotaReminderWeekDays(whole: {0, 1, 5}, half: {3, 4}, target: 4);
+      expect(days, {0, 1, 3, 4, 5});
+      expect(days!.length, greaterThanOrEqualTo(4));
+    });
+
     test('halves filling the week short of whole ones: nothing is claimed', () {
       // Two whole and a half on a 3x habit is 2.5 of 3, and a whole session
       // today would still take the half's place: neither "met" nor "one

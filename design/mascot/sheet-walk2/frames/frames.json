@@ -1,0 +1,134 @@
+{
+ "walk_three_1": {
+  "size": [
+   263,
+   326
+  ],
+  "anchor": [
+   131,
+   322
+  ],
+  "height": 316
+ },
+ "walk_three_2": {
+  "size": [
+   263,
+   326
+  ],
+  "anchor": [
+   131,
+   322
+  ],
+  "height": 314
+ },
+ "walk_three_3": {
+  "size": [
+   263,
+   326
+  ],
+  "anchor": [
+   131,
+   322
+  ],
+  "height": 319
+ },
+ "walk_three_4": {
+  "size": [
+   263,
+   326
+  ],
+  "anchor": [
+   131,
+   322
+  ],
+  "height": 312
+ },
+ "walk_back34_1": {
+  "size": [
+   299,
+   315
+  ],
+  "anchor": [
+   134,
+   311
+  ],
+  "height": 308
+ },
+ "walk_back34_2": {
+  "size": [
+   299,
+   315
+  ],
+  "anchor": [
+   134,
+   311
+  ],
+  "height": 308
+ },
+ "walk_back34_3": {
+  "size": [
+   299,
+   315
+  ],
+  "anchor": [
+   134,
+   311
+  ],
+  "height": 303
+ },
+ "walk_back34_4": {
+  "size": [
+   299,
+   315
+  ],
+  "anchor": [
+   134,
+   311
+  ],
+  "height": 307
+ },
+ "idle_calm": {
+  "size": [
+   290,
+   313
+  ],
+  "anchor": [
+   144,
+   309
+  ],
+  "height": 302
+ },
+ "idle_blink": {
+  "size": [
+   290,
+   313
+  ],
+  "anchor": [
+   144,
+   309
+  ],
+  "height": 304
+ },
+ "idle_look_l": {
+  "size": [
+   290,
+   313
+  ],
+  "anchor": [
+   144,
+   309
+  ],
+  "height": 305
+ },
+ "idle_look_r": {
+  "size": [
+   290,
+   313
+  ],
+  "anchor": [
+   144,
+   309
+  ],
+  "height": 306
+ }
+}

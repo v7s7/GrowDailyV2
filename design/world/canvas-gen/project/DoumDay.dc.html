@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Doum's day on his world</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1760px; height: 960px; box-sizing: border-box; background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; padding: 32px 28px; display: flex; flex-direction: column; gap: 22px;">
+
+<div style="display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;">
+<h1 style="margin: 0; font-size: 30px; font-weight: 700;">Doum’s day: he has a life there</h1>
+<span style="font-size: 16px; color: #6B7A6F; max-width: 1100px;">Open the world at any hour and he is doing something, by the clock and his own hours on the admin «دوم» page (morning until 12, bedtime 21:00, awake at 4:00). Nothing to tend: he does it. One pose at a time, then still (rule 1).</span>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 16px;">
+<sc-for list="{{scenes}}" as="c" hint-placeholder-count="7">
+<div style="display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center;">
+<dc-import name="Planet" level="24" medals="9" pearls="3" sky="{{c.sky}}" season="{{c.season}}" pose="{{c.pose}}" watering="{{c.water}}" thirst="{{c.thirst}}" size="226" hint-size="226px,251px"></dc-import>
+<div style="font-size: 13px; font-weight: 700; color: #3F7A4A; letter-spacing: 0.04em;">{{c.time}}</div>
+<div style="font-size: 16px; font-weight: 700;">{{c.title}}</div>
+<div style="font-size: 13px; line-height: 1.4; color: #45574B;">{{c.d}}</div>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; gap: 22px; align-items: stretch;">
+<div style="background: #FFFFFF; border-radius: 20px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; flex: 3 1 0; min-width: 0;">
+<div style="display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Visitors: a small surprise when you come back</h2>
+<span style="font-size: 14px; color: #6B7A6F;">Rare, unannounced, gone by tomorrow. Nothing to collect, nothing to miss.</span>
+</div>
+<div style="display: flex; gap: 18px;">
+<div style="display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; flex: 1 1 0;">
+<dc-import name="Planet" level="24" medals="9" pearls="3" visitor="rainbow" watering="true" size="200" hint-size="200px,222px"></dc-import>
+<div style="font-size: 15px; font-weight: 700;">A rainbow</div>
+<div style="font-size: 13px; line-height: 1.4; color: #45574B;">Sometimes, after the first habit waters a thirsty world.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; flex: 1 1 0;">
+<dc-import name="Planet" level="24" medals="9" pearls="3" visitor="dhow" pose="three" size="200" hint-size="200px,222px"></dc-import>
+<div style="font-size: 15px; font-weight: 700;">A dhow passing</div>
+<div style="font-size: 13px; line-height: 1.4; color: #45574B;">A sailing boat crosses his sea, once the sea has come.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; align-items: center; text-align: center; flex: 1 1 0;">
+<dc-import name="Planet" level="24" medals="9" pearls="3" visitor="star" sky="night" size="200" hint-size="200px,222px"></dc-import>
+<div style="font-size: 15px; font-weight: 700;">A shooting star</div>
+<div style="font-size: 13px; line-height: 1.4; color: #45574B;">On a night after a full day.</div>
+</div>
+</div>
+<div style="font-size: 14px; line-height: 1.5; color: #45574B; background: #F7F3E8; border-radius: 12px; padding: 10px 12px;">The app already rolls a surprise bonus on about 1 in 7 completions and never shows it (<code style="font-size: 13px;">S.bonusTag</code> has no reader). A visitor is a way to show it without a number: the day’s bonus brings one to the world.</div>
+</div>
+
+<div style="background: #FFFFFF; border-radius: 20px; padding: 20px 22px; display: flex; flex-direction: column; gap: 12px; flex: 2 1 0; min-width: 0;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Optional: one line of his day</h2>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">Under the world on its page, one short line of what Doum did, the way Tsuki keeps a diary. Only about him and the world, never a count and never about worship.</div>
+<div dir="rtl" lang="ar" style="display: flex; flex-direction: column; gap: 8px; font-family: 'IBM Plex Sans Arabic', sans-serif;">
+<div style="background: #EEF6EC; border-radius: 12px; padding: 10px 14px; font-size: 16px; font-weight: 600; color: #23352A;">سقى الليمونة الصبح، وقرأ تحت السدرة العصر</div>
+<div style="background: #EEF6EC; border-radius: 12px; padding: 10px 14px; font-size: 16px; font-weight: 600; color: #23352A;">زرع شجيرة ورد جديدة جنب البيت</div>
+<div style="background: #EEF6EC; border-radius: 12px; padding: 10px 14px; font-size: 16px; font-weight: 600; color: #23352A;">طيّر الطيارة الورق العصر</div>
+</div>
+<div style="font-size: 13px; color: #6B7A6F;">Drafts in the house style: no «!», no «كذا», Latin digits. Your words win.</div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1760,"height":960}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const sc = (time, title, d, sky, pose, extra) => Object.assign({ time, title, d, sky, pose, season: 'none', water: false, thirst: 0 }, extra || {});
+    return {
+      scenes: [
+        sc('4:00 to 6:00', 'Wakes and stretches', 'His wake hour. A stretch, then still.', 'day', 'stretch'),
+        sc('Morning, nothing yet', 'Ready with his can', 'After a quiet day he asks once: «نسقي الكوكب؟». After a good one, a wave.', 'day', 'water', { thirst: 1 }),
+        sc('The first habit', 'Waters it', 'Whatever the habit. Drops, the soil darkens, flowers open.', 'day', 'water', { water: true }),
+        sc('Summer noon', 'In the palm’s shade', 'June to August. In winter he reads instead.', 'day', 'shades', { season: 'summer' }),
+        sc('Afternoon', 'Reads under the tree', 'Or tends whatever grew last.', 'day', 'reading'),
+        sc('Evening', 'Writes by his lamp', 'The lanterns come on one by one.', 'night', 'lamp'),
+        sc('After 21:00', 'Asleep', 'Stars, the moon. On a Ramadan night, awake with his fanous.', 'night', 'sleep')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

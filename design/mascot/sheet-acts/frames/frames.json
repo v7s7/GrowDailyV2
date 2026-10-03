@@ -1,0 +1,146 @@
+{
+ "reach": {
+  "size": [
+   279,
+   326
+  ],
+  "anchor": [
+   166,
+   325
+  ],
+  "height": 326
+ },
+ "hold_dates": {
+  "size": [
+   315,
+   296
+  ],
+  "anchor": [
+   172,
+   295
+  ],
+  "height": 296
+ },
+ "snip": {
+  "size": [
+   300,
+   264
+  ],
+  "anchor": [
+   150,
+   263
+  ],
+  "height": 264
+ },
+ "hold_cutting": {
+  "size": [
+   284,
+   291
+  ],
+  "anchor": [
+   134,
+   290
+  ],
+  "height": 291
+ },
+ "can_tilt": {
+  "size": [
+   313,
+   300
+  ],
+  "anchor": [
+   178,
+   299
+  ],
+  "height": 300
+ },
+ "can_pour": {
+  "size": [
+   310,
+   303
+  ],
+  "anchor": [
+   133,
+   300
+  ],
+  "height": 301
+ },
+ "sit_bench": {
+  "size": [
+   242,
+   307
+  ],
+  "anchor": [
+   120,
+   306
+  ],
+  "height": 307
+ },
+ "sit_cushions": {
+  "size": [
+   346,
+   275
+  ],
+  "anchor": [
+   172,
+   274
+  ],
+  "height": 275
+ },
+ "sit_front": {
+  "size": [
+   234,
+   246
+  ],
+  "anchor": [
+   112,
+   226
+  ],
+  "height": 246,
+  "seat": true
+ },
+ "carry_basket": {
+  "size": [
+   254,
+   296
+  ],
+  "anchor": [
+   130,
+   295
+  ],
+  "height": 296
+ },
+ "put_basket": {
+  "size": [
+   285,
+   289
+  ],
+  "anchor": [
+   138,
+   288
+  ],
+  "height": 289
+ },
+ "camera": {
+  "size": [
+   253,
+   291
+  ],
+  "anchor": [
+   138,
+   290
+  ],
+  "height": 291
+ },
+ "door_push": {
+  "size": [
+   317,
+   316
+  ],
+  "anchor": [
+   134,
+   314
+  ],
+  "height": 287
+ }
+}

@@ -26,6 +26,7 @@ import 'package:grow_daily_v2/features/grid/widgets/weekly_recap_card.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
 import 'package:grow_daily_v2/features/habits/notifiers/custom_habits_notifier.dart';
+import 'package:grow_daily_v2/features/mascot/sprout.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
 
 class _Premium extends PremiumNotifier {
@@ -111,6 +112,7 @@ void main() {
     bool premium = false,
     List<IslamicHabitTemplate>? habits,
     RecapWeek? week,
+    bool withDoum = true,
   }) async {
     asked = [];
     tester.view.physicalSize = const Size(400 * 3, 1600 * 3);
@@ -138,7 +140,7 @@ void main() {
         ],
         theme: GameTheme.dark,
         home: Scaffold(
-          body: ListView(children: const [WeeklyRecapCard()]),
+          body: ListView(children: [WeeklyRecapCard(withDoum: withDoum)]),
         ),
       ),
     ));
@@ -246,5 +248,108 @@ void main() {
     expect(find.text(s.weeklyRecapPerHabit), findsNothing);
     expect(find.text(s.weeklyRecapNeedsLove('gym')), findsNothing);
     expect(find.text(s.weeklyRecapTrend), findsOneWidget);
+  });
+
+  // Aziz, 2026-10-03, on the folded card: "is it like hanging". Doum was
+  // drawn in front of the card with his feet past its top edge and nothing
+  // under them. He now rises from behind it (option B of the canvas): the
+  // card is painted after him, and its top edge crosses him.
+  group('Doum rises from behind the card', () {
+    Rect sproutRect(WidgetTester tester) => tester.getRect(find.byType(Sprout));
+    Rect cardRect(WidgetTester tester) =>
+        tester.getRect(find.byKey(weeklyRecapCardKey));
+
+    testWidgets('the card is painted over him, its edge across his body',
+        (tester) async {
+      await pumpCard(tester, DateTime(2026, 9, 19, 12), week: sealed);
+      final stack = tester.widget<Stack>(
+        find.ancestor(of: find.byType(Sprout), matching: find.byType(Stack))
+            .first,
+      );
+      expect(stack.children, hasLength(2));
+      expect(
+        find.descendant(
+          of: find.byWidget(stack.children.first),
+          matching: find.byType(Sprout),
+        ),
+        findsOneWidget,
+        reason: 'first in the stack, so painted first, under the card',
+      );
+      expect(
+        find.descendant(
+          of: find.byWidget(stack.children.last),
+          matching: find.byKey(weeklyRecapCardKey),
+        ),
+        findsOneWidget,
+      );
+
+      final doum = sproutRect(tester);
+      final card = cardRect(tester);
+      expect(doum.top, lessThan(card.top), reason: 'his face shows above it');
+      expect(doum.bottom - card.top, moreOrLessEquals(22, epsilon: 0.5),
+          reason: 'his feet and the bottom of the clipboard are behind it');
+      // Arabic: the end side is the left, 88 in from the card's own edge,
+      // clear of the fold arrow and the folded number.
+      expect(doum.left - card.left, moreOrLessEquals(88, epsilon: 0.5));
+      expect(
+        tester.widget<IgnorePointer>(
+          find.ancestor(
+            of: find.byType(Sprout),
+            matching: find.byType(IgnorePointer),
+          ).first,
+        ).ignoring,
+        isTrue,
+      );
+    });
+
+    testWidgets('folded, the card still covers all of him it hides',
+        (tester) async {
+      await pumpCard(tester, DateTime(2026, 9, 19, 12), week: sealed);
+      await tester.tap(title);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 150));
+      }
+      final doum = sproutRect(tester);
+      final card = cardRect(tester);
+      expect(card.height, lessThan(100), reason: 'the card is folded');
+      expect(card.bottom, greaterThan(doum.bottom + 20),
+          reason: 'none of him shows under the folded card');
+    });
+
+    testWidgets(
+        'while another card on the screen has its own Doum, the recap shows '
+        'without him', (tester) async {
+      // Profile on a Saturday evening: the streak warning's Doum is up
+      // (_DashboardSection). One Doum per screen.
+      await pumpCard(tester, DateTime(2026, 9, 19, 19),
+          week: sealed, withDoum: false);
+      expect(title, findsOneWidget);
+      expect(find.byType(Sprout), findsNothing);
+      // The card sits where a card with no Doum above it sits.
+      final card = tester.getRect(find.byKey(weeklyRecapCardKey));
+      final list = tester.getRect(find.byType(ListView));
+      expect(card.top - list.top, moreOrLessEquals(14, epsilon: 0.5));
+    });
+  });
+
+  test('Profile ties the recap\'s Doum to the streak warning\'s own gate', () {
+    // _DashboardSection reads the clock directly, so the wiring is pinned in
+    // its source: the recap loses its Doum exactly while the warning, which
+    // has its own, draws itself (_streakAtRiskBannerUp, the warning's one
+    // gate), and the warning asks that same gate.
+    final section = File(
+      'lib/features/profile/screens/profile_screen_hero_dashboard.dart',
+    ).readAsStringSync();
+    expect(
+      section,
+      contains('withDoum: !(showStreak && _streakAtRiskBannerUp(ref))'),
+    );
+    final banners = File(
+      'lib/features/profile/screens/profile_screen_banners.dart',
+    ).readAsStringSync();
+    expect(
+      banners,
+      contains('if (!_streakAtRiskBannerUp(ref)) return const SizedBox.shrink();'),
+    );
   });
 }

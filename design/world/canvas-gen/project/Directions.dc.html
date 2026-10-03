@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Seven directions</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', 'IBM Plex Sans Arabic', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 40px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 1040px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Choose after thinking</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">Seven directions for what grows</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">Each one keeps the same three layers: something that grows with your level, something that blooms with your medals and weeks in a row, and one gentle layer for quiet days that a single habit fixes. Only what you look at changes. Each row shows the same direction early on, a few months in, and on a thirsty day.</p>
+<a href="Builder.dc.html" style="align-self: flex-start; text-decoration: none; background: #23352A; color: #F5F0E1; border-radius: 16px; padding: 14px 18px; display: flex; flex-direction: column; gap: 4px;"><span style="font-size: 18px; font-weight: 700;">If you read one thing: we recommend G, Doum’s oasis.</span><span style="font-size: 15px; color: #C9D6C3;">Try it now on the “Build your oasis” board: plant it yourself and change its colours.</span></a>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #6B7A6F;">The planet, tree, palm and farm are live: open their boards below this row and use Tweaks, or press Play on the Playground board and live a few weeks in any of them.</p>
+</header>
+
+<sc-for list="{{dirs}}" as="d" hint-placeholder-count="5">
+<article style="background: #FFFFFF; border-radius: 22px; padding: 24px; display: flex; flex-wrap: wrap; gap: 24px 32px;">
+<div style="display: flex; flex-direction: column; gap: 10px; flex: 1 1 540px; min-width: 0;">
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+<span style="background: {{d.chip}}; color: #FFFFFF; font-size: 15px; font-weight: 700; padding: 5px 13px; border-radius: 999px;">{{d.tag}}</span>
+<h2 style="margin: 0; font-size: 28px; font-weight: 700;">{{d.name}}</h2>
+<span dir="rtl" lang="ar" style="font-family: 'IBM Plex Sans Arabic', sans-serif; font-size: 22px; font-weight: 700; color: #2F6B3A;">{{d.ar}}</span>
+</div>
+<div style="font-size: 17px; line-height: 1.5; color: #45574B;">{{d.idea}}</div>
+<div style="display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 6px 14px; font-size: 15px; line-height: 1.45; background: #F7F3E8; border-radius: 14px; padding: 14px 16px;">
+<div style="font-weight: 700;">Your level</div><div style="color: #45574B;">{{d.grows}}</div>
+<div style="font-weight: 700;">Medals</div><div style="color: #45574B;">{{d.medals}}</div>
+<div style="font-weight: 700;">Weeks in a row</div><div style="color: #45574B;">{{d.weeks}}</div>
+<div style="font-weight: 700;">Quiet days</div><div style="color: #45574B;">{{d.quiet}}</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 12px;">
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<div style="font-size: 14px; font-weight: 700; color: #2F6B3A; letter-spacing: 0.04em;">GOOD</div>
+<sc-for list="{{d.good}}" as="x" hint-placeholder-count="3"><div style="font-size: 15px; line-height: 1.45; color: #45574B;">{{x}}</div></sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<div style="font-size: 14px; font-weight: 700; color: #9A3B2E; letter-spacing: 0.04em;">HARD</div>
+<sc-for list="{{d.hard}}" as="x" hint-placeholder-count="3"><div style="font-size: 15px; line-height: 1.45; color: #45574B;">{{x}}</div></sc-for>
+</div>
+</div>
+<div style="font-size: 14px; color: #6B7A6F;">{{d.like}}</div>
+</div>
+<div style="display: flex; gap: 10px; flex: 1 1 540px; justify-content: center; align-items: flex-start; min-width: 0; flex-wrap: wrap;">
+<sc-if value="{{d.isPlanet}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" level="7" medals="1" pearls="0" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" level="24" medals="9" pearls="4" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" level="24" medals="9" pearls="4" thirst="3" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">three quiet days</span></div>
+</sc-if>
+<sc-if value="{{d.isTree}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="tree" level="7" medals="1" pearls="0" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="tree" level="24" medals="9" pearls="4" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="tree" level="24" medals="9" pearls="4" thirst="3" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">three quiet days</span></div>
+</sc-if>
+<sc-if value="{{d.isPalm}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="palm" level="7" medals="1" pearls="0" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="palm" level="24" medals="9" pearls="4" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Tree" kind="palm" level="24" medals="9" pearls="4" thirst="3" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">three quiet days</span></div>
+</sc-if>
+<sc-if value="{{d.isFarm}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Farm" level="7" medals="1" pearls="0" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Farm" level="24" medals="9" pearls="4" size="170" pose="wave" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Farm" level="24" medals="9" pearls="4" thirst="3" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">three quiet days</span></div>
+</sc-if>
+<sc-if value="{{d.isDoum}}" hint-placeholder-val="{{false}}">
+<sc-for list="{{doumStages}}" as="s" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+<div style="width: 170px; height: 189px; border-radius: 50%; background: #DDF0F1; display: flex; align-items: flex-end; justify-content: center; overflow: hidden;">
+<div style="position: relative; width: 124px; height: 150px; margin-bottom: 14px;">
+<img src="/_blob/4fe66825d4a1e1409975aaf4cae25efe" alt="Doum" style="width: 124px; height: 150px; display: block;">
+<svg viewBox="0 0 124 150" width="124" height="150" style="position: absolute; left: 0; top: 0;" aria-hidden="true">
+<g stroke="#1E3A24" stroke-width="1.6" stroke-linejoin="round">
+<g style="opacity: {{s.bud}}"><path d="M62 52 V44" fill="none"></path><ellipse cx="62" cy="38" rx="6" ry="8" fill="#F49AB0"></ellipse><path d="M58 44 Q62 48 66 44" fill="none" stroke-width="1.2"></path></g>
+<g style="opacity: {{s.flower}}"><path d="M62 54 V40" fill="none"></path>
+<circle cx="62" cy="28" r="7" fill="#F49AB0"></circle><circle cx="72" cy="35" r="7" fill="#F49AB0"></circle><circle cx="68" cy="46" r="7" fill="#F49AB0"></circle><circle cx="56" cy="46" r="7" fill="#F49AB0"></circle><circle cx="52" cy="35" r="7" fill="#F49AB0"></circle><circle cx="62" cy="38" r="5" fill="#F2C14E"></circle></g>
+<g style="opacity: {{s.crown}}">
+<circle cx="40" cy="24" r="4" fill="#F7C6D0"></circle><circle cx="46" cy="18" r="4" fill="#F7C6D0"></circle><circle cx="43" cy="21" r="2.4" fill="#F2C14E"></circle>
+<circle cx="86" cy="12" r="4" fill="#F7C6D0"></circle><circle cx="92" cy="8" r="4" fill="#F7C6D0"></circle><circle cx="89" cy="10" r="2.4" fill="#F2C14E"></circle></g>
+</g>
+</svg>
+</div>
+</div>
+<span style="font-size: 13px; color: #6B7A6F;">{{s.label}}</span>
+</div>
+</sc-for>
+</sc-if>
+<sc-if value="{{d.isOasis}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="oasis" level="7" medals="1" pearls="0" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="oasis" level="24" medals="9" pearls="4" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="oasis" level="24" medals="9" pearls="4" detail="glance" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">the same, at a glance</span></div>
+</sc-if>
+<sc-if value="{{d.isFarmPlanet}}" hint-placeholder-val="{{false}}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="farm" level="7" medals="1" pearls="0" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 7, week 1</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="farm" level="24" medals="9" pearls="4" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">level 24, month 6</span></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;"><dc-import name="Planet" mode="farm" level="24" medals="9" pearls="4" thirst="3" size="170" hint-size="170px,189px"></dc-import><span style="font-size: 13px; color: #6B7A6F;">three quiet days</span></div>
+</sc-if>
+</div>
+</article>
+</sc-for>
+
+<section style="display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-size: 32px; font-weight: 700;">Side by side: my read, out of 5</h2>
+<div style="overflow-x: auto; background: #FFFFFF; border-radius: 18px;">
+<div role="table" aria-label="Directions compared" style="min-width: 1080px; display: flex; flex-direction: column;">
+<div role="row" style="display: grid; grid-template-columns: minmax(220px, 2fr) repeat(7, minmax(88px, 1fr)); border-bottom: 2px solid #E6DFCC; font-weight: 700; font-size: 16px;">
+<div role="columnheader" style="padding: 16px 20px;">What it does well</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">A. Planet</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">B. Tree</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">C. Palm</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">D. Farm</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">E. Doum grows</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center;">F. Farms his planet</div>
+<div role="columnheader" style="padding: 16px 12px; text-align: center; background: #FBF1DA; color: #8A5A0E;">G. Oasis</div>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<div role="row" style="display: grid; grid-template-columns: minmax(220px, 2fr) repeat(7, minmax(88px, 1fr)); border-bottom: 1px solid #EFE9DA; font-size: 16px; align-items: center;">
+<div role="rowheader" style="padding: 14px 20px; color: #23352A;">{{r.t}}</div>
+<sc-for list="{{r.v}}" as="c" hint-placeholder-count="7">
+<div role="cell" style="padding: 12px; text-align: center;"><span style="display: inline-block; min-width: 36px; padding: 4px 8px; border-radius: 999px; font-weight: 700; background: {{c.bg}}; color: {{c.fg}};">{{c.n}}</span></div>
+</sc-for>
+</div>
+</sc-for>
+<div role="row" style="display: grid; grid-template-columns: minmax(220px, 2fr) repeat(7, minmax(88px, 1fr)); font-size: 16px; font-weight: 700; align-items: center; background: #F7F3E8;">
+<div role="rowheader" style="padding: 14px 20px;">Total, every row equal</div>
+<div role="cell" style="padding: 12px; text-align: center;">28</div>
+<div role="cell" style="padding: 12px; text-align: center;">29</div>
+<div role="cell" style="padding: 12px; text-align: center;">30</div>
+<div role="cell" style="padding: 12px; text-align: center;">26</div>
+<div role="cell" style="padding: 12px; text-align: center;">18</div>
+<div role="cell" style="padding: 12px; text-align: center;">29</div>
+<div role="cell" style="padding: 12px; text-align: center; background: #FBF1DA; color: #8A5A0E;">35</div>
+</div>
+</div>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #6B7A6F;">Opinions, not measurements. “Cheap to build” scores 5 for the cheapest. The totals weigh every row the same, but the first three rows are the ones people feel: whether they care, whether they get it at a glance, and whether it keeps surprising them.</p>
+</section>
+
+<section style="background: #FFFFFF; border-radius: 22px; padding: 26px 28px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 0 0 3px #C08A1E;">
+<h2 style="margin: 0; font-size: 26px; font-weight: 700;">How G gets 5 on every row</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(400px, 100%), 1fr)); gap: 10px 28px;">
+<sc-for list="{{howG}}" as="h" hint-placeholder-count="7">
+<div style="display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; font-size: 15px; line-height: 1.5;">
+<span style="display: inline-flex; width: 28px; height: 28px; border-radius: 999px; background: #C08A1E; color: #FFFFFF; font-weight: 700; align-items: center; justify-content: center;">5</span>
+<span style="color: #45574B;"><b style="color: #23352A;">{{h.t}}</b> {{h.d}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Mixes worth a thought</h2>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;"><span style="font-weight: 700; color: #23352A;">Tree, with a small world at its feet.</span> B as drawn already does this: the tree is the hero, and stones, flowers, a pond, a bench and a hive gather round it. Most of the planet’s variety at the tree’s clarity.</div>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;"><span style="font-weight: 700; color: #23352A;">Choose the tree.</span> B and C are the same code with a different trunk. People could pick a tree or a palm on day one, like they pick a character.</div>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;"><span style="font-weight: 700; color: #23352A;">The planet, then the tree.</span> A already ends in a great tree at level 35. The tree could be the first year and the planet what it stands on later, but that means building both.</div>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">The same in every direction</h2>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;">Nothing earned ever goes. Quiet days come back with one habit. Rest, pause and freezes never count. Doum is never sad. No new notification, nothing sold, private, can be hidden. It lives one tap from Profile and only shows up on the Grid as a moment.</div>
+<div style="font-size: 16px; line-height: 1.5; color: #45574B;">So the phone boards and the build plan on this canvas hold for whichever you pick: they show the planet only as the example.</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":5000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const base = { isPlanet: false, isTree: false, isPalm: false, isFarm: false, isDoum: false, isFarmPlanet: false, isOasis: false };
+    const score = (n) => ({ n: String(n), bg: n >= 5 ? '#2F6B3A' : n === 4 ? '#7DB46C' : n === 3 ? '#E9E1C9' : '#F2D2C8', fg: n >= 4 ? '#FFFFFF' : '#23352A' });
+    const row = (t, v) => ({ t, v: v.map(score) });
+    return {
+      doumStages: [
+        { label: 'level 10: a bud', bud: 1, flower: 0, crown: 0 },
+        { label: 'level 20: a flower', bud: 0, flower: 1, crown: 0 },
+        { label: 'level 35: more flowers', bud: 0, flower: 1, crown: 1 }
+      ],
+      dirs: [
+        { ...base, isOasis: true, tag: 'G', chip: '#C08A1E', name: 'Doum’s oasis: all 5 of 5', ar: 'واحة دوم',
+          idea: 'The best of each, in one. Doum farms a small round world (F), and at its crown stands one date palm (C) that grows with you from the very first day, so the whole thing reads as one shape even when tiny (B). Medals ripen the palm’s dates, quiet days are drawn the quiet way, and Doum stays exactly as he is.',
+          grows: 'The palm at the crown grows every level: a shoot in the sand, a young palm, a tall palm, a great palm. Around it, the planet’s 35 things and Doum’s farm rows. After 35 the palm keeps growing to 100.',
+          medals: 'Five date bunches on the palm, one per medal family. Each tier ripens its bunch the way dates ripen: hababou, khalal, rutab, tamr.',
+          weeks: 'A pearl in the sea at the palm’s foot.',
+          quiet: 'Quiet, not dry: colours stay healthy, the rows rest, Doum waits by the palm with his can. One habit wakes it.',
+          good: ['Doum works it, and you watch: the strongest reason people care (F).', 'One palm on a round world: readable as an icon, a widget, a Profile card (B and C).', 'Unmistakably Gulf: an oasis, the palm, rutab, a spring, pearls.'],
+          hard: ['Still the most to draw of the cheap ones: shipped in small waves so each step stays small.', 'The palm must stay the biggest thing; side details only on its page.', 'Needs the Doum at work sheet for the farming moments.'],
+          like: 'Closest to: nothing that exists. A palm grove with a spring, on a planet the size of the Little Prince’s.' },
+        { ...base, isPlanet: true, tag: 'A', chip: '#2F6B3A', name: 'Doum’s planet', ar: 'كوكب دوم',
+          idea: 'A whole small world. Every level puts one new thing on it: a well, a lemon tree, Doum’s house, the sea, a boat, a palm grove, and at 35 a great tree.',
+          grows: '35 different things, one per level, then the great tree grows every 5 levels to 100.',
+          medals: 'A flower in the grass per medal; the family picks the kind.',
+          weeks: 'A pearl in the sea.',
+          quiet: 'Paler ground, flowers closed, the spring low.',
+          good: ['The most to discover: something different every level for a year.', 'Room for the Gulf: palms, a wind tower, the sea, pearls, a sidr tree.', 'A whole place feels like Doum’s home.'],
+          hard: ['Busy when small: a widget or a Profile thumbnail shows a crowd of little things.', 'Things on the sides of a round planet lean sideways.', 'The most art to draw and keep consistent.'],
+          like: 'Closest to: Animal Crossing, Tiny Habits: Shape Your World, The Little Prince.' },
+        { ...base, isTree: true, tag: 'B', chip: '#3C6E8F', name: 'Doum’s tree', ar: 'شجرة دوم',
+          idea: 'One tree, from a seed beside Doum to a great tree he sits under. Levels make it bigger and bring things to live in it and around it.',
+          grows: 'Seed, shoot, sapling with its stake, young tree, tree, big tree. Between the steps: a bench, a swing, a treehouse, lanterns, a pond and a hive at its feet.',
+          medals: 'A fruit on the branches per medal, five fruits for five families: lemon, pomegranate, orange, fig, date.',
+          weeks: 'A small lantern hung in its branches.',
+          quiet: 'Leaves paler, a few on the ground, the lanterns dim. The fruit stays.',
+          good: ['Reads in a second, even tiny: the best shape for a widget and the Profile card.', 'The clearest picture of the app’s name: Grow Daily, a sprout that grows a tree.', 'Simplest to build and to keep beautiful.'],
+          hard: ['Less to discover: many levels only make it a little bigger.', 'After a year it looks finished; seasons and fruit carry it from there.', 'Two growing plants in the app: the app icon already grows from seedling to bloom.'],
+          like: 'Closest to: Forest, Ghiras, Plant Nanny 2.' },
+        { ...base, isPalm: true, tag: 'C', chip: '#8A6414', name: 'Doum’s palm', ar: 'نخلة دوم',
+          idea: 'A date palm, from a shoot in the sand to a tall palm with offshoots and a grove. The tree of Arabia, loved wherever Muslims live.',
+          grows: 'Shoot, young palm, tall palm; offshoots at 25 and 30, a grove at 35; lanterns in the fronds.',
+          medals: 'Dates. Each medal family is a bunch, and its four tiers ripen it the way dates ripen: hababou, khalal, rutab, tamr.',
+          weeks: 'A small lantern in the fronds.',
+          quiet: 'Fronds paler, a few on the ground.',
+          good: ['Unmistakably Gulf: nobody else has this.', 'Dates for medals feel like a harvest you earned.', 'As clear and cheap as the tree.'],
+          hard: ['A palm changes little once grown, so fewer distinct rewards per level.', 'Less obvious to people outside the Gulf.', 'Fruit can’t vary the way a tree’s can.'],
+          like: 'Closest to: nothing in the store, which is the point.' },
+        { ...base, isFarm: true, tag: 'D', chip: '#9A5A2E', name: 'Doum’s farm', ar: 'مزرعة دوم',
+          idea: 'A field of 35 plots. Each level plants one, so you always see exactly how far you are: a stamp card you can water.',
+          grows: 'One plot per level, 35 in all: vegetables, flowers, fruit trees, a well, a hive. After 35: a barn, then more buildings every few levels.',
+          medals: 'Flowers along the hedge.',
+          weeks: 'A basket of harvest stacked by Doum.',
+          quiet: 'Dry, cracked soil, flowers closed.',
+          good: ['One level, one plot: the clearest sense of how far you are.', 'Finishing a set is a strong pull (HBS research).', 'Quiet days show plainly as dry soil.'],
+          hard: ['Looks like another grid next to the habit Grid.', 'Flat and less magical than a world or a tree.', 'Needs a new idea after plot 35.'],
+          like: 'Closest to: Hay Day, Stardew Valley, a loyalty card.' },
+        { ...base, isDoum: true, tag: 'E', chip: '#7A4E8A', name: 'Doum grows himself', ar: 'دوم يكبر',
+          idea: 'No new place. Doum himself changes: a bud between his leaves at level 10, a flower at 20, more flowers later.',
+          grows: 'A few big steps on Doum himself, every few levels at most.',
+          medals: 'Hard to show on him without crowding his face.',
+          weeks: 'No natural place.',
+          quiet: 'Not allowed on him: rule 2 says Doum never shows a missed day. A pot beside him would have to carry it.',
+          good: ['Changes the face people already know and like.', 'Nothing new to learn or open.', 'Shows on every screen he is on.'],
+          hard: ['Every one of his 130 poses would need redrawing per stage, or he looks different from screen to screen.', 'Quiet days can’t show at all.', 'Risks the identity you just built the default theme and icon on.'],
+          like: 'Closest to: Pokémon evolving, Finch’s bird growing up.' },
+        { ...base, isFarmPlanet: true, tag: 'F', chip: '#B5651D', name: 'Doum farms his planet', ar: 'دوم يزرع كوكبه',
+          idea: 'The planet, but Doum works it as his farm. Your habits are his water and your levels are his seeds: he plants, waters and picks with his own hands, and the planet’s face turns into tilled rows that ripen.',
+          grows: 'The planet’s 35 things, with crop rows (lettuce, tomatoes, carrots) where the garden flowers were and the vegetable bed growing into a farm. Each new thing, Doum plants himself.',
+          medals: 'Flowers and fruit that ripen.',
+          weeks: 'A pearl in the sea, or a basket of harvest by his house.',
+          quiet: 'The furrows dry, crops pale; Doum waits by the well with his can.',
+          good: ['Doum has a job. A companion with a life of its own is what people bond with (Tsuki, Finch’s adventures).', 'Plant, water, wait, harvest: the loop farm games are loved for, and it is already the app’s name.', 'Answers “a farm that Doum works on” and keeps the planet’s variety.'],
+          hard: ['Needs a new sheet of Doum at work: digging, carrying a basket, picking, a wheelbarrow.', 'Busiest at small sizes, like the planet.', 'The most to animate: every new thing is a little scene of him planting it.'],
+          like: 'Closest to: Hay Day, Stardew Valley, Tsuki Adventure.' }
+      ],
+      howG: [
+        { t: 'People care:', d: 'Doum farms it with your water and plants every new thing himself. Watching effort spent for you, on something that is never undone, is what makes people value it.' },
+        { t: 'Reads at a glance:', d: 'one palm on a round world is a single shape. The card, the widget and the icon draw only the palm, Doum and the sea; the page holds the detail.' },
+        { t: 'New for a year:', d: 'the palm grows every level, the planet’s 35 things and the farm rows fill in around it, dates ripen, pearls gather, seasons turn.' },
+        { t: 'Gulf and Muslim:', d: 'an oasis, the date palm, rutab, a spring, a barjeel, pearls. No reward claims, nothing about worship, nothing for sale.' },
+        { t: 'Quiet days kindly:', d: 'drawn quiet, not dry, with a switch on the admin page; one habit wakes it.' },
+        { t: 'Cheap to build:', d: 'drawn in code like this canvas, so wave 1 is the palm, the world and the card, about the size of the tree on its own. Everything else comes in small waves.' },
+        { t: 'Safe for Doum:', d: 'he is not redrawn. He lives there, beside his palm.' }
+      ],
+      rows: [
+        row('People come to care about it', [5, 4, 4, 3, 5, 5, 5]),
+        row('Reads at a glance, even small', [3, 5, 5, 3, 4, 3, 5]),
+        row('Something new for a whole year', [5, 3, 2, 4, 2, 5, 5]),
+        row('Feels Gulf and Muslim', [4, 3, 5, 3, 3, 4, 5]),
+        row('Shows quiet days kindly', [4, 5, 4, 5, 1, 5, 5]),
+        row('Cheap to build and keep', [2, 4, 5, 3, 1, 2, 5]),
+        row('Safe for Doum’s identity', [5, 5, 5, 5, 2, 5, 5])
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

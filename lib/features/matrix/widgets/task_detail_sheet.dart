@@ -19,8 +19,10 @@ import '../../auth/notifiers/auth_notifier.dart';
 import '../models/matrix_task.dart';
 import '../notifiers/matrix_notifier.dart';
 import '../task_day.dart' show taskDay;
+import '../task_prayer.dart' show PrayerSlot;
 import '../../../shared/widgets/overlay_notice.dart';
 import 'quadrant_card.dart' show ActionRow;
+import 'task_prayer_picker.dart';
 import 'reminder_picker.dart'
     show
         ReminderPicker,
@@ -98,6 +100,10 @@ class TaskDetailSheet extends ConsumerStatefulWidget {
     List<DateTime> reminderAts, {
     DateTime? reminderAnchorAt,
 
+    /// The prayer the anchor was picked from, see MatrixTask.reminderPrayer;
+    /// null for a clock time, which takes an old prayer off.
+    PrayerSlot? reminderPrayer,
+
     /// The reminder style, see MatrixTask.alarm. Null leaves it as it was.
     bool? alarm,
   }) onSetReminders;
@@ -143,6 +149,9 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   DateTime? _anchorAt;
   Set<int> _offsets = {};
 
+  /// The prayer [_anchorAt] was picked from, see MatrixTask.reminderPrayer.
+  PrayerSlot? _prayer;
+
   /// The reminder style, see MatrixTask.alarm and [_setAlarm].
   bool _alarm = false;
 
@@ -173,6 +182,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     // whatever it hands back is genuinely one of the moments this task fires
     // at — which is what lets the offsets below be honest about direction.
     _anchorAt = widget.task.reminderAnchorAt;
+    _prayer = widget.task.reminderPrayer;
     _alarm = widget.task.alarm;
     _offsets = offsetsFrom(
       anchor: _anchorAt,
@@ -210,7 +220,22 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     super.dispose();
   }
 
+  /// True while [_toggleRecording] is starting or stopping a take. The same
+  /// double-tap guard as AddTaskSheet's, see its _togglingRecording: two
+  /// starts armed two timers, and a second stop could start a new take.
+  bool _togglingRecording = false;
+
   Future<void> _toggleRecording() async {
+    if (_togglingRecording) return;
+    _togglingRecording = true;
+    try {
+      await _toggleRecordingOnce();
+    } finally {
+      _togglingRecording = false;
+    }
+  }
+
+  Future<void> _toggleRecordingOnce() async {
     // Only STARTING a take is Premium. Asked before the stop too, a take
     // still running when Premium ended could not be stopped: Stop opened
     // the paywall, and at the cap the timer below called this every second
@@ -375,7 +400,21 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
       ),
     );
     if (picked == null || !mounted) return;
-    await _commit(anchor: picked, offsets: _offsets);
+    await _commit(anchor: picked, offsets: _offsets, prayer: null);
+  }
+
+  /// The anchor by a prayer, the habit way (pickTaskPrayerReminder), on the
+  /// day the task is on: its time's day, or the day it shows on.
+  Future<void> _pickPrayer() async {
+    final anchor = _anchorAt;
+    final picked = await pickTaskPrayerReminder(
+      context,
+      ref,
+      day: anchor?.toLocal() ?? taskDay(_liveTask),
+      current: _prayer,
+    );
+    if (picked == null || !mounted) return;
+    await _commit(anchor: picked.at, offsets: _offsets, prayer: picked.prayer);
   }
 
   /// The task as the board holds it now. It can be ahead of widget.task:
@@ -393,6 +432,7 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
     HapticFeedback.lightImpact();
     setState(() {
       _anchorAt = null;
+      _prayer = null;
       _offsets = {};
     });
     widget.onSetReminders(widget.task.id, const []);
@@ -424,20 +464,27 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
   /// flutter_local_notifications never activates the notification, even once
   /// the user grants it a moment later; that's what used to make a task's
   /// first-ever reminder silently never fire.
+  ///
+  /// [prayer] is the anchor's prayer when the anchor itself changes: null
+  /// for a clock time. Left out, the task keeps the one it has (an offset
+  /// chip or the alarm choice does not move the anchor).
   Future<void> _commit({
     required DateTime? anchor,
     required Set<int> offsets,
+    Object? prayer = _keepPrayer,
   }) async {
     final granted = await NotificationService.instance.requestPermissions();
     if (!mounted) return;
     setState(() {
       _anchorAt = anchor;
       _offsets = offsets;
+      if (!identical(prayer, _keepPrayer)) _prayer = prayer as PrayerSlot?;
     });
     widget.onSetReminders(
       widget.task.id,
       _reminderAts,
       reminderAnchorAt: _anchorAt,
+      reminderPrayer: _anchorAt == null ? null : _prayer,
       alarm: _alarm,
     );
     if (!granted && mounted) {
@@ -452,6 +499,8 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
       );
     }
   }
+
+  static const _keepPrayer = Object();
 
   /// Save-and-close. The write itself still happens in dispose(), the same
   /// path a swipe-dismiss takes — this is deliberately not a second save
@@ -675,6 +724,10 @@ class _TaskDetailSheetState extends ConsumerState<TaskDetailSheet> {
                       isAr: isAr,
                       canStack: canAddAnotherReminder(ref, _reminderAts.length),
                       onPickAnchor: _pickAnchor,
+                      onPickPrayer: _pickPrayer,
+                      prayerLabel: _prayer == null
+                          ? null
+                          : taskPrayerSentence(_prayer!, S.of(context)),
                       onClear: _clearReminders,
                       onToggleOffset: _toggleOffset,
                       onLocked: () => showReminderLimitGate(context, ref),

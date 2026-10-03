@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Art to generate</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 40px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 1040px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">For you to generate</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">Art to generate in ChatGPT</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">Same format as the October sheets, so the pipeline you already have cuts them: 4 columns by 3 rows, 1536 × 1024, numbered row by row. Paste the style block, then one sheet’s list. Only the sheets for the direction you pick are needed; the sky, the ground and the sea stay drawn in code so they can change colour smoothly.</p>
+</header>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 1fr)); gap: 16px;">
+<div style="background: #23352A; color: #F5F0E1; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;"><h2 style="margin: 0; font-size: 22px; font-weight: 700;">Style block: objects</h2><span style="font-size: 13px; color: #C9D6C3;">for every world sheet</span></div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px;">A sticker sheet of 12 separate objects for a cute children’s-app world, in the same style as the green sprout mascot I attached. 4 columns × 3 rows, 1536 × 1024 px, each cell 384 × 341 px with 48 px of clear space inside every edge. Transparent background.
+Style: thick dark green outline (#1E3A24, about 6 px), flat fills with one soft lighter shade, no gradients, no textures, no shadows on the ground.
+Every object stands on the same invisible baseline 50 px above the bottom of its cell, centred left to right, seen from the front and slightly above.
+Scale: a tree is about twice the height of the mascot’s body; a bush about half. Keep that scale identical in every cell.
+Palette: leaves #5DAE5F and #4C9A55, palm fronds #62B261, trunks #A9774A, soil #9C6B43, sand #E4BE88, water #7FC4E2, roof #C8754F, mud brick #EBD5AA, lemon #F4D35E, pomegranate #D9534F, pink #F49AB0, gold #F2C14E.
+No text, no numbers, no letters. No faces on anything: no eyes or smiles on trees, flowers, clouds, the moon or the sun. No people, no animals, no birds, no insects, no mascot. One object per cell, nothing touching the cell edges.</div>
+</div>
+<div style="background: #23352A; color: #F5F0E1; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;"><h2 style="margin: 0; font-size: 22px; font-weight: 700;">Style block: Doum</h2><span style="font-size: 13px; color: #C9D6C3;">for the Doum at work sheet</span></div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px;">The same green sprout mascot as the attached sheet, 12 poses. 4 columns × 3 rows, 1536 × 1024 px, each cell 384 × 341 px, 48 px clear space inside every edge, transparent background.
+Exactly the same character in every cell: boxy green body #74C878, cream belly and two cream leaves #F5F0E1 (always two leaves, always visible), pink cheeks, dark green outline #1E3A24, body 150 px tall without the leaves, feet on a line 50 px above the bottom of the cell.
+Happy or calm in every pose. No sad, worried or tired faces, no tears, no sweat drops. No text, numbers, music notes, crowns or medals. No praying, Quran, prayer beads or prayer mat. No food or drink in his mouth.</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<sc-for list="{{sheets}}" as="s" hint-placeholder-count="9">
+<article style="background: #FFFFFF; border-radius: 20px; padding: 22px 24px; display: flex; flex-direction: column; gap: 10px;">
+<div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+<span style="background: {{s.chip}}; color: #FFFFFF; font-size: 13px; font-weight: 700; padding: 4px 11px; border-radius: 999px;">{{s.id}}</span>
+<h3 style="margin: 0; font-size: 20px; font-weight: 700;">{{s.t}}</h3>
+</div>
+<div style="font-size: 14px; color: #6B7A6F;">{{s.for}} · style block: {{s.style}}</div>
+<ol style="margin: 0; padding-inline-start: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; font-size: 14.5px; line-height: 1.4; color: #45574B;">
+<sc-for list="{{s.items}}" as="i" hint-placeholder-count="12"><li>{{i}}</li></sc-for>
+</ol>
+</article>
+</sc-for>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">What I do when a sheet arrives</h2>
+<ol style="margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.5; color: #45574B;">
+<li>The October pipeline: recolour to the exact hexes, cut by cell, measure each object, upscale.</li>
+<li>Give each object its base point, so it stands on its slot and grows from there.</li>
+<li>Check scale against Doum in a line-up, and every object on the dark theme (rule 6).</li>
+<li>Send you a contact sheet before anything goes in the app; redo cells you don’t like.</li>
+</ol>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Why split parts</h2>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">A palm sways from its crown and a flower opens from its head. If the trunk and crown come as separate stickers, they animate naturally; one flat picture can only bob as a whole. Sheet X is those parts, plus the small effects (drops, splash, puff, sparkle) so every moment on the Motion board has real art.</div>
+<div style="font-size: 15px; line-height: 1.55; color: #45574B;">The lesson from drawing this canvas: a round canopy with fruit dots and a curved nest under it reads as a smiling face. The style block forbids faces, and the contact sheet catches the rest.</div>
+</div>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":4200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      sheets: [
+        { id: 'D', chip: '#7A4E8A', t: 'Doum at work', for: 'every direction, needed most by F', style: 'Doum',
+          items: ['digging with a small spade, a little soil flying', 'planting a sapling into a hole with both hands', 'carrying a woven basket of dates in both arms', 'pushing a small wooden wheelbarrow of soil',
+            'holding up a lemon he just picked, proud', 'holding a single pearl up to the light, delighted', 'sitting with his legs dangling over a flat edge, looking out (flat bottom, like the peek pose)', 'lighting a hanging lantern with a long stick',
+            'kneeling, patting the soil round a tiny sprout', 'holding a big seed in both hands, eyes sparkling', 'scattering a handful of seeds, seeds in the air', 'asleep leaning against a short tree trunk (trunk ends flat at the top)'] },
+        { id: 'W1', chip: '#2F6B3A', t: 'The world: levels 3 to 14', for: 'A planet and F farm planet', style: 'objects',
+          items: ['three flat stepping stones', 'a clump of three pink flowers', 'a small stone well with a tiled roof and a bucket', 'a date palm shoot: five fronds from the ground, no trunk',
+            'a paper kite with a tail', 'a round jasmine bush with small white flowers', 'a raised wooden vegetable bed with three seedlings', 'a small lemon tree with five lemons',
+            'a small oval spring ringed with stones', 'a small basket of lemons', 'a rose bush with four roses', 'a small pomegranate tree with four fruits'] },
+        { id: 'W2', chip: '#2F6B3A', t: 'The world: levels 15 to 26', for: 'A planet and F farm planet', style: 'objects',
+          items: ['a small mud-brick house, arched wooden door, a parapet with triangle crenellations (Gulf style)', 'a wind tower (barjeel) as its own piece, to sit on that roof', 'two brass hanging lanterns', 'a sidr tree: wide flat canopy, small orange fruit',
+            'a straw beehive, no bees', 'a tall date palm with a gently curved, ringed trunk', 'a small wooden dhow with one cream lateen sail', 'three bunches of dates, small, medium, large',
+            'a brass telescope on a tripod', 'two young palms together', 'a crescent moon', 'a white rain cloud with three drops below it'] },
+        { id: 'W3', chip: '#2F6B3A', t: 'Levels 28 to 35, and the great tree', for: 'A planet and F farm planet', style: 'objects',
+          items: ['a rope swing with a wooden seat, ropes ending flat at the top', 'a small farm: three crop rows behind a low fence', 'a grape vine on a wooden trellis, purple bunches', 'a wooden bench',
+            'a rose arch', 'a falaj: a short stone channel of water', 'a small rainbow', 'the great tree, young',
+            'the great tree, grown, very wide canopy', 'the great tree with pink blossom', 'an open shell with a pearl', 'a harvest basket: dates, lemons, pomegranates'] },
+        { id: 'W4', chip: '#2F6B3A', t: 'Medal flowers', for: 'every direction', style: 'objects',
+          items: ['lavender, open', 'lavender, closed bud', 'sunflower, open', 'sunflower, closed bud', 'daisy, open', 'daisy, closed bud', 'tulip, open', 'tulip, closed bud',
+            'wild rose, open', 'wild rose, closed bud', 'a single pearl', 'a tiny two-leaf sprout'] },
+        { id: 'F', chip: '#B5651D', t: 'Farm rows', for: 'D farm and F farm planet', style: 'objects',
+          items: ['a row of lettuces', 'a row of carrots, leaves up', 'a row of tomato plants', 'a row of corn', 'a row of strawberries', 'a pumpkin patch',
+            'a row of mint', 'a row of peppers', 'a melon on its vine', 'a small wooden wheelbarrow', 'a watering can', 'a straw basket of vegetables'] },
+        { id: 'T', chip: '#3C6E8F', t: 'The tree, stage by stage', for: 'B tree', style: 'objects',
+          items: ['a soil mound with a two-leaf sprout', 'a shoot with three pairs of leaves', 'a sapling tied to a wooden stake', 'a young tree, round canopy',
+            'a tree with two branches into a wider canopy', 'a big tree, very wide canopy, a low side branch', 'the big tree in blossom', 'the big tree with mixed fruit: lemons, pomegranates, figs',
+            'a small treehouse platform with a roof', 'a wooden bench', 'a straw beehive, no bees', 'five loose fallen leaves, scattered'] },
+        { id: 'P', chip: '#8A6414', t: 'The palm, stage by stage', for: 'C palm', style: 'objects',
+          items: ['a sand mound with a palm shoot', 'an offshoot clump, five fronds', 'a young palm, short ringed trunk', 'a tall palm, curved ringed trunk',
+            'the tall palm with four date bunches', 'a small grove: one tall palm, two young', 'two small offshoots at a palm’s foot', 'a small lantern hanging from a palm frond (frond ends flat)',
+            'a brass lantern hanging from a short rope', 'a basket of fresh dates', 'three fallen dry frond pieces', 'a wooden ladder leaning, ends flat'] },
+        { id: 'X', chip: '#45574B', t: 'Parts, for animation', for: 'every direction', style: 'objects',
+          items: ['a palm crown alone, no trunk', 'a palm trunk alone, flat top', 'a tree canopy alone', 'a tree trunk with branches, no leaves', 'a flower head alone, open', 'a flower head alone, bud',
+            'an arc of water from a can’s spout', 'three water drops', 'a small water splash', 'a soil puff, five specks', 'a four-point sparkle', 'a ripple ring on water'] }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

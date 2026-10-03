@@ -13,6 +13,7 @@ import 'package:grow_daily_v2/features/grid/notifiers/weekly_grid_notifier.dart'
 import 'package:grow_daily_v2/features/grid/widgets/weekly_recap_card.dart';
 import 'package:grow_daily_v2/features/habits/catalog/islamic_habit_catalog.dart';
 import 'package:grow_daily_v2/features/habits/models/habit_model.dart';
+import 'package:grow_daily_v2/features/habits/models/weekly_quota_plan.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
 
 void main() {
@@ -224,7 +225,7 @@ void main() {
     ) =>
         (id, day) => marks[day.day] ?? SquareState.none;
 
-    ({int done, int scheduled, List<RecapDot> dots}) rowAt(
+    ({double done, double scheduled, List<RecapDot> dots}) rowAt(
       Map<int, SquareState> marks,
       DateTime now,
     ) =>
@@ -374,9 +375,9 @@ void main() {
       );
     });
 
-    // Three times a week, any three. The recap has always counted such a
-    // habit day by day, like any other, and still does: only the days still
-    // open are held back.
+    // Three times a week, any three. Counted until 2026-10-03 like a daily
+    // habit, every day it was alive owed; now by its week's own rule, the
+    // one the rooms and the Grid read (weekly_quota_plan.dart).
     final gym3 = IslamicHabitTemplate(
       id: 'gym3',
       name: 'gym3',
@@ -389,56 +390,166 @@ void main() {
       goldReward: 5,
     );
 
-    test('a quota habit is missed day by day, once each day has closed', () {
-      // Saturday to Tuesday done; Wednesday, Thursday and Friday blank.
+    /// Saturday the 12th at the cutoff: the week has sealed.
+    final sealed = DateTime(2026, 9, 12, kDayCutoffHour);
+
+    test('a quota habit done in full has nothing missed', () {
+      // Saturday to Tuesday done, three times a week met by Monday: its
+      // blank Wednesday to Friday are the rest it earned. Named the habit
+      // that needed attention until 2026-10-03.
       final marks = {for (var d = 5; d <= 8; d++) d: SquareState.complete};
+      for (final now in [beforeCutoff, atCutoff, sealed]) {
+        expect(
+          mostMissedHabitThisWeek(
+            habits: [gym3],
+            days: week,
+            squareFor: squares(marks),
+            now: now,
+          ),
+          isNull,
+          reason: '$now',
+        );
+      }
+    });
+
+    test('a quota habit is missed on the days its week broke on, once closed',
+        () {
+      // One session, on Saturday: Thursday and Friday are the days the
+      // target broke on, the days the Grid paints red.
+      final marks = {5: SquareState.complete};
       IslamicHabitTemplate? most(DateTime now) => mostMissedHabitThisWeek(
             habits: [gym3],
             days: week,
             squareFor: squares(marks),
             now: now,
           );
-      expect(
-        most(beforeCutoff),
-        isNull,
-        reason: 'only Wednesday has closed, and one miss is life',
-      );
-      expect(
-        most(atCutoff)?.id,
-        'gym3',
-        reason: 'Thursday has closed blank as well',
-      );
+      expect(most(atCutoff), isNull, reason: 'Friday is still open');
+      expect(most(sealed)?.id, 'gym3', reason: 'Thursday and Friday');
     });
 
-    test('a quota row counts every settled day it was alive, and rings its '
-        'closed blanks', () {
-      ({int done, int scheduled, List<RecapDot> dots}) row(
+    test('a quota row asks its sessions and the days its week broke on', () {
+      ({double done, double scheduled, List<RecapDot> dots}) row(
         Map<int, SquareState> marks,
+        DateTime now,
       ) =>
           habitWeekRow(
             habit: gym3,
             days: week,
             squareOn: (day) => marks[day.day] ?? SquareState.none,
-            now: atCutoff,
+            now: now,
           );
-      final twoDone = row({5: SquareState.complete, 6: SquareState.complete});
-      expect((twoDone.done, twoDone.scheduled), (2, 6));
+      final twoMarks = {5: SquareState.complete, 6: SquareState.complete};
+      final twoDone = row(twoMarks, atCutoff);
+      expect((twoDone.done, twoDone.scheduled), (2, 2));
       expect(twoDone.dots, [
         RecapDot.done,
         RecapDot.done,
-        RecapDot.missed,
-        RecapDot.missed,
-        RecapDot.missed,
-        RecapDot.missed,
-        // Friday is still open.
+        // Spare: enough days followed each of them to make the target.
+        RecapDot.covered,
+        RecapDot.covered,
+        RecapDot.covered,
+        RecapDot.covered,
+        // Owed, and still open.
         RecapDot.quiet,
       ]);
-      final blank = row(const {});
-      expect((blank.done, blank.scheduled), (0, 6));
+      final twoSealed = row(twoMarks, sealed);
+      expect((twoSealed.done, twoSealed.scheduled), (2, 3));
+      expect(twoSealed.dots.last, RecapDot.missed);
+      final blank = row(const {}, atCutoff);
+      expect((blank.done, blank.scheduled), (0, 2));
       expect(blank.dots, [
-        for (var i = 0; i < 6; i++) RecapDot.missed,
+        for (var i = 0; i < 4; i++) RecapDot.covered,
+        RecapDot.missed,
+        RecapDot.missed,
         RecapDot.quiet,
       ]);
+    });
+
+    group('halves add up (Aziz, 2026-10-03)', () {
+      final gym4 = IslamicHabitTemplate(
+        id: 'gym4',
+        name: 'gym4',
+        nameAr: 'تمرين',
+        description: '',
+        category: HabitCategory.fitness,
+        frequencyType: HabitFrequencyType.weekly,
+        frequencyTarget: 4,
+        hasTimer: false,
+        xpReward: 10,
+        goldReward: 5,
+      );
+      const w = SquareState.complete;
+      const h = SquareState.partial;
+      ({double done, double scheduled, List<RecapDot> dots}) row(
+        Map<int, SquareState> marks,
+      ) =>
+          habitWeekRow(
+            habit: gym4,
+            days: week,
+            squareOn: (day) => marks[day.day] ?? SquareState.none,
+            now: sealed,
+          );
+
+      test("his week of 26 September: W W - ½ ½ W - is 4/4, nothing missed",
+          () {
+        final marks = {5: w, 6: w, 8: h, 9: h, 10: w};
+        final r = row(marks);
+        expect((r.done, r.scheduled), (4, 4));
+        expect(recapRowCount(done: r.done, scheduled: r.scheduled), '4/4');
+        expect(r.dots, [
+          RecapDot.done,
+          RecapDot.done,
+          RecapDot.covered,
+          RecapDot.partial,
+          RecapDot.partial,
+          RecapDot.done,
+          RecapDot.covered,
+        ]);
+        expect(
+          mostMissedHabitThisWeek(
+            habits: [gym4],
+            days: week,
+            squareFor: squares(marks),
+            now: sealed,
+          ),
+          isNull,
+        );
+      });
+
+      test('two halves and nothing else: 1/4, the last two days missed', () {
+        final marks = {5: h, 6: h};
+        final r = row(marks);
+        expect(recapRowCount(done: r.done, scheduled: r.scheduled), '1/4');
+        expect(r.dots, [
+          RecapDot.partial,
+          RecapDot.partial,
+          RecapDot.covered,
+          RecapDot.covered,
+          RecapDot.covered,
+          RecapDot.missed,
+          RecapDot.missed,
+        ]);
+        expect(
+          mostMissedHabitThisWeek(
+            habits: [gym4],
+            days: week,
+            squareFor: squares(marks),
+            now: sealed,
+          )?.id,
+          'gym4',
+        );
+      });
+
+      test('three whole and one half: 3.5/4', () {
+        final r = row({5: w, 6: w, 7: w, 8: h});
+        expect(recapRowCount(done: r.done, scheduled: r.scheduled), '3.5/4');
+      });
+
+      test('four whole and a half: the half is drawn, the week is 4/4', () {
+        final r = row({5: w, 6: w, 7: w, 8: w, 9: h});
+        expect(recapRowCount(done: r.done, scheduled: r.scheduled), '4/4');
+        expect(r.dots[4], RecapDot.partial);
+      });
     });
   });
 
@@ -510,9 +621,10 @@ void main() {
       );
     });
 
-    test('a quota row past its target still counts its settled days', () {
+    test('a quota row past its target counts its sessions, not its rest', () {
       // Friday 05:00: four sessions Saturday to Tuesday, Wednesday closed
-      // blank, Thursday and Friday still open.
+      // blank, Thursday and Friday still open. Wednesday was rest the week
+      // had earned; it read 4/5 until 2026-10-03.
       final marks = {for (var d = 5; d <= 8; d++) d: SquareState.complete};
       expect(
         countOf(
@@ -520,7 +632,7 @@ void main() {
           marks,
           fri0500,
         ),
-        '4/5',
+        '4/4',
       );
     });
   });
@@ -564,7 +676,6 @@ void main() {
         target: 2,
         weekdays: const [DateTime.monday, DateTime.thursday],
       ),
-      template('three', type: HabitFrequencyType.weekly, target: 3),
     ];
     const alphabet = [
       SquareState.none,
@@ -677,6 +788,9 @@ void main() {
             final cover = movedCover(habit, marks, now);
             var offPlan = 0;
             var coveredSettled = 0;
+            // A جزئي is half a day (Aziz, 2026-10-03: "make all 0.5
+            // counts"), on every settled day the row counts.
+            var halves = 0;
             final dots = <RecapDot>[];
             for (var i = 0; i < week.length; i++) {
               final settled =
@@ -688,6 +802,9 @@ void main() {
               if (isOffPlan) offPlan++;
               if (cover.contains(i) && settled) coveredSettled++;
               if (scheduled && !settled) heldBack++;
+              if (scheduled && settled && marks[i] == SquareState.partial) {
+                halves++;
+              }
               if (scheduled &&
                   settled &&
                   !cover.contains(i) &&
@@ -705,7 +822,7 @@ void main() {
                             : old.dots[i],
               );
             }
-            final expectDone = old.done + offPlan;
+            final expectDone = old.done + offPlan + 0.5 * halves;
             final expectScheduled =
                 old.scheduled - heldBack + offPlan - coveredSettled;
             final row = habitWeekRow(
@@ -730,6 +847,104 @@ void main() {
             if ((named != null) != (misses >= 2)) {
               failures.add('most missed ${label()}: $named at $misses misses');
             }
+          }
+        }
+      }
+      expect(
+        failures.take(10).toList(),
+        isEmpty,
+        reason: '${failures.length} failures',
+      );
+    });
+
+    test('a flexible quota row is its week by the quota rule, on the same '
+        'sample', () {
+      // Counted every day it was alive until 2026-10-03. Now: the days the
+      // week asked (weeklyQuotaDemand: sessions, a جزئي holding a place,
+      // and the days the target broke on), once settled; a whole session 1,
+      // a half 0.5, two halves sharing the last place half a day asked each
+      // (quotaWeekSharedHalves). A miss is a settled owed day not marked
+      // تخطّي.
+      final three = template('three', type: HabitFrequencyType.weekly, target: 3);
+      final clocks = [
+        DateTime(2026, 9, 11, 5, 19),
+        DateTime(2026, 9, 11, kDayCutoffHour),
+        DateTime(2026, 9, 12, kDayCutoffHour),
+      ];
+      final total = pow(alphabet.length, week.length).toInt();
+      final random = Random(20261003);
+      final codes = {
+        0,
+        total - 1,
+        for (var i = 0; i < 4000; i++) random.nextInt(total),
+      };
+      final failures = <String>[];
+      for (final code in codes) {
+        final marks = <SquareState>[];
+        var x = code;
+        for (var i = 0; i < week.length; i++) {
+          marks.add(alphabet[x % alphabet.length]);
+          x ~/= alphabet.length;
+        }
+        final whole = {
+          for (var i = 0; i < 7; i++)
+            if (marks[i].isGreen) i,
+        };
+        final half = {
+          for (var i = 0; i < 7; i++)
+            if (!whole.contains(i) && marks[i] == SquareState.partial) i,
+        };
+        final demand = weeklyQuotaDemand(
+          dayCount: 7,
+          doneDays: whole,
+          halfDays: half,
+          target: 3,
+        );
+        final shared = quotaWeekSharedHalves(
+          dayCount: 7,
+          doneDays: whole,
+          halfDays: half,
+          target: 3,
+        );
+        for (final now in clocks) {
+          var done = 0.0;
+          var asked = 0.0;
+          var misses = 0;
+          for (var i = 0; i < 7; i++) {
+            final settled =
+                week[i].isSettledAt(now, answered: marks[i].answersDay);
+            final future = week[i].isAfter(now.effectiveDay);
+            if (future || !settled || demand[i].isRest) continue;
+            if (demand[i] == DayDemand.half) {
+              asked += shared.contains(i) ? 0.5 : 1;
+              done += 0.5;
+            } else {
+              asked += 1;
+              if (marks[i].isGreen) done += 1;
+            }
+            if (demand[i] == DayDemand.owed &&
+                marks[i] != SquareState.skipped) {
+              misses++;
+            }
+          }
+          final row = habitWeekRow(
+            habit: three,
+            days: week,
+            squareOn: (day) => marks[day.day - 5],
+            now: now,
+          );
+          if (row.done != done || row.scheduled != asked) {
+            failures.add('$marks at $now: ${row.done}/${row.scheduled}, '
+                'expected $done/$asked');
+          }
+          final named = mostMissedHabitThisWeek(
+            habits: [three],
+            days: week,
+            squareFor: (_, day) => marks[day.day - 5],
+            now: now,
+          );
+          if ((named != null) != (misses >= 2)) {
+            failures.add('most missed $marks at $now: $named, $misses misses');
           }
         }
       }

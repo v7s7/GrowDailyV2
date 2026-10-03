@@ -106,8 +106,8 @@ String appGuideLessonCoachBody(AppGuideLesson lesson, bool isAr) =>
 // ─── "Discover Rooms" completion ───────────────────────────────────────────
 //
 // The other three lessons derive "done" from real data that already exists
-// (habitListProvider non-empty, dashboardProvider's cumulativeXp > 0,
-// matrixProvider's tasks non-empty — see AppGuideScreen). Rooms has no
+// (habitListProvider non-empty, a habit mark on the dashboard, matrixProvider's
+// tasks non-empty — see guideStepsProvider). Rooms has no
 // equivalent: guests can't join or create a room at all (RoomsHubScreen's
 // own _GuestGate covers that), and a signed-in person might visit without
 // ever joining one, so "is in a room" would never fire for a guest and

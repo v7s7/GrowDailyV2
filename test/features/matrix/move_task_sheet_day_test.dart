@@ -28,6 +28,7 @@ import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/notifiers/matrix_notifier.dart';
 import 'package:grow_daily_v2/features/matrix/task_day.dart';
+import 'package:grow_daily_v2/features/matrix/task_prayer.dart' show PrayerSlot;
 import 'package:grow_daily_v2/features/matrix/widgets/move_task_sheet.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/task_month_sheet.dart';
 import 'package:grow_daily_v2/features/premium/notifiers/premium_notifier.dart';
@@ -75,6 +76,7 @@ class _RecordingMatrix extends MatrixNotifier {
     String id, {
     required List<DateTime> reminderAts,
     DateTime? anchor,
+    PrayerSlot? prayer,
     String? plannedDay,
   }) =>
       restores.add(_Restore(id, reminderAts, anchor, plannedDay));

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>How it gets built</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F0E1}
+a{color:#2F6B3A}a:hover{color:#1E4A27}
+</style>
+</helmet>
+<div style="background: #F5F0E1; color: #23352A; font-family: 'IBM Plex Sans', sans-serif; min-height: 100vh;">
+<div style="max-width: 1440px; margin: 0 auto; box-sizing: border-box; padding: 64px 48px 88px; display: flex; flex-direction: column; gap: 44px;">
+
+<header style="display: flex; flex-direction: column; gap: 16px; max-width: 1040px;">
+<div style="font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #3F7A4A;">Build</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.06; font-weight: 700;">How it gets built</h1>
+<p style="margin: 0; font-size: 20px; line-height: 1.5; color: #45574B; text-wrap: pretty;">Small and pure. The world is worked out from what the app already keeps, the same way on every phone, so it can never drift or be backdated. One new number is stored. Nothing is built until you pick a direction and say yes.</p>
+</header>
+
+<section style="display: flex; flex-direction: column; gap: 16px;">
+<h2 style="margin: 0; font-size: 30px; font-weight: 700;">What it reads</h2>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 14px;">
+<sc-for list="{{reads}}" as="r" hint-placeholder-count="6">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 20px 22px; display: flex; flex-direction: column; gap: 6px;">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;"><div style="font-size: 18px; font-weight: 700;">{{r.t}}</div><span style="font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: {{r.bg}}; color: {{r.fg}};">{{r.tag}}</span></div>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">{{r.d}}</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #6B7A6F;">{{r.src}}</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(560px, 100%), 1fr)); gap: 16px;">
+<div style="background: #23352A; color: #F5F0E1; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">The rules, as pure functions</h2>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.65; white-space: pre-wrap; background: rgba(255,255,255,0.06); border-radius: 12px; padding: 16px;">/// lib/features/doum_world/world_model.dart
+WorldItems itemsFor(int worldLevel);          // one per level to 35, then the tree
+List&lt;Bloom&gt; bloomsFor(Set&lt;String&gt; medalIds);   // family picks the kind
+int weeksFor(List&lt;MilestoneEvent&gt; events);   // streak hit 7, 14, 21...
+int thirstFor(List&lt;OwedDay&gt; days, DateTime now);
+
+int thirstFor(days, now) {
+  // newest first; today is never judged against you
+  var thirst = 0;
+  for (final d in days.where((d) =&gt; !d.isToday(now))) {
+    if (d.isYesterday(now) &amp;&amp; now.hour &lt; kDayCutoffHour) continue;
+    if (d.owedCount == 0 || d.allResting || d.paused
+        || d.coveredByFreeze) continue;      // never counts
+    if (d.doneCount &gt; 0) break;              // watered
+    if (++thirst == 3) break;                // the most it gets
+  }
+  return days.any((d) =&gt; d.isToday(now) &amp;&amp; d.doneCount &gt; 0)
+      ? 0 : thirst;                          // one square today
+}</div>
+</div>
+<div style="background: #FFFFFF; border-radius: 20px; padding: 24px 26px; display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Files</h2>
+<div style="font-size: 14px; font-weight: 700; color: #2F6B3A; letter-spacing: 0.04em;">NEW: lib/features/doum_world/</div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; line-height: 1.7; color: #45574B;">world_model.dart · world_ladder.dart (items, slots, names) · world_providers.dart · world_view.dart (the layers) · world_screen.dart (the page) · world_card.dart (Profile) · world_moments.dart · world_widget_snapshot.dart (wave 3)</div>
+<div style="font-size: 14px; font-weight: 700; color: #8A6414; letter-spacing: 0.04em;">TOUCHED</div>
+<sc-for list="{{touched}}" as="f" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; font-size: 14px; line-height: 1.45;">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: #23352A;">{{f.p}}</span>
+<span style="color: #45574B;">{{f.d}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px;">
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 10px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Tests that pin the promises</h2>
+<sc-for list="{{tests}}" as="x" hint-placeholder-count="10">
+<div style="display: flex; gap: 10px; font-size: 15px; line-height: 1.45; color: #45574B;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2F6B3A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 3px;" aria-hidden="true"><polyline points="5 12.5 10 17 19 7.5"></polyline></svg><span>{{x}}</span></div>
+</sc-for>
+</div>
+<div style="background: #FFFFFF; border-radius: 18px; padding: 24px 26px; display: flex; flex-direction: column; gap: 14px;">
+<h2 style="margin: 0; font-size: 22px; font-weight: 700;">Waves</h2>
+<sc-for list="{{waves}}" as="w" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<div style="display: flex; align-items: center; gap: 10px;"><span style="background: {{w.chip}}; color: #FFFFFF; font-size: 13px; font-weight: 700; padding: 4px 11px; border-radius: 999px;">{{w.tag}}</span><span style="font-size: 17px; font-weight: 700;">{{w.t}}</span></div>
+<div style="font-size: 15px; line-height: 1.5; color: #45574B;">{{w.d}}</div>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="background: #23352A; color: #F5F0E1; border-radius: 22px; padding: 28px 30px; display: flex; flex-direction: column; gap: 12px;">
+<h2 style="margin: 0; font-size: 26px; font-weight: 700;">What I need from you, in order</h2>
+<ol style="margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 8px; font-size: 17px; line-height: 1.5; color: #E4EAE6;">
+<li>The direction: A planet, B tree, C palm, D farm, E Doum grows, or F Doum farms his planet.</li>
+<li>Quiet days: yes or no to the world getting gently thirsty (it bends rule 2 for the world only).</li>
+<li>The name, and whether reminders stay inside the app at launch.</li>
+<li>Generate the sheets for that direction from the Art board. Sheet D (Doum at work) is worth doing whichever you pick.</li>
+<li>Then I build wave 1 with tests, on a branch, and show it to you on the simulator before anything ships.</li>
+</ol>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":3600}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const have = { tag: 'already kept', bg: '#EEF6EC', fg: '#2F6B3A' };
+    const fresh = { tag: 'one new field', bg: '#F3E2C8', fg: '#8A6414' };
+    return {
+      reads: [
+        Object.assign({ t: 'Highest level ever reached', d: 'An undo can walk a level back down today, so the world grows from the highest level reached, never the current one. Written only when it rises; read as the larger of it and the level.', src: 'xp_calculator.dart applyXpDelta · new users/{uid}.worldLevel' }, fresh),
+        Object.assign({ t: 'Medals', d: 'The 20 unlocked medal ids, five families. Each becomes its family’s flower, planted the day it was earned.', src: 'achievement_model.dart AchievementCatalog' }, have),
+        Object.assign({ t: 'Weeks in a row', d: 'The milestone logged each time the streak reaches a multiple of 7. Today only the monthly story shows it.', src: 'dashboard_notifier_complete_habit.dart (perfect week MilestoneEvent)' }, have),
+        Object.assign({ t: 'Quiet days', d: 'The last few owed days from the grid history, with rest «راحة», pause, freezes and the 10:00 cutoff, exactly as the streak already reads them.', src: 'habit_day_demand.dart owedHabitIdsOn · square_state.dart skipped · kDayCutoffHour' }, have),
+        Object.assign({ t: 'When each thing grew', d: 'The level-up milestones give the date for each new thing. Anything from before the log shows its level only.', src: 'monthly_story_math.dart level-ups' }, have),
+        Object.assign({ t: 'Visitors', d: 'The surprise bonus the app already rolls on about 1 in 7 completions and never shows: the day’s first one brings a visitor.', src: 'game_constants.dart surprise chance · S.bonusTag (unused)' }, have)
+      ],
+      touched: [
+        { p: 'profile_screen.dart', d: 'the world card under the stats row' },
+        { p: 'reaction_overlays.dart', d: 'the level-up snackbar names what grew; a rank-up opens the chapter' },
+        { p: 'sprout_mood.dart, day_card_sprout.dart', d: 'ledge Doum: the can and the mini world on a thirsty first open, the watering line after the first square' },
+        { p: 'sprout.dart, pubspec.yaml', d: 'new SproutPose values for the watering, planting and Doum at work poses' },
+        { p: 'pet_settings.dart, admin «دوم» page', d: 'quiet days on or off, the most thirst, visitor rate, Doum’s hours: all editable without a build' },
+        { p: 'app_strings.dart', d: 'the new lines, on the admin wording page like every other' },
+        { p: 'settings', d: 'a switch to hide the world, like hiding ledge Doum' },
+        { p: 'firestore.rules', d: 'allow the one new field on the person’s own doc' }
+      ],
+      tests: [
+        'A rest day, a paused habit, a freeze-covered day and a day with nothing owed never make it thirsty.',
+        'Yesterday is not judged before 10:00.',
+        'One square today, any habit, makes thirst 0.',
+        'Thirst never passes 3.',
+        'A day with a prayer missed and anything else done changes nothing.',
+        'An undo that lowers the level removes nothing from the world.',
+        'One new thing for every level from 1 to 35, no gaps, no repeats.',
+        'Every medal maps to its family’s flower.',
+        'No copy line has «!», «كذا», «لسا», «فات» or «تنتظرك»; none names a colour.',
+        'Rendered in light and dark, Arabic and English, at the card, page and widget sizes.'
+      ],
+      waves: [
+        { tag: 'Wave 1', chip: '#2F6B3A', t: 'The world', d: 'The chosen direction, its ladder to 35 and the great tree, the Profile card, the world’s page with spin and labels, the level-up line, the first-open reveal, quiet days (if yes), and the hide switch.' },
+        { tag: 'Wave 2', chip: '#3C6E8F', t: 'His life there', d: 'Ledge moments (the can, the watering), medal blooms and weeks in a row, Doum’s day by the clock, night and seasons in time for Ramadan 1448 (about 8 February 2027), chapters at rank-ups, visitors.' },
+        { tag: 'Wave 3', chip: '#7A4E8A', t: 'Your call', d: 'The Home Screen widget, a voice in the evening reminder people already chose, a share card of the world, the one-line diary.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

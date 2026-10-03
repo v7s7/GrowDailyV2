@@ -236,11 +236,11 @@ function newestClosedKey(nowLocalMs) {
  *   'owed'   load-bearing: skip it and the target is out of reach
  *   'spare'  not needed yet, enough days remain
  *   'earned' not needed at all, the target was already met; also a جزئي
- *            whole sessions have pushed out of the week's places
+ *            the week had no room for (whole sessions fill it without it)
  *
  * [halfDays] are the جزئي days (a day in both sets is whole). A half is a
- * session for the arithmetic, Aziz's 2026-09-26 ruling: "0.5 is a day count,
- * unless it's overwritten with a full day" (see quotaWeekPlaces).
+ * session for the arithmetic, Aziz's 2026-09-26 ruling: "0.5 is a day count".
+ * Halves add up since 2026-10-03 ("3 + 0.5 + 0.5 = 4"): see quotaWeekPlaces.
  */
 function weeklyQuotaDemand({ dayCount, doneDays, target, halfDays }) {
   if (!(dayCount > 0)) return [];
@@ -271,10 +271,21 @@ function weeklyQuotaDemand({ dayCount, doneDays, target, halfDays }) {
   return out;
 }
 
+/** The week's halves, earliest first, a day also marked whole left out. */
+function halvesInOrder(dayCount, done, half) {
+  const out = [];
+  for (let i = 0; i < dayCount; i++) {
+    if (!done.has(i) && half.has(i)) out.push(i);
+  }
+  return out;
+}
+
 /**
- * quotaWeekPlaces in weekly_quota_plan.dart: which sessions hold the week's
- * [target] places. Whole sessions first, earliest first; then halves,
- * earliest first, into whatever is left.
+ * quotaWeekPlaces in weekly_quota_plan.dart: which sessions count toward the
+ * week's [target]. Whole sessions first, earliest first, up to the target;
+ * then halves, earliest first, one to each place left while there are
+ * places, two to a place once they outnumber them. Halves add up (Aziz,
+ * 2026-10-03): three whole sessions and two halves of a 4x week all count.
  */
 function quotaWeekPlaces({ dayCount, doneDays, halfDays, target }) {
   const out = new Set();
@@ -285,15 +296,38 @@ function quotaWeekPlaces({ dayCount, doneDays, halfDays, target }) {
   for (let i = 0; i < dayCount && out.size < effectiveTarget; i++) {
     if (done.has(i)) out.add(i);
   }
-  for (let i = 0; i < dayCount && out.size < effectiveTarget; i++) {
-    if (!done.has(i) && half.has(i)) out.add(i);
-  }
+  const open = effectiveTarget - out.size;
+  for (const i of halvesInOrder(dayCount, done, half).slice(0, 2 * open)) out.add(i);
   return out;
 }
 
 /**
- * quotaWeekCredit in weekly_quota_plan.dart: what the week's places are
- * worth in days, a whole session one and a half one half.
+ * quotaWeekSharedHalves in weekly_quota_plan.dart: the placed halves that
+ * share a place with another half, so each asks HALF a day of the week (the
+ * room stores those days in dailySharedHalfCount, with a half-day weight).
+ * The latest halves pair up, as many as it takes to fit.
+ */
+function quotaWeekSharedHalves({ dayCount, doneDays, halfDays, target }) {
+  const out = new Set();
+  if (!(dayCount > 0)) return out;
+  const done = doneDays instanceof Set ? doneDays : new Set(doneDays || []);
+  const half = halfDays instanceof Set ? halfDays : new Set(halfDays || []);
+  const effectiveTarget = Math.min(Math.max(target, 1), dayCount);
+  let wholes = 0;
+  for (let i = 0; i < dayCount; i++) if (done.has(i)) wholes++;
+  const open = effectiveTarget - wholes;
+  if (open <= 0) return out;
+  const placed = halvesInOrder(dayCount, done, half).slice(0, 2 * open);
+  const shared = 2 * (placed.length - open);
+  if (shared <= 0) return out;
+  for (const i of placed.slice(placed.length - shared)) out.add(i);
+  return out;
+}
+
+/**
+ * quotaWeekCredit in weekly_quota_plan.dart: what the week's sessions are
+ * worth in days, a whole session one and a half one half, capped at the
+ * target. 3 whole and 2 halves of 4 is 4.
  */
 function quotaWeekCredit({ dayCount, doneDays, halfDays, target }) {
   const done = doneDays instanceof Set ? doneDays : new Set(doneDays || []);
@@ -857,11 +891,51 @@ function storedScheduledOn({ room, participant, dayKey, offsetMinutes }) {
   if (!wasObservedOn({ participant: p, dayKey, offsetMinutes }) &&
       done === 0 && partial === 0 &&
       everyCountedHabitIsWeeklyOn({ room, participant: p, dayKey }) &&
-      (Array.isArray(p.quotaOkWeeks) ? p.quotaOkWeeks : [])
-        .includes(displayWeekStartKey(dayKey))) {
+      ((Array.isArray(p.quotaOkWeeks) ? p.quotaOkWeeks : [])
+        .includes(displayWeekStartKey(dayKey)) ||
+        quotaWeekPlacesHeld({ room, participant: p, dayKey }))) {
     return 0;
   }
   return countedHabitCountOn({ participant: p, dayKey });
+}
+
+/**
+ * RoomParticipant._quotaWeekPlacesHeld: the plan that day is one weekly
+ * habit, and the days of its Saturday week under that same rule that
+ * recorded a session, whole (dailyDoneCount) or half (dailyPartialCount),
+ * number its whole target. The phone rests every other day of such a week
+ * (weeklyQuotaScheduledDays), met or not: two whole sessions and two halves
+ * of a 4x week hold all four places and are worth 3, so the week never
+ * reaches quotaOkWeeks (2026-10-03).
+ */
+function quotaWeekPlacesHeld({ room, participant, dayKey }) {
+  const p = participant || {};
+  const linked = Array.isArray(p.linkedHabitIds) ? p.linkedHabitIds : [];
+  const liveOn = (key) => linked.filter(
+    (id, i) => id !== DECLINED_SLOT && slotLiveOnDay(room, i, key));
+  const held = liveOn(dayKey);
+  if (held.length !== 1) return false;
+  const id = held[0];
+  const rule = ruleForOn(p, id, dayKey);
+  if (!rule || rule.frequencyType !== 'weekly' ||
+      !(rule.frequencyTarget >= 1)) {
+    return false;
+  }
+  const standDown = Array.isArray(p.standDownDays) ? p.standDownDays : [];
+  const start = displayWeekStartKey(dayKey);
+  let sessions = 0;
+  for (let i = 0; i < 7; i++) {
+    const k = shiftKey(start, i);
+    if (standDown.includes(k)) continue;
+    const onDay = liveOn(k);
+    if (onDay.length !== 1 || onDay[0] !== id) continue;
+    if (ruleForOn(p, id, k) !== rule) continue;
+    if (((p.dailyDoneCount || {})[k] || 0) > 0 ||
+        ((p.dailyPartialCount || {})[k] || 0) > 0) {
+      sessions++;
+    }
+  }
+  return sessions >= rule.frequencyTarget;
 }
 
 /**
@@ -1118,6 +1192,7 @@ module.exports = {
   newestClosedKey,
   weeklyQuotaDemand,
   quotaWeekPlaces,
+  quotaWeekSharedHalves,
   quotaWeekCredit,
   demandIsRest,
   displayWeekStartKey,
@@ -1140,6 +1215,7 @@ module.exports = {
   countedHabitCountOn,
   wasObservedOn,
   storedScheduledOn,
+  quotaWeekPlacesHeld,
   liveHabitCountOn,
   planInferredScheduledOn,
   ruleForOn,

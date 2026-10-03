@@ -685,6 +685,12 @@ String taskDoneAction(bool isAr) => isAr ? 'خلّصت المهمة' : 'I did th
 /// The Stop button on a ringing alarm, where iOS asks the app for one.
 String alarmStopAction(bool isAr) => isAr ? 'إيقاف' : 'Stop';
 
+/// What an adhan alarm says as it rings (Settings › موقع الصلاة, «منبّه
+/// الأذان»): «أذان الفجر», "Fajr adhan". [prayer] is the prayer's name as
+/// every screen writes it.
+String prayerAlarmTitle(String prayer, bool isAr) =>
+    isAr ? 'أذان $prayer' : '$prayer adhan';
+
 /// "Snooze an hour" for a habit reminder's postpone button. Matches what
 /// [snoozedReminderBody] later says about it.
 String snoozeAction(bool isAr) => isAr ? 'تأجيل ساعة' : 'Snooze 1h';

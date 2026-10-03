@@ -65,10 +65,51 @@ class _ResolveNewHabitsSheetState
   /// names them.
   late List<List<String>> _torn;
   bool _isSaving = false;
+  bool _closing = false;
+
+  /// Whether this member's links, as the room stream has them now, already
+  /// answer every slot this sheet asks about. Null while that stream has
+  /// nothing to say (still loading, or failed).
+  ///
+  /// [widget.mine] is the member as the opener last saw them, and the sheet
+  /// can outlive it. The leader's own new habit is the case that showed it:
+  /// HomeShell read the plan one slot ahead of the leader's link to it and
+  /// opened this sheet, the link landed while it was open, and «ربط الآن»
+  /// was refused as a stale slot and said «ما تغيّر الربط» about a link that
+  /// had saved (A8GEL7, 2026-10-02). RoomsController.addSharedHabit now
+  /// writes both at once; this is what keeps any other way a sheet goes
+  /// stale (another phone on the same account, say) from ending the same way.
+  bool? _answeredElsewhere() {
+    final live = ref
+        .read(roomParticipantsProvider(widget.room.code))
+        .valueOrNull
+        ?.where((p) => p.uid == widget.mine.uid);
+    if (live == null || live.isEmpty) return null;
+    return live.first.pendingPlanSlotsIn(widget.room).isEmpty;
+  }
+
+  /// Closes the sheet, once, after the frame: the listener that asks can
+  /// fire while the sheet is still being built.
+  void _closeQuietly() {
+    if (_closing) return;
+    _closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
 
   @override
   void initState() {
     super.initState();
+    // A save in flight writes these links itself, and closes the sheet when
+    // it is done; only an answer that came from elsewhere closes it here.
+    ref.listenManual(
+      roomParticipantsProvider(widget.room.code),
+      (_, __) {
+        if (!_isSaving && _answeredElsewhere() == true) _closeQuietly();
+      },
+      fireImmediately: true,
+    );
     final myHabits = ref.read(habitListProvider);
     // The whole pending plan is matched at once (suggestPlanMatches): the
     // surest pair is settled first, a habit is never suggested for two rows,
@@ -113,7 +154,7 @@ class _ResolveNewHabitsSheetState
   }
 
   Future<void> _save() async {
-    if (_isSaving || _pending.isEmpty) return;
+    if (_isSaving || _closing || _pending.isEmpty) return;
     // Same paywall JoinRoomSheet._join already enforces for its own
     // "Add as new" resolutions - a guest or free account resolving one of
     // these slots to a brand-new habit (rather than an existing one) still
@@ -153,10 +194,13 @@ class _ResolveNewHabitsSheetState
               existingHabitId: _resolutions[i],
             );
     }
-    if (!mounted) return;
+    if (!mounted || _closing) return;
     final messenger = ScaffoldMessenger.of(context);
+    _closing = true;
     Navigator.of(context).pop();
-    if (!saved) {
+    // Refused because every slot it asked about was answered meanwhile (see
+    // _answeredElsewhere): nothing is left to link, so nothing failed.
+    if (!saved && _answeredElsewhere() != true) {
       messenger.showOne(
         SnackBar(
           content: Text(s.roomRelinkFailed),

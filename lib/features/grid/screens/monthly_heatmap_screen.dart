@@ -679,7 +679,9 @@ Map<String, int> derivedDayCounts(
   return out;
 }
 
-int heatLevel(int count, int totalHabits) {
+/// [count] is a day's credit where a caller has one (see heatmapDayScore:
+/// a جزئي is half), its green squares where it has only those.
+int heatLevel(num count, int totalHabits) {
   if (count <= 0) return 0;
   if (totalHabits <= 0) {
     // No habits currently tracked (e.g. all archived) — fall back to a
@@ -944,12 +946,15 @@ class HeatmapMonthSection extends StatelessWidget {
   Widget _dayCell(DateTime day) {
     final count = counts[day.toDateKey()] ?? 0;
     // Named rather than inlined so the "no archived filter" rule has one
-    // place to live and one place to be tested — see heatmapScheduledOn.
-    final scheduled = heatmapScheduledOn(habits, day, isGreen, markOn: markOn);
+    // place to live and one place to be tested — see heatmapScheduledOn,
+    // and heatmapDayScore for what the day earned against it.
+    final score =
+        heatmapDayScore(habits, day, isGreen, markOn: markOn, greens: count);
     return _HeatCell(
       day: day,
       count: count,
-      totalHabits: scheduled,
+      credit: score.credit,
+      totalHabits: score.owed,
       settled: day.isSettledAt(
         now,
         answered: failedOpenDays.contains(day.toDateKey()),
@@ -1085,6 +1090,55 @@ int heatmapScheduledOn(
         )
         .length;
 
+/// What [day] earned and what it owed, for every picture of a day graded the
+/// map's way: the map's cells, سجلّي's strips and calendars, the report's
+/// best and weakest day, the share card.
+///
+/// [greens] is the day's green squares (derivedDayCounts) and
+/// [heatmapScheduledOn] what it owed. A جزئي adds half (Aziz, 2026-10-03:
+/// "make all 0.5 counts"), a counted habit part of the way through
+/// included, as in the Habits ring, the rooms and the reports: until then a
+/// half counted nothing here, and a day of halves drew as a day of nothing.
+/// A half on a day its habit did not owe (a quota half its week did not
+/// need that day, a half on a day off) comes in on the terms the ring gives
+/// it (_widenForRestingPartials in grid_screen_summary.dart) and the
+/// reports' day score (dayScoreFor): on both sides, and only where it does
+/// not pull the day down.
+///
+/// The tallies stay [greens]: «مربّعات ملوّنة», a month's badge and the
+/// record's totals count finished squares, and half a square is not one.
+/// Without [markOn] no half can be seen, and the day is [greens] alone.
+({double credit, int owed}) heatmapDayScore(
+  List<IslamicHabitTemplate> habits,
+  DateTime day,
+  GreenOnDay isGreen, {
+  MarkOnDay? markOn,
+  required int greens,
+}) {
+  var owed = 0;
+  var credit = greens.toDouble();
+  var resting = 0;
+  for (final h in habits) {
+    final mark = markOn?.call(h.id, day) ?? SquareState.none;
+    if (markIsRest(mark)) continue;
+    final half = mark == SquareState.partial;
+    if (habitOwesDay(habit: h, day: day, isGreen: isGreen, markOn: markOn)) {
+      owed++;
+      if (half) credit += 0.5;
+    } else if (half) {
+      resting++;
+    }
+  }
+  for (var i = 0; i < resting; i++) {
+    final before = owed == 0 ? 0.0 : credit / owed;
+    if ((credit + 0.5) / (owed + 1) >= before) {
+      credit += 0.5;
+      owed++;
+    }
+  }
+  return (credit: credit, owed: owed);
+}
+
 /// The days still open at [now] that already hold an explicit فشل for one
 /// of [habitIds], by dateKey.
 ///
@@ -1131,7 +1185,7 @@ Set<String> heatmapFailedOpenDays({
 /// day that closed on nothing gets: until kDayCutoffHour the next morning
 /// its habits can still be marked, so it is in progress, not missed (Aziz,
 /// 2026-09-11). Anything done on it still shows as it is.
-_DayFill dayFill(int done, int planned, {bool settled = true}) {
+_DayFill dayFill(num done, int planned, {bool settled = true}) {
   if (planned <= 0) {
     // Nothing was owed. Work done anyway still reads as a full day; a day
     // with nothing owed and nothing done is a REST day, not a failure —
@@ -1145,6 +1199,10 @@ _DayFill dayFill(int done, int planned, {bool settled = true}) {
 class _HeatCell extends StatelessWidget {
   final DateTime day;
   final int count;
+
+  /// What the day earned against [totalHabits], a جزئي at half (see
+  /// heatmapDayScore). [count] is its green squares.
+  final double credit;
   final int totalHabits;
   final bool dark;
   final bool isFuture;
@@ -1166,6 +1224,7 @@ class _HeatCell extends StatelessWidget {
   const _HeatCell({
     required this.day,
     required this.count,
+    required this.credit,
     required this.totalHabits,
     required this.settled,
     required this.dark,
@@ -1188,7 +1247,7 @@ class _HeatCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final gp = context.gp;
-    final fill = dayFill(count, totalHabits, settled: settled);
+    final fill = dayFill(credit, totalHabits, settled: settled);
 
     // A future date is a date and nothing else: no plate, no border. The
     // old blanket Opacity(0.25) rendered the rest of the month at roughly
@@ -1229,7 +1288,7 @@ class _HeatCell extends StatelessWidget {
             final zone = (side - numberStrip).clamp(0.0, double.infinity);
             final ratio = totalHabits <= 0
                 ? 0.0
-                : (count / totalHabits).clamp(0.0, 1.0);
+                : (credit / totalHabits).clamp(0.0, 1.0);
             // The 4pt base is not a floor that distorts the scale: every
             // step stays equal, it just stops 1-of-11 rendering as a
             // hairline nobody can see.

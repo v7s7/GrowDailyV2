@@ -354,6 +354,15 @@ DayDemand? movedDemandOn({
 /// because a mark is only ever what was actually stored: a day [markOn]
 /// cannot see reads `none`, which excuses nothing, so a missing week can
 /// cost a streak line but never invent a rest.
+///
+/// Nor is a flexible quota's day its week did not need ([habitOwesDay]):
+/// its rest days, and a جزئي the week did not need on its own day. Every
+/// day ran for a quota, so until 2026-10-03 a four-times-a-week تمرين done
+/// Saturday, Sunday and Thursday restarted at 1 on Thursday, in a week of
+/// 4 of 4. A day the week did need and was left empty is still a miss, the
+/// day the Grid paints red. Unseen squares read `none` here too, which can
+/// only owe more days, never fewer: the week's empty days are owed for want
+/// of the sessions before them.
 bool Function(DateTime day) runsOnExcusing(
   IslamicHabitTemplate habit,
   GreenOnDay? isGreen, {
@@ -365,11 +374,15 @@ bool Function(DateTime day) runsOnExcusing(
     if (markOn == null) return habit.runsOn;
     return (day) => habit.runsOn(day) && !resting(day);
   }
+  bool quotaRest(DateTime day) =>
+      habit.cadenceOn(day).isFlexibleQuota &&
+      !habitOwesDay(habit: habit, day: day, isGreen: isGreen, markOn: markOn);
   return (day) =>
       habit.runsOn(day) &&
       !resting(day) &&
       movedDemandOn(habit: habit, day: day, isGreen: isGreen, markOn: markOn) !=
-          DayDemand.earned;
+          DayDemand.earned &&
+      !quotaRest(day);
 }
 
 /// The weekday rule [habit]'s own streak is measured on for a completion

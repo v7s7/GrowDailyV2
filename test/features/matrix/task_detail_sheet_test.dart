@@ -11,6 +11,8 @@ import 'package:grow_daily_v2/core/theme/game_theme.dart';
 import 'package:grow_daily_v2/features/auth/notifiers/auth_notifier.dart';
 import 'package:grow_daily_v2/features/matrix/models/matrix_task.dart';
 import 'package:grow_daily_v2/features/matrix/task_day.dart';
+import 'package:grow_daily_v2/features/matrix/widgets/reminder_picker.dart'
+    show formatReminderMoment;
 import 'package:grow_daily_v2/features/matrix/widgets/task_detail_sheet.dart';
 import 'package:grow_daily_v2/features/matrix/widgets/voice_note_player.dart';
 import 'package:hive/hive.dart';
@@ -130,7 +132,13 @@ void main() {
                     onAddVoiceNote: (_, __) {},
                     onRenameVoiceNote: (_, __, ___) {},
                     onRemoveVoiceNote: (_, __) {},
-                    onSetReminders: (_, __, {reminderAnchorAt, alarm}) {},
+                    onSetReminders: (
+                      _,
+                      __, {
+                      reminderAnchorAt,
+                      reminderPrayer,
+                      alarm,
+                    }) {},
                     onDelete: () {},
                     onMove: (_) {},
                   ),
@@ -337,6 +345,39 @@ void main() {
       expect(DateUtils.isSameDay(calendar.initialDate, day), isTrue);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 1));
+    });
+  });
+
+  group('a time picked from a prayer', () {
+    testWidgets('the row says the prayer under a mosque, then where it lands',
+        (tester) async {
+      // Aziz, 2026-10-03: the task remembers the prayer its time came from
+      // (MatrixTask.reminderPrayer), and its row says so.
+      final now = DateTime.now();
+      final at = DateTime(now.year, now.month, now.day + 2, 15, 5);
+      final task = MatrixTask(
+        id: 't1',
+        title: 'اتصل بالبنك',
+        quadrant: MatrixQuadrant.doFirst,
+        isDone: false,
+        createdAt: now,
+        reminderAts: [at],
+        reminderAnchorAt: at,
+        reminderPrayer: (prayer: 'asr', offset: 15),
+        order: 1,
+      );
+      await open(tester, harness(task: task));
+      expect(find.text('بعد العصر بـ15 دقيقة'), findsOneWidget);
+      expect(find.byIcon(Icons.mosque_rounded), findsOneWidget);
+      expect(find.text(formatReminderMoment(at, true)), findsOneWidget);
+      expect(find.text(ar.reminderWithPrayer), findsNothing,
+          reason: 'a set time is one row, not the two ways in');
+    });
+
+    testWidgets('an unset time offers both ways in', (tester) async {
+      await open(tester, harness(task: taskWith()));
+      expect(find.text(ar.matrixReminderLabel), findsOneWidget);
+      expect(find.text(ar.reminderWithPrayer), findsOneWidget);
     });
   });
 

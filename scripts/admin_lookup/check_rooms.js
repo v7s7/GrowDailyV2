@@ -199,6 +199,16 @@ function keyOfTs(v) {
               continue;
             }
             checks++;
+            if (u.half) {
+              // set_room_day.js writes whole counts only; a half is the
+              // member's phone's to write (room_health.js).
+              lines.push(`  CHECK  ${who}  ${u.day}: stored ` +
+                  `${u.storedHalves} جزئي, squares say ${u.realHalves}`);
+              lines.push('         fix: the member opens the room in the ' +
+                  'app, which regrades it (set_room_day.js writes whole ' +
+                  'counts only)');
+              continue;
+            }
             lines.push(`  CHECK  ${who}  ` +
                 `${u.day}: stored ${u.stored}, squares say ${u.real}`);
             lines.push(`         fix: node set_room_day.js --room=${code} ` +

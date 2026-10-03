@@ -254,16 +254,17 @@ void main() {
     // A Bahrain afternoon inside the official table's range.
     final now = DateTime(2026, 9, 25, 15, 30);
 
-    Future<void> prepare(NotificationSettings settings) async {
+    Future<void> prepare(NotificationSettings settings, {DateTime? at}) async {
       BahrainPrayerTable.resetForTest();
       await BahrainPrayerTable.ensureLoaded();
       h = LandingHarness();
+      final clock = at ?? now;
       await h.prepare(
         extraOverrides: [
           notificationSettingsProvider
               .overrideWith((ref) => _Settings(settings)),
-          dayClockProvider.overrideWithValue(now),
-          dayClockSourceProvider.overrideWithValue(() => now),
+          dayClockProvider.overrideWithValue(clock),
+          dayClockSourceProvider.overrideWithValue(() => clock),
         ],
       );
     }
@@ -351,6 +352,51 @@ void main() {
         // Today's date heads the list, with Western digits.
         expect(find.textContaining('25'), findsWidgets);
         expect(find.textContaining('٢٥'), findsNothing);
+        // Only tomorrow's Fajr says tomorrow.
+        expect(find.textContaining('باجر'), findsNothing);
+      });
+    });
+
+    group('after Isha', () {
+      // Aziz's screenshot, Thursday 2026-10-01 at 20:36: the sky counting
+      // to Friday's Fajr at 4:13 over Thursday's list, whose Fajr is 4:12.
+      final evening = DateTime(2026, 10, 1, 20, 36);
+      setUp(
+        () => prepare(
+          const NotificationSettings(
+            location: NotificationLocation(
+              lat: 26.2285,
+              lng: 50.5860,
+              label: 'المنامة، البحرين',
+              auto: true,
+            ),
+            resolvedCountryCode: 'BH',
+          ),
+          at: evening,
+        ),
+      );
+      tearDown(BahrainPrayerTable.resetForTest);
+
+      testWidgets('the sky says its Fajr is tomorrow\'s, the list stays today\'s',
+          (tester) async {
+        await open(tester);
+        String clock(DateTime at) {
+          final local =
+              DateTime.fromMillisecondsSinceEpoch(at.millisecondsSinceEpoch);
+          return HabitCue.time(local.hour, local.minute).labelForLocale(true);
+        }
+
+        final fajr = HabitCue.preset('fajr').labelForLocale(true);
+        final today = clock(BahrainPrayerTable.lookup(evening)!.fajr);
+        final tomorrow =
+            clock(BahrainPrayerTable.lookup(DateTime(2026, 10, 2))!.fajr);
+        // The evening this is about: the two Fajrs a minute apart.
+        expect(tomorrow, isNot(today));
+        expect(
+          find.bySemanticsLabel('$fajr باجر $tomorrow، باقي على الأذان'),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel('$fajr $today'), findsOneWidget);
       });
     });
 

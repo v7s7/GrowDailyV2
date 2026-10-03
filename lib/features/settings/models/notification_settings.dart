@@ -2,6 +2,17 @@ import 'package:flutter/material.dart' show TimeOfDay;
 
 import '../../../core/services/prayer_times_service.dart';
 
+/// The five prayers an adhan alarm can be set for, in the day's order
+/// ([NotificationSettings.prayerAlarms]). Sunrise is not one: no adhan is
+/// called for it.
+const List<String> kPrayerAlarmKeys = [
+  'fajr',
+  'dhuhr',
+  'asr',
+  'maghrib',
+  'isha',
+];
+
 /// A location for prayer-time calculation — resolved once (via on-device
 /// GPS, see DeviceLocationService, or a typed city search via
 /// [GeocodingService] as the fallback) and cached here from then on, so no
@@ -254,6 +265,15 @@ class NotificationSettings {
   /// successfully (e.g. on the next GPS re-detect).
   final String? resolvedCountryCode;
 
+  /// The prayers whose adhan rings as an alarm, out of [kPrayerAlarmKeys]
+  /// (Settings › موقع الصلاة, «منبّه الأذان»). Empty by default: nothing
+  /// rings unless the person turned it on (Aziz, 2026-10-03). Its own
+  /// choice, apart from the notification switches above: an alarm someone
+  /// set is not a notification, the same way iOS keeps the two apart. It
+  /// rings at the adhan of [location], so with no place saved it rings
+  /// nothing.
+  final Set<String> prayerAlarms;
+
   // There is no Asr madhab here any more: Asr is always the standard time
   // (see PrayerTimesService._asrMadhab). A 'madhab' key saved by an older
   // build is left in storage and simply not read.
@@ -274,6 +294,7 @@ class NotificationSettings {
     this.streakRiskTime = const TimeOfDay(hour: 20, minute: 30),
     this.location,
     this.resolvedCountryCode,
+    this.prayerAlarms = const {},
   });
 
   bool get hasLocation => location != null;
@@ -304,6 +325,7 @@ class NotificationSettings {
     // explicitly (as _LocationRow does, in the same call that sets a new
     // location) to update it instead.
     String? resolvedCountryCode,
+    Set<String>? prayerAlarms,
   }) =>
       NotificationSettings(
         masterEnabled: masterEnabled ?? this.masterEnabled,
@@ -325,6 +347,7 @@ class NotificationSettings {
         resolvedCountryCode: clearLocation
             ? null
             : (resolvedCountryCode ?? this.resolvedCountryCode),
+        prayerAlarms: prayerAlarms ?? this.prayerAlarms,
       );
 
   Map<String, dynamic> toMap() => {
@@ -350,6 +373,14 @@ class NotificationSettings {
         if (location != null) 'location': location!.toMap(),
         if (resolvedCountryCode != null)
           'resolvedCountryCode': resolvedCountryCode,
+        // Always written, empty too, in the day's order. The account copy is
+        // saved with SetOptions(merge: true), and a list left out would keep
+        // the last one on the server: the alarms switched off here would
+        // come back on a new phone.
+        'prayerAlarms': [
+          for (final key in kPrayerAlarmKeys)
+            if (prayerAlarms.contains(key)) key,
+        ],
       };
 
   factory NotificationSettings.fromMap(Map<String, dynamic> map) {
@@ -387,6 +418,15 @@ class NotificationSettings {
       streakRiskTime: _timeFromMap(map['streakRiskTime'], defaults.streakRiskTime),
       location: NotificationLocation.fromMap(map['location']),
       resolvedCountryCode: map['resolvedCountryCode'] as String?,
+      // Only the five prayers: anything else in a saved copy (a key from a
+      // later build, a stray value) is not something this build can ring.
+      prayerAlarms: switch (map['prayerAlarms']) {
+        final List<dynamic> keys => {
+            for (final key in keys)
+              if (kPrayerAlarmKeys.contains(key)) key as String,
+          },
+        _ => const {},
+      },
     );
   }
 

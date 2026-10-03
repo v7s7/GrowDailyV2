@@ -7,7 +7,6 @@ import '../../../core/l10n/app_strings.dart';
 import '../../../core/providers/app_guide_provider.dart';
 import '../notifiers/guide_steps_provider.dart';
 import '../../../core/providers/home_tab_provider.dart';
-import '../../../core/providers/nav_layout_provider.dart' show NavTab;
 import '../../../core/theme/game_theme.dart';
 import '../../grid/notifiers/weekly_grid_notifier.dart';
 import '../../habits/notifiers/custom_habits_notifier.dart' show habitListProvider;
@@ -257,12 +256,9 @@ void startGuideLesson(
     }
 
     // By tab identity, not page number: the bar is customisable, and
-    // HomeShell pushes a tab that is not in it as a route instead.
-    final tab = switch (target) {
-      AppGuideLesson.addHabit || AppGuideLesson.colorSquare => NavTab.grid,
-      AppGuideLesson.discoverRooms => NavTab.profile,
-      AppGuideLesson.addTask => NavTab.matrix,
-    };
+    // HomeShell pushes a tab that is not in it as a route instead. The same
+    // answer HomeShell uses to end a lesson whose page was left.
+    final tab = guideLessonTab(target);
     // popUntil(isFirst), NOT a single pop. And BEFORE the tab is asked
     // for, below: HomeShell hears the ask at once (Riverpod calls listeners
     // synchronously) and pushes a tab the bar does not hold, so asking

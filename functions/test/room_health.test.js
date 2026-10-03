@@ -223,12 +223,42 @@ test("a day whose count already matches, or exceeds, is not reported",
       assert.deepStrictEqual(out, []);
     });
 
-test("yellow is not green: a partial square is not an undercount", () => {
+test("a half the room did not count is reported, with no repair", () => {
+  // Aziz, 2026-10-03: "make all 0.5 counts". Yellow is not green, so it is
+  // no whole undercount, but a جزئي is half a habit and the room owes it.
+  // set_room_day.js writes whole counts only, so the day says so instead.
   const out = undercountedDays({
     days: ["2026-09-03"],
     countingIds: ["a"],
     squaresByDay: {"2026-09-03": {a: "partial"}},
     part: {},
+  });
+  assert.deepStrictEqual(out, [{
+    day: "2026-09-03", real: 0, stored: 0, held: false, why: "",
+    half: true, realHalves: 1, storedHalves: 0,
+  }]);
+});
+
+test("a half the room counted is not reported", () => {
+  const out = undercountedDays({
+    days: ["2026-09-03"],
+    countingIds: ["a", "b"],
+    squaresByDay: {"2026-09-03": {a: "partial", b: "complete"}},
+    part: {
+      dailyDoneCount: {"2026-09-03": 1},
+      dailyPartialCount: {"2026-09-03": 1},
+    },
+  });
+  assert.deepStrictEqual(out, []);
+});
+
+test("a half on a rest-marked habit is not owed, so not reported", () => {
+  // A quota half its week had no place for: the room marks it rest.
+  const out = undercountedDays({
+    days: ["2026-09-03"],
+    countingIds: ["a"],
+    squaresByDay: {"2026-09-03": {a: "partial"}},
+    part: {dailyHabitMarks: {"2026-09-03": {a: "r"}}},
   });
   assert.deepStrictEqual(out, []);
 });

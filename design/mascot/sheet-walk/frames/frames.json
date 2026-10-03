@@ -1,0 +1,134 @@
+{
+ "walk_side_1": {
+  "size": [
+   237,
+   316
+  ],
+  "anchor": [
+   128,
+   312
+  ],
+  "height": 308
+ },
+ "walk_side_2": {
+  "size": [
+   237,
+   316
+  ],
+  "anchor": [
+   128,
+   312
+  ],
+  "height": 308
+ },
+ "walk_side_3": {
+  "size": [
+   237,
+   316
+  ],
+  "anchor": [
+   128,
+   312
+  ],
+  "height": 307
+ },
+ "walk_side_4": {
+  "size": [
+   237,
+   316
+  ],
+  "anchor": [
+   128,
+   312
+  ],
+  "height": 309
+ },
+ "walk_front_1": {
+  "size": [
+   290,
+   303
+  ],
+  "anchor": [
+   141,
+   299
+  ],
+  "height": 295
+ },
+ "walk_front_2": {
+  "size": [
+   290,
+   303
+  ],
+  "anchor": [
+   141,
+   299
+  ],
+  "height": 294
+ },
+ "walk_front_3": {
+  "size": [
+   290,
+   303
+  ],
+  "anchor": [
+   141,
+   299
+  ],
+  "height": 295
+ },
+ "walk_front_4": {
+  "size": [
+   290,
+   303
+  ],
+  "anchor": [
+   141,
+   299
+  ],
+  "height": 296
+ },
+ "walk_back_1": {
+  "size": [
+   284,
+   307
+  ],
+  "anchor": [
+   141,
+   303
+  ],
+  "height": 295
+ },
+ "walk_back_2": {
+  "size": [
+   284,
+   307
+  ],
+  "anchor": [
+   141,
+   303
+  ],
+  "height": 295
+ },
+ "walk_back_3": {
+  "size": [
+   284,
+   307
+  ],
+  "anchor": [
+   141,
+   303
+  ],
+  "height": 300
+ },
+ "walk_back_4": {
+  "size": [
+   284,
+   307
+  ],
+  "anchor": [
+   141,
+   303
+  ],
+  "height": 290
+ }
+}

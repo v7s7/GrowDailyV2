@@ -121,7 +121,11 @@ SHEETS = {
                  row_splits=(345, 685), give={}),
     "thobe": dict(sheet=ROOT / "design/mascot/sheet-thobe/sheet-thobe-final.png",
                   poses="poses-thobe.json", out=ROOT / "design/mascot/sheet-thobe/poses-native",
-                  row_splits=(512,), give={}),
+                  row_splits=(512,), give={}),    # 2026-10-03: Doum at work, for the "Doum's Planet" canvas (direction G,
+    # the oasis), a 4 x 3 sheet like the October ones.
+    "work": dict(sheet=ROOT / "design/mascot/sheet-work/sheet-work-final.png",
+                 poses="poses-work.json", out=ROOT / "design/mascot/sheet-work/poses-native",
+                 row_splits=(345, 685), give={}),
 }
 
 

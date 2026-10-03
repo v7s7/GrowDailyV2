@@ -10,6 +10,7 @@ import '../../../shared/widgets/category_icon.dart';
 import '../../grid/screens/grid_screen.dart' show categoryVisual;
 import '../../mascot/sprout.dart';
 import '../catalog/habit_ideas.dart';
+import '../catalog/idea_search.dart';
 import '../models/habit_cue.dart';
 import '../models/habit_model.dart';
 
@@ -114,6 +115,8 @@ class _HabitIdeasPageState extends State<HabitIdeasPage> {
   late final Future<List<ShownIdea>> _ideas = loadShownIdeas();
   final _search = TextEditingController();
   String? _filter;
+  List<ShownIdea>? _searchFrom;
+  IdeaSearch? _searcher;
 
   static const _categoryOrder = [
     HabitCategory.faith,
@@ -224,7 +227,7 @@ class _HabitIdeasPageState extends State<HabitIdeasPage> {
       for (final i in all)
         if (i.idea.type == widget.goalType) i,
     ];
-    final query = _search.text.trim().toLowerCase();
+    final query = _search.text.trim();
     final searching = query.isNotEmpty;
     final filter = _filter ?? _all;
     final categories = [
@@ -233,18 +236,18 @@ class _HabitIdeasPageState extends State<HabitIdeasPage> {
     ];
     final matching = [
       for (final i in side)
-        if (searching
-            ? _matches(i.idea, query)
-            : filter == _all || i.idea.category.name == filter)
-          i,
+        if (filter == _all || i.idea.category.name == filter) i,
     ];
-    // The admin's starred ideas first, each part in the admin's order.
-    final shown = [
-      for (final i in matching)
-        if (i.featured) i,
-      for (final i in matching)
-        if (!i.featured) i,
-    ];
+    // Searching: the best match first (idea_search.dart). Else the
+    // admin's starred ideas first, each part in the admin's order.
+    final shown = searching
+        ? _searchOver(all, side).search(query)
+        : [
+            for (final i in matching)
+              if (i.featured) i,
+            for (final i in matching)
+              if (!i.featured) i,
+          ];
     final plans = widget.withPlans && !_quit && !searching ? shownPlans() : const <ShownPlan>[];
 
     return ListView(
@@ -375,11 +378,15 @@ class _HabitIdeasPageState extends State<HabitIdeasPage> {
     setState(() => _filter = value);
   }
 
-  bool _matches(HabitIdea idea, String query) =>
-      idea.nameAr.toLowerCase().contains(query) ||
-      idea.nameEn.toLowerCase().contains(query) ||
-      idea.shortAr.toLowerCase().contains(query) ||
-      idea.shortEn.toLowerCase().contains(query);
+  /// The search over this page's side of [all], built once per list: the
+  /// index is made on the first key, not on every one.
+  IdeaSearch _searchOver(List<ShownIdea> all, List<ShownIdea> side) {
+    if (!identical(_searchFrom, all) || _searcher == null) {
+      _searchFrom = all;
+      _searcher = IdeaSearch(side);
+    }
+    return _searcher!;
+  }
 
   /// The popup, always. With [HabitIdeasPage.onAdd] adding happens in
   /// it, and back here the card says «مضافة»; only «عدّلها قبل الإضافة»

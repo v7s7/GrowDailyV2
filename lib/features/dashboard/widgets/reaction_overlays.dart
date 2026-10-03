@@ -424,14 +424,16 @@ class MilestoneCelebration extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // The sprout hugging a heart, where a 120pt flame used to glow:
-              // a streak step is the one moment in the app big enough for the
+              // The sprout cheering, where a 120pt flame used to glow: a
+              // streak step is the one moment in the app big enough for the
               // whole character. It pops in and celebrates, and the confetti
               // fires from its own centre. The flame stays, small, beside the
-              // label below: it is still the streak's mark.
+              // label below: it is still the streak's mark. Cheering, not
+              // the heart (Aziz, 2026-10-03, the canvas "Doum review"): the
+              // heart is Premium's thanks, and a streak step is a win.
               const VictoryBurstOnMount(
                 child: Sprout(
-                  pose: SproutPose.loveHeart,
+                  pose: SproutPose.cheer,
                   height: 190,
                   entrance: SproutEntrance.popAndCelebrate,
                   idleBreaths: 2,

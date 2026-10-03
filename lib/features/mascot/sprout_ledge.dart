@@ -189,10 +189,12 @@ class SproutLedge extends ConsumerStatefulWidget {
   const SproutLedge({
     super.key,
     required this.greens,
+    this.done,
     required this.owed,
     required this.ratio,
     required this.perfectDay,
     required this.live,
+    this.walkIn = false,
     this.todayFromStart,
     this.drawLine = false,
     this.clock,
@@ -202,7 +204,11 @@ class SproutLedge extends ConsumerStatefulWidget {
 
   /// The day's numbers, for [DayCardSprout] (see its fields).
   final int greens;
+  final double? done;
   final int owed;
+
+  /// See DayCardSprout.walkIn.
+  final bool walkIn;
   final double ratio;
   final bool perfectDay;
   final bool live;
@@ -1146,6 +1152,8 @@ class _SproutLedgeState extends ConsumerState<SproutLedge>
                 },
                 child: DayCardSprout(
                   greens: widget.greens,
+                  done: widget.done,
+                  walkIn: widget.walkIn,
                   owed: widget.owed,
                   ratio: widget.ratio,
                   perfectDay: widget.perfectDay,
@@ -1381,7 +1389,7 @@ Future<bool> _askToHide(BuildContext context) async {
       backgroundColor: gp.surfaceHigh,
       icon: const Sprout(
         pose: SproutPose.frontWave,
-        height: 84,
+        height: kSproutQuestionHeight,
         entrance: SproutEntrance.none,
         idleBreaths: 0,
       ),

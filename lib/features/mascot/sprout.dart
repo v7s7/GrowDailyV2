@@ -79,6 +79,11 @@ enum SproutPose {
   // room. From the moments sheet, its own folder.
   stampCheck('moments/moments_stamp_check', 707, 752),
   clap('moments/moments_clap', 767, 770),
+  // A finished room (Aziz, 2026-10-03, the canvas "Doum review"): planting
+  // his flag on a hill, where he hugged the heart Premium keeps. The hill
+  // is in the picture, so the box is wider and taller than a pose without
+  // one; the character in it is the same size as every other pose.
+  flagHill('moments/moments_flag_hill', 943, 904),
   // The language switch (same canvas): Doum dressed for each language, in
   // the four angles he turns through (front, three-quarter, side, back),
   // the greeting he lands on and the jump between. The thobe is the Arabic
@@ -111,6 +116,14 @@ enum SproutPose {
 /// when the sprout is asked to stand [height] points tall. Every pose is
 /// drawn at this one scale.
 double sproutScaleFor(double height) => SproutPose.frontWave.height / height;
+
+/// Doum's size in a question pop-up: the rest day's «–» square, hiding him
+/// from the board, an app update. They share one look (an AlertDialog with
+/// him in its icon slot) and drew him at 96, 84 and 110 (Aziz, 2026-10-03,
+/// the canvas "Doum review", the size scale). 96 is the rest day's, the
+/// one seen most. A finished room is a celebration, not a question, and
+/// keeps its bigger 120.
+const double kSproutQuestionHeight = 96;
 
 /// The decoded image for [pose] at the size it is drawn, not the file's.
 /// The files are ~750px tall for the largest uses; decoding a 100pt card

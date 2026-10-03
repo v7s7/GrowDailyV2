@@ -10,6 +10,13 @@
 // states stay distinguishable by more than colour (the next step is the only
 // one with a subtitle and a chevron), and that the card still retires itself
 // when the guide is finished.
+//
+// And that Reduce Motion is heard on iOS. The card has two movements of its
+// own, the progress bar growing and the three breaths for somebody who said
+// «بعدين», and both used to ask MediaQuery.disableAnimations, which only
+// Android's animator setting feeds. iOS's switch arrives as
+// accessibilityFeatures.reduceMotion alone, so those cases set exactly that
+// and nothing else.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -22,6 +29,7 @@ import 'package:firebase_auth/firebase_auth.dart' show User;
 
 import 'package:grow_daily_v2/core/l10n/app_strings.dart';
 import 'package:grow_daily_v2/core/providers/app_guide_provider.dart';
+import 'package:grow_daily_v2/core/providers/first_run_offer_provider.dart';
 import 'package:grow_daily_v2/core/providers/get_started_checklist_provider.dart';
 import 'package:grow_daily_v2/core/services/notification_service.dart';
 import 'package:grow_daily_v2/core/theme/game_theme.dart';
@@ -67,7 +75,10 @@ void main() {
     return c;
   }
 
-  Future<void> pumpCard(WidgetTester tester, ProviderContainer c) async {
+  /// Pumps the card and settles it, unless [settle] is false, for the cases
+  /// that are about the first frame or about what happens on the way.
+  Future<void> pumpCard(WidgetTester tester, ProviderContainer c,
+      {bool settle = true}) async {
     await tester.pumpWidget(UncontrolledProviderScope(
       container: c,
       child: MaterialApp(
@@ -84,7 +95,7 @@ void main() {
         ),
       ),
     ));
-    await tester.pumpAndSettle();
+    if (settle) await tester.pumpAndSettle();
   }
 
   testWidgets('every step is on screen, done or not', (tester) async {
@@ -219,6 +230,107 @@ void main() {
 
       expect(c.read(getStartedDismissedProvider), isFalse);
       await drainSnackBar(tester);
+    });
+  });
+
+  group('iOS Reduce Motion', () {
+    /// iOS's Reduce Motion, as the phone reports it: the accessibility
+    /// feature on, and MediaQuery.disableAnimations left false, because that
+    /// field is fed by Android's animator setting only.
+    void iosReduceMotion(WidgetTester tester) {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(reduceMotion: true);
+      addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    }
+
+    /// The bar's value on the frame it is first built. The card waits for
+    /// the Tasks store before it draws anything, so that is a few pumps in,
+    /// not the first one; each pump is 1ms, too short to move a tween.
+    Future<double> barAtFirstFrame(WidgetTester tester) async {
+      final bar = find.byType(LinearProgressIndicator);
+      for (var i = 0; i < 50 && bar.evaluate().isEmpty; i++) {
+        await tester.pump(const Duration(milliseconds: 1));
+      }
+      return tester.widget<LinearProgressIndicator>(bar).value!;
+    }
+
+    /// The largest scale any Transform in the card is drawing right now. The
+    /// breaths are the card's only scaling, so anything over 1 is them.
+    double scaleNow(WidgetTester tester) {
+      var most = 1.0;
+      for (final t in tester.widgetList<Transform>(find.descendant(
+          of: find.byType(GetStartedChecklistCard),
+          matching: find.byType(Transform)))) {
+        final k = t.transform.getMaxScaleOnAxis();
+        if (k > most) most = k;
+      }
+      return most;
+    }
+
+    /// The largest scale seen across the whole 2.1s the breaths would take,
+    /// sampled every 50ms so the 350ms peaks are hit exactly.
+    Future<double> peakScale(WidgetTester tester) async {
+      var most = scaleNow(tester);
+      for (var ms = 0; ms < 2300; ms += 50) {
+        await tester.pump(const Duration(milliseconds: 50));
+        final k = scaleNow(tester);
+        if (k > most) most = k;
+      }
+      return most;
+    }
+
+    testWidgets('the bar grows when nobody asked for calm (control)',
+        (tester) async {
+      final c = await containerAt(2);
+      addTearDown(c.dispose);
+      await pumpCard(tester, c, settle: false);
+      expect(await barAtFirstFrame(tester), lessThan(0.5),
+          reason: 'it should start low and travel, or the calm case below '
+              'proves nothing');
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('the bar is set, not grown', (tester) async {
+      iosReduceMotion(tester);
+      final c = await containerAt(2);
+      addTearDown(c.dispose);
+      await pumpCard(tester, c, settle: false);
+      final atFirstFrame = await barAtFirstFrame(tester);
+      expect(
+          MediaQuery.disableAnimationsOf(
+              tester.element(find.byType(GetStartedChecklistCard))),
+          isFalse,
+          reason: 'sanity: this is the iOS flag alone, not Android\'s');
+      expect(atFirstFrame, closeTo(0.5, 0.001),
+          reason: 'with Reduce Motion on, two of four is drawn as two of '
+              'four from the first frame');
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('«بعدين» gets three breaths when nobody asked for calm '
+        '(control)', (tester) async {
+      final c = await containerAt(0);
+      addTearDown(c.dispose);
+      c.read(firstRunAnswerProvider.notifier).state = FirstRunAnswer.later;
+      await pumpCard(tester, c, settle: false);
+      expect(await peakScale(tester), greaterThan(1.01),
+          reason: 'the breaths have to be there to be taken away');
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('«بعدين» gets a still card, not breaths', (tester) async {
+      iosReduceMotion(tester);
+      final c = await containerAt(0);
+      addTearDown(c.dispose);
+      c.read(firstRunAnswerProvider.notifier).state = FirstRunAnswer.later;
+      await pumpCard(tester, c, settle: false);
+      expect(await peakScale(tester), 1.0,
+          reason: 'Reduce Motion means no breathing at all, not a faster '
+              'one: the whole effect is movement');
+      expect(c.read(firstRunAnswerProvider), isNull,
+          reason: 'the answer is still spent, so a later build of this card '
+              'cannot breathe either');
     });
   });
 
